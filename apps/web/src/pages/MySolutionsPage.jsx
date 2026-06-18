@@ -16,9 +16,7 @@ import {
   getImageSimilarityPercent,
   getImageSubmittedUrl,
   getImageThresholdPercent,
-  getResultCases,
   getSolutionCode,
-  getSolutionCounts,
   getSolutionDate,
   getSolutionMessage,
   getSolutionOutput,
@@ -43,15 +41,6 @@ function rowId(row) {
 function setLoadingFlag(setter, id, value) {
   setter((prev) => ({ ...prev, [id]: value }));
 }
-
-function isResultCasePassedStrict(c) {
-  if (!c || typeof c !== 'object') return false;
-  if (typeof c.passed === 'boolean') return c.passed;
-  if (typeof c.Passed === 'boolean') return c.Passed;
-  const status = String(c.status ?? c.Status ?? '').trim().toLowerCase();
-  return status === 'accepted' || status === 'passed' || status === 'success';
-}
-
 function renderOutputBlock(title, value) {
   if (!value) return null;
   return (
@@ -65,22 +54,9 @@ function renderOutputBlock(title, value) {
 }
 
 function SolutionMeta({ solution }) {
-  const counts = getSolutionCounts(solution);
-  const hasFailedCases = counts && counts.total > 0 && counts.failed > 0;
-  const accepted = !hasFailedCases && (
-    solution?.passedAllTests === true ||
-    solution?.passedAll === true ||
-    String(solution?.status || solution?.verdict || '').toLowerCase() === 'accepted'
-  );
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {accepted ? (
-        <Badge intent="success">Все тесты пройдены{counts?.passed ? ` (${counts.passed})` : ''}</Badge>
-      ) : counts && counts.total > 0 ? (
-        <Badge intent={counts.failed > 0 ? 'danger' : 'success'}>{counts.failed > 0 ? `Провалено: ${counts.failed} / Пройдено: ${counts.passed}` : `Все тесты пройдены (${counts.passed})`}</Badge>
-      ) : (
-        <Badge intent={getSolutionStatusIntent(solution)}>{getSolutionStatusLabel(solution)}</Badge>
-      )}
+      <Badge intent={getSolutionStatusIntent(solution)}>{getSolutionStatusLabel(solution)}</Badge>
     </div>
   );
 }
@@ -91,7 +67,6 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
   const message = getSolutionMessage(solution);
   const stdout = getSolutionOutput(solution, 'stdout');
   const stderr = getSolutionOutput(solution, 'stderr');
-  const cases = getResultCases(solution);
 
   return (
     <div className="mt-3 space-y-3">
@@ -121,34 +96,6 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
         <div className="grid gap-3 md:grid-cols-2">
           {renderOutputBlock('stdout', stdout)}
           {renderOutputBlock('stderr', stderr)}
-        </div>
-      ) : null}
-
-      {cases.length > 0 ? (
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden">
-          <div className="px-3 py-2 text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-700">
-            Результаты тестов
-          </div>
-          <div className="divide-y divide-neutral-200 dark:divide-neutral-700">
-            {cases.slice(0, 20).map((c, index) => {
-              const passed = isResultCasePassedStrict(c);
-              const caseText = c?.message || c?.error || c?.status || (passed ? 'OK' : 'Failed');
-              return (
-                <div key={c?.id || index} className="px-3 py-2 text-sm flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-medium">Тест {index + 1}</div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-pre-wrap break-words">{caseText}</div>
-                  </div>
-                  <Badge intent={passed ? 'success' : 'danger'}>{passed ? 'OK' : 'Fail'}</Badge>
-                </div>
-              );
-            })}
-            {cases.length > 20 ? (
-              <div className="px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400">
-                Показаны первые 20 тестов из {cases.length}.
-              </div>
-            ) : null}
-          </div>
         </div>
       ) : null}
     </div>
