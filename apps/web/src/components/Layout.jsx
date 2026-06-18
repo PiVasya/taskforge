@@ -179,11 +179,16 @@ export default function Layout({
     const stored = localStorage.getItem("fxVariant");
     return stored != null ? stored : "2";
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof initialUi?.sidebarCollapsed === "boolean")
-      return initialUi.sidebarCollapsed;
-    return localStorage.getItem("sidebarCollapsed") === "1";
-  });
+  const readSidebarCollapsed = () => {
+    const stored = localStorage.getItem("sidebarCollapsed");
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+    return typeof initialUi?.sidebarCollapsed === "boolean"
+      ? initialUi.sidebarCollapsed
+      : false;
+  };
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [showSidebarToggle, setShowSidebarToggle] = useState(() => {
     if (typeof initialUi?.showSidebarToggle === "boolean")
       return initialUi.showSidebarToggle;
@@ -204,11 +209,7 @@ export default function Layout({
       setFxVariant(
         String(ui?.fxVariant ?? localStorage.getItem("fxVariant") ?? "2"),
       );
-      setSidebarCollapsed(
-        typeof ui?.sidebarCollapsed === "boolean"
-          ? ui.sidebarCollapsed
-          : localStorage.getItem("sidebarCollapsed") === "1",
-      );
+      setSidebarCollapsed(readSidebarCollapsed());
       setShowSidebarToggle(
         typeof ui?.showSidebarToggle === "boolean"
           ? ui.showSidebarToggle
@@ -471,11 +472,6 @@ export default function Layout({
     setSidebarCollapsed((prev) => {
       const next = !prev;
       localStorage.setItem("sidebarCollapsed", next ? "1" : "0");
-      const ui = readUiSettings() || {};
-      localStorage.setItem(
-        "uiSettings",
-        JSON.stringify({ ...ui, sidebarCollapsed: next }),
-      );
       window.dispatchEvent(new Event("tf-ui-settings-changed"));
       return next;
     });

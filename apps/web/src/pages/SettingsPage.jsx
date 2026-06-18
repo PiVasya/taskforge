@@ -79,9 +79,9 @@ function writeLocal(v) {
     "showSidebarToggle",
     v?.showSidebarToggle === false ? "0" : "1",
   );
-  if (typeof v?.sidebarCollapsed === "boolean")
-    localStorage.setItem("sidebarCollapsed", v.sidebarCollapsed ? "1" : "0");
-  localStorage.setItem(LS_KEY, JSON.stringify(v));
+  const persisted = { ...(v || {}) };
+  delete persisted.sidebarCollapsed;
+  localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   window.dispatchEvent(new Event("tf-ui-settings-changed"));
 }
 
@@ -439,7 +439,6 @@ export default function SettingsPage() {
         fxVariant: localStorage.getItem("fxVariant") || "2",
         codeSolveLayout: localStorage.getItem("codeSolveLayout") || "split",
         showSidebarToggle: localStorage.getItem("showSidebarToggle") !== "0",
-        sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "1",
       },
   );
 
@@ -516,10 +515,6 @@ export default function SettingsPage() {
                 codeSolveLayout:
                   s.codeSolveLayout || prev.codeSolveLayout || "split",
                 showSidebarToggle: s.showSidebarToggle !== false,
-                sidebarCollapsed:
-                  typeof s.sidebarCollapsed === "boolean"
-                    ? s.sidebarCollapsed
-                    : !!prev.sidebarCollapsed,
               };
               writeLocal(merged);
               return merged;
@@ -656,7 +651,6 @@ export default function SettingsPage() {
           fxVariant: Number(form.fxVariant),
           codeSolveLayout: form.codeSolveLayout,
           showSidebarToggle: form.showSidebarToggle !== false,
-          sidebarCollapsed: !!form.sidebarCollapsed,
         };
         await saveMyUiSettings(payload);
         setUiDirty(false);

@@ -29,6 +29,10 @@ function persistUiSettingsFromBackend(s) {
     fxMode: s.fxMode || prev?.fxMode || localStorage.getItem('fxMode') || 'random',
     fxVariant: String(s.fxVariant ?? prev?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'),
     codeSolveLayout: s.codeSolveLayout || prev?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split',
+    showSidebarToggle:
+      typeof s.showSidebarToggle === 'boolean'
+        ? s.showSidebarToggle
+        : (typeof prev?.showSidebarToggle === 'boolean' ? prev.showSidebarToggle : localStorage.getItem('showSidebarToggle') !== '0'),
   };
 
   localStorage.setItem('colorTheme', merged.colorTheme);
@@ -37,6 +41,7 @@ function persistUiSettingsFromBackend(s) {
   localStorage.setItem('fxMode', merged.fxMode);
   localStorage.setItem('fxVariant', merged.fxVariant);
   localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
+  localStorage.setItem('showSidebarToggle', merged.showSidebarToggle ? '1' : '0');
   localStorage.setItem(UI_LS_KEY, JSON.stringify(merged));
 
   
