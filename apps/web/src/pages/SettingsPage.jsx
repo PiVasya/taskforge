@@ -1703,9 +1703,9 @@ export default function SettingsPage() {
   };
 
   return (
-    <Layout fullWidth>
-      <div className="mx-auto w-full max-w-[1320px]">
-        <div className="grid items-start justify-start gap-4 lg:grid-cols-[244px_minmax(0,1040px)]">
+    <Layout>
+      <div className="w-full max-w-[1320px]">
+        <div className="grid items-start gap-4 lg:grid-cols-[244px_minmax(0,1040px)]">
           <aside className="self-start space-y-3">
             <Card className="p-2">
               <nav className="space-y-1">
