@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
@@ -6,7 +7,7 @@ import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { AlertTriangle, Save, Search, Trash2, UserCog } from 'lucide-react';
+import { ExternalLink, Save, Search, Trash2, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -45,6 +46,7 @@ function statValue(user, key) {
 
 export default function AdminUsersPage() {
   const notify = useNotify();
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -198,6 +200,19 @@ export default function AdminUsersPage() {
         <div className="space-y-4">
           {sortedItems.map((user) => (
             <Card key={user.id}>
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-[rgb(var(--border))] pb-4">
+                <button
+                  type="button"
+                  className="text-left group min-w-0"
+                  onClick={() => navigate(`/admin/users/${user.id}`)}
+                >
+                  <div className="font-semibold group-hover:text-[rgb(var(--accent-600))] truncate">{user.fullName || user.displayName || user.login || user.email || 'Пользователь'}</div>
+                  <div className="text-xs text-neutral-500 mt-1 break-all">{user.id}</div>
+                </button>
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => navigate(`/admin/users/${user.id}`)}>
+                  <ExternalLink size={16} /> <span className="ml-1">Открыть управление</span>
+                </Button>
+              </div>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr,1fr] xl:gap-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <Field label="Логин"><Input value={user.login || ''} onChange={(e) => updateLocal(user.id, { login: e.target.value })} /></Field>

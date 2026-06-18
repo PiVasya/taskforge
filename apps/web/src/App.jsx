@@ -46,6 +46,7 @@ import AdminGroupsPage from './pages/admin/AdminGroupsPage';
 import AdminFeatureRolesPage from './pages/admin/AdminFeatureRolesPage';
 import AdminSystemStatusPage from './pages/admin/AdminSystemStatusPage';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
+import AdminUserManagementPage from './pages/admin/AdminUserManagementPage';
 import AdminMinecraftLinksPage from './pages/admin/AdminMinecraftLinksPage';
 import AdminAssignmentInsightsPage from './pages/admin/AdminAssignmentInsightsPage';
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage';
@@ -187,6 +188,11 @@ const pageMetaRules = [
     path: '/admin/analytics',
     title: 'админ · аналитика',
     description: 'Административная аналитика TaskForge по пользователям, API, заданиям и нагрузке.',
+  },
+  {
+    path: '/admin/users/:userId',
+    title: 'админ · управление пользователем',
+    description: 'Полное административное управление пользователем TaskForge: профиль, группы, роли, рейтинг и решения.',
   },
   {
     path: '/admin/users',
@@ -385,6 +391,7 @@ export default function App() {
             <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
             <Route path="/admin/activity" element={<AdminUserActionsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/users/:userId" element={<AdminUserManagementPage />} />
             <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
             <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
           </Route>

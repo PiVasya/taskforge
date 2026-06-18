@@ -8,6 +8,11 @@ export async function getAdminUsers(params = {}) {
   };
 }
 
+export async function getAdminUser(userId) {
+  const { data } = await api.get(`/api/admin/users/${userId}`);
+  return data;
+}
+
 export async function updateAdminUser(userId, payload) {
   await api.put(`/api/admin/users/${userId}`, payload);
 }

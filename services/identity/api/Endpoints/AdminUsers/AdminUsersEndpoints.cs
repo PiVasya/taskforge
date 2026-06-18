@@ -31,6 +31,14 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(u => ToAdminUserDto(u)).ToList());
         });
 
+        app.MapGet("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbContext db) =>
+        {
+            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId);
+            if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
+            var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync();
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user, roles));
+        });
+
         app.MapGet("/api/admin/users", async (
             IdentityDbContext db,
             string? query,
