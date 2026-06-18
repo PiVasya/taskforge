@@ -261,4 +261,17 @@ public sealed partial class DraftAuthorExecutor
     }
 
     private static string NormalizeLanguage(string? value)
+    {
+        var text = (value ?? "cpp").Trim().ToLowerInvariant();
+        return text switch
+        {
+            "c#" or "csharp" or "cs" or "sharp" or "с#" or "си#" => "csharp",
+            "py" or "python" or "python3" => "python",
+            "js" or "node" or "nodejs" or "javascript" => "javascript",
+            "pas" or "pascal" => "pascal",
+            "java" => "java",
+            "ru" => "cpp",
+            _ => string.IsNullOrWhiteSpace(text) ? "cpp" : text
+        };
+    }
 }
