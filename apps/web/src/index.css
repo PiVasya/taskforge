@@ -2310,12 +2310,10 @@ html.dark .bg-fx__blob {
   overflow: hidden;
   white-space: nowrap;
   color: color-mix(in srgb, rgb(var(--text)) 82%, rgb(var(--accent3)) 18%);
-  border-right: 2px solid rgba(var(--accent2) / 0.86);
+  border-right: 0;
   font-size: clamp(14px, 1.25vw, 16px);
   line-height: 1.9;
-  animation:
-    landing-type-code 0.9s steps(var(--chars)) var(--delay) forwards,
-    landing-caret-blink 0.7s step-end infinite;
+  animation: landing-type-code 0.9s steps(var(--chars)) var(--delay) forwards;
 }
 
 .landing-demo-code-line + .landing-demo-code-line {
@@ -2325,10 +2323,6 @@ html.dark .bg-fx__blob {
 @keyframes landing-type-code {
   from { width: 0; }
   to { width: calc(var(--chars) * 1ch); }
-}
-
-@keyframes landing-caret-blink {
-  50% { border-color: transparent; }
 }
 
 .landing-submit-row {
@@ -2541,16 +2535,16 @@ html.dark .bg-fx__blob {
     animation: none;
   }
 
-  .landing-demo-code-line {
-    width: auto;
-    border-right: 0;
-  }
-
   .landing-check-step,
   .landing-check-final,
   .landing-check-result-badge {
     opacity: 1;
     transform: none;
+  }
+
+  .landing-demo-code-line {
+    width: auto;
+    overflow: visible;
   }
 
   .landing-submit-track span {
@@ -2592,7 +2586,6 @@ html.dark .bg-fx__blob {
 
 .landing-demo-code-line {
   color: color-mix(in srgb, rgb(var(--text)) 82%, rgb(var(--accent3)) 18%);
-  border-right-color: rgba(var(--accent2) / 0.86);
 }
 
 .landing-demo-code-line + .landing-demo-code-line {
