@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
+import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -31,6 +32,7 @@ const sortOptions = [
   { value: 'imageSolutions', label: 'Решённые image' },
   { value: 'mathSolutions', label: 'Решённые math' },
   { value: 'totalSolved', label: 'Всего решённых' },
+  { value: 'rating', label: 'Рейтинг' },
   { value: 'linked', label: 'Наличие привязок' },
   { value: 'emailConfirmed', label: 'Email подтверждён' },
   { value: 'lockoutEnabled', label: 'Lockout enabled' },
@@ -56,8 +58,23 @@ export default function AdminUsersPage() {
   const load = async () => {
     try {
       setLoading(true);
-      const res = await getAdminUsers({ query, role, linkedOnly, sortBy, sortDir, take: 300 });
-      setItems(Array.isArray(res?.items) ? res.items : []);
+      const [res, ratingRows] = await Promise.all([
+        getAdminUsers({ query, role, linkedOnly, sortBy, sortDir, take: 300 }),
+        searchUsersOnce(query, 1000).catch(() => []),
+      ]);
+      const ratingById = new Map((ratingRows || []).map((x) => [x.id || x.userId, x]));
+      const mergedItems = (Array.isArray(res?.items) ? res.items : []).map((user) => {
+        const rating = ratingById.get(user.id) || {};
+        return {
+          ...user,
+          score: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
+          rating: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
+          totalScore: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
+          solved: rating.solved ?? rating.solvedCount ?? user.solved ?? user.solvedCount ?? 0,
+          solvedCount: rating.solved ?? rating.solvedCount ?? user.solved ?? user.solvedCount ?? 0,
+        };
+      });
+      setItems(mergedItems);
       setStats(res?.stats || { total: 0, linked: 0, admins: 0 });
       setPageError(null);
     } catch (e) {
@@ -78,6 +95,7 @@ export default function AdminUsersPage() {
         case 'imageSolutions': return user.imageSolutions ?? 0;
         case 'mathSolutions': return user.mathSolutions ?? 0;
         case 'totalSolved': return (user.codeSolutions ?? 0) + (user.passedTests ?? 0) + (user.imageSolutions ?? 0) + (user.mathSolutions ?? 0);
+        case 'rating': return user.score ?? user.rating ?? user.totalScore ?? 0;
         case 'linked': return (user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0;
         case 'emailConfirmed': return user.emailConfirmed ? 1 : 0;
         case 'lockoutEnabled': return user.lockoutEnabled ? 1 : 0;
@@ -85,7 +103,7 @@ export default function AdminUsersPage() {
       }
     };
 
-    if (!['codeSolutions','passedTests','imageSolutions','mathSolutions','totalSolved','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
+    if (!['codeSolutions','passedTests','imageSolutions','mathSolutions','totalSolved','rating','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
       return items;
     }
 
@@ -199,6 +217,7 @@ export default function AdminUsersPage() {
                   <div>
                     <div className="text-sm opacity-70">Решённые задания</div>
                     <div className="flex flex-wrap gap-2 mt-2">
+                      <Badge>Рейтинг: {user.score ?? user.rating ?? user.totalScore ?? 0}</Badge>
                       <Badge>Code: {statValue(user, 'codeSolutions')}</Badge>
                       <Badge>Test: {statValue(user, 'passedTests')}</Badge>
                       <Badge>Image: {statValue(user, 'imageSolutions')}</Badge>

@@ -694,8 +694,10 @@ export default function AdminSolutionsPage() {
           </div>
 
           {selectedUser && (
-            <div className="text-xs text-neutral-600 dark:text-neutral-300">
-              Выбран: <span className="font-mono">{selectedUser.email}</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+              <span>Выбран: <span className="font-mono">{selectedUser.email}</span></span>
+              <Badge>Рейтинг: {selectedUser.score ?? selectedUser.rating ?? selectedUser.totalScore ?? 0}</Badge>
+              <Badge>Решено: {selectedUser.solved ?? selectedUser.solvedCount ?? 0}</Badge>
             </div>
           )}
         </Card>

@@ -118,7 +118,8 @@ internal static class IdentityApiCommonService
             solutions.CodeSolutions,
             solutions.ImageSolutions,
             tasks.TestAttempts,
-            tasks.MathAttempts);
+            tasks.MathAttempts,
+            solutions.Score + tasks.Score);
     }
 
     internal static async Task<ActivitySummaryDto> FetchActivitySummaryFromAsync(string baseUrl, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)

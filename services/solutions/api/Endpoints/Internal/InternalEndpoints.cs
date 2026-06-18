@@ -71,22 +71,27 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, solved));
         });
 
-        app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var codeAttempts = await db.Submissions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
             var imageAttempts = await db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
-            var solved = codeAttempts.Where(x => x.Status == "Accepted").Select(x => x.AssignmentId)
+            var solvedIds = codeAttempts.Where(x => x.Status == "Accepted").Select(x => x.AssignmentId)
                 .Concat(imageAttempts.Where(x => x.Passed).Select(x => x.AssignmentId))
+                .Where(x => x != Guid.Empty)
                 .Distinct()
-                .Count();
+                .ToArray();
+            var metadata = await LoadAssignmentMetadataAsync(solvedIds, cfg, httpFactory, ct);
+            var score = solvedIds.Sum(id => MetadataRating(metadata, id));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                solvedAssignments = solved,
+                solvedAssignments = solvedIds.Length,
                 totalAttempts = codeAttempts.Count + imageAttempts.Count,
                 codeSolutions = codeAttempts.Count,
                 imageSolutions = imageAttempts.Count,
                 testAttempts = 0,
-                mathAttempts = 0
+                mathAttempts = 0,
+                score,
+                rating = score
             });
         });
 

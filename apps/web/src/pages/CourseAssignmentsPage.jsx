@@ -15,7 +15,7 @@ import {
   updateAssignmentSort,
   moveAssignmentAfter,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, FileJson, Upload, X, Copy, Sparkles, Download } from "lucide-react";
+import { Plus, Layers, CheckCircle2, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -475,6 +475,122 @@ function summarizeImportPayload(parsed) {
   return "0 заданий";
 }
 
+
+function getImportAssignments(parsed) {
+  if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  if (parsed && typeof parsed === "object") {
+    const arr = parsed.assignments || parsed.items || parsed.tasks;
+    if (Array.isArray(arr)) return arr.filter(Boolean);
+    return [parsed];
+  }
+  return [];
+}
+
+function normalizeImportId(value) {
+  const id = String(value || "").trim();
+  return id && id !== ZERO_GUID ? id : "";
+}
+
+function tryParseJsonString(value) {
+  if (typeof value !== "string") return value;
+  const text = value.trim();
+  if (!text) return "";
+  if (!text.startsWith("{") && !text.startsWith("[")) return value;
+  try { return JSON.parse(text); } catch { return value; }
+}
+
+function normalizeTagsValue(value) {
+  if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean).join(", ");
+  return value ?? "";
+}
+
+function normalizeForDiff(value) {
+  const parsed = tryParseJsonString(value);
+  if (parsed === undefined) return null;
+  if (parsed === null) return null;
+  if (Array.isArray(parsed)) return parsed.map(normalizeForDiff);
+  if (typeof parsed === "object") {
+    return Object.keys(parsed).sort().reduce((acc, key) => {
+      acc[key] = normalizeForDiff(parsed[key]);
+      return acc;
+    }, {});
+  }
+  return parsed;
+}
+
+function sameImportValue(a, b) {
+  return JSON.stringify(normalizeForDiff(a)) === JSON.stringify(normalizeForDiff(b));
+}
+
+function shortImportValue(value) {
+  const normalized = normalizeForDiff(value);
+  if (normalized === null || normalized === undefined || normalized === "") return "—";
+  const text = typeof normalized === "string" ? normalized : JSON.stringify(normalized, null, 2);
+  return text.length > 420 ? `${text.slice(0, 420)}…` : text;
+}
+
+const IMPORT_DIFF_FIELDS = [
+  { key: "title", label: "Название", read: (x) => x?.title ?? x?.assignmentTitle },
+  { key: "type", label: "Тип", read: (x) => x?.type },
+  { key: "description", label: "Описание", read: (x) => x?.description },
+  { key: "language", label: "Язык", read: (x) => x?.language },
+  { key: "allowedLanguages", label: "Доступные языки", read: (x) => x?.allowedLanguages },
+  { key: "tags", label: "Теги", read: (x) => normalizeTagsValue(x?.tags) },
+  { key: "difficulty", label: "Сложность", read: (x) => x?.difficulty },
+  { key: "rating", label: "Рейтинг", read: (x) => x?.rating },
+  { key: "sort", label: "Порядок", read: (x) => x?.sort },
+  { key: "starterCode", label: "Стартовый код", read: (x) => x?.starterCode ?? x?.templateCode },
+  { key: "tests", label: "Тесты / вопросы / блоки", read: (x) => x?.testCases ?? x?.tests ?? x?.testsJson },
+  { key: "codeRequiredCalls", label: "Обязательные вызовы", read: (x) => x?.codeRequiredCalls },
+  { key: "codeForbiddenCalls", label: "Запрещённые вызовы", read: (x) => x?.codeForbiddenCalls },
+  { key: "isVisible", label: "Видимость", read: (x) => x?.isVisible },
+  { key: "isHidden", label: "Скрыто", read: (x) => x?.isHidden },
+  { key: "imageTestReferenceKey", label: "Эталон картинки", read: (x) => x?.imageTestReferenceKey },
+  { key: "imageTestSimilarityThreshold", label: "Порог картинки", read: (x) => x?.imageTestSimilarityThreshold },
+];
+
+function buildJsonImportDiff(parsed, currentExport) {
+  const incoming = getImportAssignments(parsed);
+  const current = getImportAssignments(currentExport);
+  const byId = new Map(current.map((x) => [String(x.id || x.assignmentId || ""), x]).filter(([id]) => id));
+  const currentTitles = new Set(current.map((x) => String(x.title || x.assignmentTitle || "").trim().toLowerCase()).filter(Boolean));
+
+  const rows = incoming.map((item, index) => {
+    const id = normalizeImportId(item?.id ?? item?.assignmentId);
+    const existing = id ? byId.get(id) : null;
+    const title = previewAssignmentTitle(item?.title, `Импорт #${index + 1}`);
+    const duplicateTitle = !existing && title && currentTitles.has(title.trim().toLowerCase());
+    const changes = existing
+      ? IMPORT_DIFF_FIELDS.map((field) => {
+          const before = field.read(existing);
+          const after = field.read(item);
+          if (after === undefined || sameImportValue(before, after)) return null;
+          return { key: field.key, label: field.label, before, after };
+        }).filter(Boolean)
+      : [];
+
+    return {
+      index,
+      id,
+      title,
+      type: item?.type || existing?.type || "assignment",
+      action: existing ? (changes.length ? "update" : "unchanged") : "create",
+      duplicateTitle,
+      changes,
+    };
+  });
+
+  return {
+    total: rows.length,
+    createCount: rows.filter((x) => x.action === "create").length,
+    updateCount: rows.filter((x) => x.action === "update").length,
+    unchangedCount: rows.filter((x) => x.action === "unchanged").length,
+    withoutIdCount: rows.filter((x) => !x.id).length,
+    duplicateTitleCount: rows.filter((x) => x.duplicateTitle).length,
+    rows,
+  };
+}
+
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -494,6 +610,9 @@ export default function CourseAssignmentsPage() {
   const [jsonImportBusy, setJsonImportBusy] = useState(false);
   const [jsonExportBusy, setJsonExportBusy] = useState(false);
   const [jsonImportPreview, setJsonImportPreview] = useState("пример: 5 заданий");
+  const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
+  const [jsonImportDiff, setJsonImportDiff] = useState(null);
+  const [jsonImportParsed, setJsonImportParsed] = useState(null);
   const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
   const dragStartedRef = useRef(false);
@@ -785,21 +904,15 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const handleImportJson = async () => {
-    if (!ensureCanManageAssignments("импортировать JSON")) return;
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonImportText);
-    } catch (e) {
-      notify.error(`JSON не читается: ${e.message}`);
-      return;
-    }
-
+  const applyJsonImport = async (parsed) => {
     setJsonImportBusy(true);
     try {
       const res = await importAssignmentsFromJson(courseId, parsed);
       const changed = Array.isArray(res?.assignments) ? res.assignments : [];
       await reloadAssignments(true);
+      setJsonImportDiffOpen(false);
+      setJsonImportDiff(null);
+      setJsonImportParsed(null);
       setCreateDialogOpen(false);
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
@@ -812,6 +925,39 @@ export default function CourseAssignmentsPage() {
     } finally {
       setJsonImportBusy(false);
     }
+  };
+
+  const handlePrepareJsonImportDiff = async () => {
+    if (!ensureCanManageAssignments("импортировать JSON")) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonImportText);
+    } catch (e) {
+      notify.error(`JSON не читается: ${e.message}`);
+      return;
+    }
+
+    setJsonImportBusy(true);
+    try {
+      const currentExport = await exportAssignmentsToJson(courseId);
+      const diff = buildJsonImportDiff(parsed, currentExport);
+      setJsonImportParsed(parsed);
+      setJsonImportDiff(diff);
+      setJsonImportDiffOpen(true);
+      if (diff.total === 0) notify.warn("В JSON не найдено заданий для импорта");
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось подготовить дифф импорта");
+    } finally {
+      setJsonImportBusy(false);
+    }
+  };
+
+  const handleApplyPreparedJsonImport = async () => {
+    if (!jsonImportParsed) {
+      notify.error("Сначала подготовьте дифф импорта");
+      return;
+    }
+    await applyJsonImport(jsonImportParsed);
   };
 
   const handleExportJson = async () => {
@@ -897,6 +1043,112 @@ export default function CourseAssignmentsPage() {
         </div>
       </div>
       </div>
+
+
+      {jsonImportDiffOpen && jsonImportDiff && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/55 px-3 py-6 sm:px-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy) setJsonImportDiffOpen(false); }}>
+          <Card className="mx-auto w-full max-w-6xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
+            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xl font-semibold">
+                  <GitCompare size={20} /> Дифф JSON-импорта
+                </div>
+                <p className="mt-1 text-sm leading-6 text-neutral-500">
+                  Проверь, что будет создано или обновлено. Изменения применятся только после кнопки «Применить».
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
+                  <X size={16} /> Назад
+                </Button>
+                <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0}>
+                  <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Применить изменения"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-4">
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                <div className="text-xs text-neutral-500">Всего</div>
+                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.total}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                <div className="text-xs text-neutral-500">Создать</div>
+                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.createCount}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                <div className="text-xs text-neutral-500">Обновить</div>
+                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.updateCount}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                <div className="text-xs text-neutral-500">Без изменений</div>
+                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.unchangedCount}</div>
+              </div>
+            </div>
+
+            {(jsonImportDiff.withoutIdCount > 0 || jsonImportDiff.duplicateTitleCount > 0) && (
+              <div className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                  <div>
+                    {jsonImportDiff.withoutIdCount > 0 ? <div>Заданий без <code>id</code>: {jsonImportDiff.withoutIdCount}. Они будут созданы как новые, а не заменят существующие.</div> : null}
+                    {jsonImportDiff.duplicateTitleCount > 0 ? <div>Есть новые задания с названием, которое уже встречается в курсе. Это может создать дубли, если нейронка не сохранила <code>id</code>.</div> : null}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 max-h-[62vh] space-y-3 overflow-y-auto pr-1">
+              {jsonImportDiff.rows.map((row) => (
+                <div key={`${row.index}-${row.id || row.title}`} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={row.action === "create" ? "success" : row.action === "update" ? "outline" : "secondary"}>
+                          {row.action === "create" ? "Создать" : row.action === "update" ? "Обновить" : "Без изменений"}
+                        </Badge>
+                        <Badge variant="outline">{row.type}</Badge>
+                        {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
+                      </div>
+                      <div className="mt-2 break-words font-semibold">{row.title}</div>
+                      <div className="mt-1 break-all text-xs text-neutral-500">id: {row.id || "нет id"}</div>
+                    </div>
+                    <div className="text-xs text-neutral-500">#{row.index + 1}</div>
+                  </div>
+
+                  {row.action === "create" ? (
+                    <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
+                      Новое задание. Полный текст будет взят из JSON.
+                    </div>
+                  ) : row.changes.length ? (
+                    <div className="mt-3 space-y-2">
+                      {row.changes.map((change) => (
+                        <div key={change.key} className="rounded-xl border border-[rgba(var(--border)/0.65)] p-3">
+                          <div className="mb-2 text-sm font-semibold">{change.label}</div>
+                          <div className="grid gap-2 lg:grid-cols-2">
+                            <div>
+                              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Было</div>
+                              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.before)}</pre>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Станет</div>
+                              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.after)}</pre>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
+                      Задание найдено по id, но в поддерживаемых полях изменений не обнаружено.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {createDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-3 py-6 sm:px-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy && !createBusyType) setCreateDialogOpen(false); }}>
@@ -1042,8 +1294,8 @@ export default function CourseAssignmentsPage() {
                   <div className="text-xs leading-5 text-neutral-500">
                     Поддерживаемые поля: <code>id</code>, <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>/<code>templateCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>sort</code>, <code>tags</code>.
                   </div>
-                  <Button onClick={handleImportJson} disabled={jsonImportBusy || !!createBusyType}>
-                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Импортировать JSON"}
+                  <Button onClick={handlePrepareJsonImportDiff} disabled={jsonImportBusy || !!createBusyType}>
+                    <GitCompare size={16} /> {jsonImportBusy ? "Готовлю дифф…" : "Показать дифф"}
                   </Button>
                 </div>
               </div>

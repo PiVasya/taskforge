@@ -70,31 +70,37 @@ internal static partial class AssignmentApiEndpoints
             var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).OrderBy(x => x).ToArray();
             if (ids.Length == 0) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<AssignmentSummaryDto>());
 
-            var key = TaskForgeCache.Key("tasks:assignment-summaries:v2", ids);
-            var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
-            {
-                var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
-                return assignments.Select(ToAssignmentSummaryDto).ToList();
-            }, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows);
+            // Assignment metadata is used for rating calculations. Do not cache it here:
+            // an admin can change assignment.rating and the user's displayed rating must update immediately.
+            var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(assignments.Select(ToAssignmentSummaryDto).ToList());
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
         {
             var testAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "test").ToListAsync(ct);
             var mathAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "math").ToListAsync(ct);
-            var solved = testAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId)
+            var solvedIds = testAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId)
                 .Concat(mathAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId))
+                .Where(x => x != Guid.Empty)
                 .Distinct()
-                .Count();
+                .ToArray();
+            var ratings = solvedIds.Length == 0
+                ? new List<int>()
+                : await db.Assignments.AsNoTracking()
+                    .Where(x => solvedIds.Contains(x.Id))
+                    .Select(x => x.Rating)
+                    .ToListAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                solvedAssignments = solved,
+                solvedAssignments = solvedIds.Length,
                 totalAttempts = testAttempts.Count + mathAttempts.Count,
                 codeSolutions = 0,
                 imageSolutions = 0,
                 testAttempts = testAttempts.Count,
-                mathAttempts = mathAttempts.Count
+                mathAttempts = mathAttempts.Count,
+                score = ratings.Sum(x => System.Math.Max(1, x)),
+                rating = ratings.Sum(x => System.Math.Max(1, x))
             });
         });
 

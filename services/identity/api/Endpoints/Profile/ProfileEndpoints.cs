@@ -153,7 +153,10 @@ internal static partial class IdentityApiEndpoints
                 codeSolutions = extra.ShowStats ? stats.CodeSolutions : (int?)null,
                 imageSolutions = extra.ShowStats ? stats.ImageSolutions : (int?)null,
                 testAttempts = extra.ShowStats ? stats.TestAttempts : (int?)null,
-                mathAttempts = extra.ShowStats ? stats.MathAttempts : (int?)null
+                mathAttempts = extra.ShowStats ? stats.MathAttempts : (int?)null,
+                score = extra.ShowStats ? stats.Score : (int?)null,
+                rating = extra.ShowStats ? stats.Score : (int?)null,
+                totalScore = extra.ShowStats ? stats.Score : (int?)null
             });
         });
 

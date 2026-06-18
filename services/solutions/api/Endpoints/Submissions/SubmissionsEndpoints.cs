@@ -245,25 +245,62 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>
         {
-            var ratingRows = await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).Take(1000).ToListAsync(ct);
-            var ids = ratingRows.Select(x => x.UserId)
-                .Concat(await db.Submissions.AsNoTracking().Where(x => x.UserId.HasValue).Select(x => x.UserId.Value).Distinct().Take(1000).ToListAsync(ct))
+            var codeRows = await db.Submissions.AsNoTracking()
+                .Where(x => x.UserId.HasValue && x.Status == "Accepted")
+                .Select(x => new { UserId = x.UserId!.Value, x.AssignmentId, x.CreatedAt })
+                .ToListAsync(ct);
+
+            var imageRows = await db.ImageSolutions.AsNoTracking()
+                .Where(x => x.Passed)
+                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
+                .ToListAsync(ct);
+
+            var assignmentIds = codeRows.Select(x => x.AssignmentId)
+                .Concat(imageRows.Select(x => x.AssignmentId))
+                .Where(x => x != Guid.Empty)
                 .Distinct()
-                .Take(1000)
                 .ToArray();
+            var metadata = await LoadAssignmentMetadataAsync(assignmentIds, cfg, httpFactory, ct);
+
+            var activityRows = new List<LeaderboardActivityRow>();
+            activityRows.AddRange(codeRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
+            activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
+            activityRows.AddRange(await LoadTaskLeaderboardRowsAsync(null, null, null, cfg, httpFactory, ct));
+
+            var aggregated = activityRows
+                .Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
+                .GroupBy(x => x.UserId)
+                .Select(g =>
+                {
+                    var distinct = g.GroupBy(x => x.AssignmentId)
+                        .Select(a => new { Rating = a.Max(z => z.Rating), Last = a.Max(z => z.SubmittedAt) })
+                        .ToList();
+                    return new
+                    {
+                        UserId = g.Key,
+                        SolvedAssignments = distinct.Count,
+                        Score = distinct.Sum(x => x.Rating),
+                        TotalAttempts = g.Count(),
+                        LastSubmitAt = distinct.Count == 0 ? (DateTimeOffset?)null : distinct.Max(x => x.Last)
+                    };
+                })
+                .Where(x => x.SolvedAssignments > 0)
+                .ToList();
+
+            var ids = aggregated.Select(x => x.UserId).Distinct().Take(2000).ToArray();
             var users = await LoadUserSummariesAsync(ids, cfg, httpFactory, ct);
-            var ratings = ratingRows.ToDictionary(x => x.UserId);
             var search = NormalizeSearch(q);
-            var rows = ids
-                .Select(id => new { Id = id, User = users.GetValueOrDefault(id), Rating = ratings.GetValueOrDefault(id) })
-                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(x => x.Rating?.TotalScore ?? 0)
+            var rows = aggregated
+                .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
+                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.Row.Score)
+                .ThenByDescending(x => x.Row.SolvedAssignments)
                 .ThenBy(x => UserLabel(x.User))
-                .Take(System.Math.Clamp(take, 1, 500))
+                .Take(System.Math.Clamp(take, 1, 2000))
                 .Select(x => new
                 {
-                    id = x.Id,
-                    userId = x.Id,
+                    id = x.Row.UserId,
+                    userId = x.Row.UserId,
                     login = x.User?.Login,
                     email = x.User?.Email ?? x.User?.MaskedEmail,
                     maskedEmail = x.User?.MaskedEmail,
@@ -271,8 +308,13 @@ internal static partial class SolutionsApiEndpoints
                     fullName = UserLabel(x.User),
                     firstName = x.User?.FirstName,
                     lastName = x.User?.LastName,
-                    score = x.Rating?.TotalScore ?? 0,
-                    solved = x.Rating?.SolvedCount ?? 0
+                    score = x.Row.Score,
+                    rating = x.Row.Score,
+                    totalScore = x.Row.Score,
+                    solved = x.Row.SolvedAssignments,
+                    solvedCount = x.Row.SolvedAssignments,
+                    totalAttempts = x.Row.TotalAttempts,
+                    lastSubmitAt = x.Row.LastSubmitAt
                 })
                 .ToList();
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
