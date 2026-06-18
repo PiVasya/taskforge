@@ -1,5 +1,9 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using static QuizTaskService.Services.Access.QuizTaskAccessService;
+using static QuizTaskService.Services.Common.QuizTaskCommonService;
+using static QuizTaskService.Services.Mapping.QuizTaskMappingService;
+using static QuizTaskService.Services.Serialization.QuizTaskSerializationService;
 
 namespace QuizTaskService.Services;
 

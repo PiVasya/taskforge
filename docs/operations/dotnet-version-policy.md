@@ -17,4 +17,4 @@ The project intentionally avoids preview SDKs and preview NuGet packages for cor
 4. EF Core packages must stay on the .NET 10-compatible EF Core 10 line.
 5. PostgreSQL EF provider must stay on the Npgsql EF Core 10 line while services target .NET 10.
 
-Legacy material under `docs/original/` is excluded from these rules because it is preserved as source-reference, not active runtime code.
+Архивные материалы старого монолита не хранятся в активном дереве проекта. Эти правила применяются ко всем runtime `.NET`-проектам внутри `services/`.

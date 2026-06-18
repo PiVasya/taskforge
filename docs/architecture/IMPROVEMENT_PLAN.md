@@ -2,11 +2,9 @@
 
 Ниже список улучшений, которые стоит делать после того, как проект поднимется в новой микросервисной структуре.
 
-## 1. Завершить перенос логики из `extracted/`
+## 1. Дожать перенос логики из endpoint-support в настоящие сервисы
 
-`extracted/` сейчас нужен, чтобы старая логика не потерялась. Он не компилируется в сервисы.
-
-Следующий шаг — переносить код в настоящие слои сервисов:
+Миграционные папки `extracted/` удалены из рабочего дерева. Endpoint-support helper-файлы уже переименованы в отдельные `Services/<Area>/*Service.cs` и получили собственные namespace. Следующий шаг — постепенно превращать самые жирные static helper-сервисы в полноценные DI-сервисы:
 
 ```text
 Domain
@@ -17,11 +15,12 @@ Api
 
 Приоритет:
 
-1. `identity` — auth/users/roles.
-2. `solutions` — submissions, verdicts, leaderboard, badges, quotas.
-3. `execution` — execution jobs, очередь, dispatch to runners.
-4. `ai` — AgentRun/AgentMessage/AgentArtifact.
-5. `support` и `minecraft`.
+1. `tasks/assignment-api` — image/math/testing services.
+2. `identity` — auth/users/roles.
+3. `solutions` — submissions, verdicts, leaderboard, badges, quotas.
+4. `execution` — execution jobs, очередь, dispatch to runners.
+5. `ai` — AgentRun/AgentMessage/AgentArtifact.
+6. `support` и `minecraft`.
 
 ## 2. Миграции
 

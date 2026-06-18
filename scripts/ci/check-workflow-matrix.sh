@@ -41,7 +41,6 @@ awk -F'|' '
 ' "$tmp/matrix_specs" | sed 's#//#/#g' | sort > "$tmp/matrix_dockerfiles"
 
 find . -name Dockerfile \
-  -not -path './docs/original/*' \
   -not -path './.git/*' \
   -print | sed 's#^./##' | sort > "$tmp/repo_dockerfiles"
 

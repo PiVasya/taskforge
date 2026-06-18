@@ -24,11 +24,11 @@
 | `notifications-api` | `taskforge_notifications` | notification outbox/subscriptions |
 | `observability-api` | `taskforge_observability` | request logs, user action logs, system status |
 
-## Что произошло с исходниками старого API
+## Что произошло со старым API
 
-Исходники не выброшены. По каждому домену они лежат в `services/<domain>/api/extracted/`.
+Миграционные снапшоты старого монолита не хранятся внутри активных сервисов. Рабочее дерево содержит только актуальные микросервисные слои: `Endpoints/`, `Services/`, `Contracts/`, `Domain/`, `Data/`, `Infrastructure/`, `Security/`, `Diagnostics/`.
 
-Это нужно, чтобы переносить реальную логику из старого `taskforge` API без потери поведения, но уже в правильные владельцы данных.
+История старого кода остаётся в git/внешних архивах, а не лежит рядом с runtime-кодом и не засоряет сборку.
 
 ## Миграции
 

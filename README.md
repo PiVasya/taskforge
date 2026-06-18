@@ -135,7 +135,7 @@ scripts/              e2e и миграционные скрипты
 - Запуск кода идёт через durable path: `solutions-api` создаёт submission и execution job, `execution-worker` вызывает `code-analyzer` и runner, затем возвращает verdict обратно в `solutions-api`.
 - Обычные code-задачи поддерживают 6 языков: `cpp`, `csharp`, `java`, `javascript`, `pascal`, `python`.
 - Python application runtime разрешён только для `services/analyzers/image-analyzer`. Python остаётся языком решений на сайте, но `python-runner` как backend-сервис написан на Go и только запускает `python3` как инструмент исполнения пользовательского кода.
-- Старые исходники лежат в `extracted/` как reference и исключены из компиляции.
+- Старые монолитные снапшоты из рабочего дерева убраны. Активный код сервиса хранится в `Endpoints/`, `Services/`, `Contracts/`, `Domain/`, `Data/`, `Infrastructure/`.
 
 ## Production deploy
 

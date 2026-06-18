@@ -1,8 +1,8 @@
-# taskforge-tasks/assignment-api-api
+# taskforge-tasks-api
 
 Настоящая граница микросервиса для домена `tasks/assignment-api`.
 
-В папке `extracted/` лежат исходные контроллеры/сервисы/модели, вырезанные из старого `taskforge` API. Они оставлены не как legacy-runtime, а как исходник для переноса логики в этот сервис без потерь.
+Миграционные копии старого монолита из рабочего дерева убраны. Активный код сервиса разложен по `Endpoints/`, `Services/`, `Contracts/`, `Domain/`, `Data/`, `Infrastructure/`, `Security/` и `Diagnostics/`.
 
 БД сервиса: `taskforge_tasks`.
 

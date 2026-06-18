@@ -42,7 +42,7 @@ def full_rebuild_matrix_entries() -> dict[str, str]:
 
 
 def project_dockerfiles() -> set[str]:
-    ignored_prefixes = ("docs/original/",)
+    ignored_prefixes = ()
     files = set()
     for path in ROOT.rglob("Dockerfile"):
         rel = norm(path.relative_to(ROOT))

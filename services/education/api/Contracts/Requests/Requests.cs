@@ -1,0 +1,20 @@
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using TaskForge.Education.Api.Data;
+using TaskForge.Education.Api.Domain;
+
+
+namespace TaskForge.Education.Api.Contracts;
+
+public sealed record CourseIdsRequest(Guid[]? CourseIds);
+
+public sealed record CourseGroupsRequest(Guid[]? GroupIds);
+
+public sealed record CourseOwnersRequest(Guid[]? OwnerIds);
+
+public sealed record CourseRequest(string? Title, string? Description, bool? IsPublic, Guid[]? VisibleGroupIds, Guid[]? OwnerIds);
+
+public sealed record GroupRequest(string? Name, string? Code, bool? IsActive);
+
+public sealed record GroupMemberRequest(Guid UserId);
