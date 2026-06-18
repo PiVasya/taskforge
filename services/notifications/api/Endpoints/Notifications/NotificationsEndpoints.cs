@@ -15,7 +15,7 @@ internal static partial class NotificationsApiEndpoints
         app.MapGet("/api/notifications", async (HttpContext http, IConfiguration cfg, NotificationsDbContext db, Guid? userId, bool unreadOnly = false, int take = 100) =>
         {
             var currentUserId = TaskForgeRequestSecurity.UserId(http, cfg);
-            if (!currentUserId.HasValue) return Results.Unauthorized();
+            if (!currentUserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
             var isAdmin = IsAdmin(http, cfg);
             var effectiveUserId = isAdmin && userId.HasValue ? userId.Value : currentUserId.Value;
@@ -25,10 +25,10 @@ internal static partial class NotificationsApiEndpoints
 
             var rows = await query
                 .OrderByDescending(x => x.CreatedAt)
-                .Take(Math.Clamp(take, 1, 500))
+                .Take(System.Math.Clamp(take, 1, 500))
                 .ToListAsync();
 
-            return Results.Ok(rows.Select(ToDto).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(ToDto).ToList());
         });
 
         app.MapPost("/api/notifications", async (NotificationRequest request, HttpContext http, IConfiguration cfg, NotificationsDbContext db) =>
@@ -40,15 +40,15 @@ internal static partial class NotificationsApiEndpoints
         app.MapPost("/api/notifications/{id:guid}/read", async (Guid id, HttpContext http, IConfiguration cfg, NotificationsDbContext db) =>
         {
             var currentUserId = TaskForgeRequestSecurity.UserId(http, cfg);
-            if (!currentUserId.HasValue) return Results.Unauthorized();
+            if (!currentUserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
             var isAdmin = IsAdmin(http, cfg);
             var item = await db.Notifications.FirstOrDefaultAsync(x => x.Id == id && (isAdmin || x.UserId == currentUserId.Value));
-            if (item == null) return Results.NotFound();
+            if (item == null) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             item.IsRead = true;
             await db.SaveChangesAsync();
-            return Results.Ok(ToDto(item));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(item));
         });
 
         return app;

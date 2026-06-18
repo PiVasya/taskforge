@@ -14,7 +14,7 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration)
             {
                 var updated = await RebuildRatingsAsync(stoppingToken);
                 logger.LogInformation("Rating projection rebuilt. Affected users: {Count}.", updated);
-                await Task.Delay(TimeSpan.FromMinutes(Math.Clamp(configuration.GetValue("Rating:RebuildIntervalMinutes", 5), 1, 60)), stoppingToken);
+                await Task.Delay(TimeSpan.FromMinutes(System.Math.Clamp(configuration.GetValue("Rating:RebuildIntervalMinutes", 5), 1, 60)), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

@@ -256,7 +256,7 @@ public sealed class ValidationTools
         return Task.FromResult(new JsonObject
         {
             ["isAccepted"] = blocking.Count == 0,
-            ["score"] = blocking.Count == 0 ? (advisory.Count == 0 ? 92 : 82) : Math.Max(35, 92 - blocking.Count * 22 - advisory.Count * 4),
+            ["score"] = blocking.Count == 0 ? (advisory.Count == 0 ? 92 : 82) : System.Math.Max(35, 92 - blocking.Count * 22 - advisory.Count * 4),
             ["issues"] = issues,
             ["blockingIssues"] = blocking,
             ["advisoryIssues"] = advisory

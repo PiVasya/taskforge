@@ -21,9 +21,9 @@ internal static partial class FilesApiEndpoints
     {
         app.MapGet("/api/files", async (HttpContext http, FilesDbContext db) =>
         {
-            if (!IsEditorOrAdmin(http)) return Results.Json(new { status = 403, code = "EDITOR_REQUIRED", message = "Список файлов доступен только редактору или администратору." }, statusCode: StatusCodes.Status403Forbidden);
+            if (!IsEditorOrAdmin(http)) return Microsoft.AspNetCore.Http.Results.Json(new { status = 403, code = "EDITOR_REQUIRED", message = "Список файлов доступен только редактору или администратору." }, statusCode: StatusCodes.Status403Forbidden);
             var rows = await db.Files.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync();
-            return Results.Ok(rows.Select(ToDto));
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(ToDto));
         });
 
         app.MapGet("/api/files/{**key}", async (string key, HttpContext http, IAmazonS3 s3, IConfiguration cfg, CancellationToken ct) => await Download(key, http, s3, cfg, publicRoute: true, internalRoute: false, ct));

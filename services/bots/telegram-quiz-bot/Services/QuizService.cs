@@ -280,7 +280,7 @@ public sealed class QuizService
 
     public async Task<List<TopicProgressItem>> GetTopicProgressAsync(long userId, bool includeUnanswered, int take, CancellationToken ct)
     {
-        take = Math.Max(1, take);
+        take = System.Math.Max(1, take);
 
         var questionCounts = await GetTopicQuestionCountsAsync(ct);
         var statRows = await _db.SubcategoryStats
@@ -333,7 +333,7 @@ public sealed class QuizService
 
     public async Task<List<SmartRecommendation>> GetSmartRecommendationsAsync(long userId, int take, CancellationToken ct)
     {
-        take = Math.Max(1, take);
+        take = System.Math.Max(1, take);
 
         var questionCounts = await GetTopicQuestionCountsAsync(ct);
         var countMap = questionCounts.ToDictionary(

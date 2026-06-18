@@ -41,7 +41,7 @@ internal static partial class SolutionsApiEndpoints
                 var access = await LoadAssignmentAccessAsync(assignmentId, userId.Value, cfg, httpFactory, ct);
                 if (access?.CanSubmit != true)
                 {
-                    return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
                 }
             }
 
@@ -71,7 +71,7 @@ internal static partial class SolutionsApiEndpoints
                     null,
                     false));
                 await db.SaveChangesAsync(ct);
-                return Results.Ok(ToSubmitDto(sub, canRevealHidden));
+                return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
             }
 
             if (!IsAllowedLanguage(language, spec))
@@ -86,7 +86,7 @@ internal static partial class SolutionsApiEndpoints
                     CloneJson(JsonSerializer.Serialize(new { language, allowedLanguages = EffectiveAllowedLanguages(spec) }, JsonOptions())),
                     false));
                 await db.SaveChangesAsync(ct);
-                return Results.Ok(ToSubmitDto(sub, canRevealHidden));
+                return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
             }
             var tests = ExtractTests(spec);
             if (tests.Length == 0)
@@ -101,7 +101,7 @@ internal static partial class SolutionsApiEndpoints
                     null,
                     false));
                 await db.SaveChangesAsync(ct);
-                return Results.Ok(ToSubmitDto(sub, canRevealHidden));
+                return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
             }
 
             var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
@@ -117,7 +117,7 @@ internal static partial class SolutionsApiEndpoints
                     enqueue.Raw,
                     false));
                 await db.SaveChangesAsync(ct);
-                return Results.Ok(ToSubmitDto(sub, canRevealHidden));
+                return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
             }
 
             sub.Status = "Queued";
@@ -133,7 +133,7 @@ internal static partial class SolutionsApiEndpoints
             await db.SaveChangesAsync(ct);
 
             var final = await WaitForTerminalSubmissionAsync(db, sub.Id, cfg, ct);
-            return Results.Ok(ToSubmitDto(final ?? sub, canRevealHidden));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(final ?? sub, canRevealHidden));
         });
 
         app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, int top = 20, CancellationToken ct = default) =>
@@ -147,11 +147,11 @@ internal static partial class SolutionsApiEndpoints
                 var access = await LoadAssignmentAccessAsync(assignmentId, uid.Value, cfg, httpFactory, ct);
                 if (access?.CanView != true)
                 {
-                    return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
                 }
             }
 
-            var limit = Math.Clamp(top, 1, 100);
+            var limit = System.Math.Clamp(top, 1, 100);
             var canViewCode = isEditor || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted", ct);
             var rows = await db.Submissions.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted")
@@ -161,7 +161,7 @@ internal static partial class SolutionsApiEndpoints
                 .ToListAsync(ct);
             var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, ct);
             var users = await LoadUserSummariesAsync(rows.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, ct);
-            return Results.Ok(rows.Select(x => ToTopSolutionDto(x, canViewCode || x.UserId == uid.Value, metadata.GetValueOrDefault(x.AssignmentId), x.UserId.HasValue ? users.GetValueOrDefault(x.UserId.Value) : null)).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToTopSolutionDto(x, canViewCode || x.UserId == uid.Value, metadata.GetValueOrDefault(x.AssignmentId), x.UserId.HasValue ? users.GetValueOrDefault(x.UserId.Value) : null)).ToList());
         });
 
         app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
@@ -179,12 +179,12 @@ internal static partial class SolutionsApiEndpoints
 
             var rows = await q
                 .OrderByDescending(x => x.CreatedAt)
-                .Skip(Math.Max(0, skip))
-                .Take(Math.Clamp(take, 1, 200))
+                .Skip(System.Math.Max(0, skip))
+                .Take(System.Math.Clamp(take, 1, 200))
                 .ToListAsync(ct);
             var includeHiddenDetails = IsEditor(http, cfg);
             var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Results.Ok(rows.Select(x => ToDto(x, includeHiddenDetails, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHiddenDetails, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
         });
 
         app.MapGet("/api/me/solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
@@ -193,21 +193,21 @@ internal static partial class SolutionsApiEndpoints
             if (uid == null) return Unauthorized();
 
             var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
-            if (s == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
-            if (s.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
+            if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            if (s.UserId != uid.Value) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
             var metadata = await LoadAssignmentMetadataAsync(new[] { s.AssignmentId }, cfg, httpFactory, ct);
-            return Results.Ok(ToDto(s, includeSensitiveResult: IsEditor(http, cfg), metadata: metadata.GetValueOrDefault(s.AssignmentId)));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(s, includeSensitiveResult: IsEditor(http, cfg), metadata: metadata.GetValueOrDefault(s.AssignmentId)));
         });
 
         app.MapGet("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var s = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
-            if (s == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
             var metadata = await LoadAssignmentMetadataAsync(new[] { s.AssignmentId }, cfg, httpFactory, ct);
-            return Results.Ok(ToDto(s, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(s.AssignmentId)));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(s, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(s.AssignmentId)));
         });
 
-        app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var s = await db.Submissions.FindAsync(id); if (s == null) return Results.NotFound(); db.Submissions.Remove(s); await db.SaveChangesAsync(); return Results.Ok(new { deleted = id }); });
+        app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var s = await db.Submissions.FindAsync(id); if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound(); db.Submissions.Remove(s); await db.SaveChangesAsync(); return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id }); });
 
         app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
         {
@@ -221,11 +221,11 @@ internal static partial class SolutionsApiEndpoints
 
             var rows = await q
                 .OrderByDescending(x => x.CreatedAt)
-                .Skip(Math.Max(0, skip))
-                .Take(Math.Clamp(take, 1, 200))
+                .Skip(System.Math.Max(0, skip))
+                .Take(System.Math.Clamp(take, 1, 200))
                 .ToListAsync(ct);
             var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Results.Ok(rows.Select(x => ToDto(x, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(x.AssignmentId))).ToList());
         });
 
         app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days) =>
@@ -240,7 +240,7 @@ internal static partial class SolutionsApiEndpoints
             var rows = await q.ToListAsync();
             db.Submissions.RemoveRange(rows);
             await db.SaveChangesAsync();
-            return Results.Ok(new { deleted = rows.Count, assignmentId, days });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = rows.Count, assignmentId, days });
         });
 
         app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>
@@ -256,10 +256,10 @@ internal static partial class SolutionsApiEndpoints
             var search = NormalizeSearch(q);
             var rows = ids
                 .Select(id => new { Id = id, User = users.GetValueOrDefault(id), Rating = ratings.GetValueOrDefault(id) })
-                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
+                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Id, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Id).Contains(search, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(x => x.Rating?.TotalScore ?? 0)
                 .ThenBy(x => UserLabel(x.User))
-                .Take(Math.Clamp(take, 1, 500))
+                .Take(System.Math.Clamp(take, 1, 500))
                 .Select(x => new
                 {
                     id = x.Id,
@@ -275,7 +275,7 @@ internal static partial class SolutionsApiEndpoints
                     solved = x.Rating?.SolvedCount ?? 0
                 })
                 .ToList();
-            return Results.Ok(rows);
+            return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
         return app;

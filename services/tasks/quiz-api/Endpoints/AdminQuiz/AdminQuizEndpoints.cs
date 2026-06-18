@@ -40,18 +40,18 @@ internal static partial class QuizTaskEndpoints
                 .ToListAsync();
 
             var versions = await LoadCurrentVersionsAsync(db, tasks);
-            return Results.Ok(tasks.Select(task => ToAdminDto(task, versions.GetValueOrDefault(task.Id))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(tasks.Select(task => ToAdminDto(task, versions.GetValueOrDefault(task.Id))).ToList());
         });
 
         app.MapGet("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id) =>
         {
             var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
-            if (task == null) return Results.NotFound(new { message = "Task not found" });
+            if (task == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Task not found" });
             var version = await db.TaskVersions.AsNoTracking()
                 .Where(x => x.TaskId == task.Id && x.VersionNumber == task.CurrentVersion)
                 .FirstOrDefaultAsync();
-            if (version == null) return Results.NotFound(new { message = "Task version not found" });
-            return Results.Ok(ToAdminDto(task, version));
+            if (version == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Task version not found" });
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminDto(task, version));
         });
 
         app.MapPost("/api/admin/quiz/tasks", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, [FromBody] CreateQuizTaskRequest req) =>
@@ -60,7 +60,7 @@ internal static partial class QuizTaskEndpoints
             if (validation != null) return validation;
 
             var exists = await db.Tasks.AnyAsync(x => x.Slug == req.Slug.Trim());
-            if (exists) return Results.Conflict(new { message = "Task slug already exists" });
+            if (exists) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Task slug already exists" });
 
             var normalizedSectionCode = NormalizeSectionCode(req.SectionCode);
             var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
@@ -95,7 +95,7 @@ internal static partial class QuizTaskEndpoints
             db.TaskVersions.Add(version);
             await db.SaveChangesAsync();
 
-            return Results.Ok(ToAdminDto(task, version));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminDto(task, version));
         });
 
         app.MapPut("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id, [FromBody] CreateQuizTaskRequest req) =>
@@ -104,11 +104,11 @@ internal static partial class QuizTaskEndpoints
             if (validation != null) return validation;
 
             var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id);
-            if (task == null) return Results.NotFound(new { message = "Task not found" });
+            if (task == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Task not found" });
 
             var newSlug = req.Slug.Trim();
             var duplicate = await db.Tasks.AnyAsync(x => x.Id != id && x.Slug == newSlug);
-            if (duplicate) return Results.Conflict(new { message = "Task slug already exists" });
+            if (duplicate) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Task slug already exists" });
 
             var normalizedSectionCode = NormalizeSectionCode(req.SectionCode);
             task.Slug = newSlug;
@@ -145,20 +145,20 @@ internal static partial class QuizTaskEndpoints
             db.TaskVersions.Add(version);
             await db.SaveChangesAsync();
 
-            return Results.Ok(ToAdminDto(task, version));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminDto(task, version));
         });
 
         app.MapDelete("/api/admin/quiz/tasks/by-section", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, string? subjectCode, string? examCode, string? sectionCode) =>
         {
             if (string.IsNullOrWhiteSpace(sectionCode))
             {
-                return Results.BadRequest(new { message = "sectionCode is required" });
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "sectionCode is required" });
             }
 
             var normalizedSectionCode = NormalizeSectionCode(sectionCode)!;
             if (!System.Text.RegularExpressions.Regex.IsMatch(normalizedSectionCode, "^[AB][0-9]+$"))
             {
-                return Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
             }
 
             var query = db.Tasks.Where(x => x.SectionCode == normalizedSectionCode).AsQueryable();
@@ -169,7 +169,7 @@ internal static partial class QuizTaskEndpoints
             var taskIds = tasks.Select(x => x.Id).ToList();
             if (taskIds.Count == 0)
             {
-                return Results.Ok(new
+                return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
                     sectionCode = normalizedSectionCode,
                     tasksDeleted = 0,
@@ -189,7 +189,7 @@ internal static partial class QuizTaskEndpoints
             db.Tasks.RemoveRange(tasks);
             await db.SaveChangesAsync();
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 sectionCode = normalizedSectionCode,
                 tasksDeleted = tasks.Count,
@@ -202,7 +202,7 @@ internal static partial class QuizTaskEndpoints
         app.MapDelete("/api/admin/quiz/tasks/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (QuizDbContext db, Guid id) =>
         {
             var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id);
-            if (task == null) return Results.NotFound(new { message = "Task not found" });
+            if (task == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Task not found" });
 
             var attempts = await db.Attempts.Where(x => x.TaskId == id).ToListAsync();
             var progress = await db.Progress.Where(x => x.TaskId == id).ToListAsync();
@@ -214,7 +214,7 @@ internal static partial class QuizTaskEndpoints
             db.Tasks.Remove(task);
             await db.SaveChangesAsync();
 
-            return Results.NoContent();
+            return Microsoft.AspNetCore.Http.Results.NoContent();
         });
 
         return app;

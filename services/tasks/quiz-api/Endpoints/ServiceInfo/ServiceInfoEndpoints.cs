@@ -21,12 +21,12 @@ internal static partial class QuizTaskEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "quiz-task-service" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "quiz-task-service" }));
 
         app.MapGet("/health/ready", async (QuizDbContext db) =>
         {
             var canConnect = await db.Database.CanConnectAsync();
-            return canConnect ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503);
+            return canConnect ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503);
         });
 
         return app;

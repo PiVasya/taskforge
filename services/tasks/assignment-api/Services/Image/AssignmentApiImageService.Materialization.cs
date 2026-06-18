@@ -144,7 +144,7 @@ internal static partial class AssignmentApiImageService
             node = new JsonObject();
         }
         if (!string.IsNullOrWhiteSpace(request.ImageTestReferenceKey)) node["imageTestReferenceKey"] = request.ImageTestReferenceKey;
-        if (request.ImageTestSimilarityThreshold.HasValue) node["imageTestSimilarityThreshold"] = Math.Clamp(request.ImageTestSimilarityThreshold.Value, 0, 100);
+        if (request.ImageTestSimilarityThreshold.HasValue) node["imageTestSimilarityThreshold"] = System.Math.Clamp(request.ImageTestSimilarityThreshold.Value, 0, 100);
         return node;
     }
 

@@ -77,7 +77,7 @@ internal static class SolutionsApiMappingService
             var id = a.AssignmentId != Guid.Empty ? a.AssignmentId : a.Id;
             if (id == Guid.Empty) continue;
             courseMap.TryGetValue(a.CourseId, out var courseTitle);
-            map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? "Задание без названия", courseTitle ?? "Курс", Math.Max(0, a.Rating));
+            map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? "Задание без названия", courseTitle ?? "Курс", System.Math.Max(0, a.Rating));
         }
         return map;
     }

@@ -25,7 +25,7 @@ internal static partial class SolutionsApiEndpoints
         app.MapGet("/api/badges", async (SolutionsDbContext db) =>
         {
             var rows = await db.Badges.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
-            return Results.Ok(rows.Select(x => BadgeDto(x)).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => BadgeDto(x)).ToList());
         });
 
         app.MapPost("/api/badges", async (HttpRequest request, SolutionsDbContext db, CancellationToken ct) =>
@@ -46,25 +46,25 @@ internal static partial class SolutionsApiEndpoints
             var badge = new Badge { Name = name, Description = string.IsNullOrWhiteSpace(description) ? null : description, ImageUrl = dataUri };
             db.Badges.Add(badge);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(BadgeDto(badge));
+            return Microsoft.AspNetCore.Http.Results.Ok(BadgeDto(badge));
         }).DisableAntiforgery();
 
         app.MapDelete("/api/badges/{badgeId:guid}", async (Guid badgeId, SolutionsDbContext db) =>
         {
             var badge = await db.Badges.FindAsync(badgeId);
-            if (badge == null) return Results.NoContent();
+            if (badge == null) return Microsoft.AspNetCore.Http.Results.NoContent();
             db.UserBadges.RemoveRange(await db.UserBadges.Where(x => x.BadgeId == badgeId).ToListAsync());
             db.Badges.Remove(badge);
             await db.SaveChangesAsync();
-            return Results.NoContent();
+            return Microsoft.AspNetCore.Http.Results.NoContent();
         });
 
         app.MapPost("/api/badges/award", async (BadgeUserRequest req, SolutionsDbContext db) =>
         {
-            if (!await db.Badges.AnyAsync(x => x.Id == req.BadgeId)) return Results.NotFound(new { message = "Бейдж не найден.", code = "BADGE_NOT_FOUND" });
+            if (!await db.Badges.AnyAsync(x => x.Id == req.BadgeId)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Бейдж не найден.", code = "BADGE_NOT_FOUND" });
             if (!await db.UserBadges.AnyAsync(x => x.UserId == req.UserId && x.BadgeId == req.BadgeId)) db.UserBadges.Add(new UserBadge { UserId = req.UserId, BadgeId = req.BadgeId });
             await db.SaveChangesAsync();
-            return Results.Ok(new { awarded = true });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { awarded = true });
         });
 
         app.MapPost("/api/badges/revoke", async (BadgeUserRequest req, SolutionsDbContext db) =>
@@ -72,14 +72,14 @@ internal static partial class SolutionsApiEndpoints
             var rows = await db.UserBadges.Where(x => x.UserId == req.UserId && x.BadgeId == req.BadgeId).ToListAsync();
             db.UserBadges.RemoveRange(rows);
             await db.SaveChangesAsync();
-            return Results.Ok(new { revoked = true });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { revoked = true });
         });
 
         app.MapGet("/api/badges/user/{userId:guid}", async (Guid userId, SolutionsDbContext db) =>
         {
             var badgeIds = await db.UserBadges.AsNoTracking().Where(x => x.UserId == userId).OrderBy(x => x.AwardedAt).Select(x => x.BadgeId).ToListAsync();
             var rows = await db.Badges.AsNoTracking().Where(x => badgeIds.Contains(x.Id)).ToListAsync();
-            return Results.Ok(rows.Select(x => BadgeDto(x)).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => BadgeDto(x)).ToList());
         });
 
         return app;

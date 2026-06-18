@@ -29,7 +29,7 @@ internal static class TaskForgeDebugDiagnostics
     internal static string NewTraceId(string serviceName)
     {
         var raw = $"{serviceName}-{DateTimeOffset.UtcNow:HHmmssfff}-{Guid.NewGuid():N}";
-        return raw[..Math.Min(48, raw.Length)];
+        return raw[..System.Math.Min(48, raw.Length)];
     }
 
     internal static string Short(string? value)

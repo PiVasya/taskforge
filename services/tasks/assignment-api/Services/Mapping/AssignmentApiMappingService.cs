@@ -24,14 +24,14 @@ internal static class AssignmentApiMappingService
     internal static async Task<IResult> SaveSpec(Guid assignmentId, JsonElement payload, TasksDbContext db, string kind)
     {
         var assignment = await db.Assignments.FindAsync(assignmentId);
-        if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var node = JsonNode.Parse(payload.GetRawText()) as JsonObject ?? new JsonObject();
         NormalizeIds(node, kind == "test" ? "questions" : "blocks");
         assignment.TestsJson = node.ToJsonString(JsonOptions());
         assignment.Type = kind;
         assignment.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
-        return Results.Ok(kind == "test" ? TaskSpecToJsonObject(ParseTaskSpec(node)) : MathSpecToJsonObject(ParseMathSpec(node)));
+        return Microsoft.AspNetCore.Http.Results.Ok(kind == "test" ? TaskSpecToJsonObject(ParseTaskSpec(node)) : MathSpecToJsonObject(ParseMathSpec(node)));
     }
 
     internal static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, CancellationToken ct)
@@ -109,9 +109,9 @@ internal static class AssignmentApiMappingService
         if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
         if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
         if (request.Tags != null) assignment.Tags = request.Tags;
-        if (request.Difficulty.HasValue) assignment.Difficulty = Math.Clamp(request.Difficulty.Value, 1, 3);
-        if (request.Rating.HasValue) assignment.Rating = Math.Max(0, request.Rating.Value);
-        if (request.Sort.HasValue) assignment.Sort = Math.Max(0, request.Sort.Value);
+        if (request.Difficulty.HasValue) assignment.Difficulty = System.Math.Clamp(request.Difficulty.Value, 1, 3);
+        if (request.Rating.HasValue) assignment.Rating = System.Math.Max(0, request.Rating.Value);
+        if (request.Sort.HasValue) assignment.Sort = System.Math.Max(0, request.Sort.Value);
         if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
 
         var nextType = !string.IsNullOrWhiteSpace(request.Type) ? NormalizeAssignmentType(request.Type) : assignment.Type;
@@ -150,8 +150,8 @@ internal static class AssignmentApiMappingService
             Language = NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
             AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
             Tags = request.Tags,
-            Difficulty = Math.Clamp(request.Difficulty ?? 1, 1, 3),
-            Rating = Math.Max(0, request.Rating ?? 1),
+            Difficulty = System.Math.Clamp(request.Difficulty ?? 1, 1, 3),
+            Rating = System.Math.Max(0, request.Rating ?? 1),
             StarterCode = request.StarterCode,
             TestsJson = type == "image-test" ? null : testsJson,
             CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),

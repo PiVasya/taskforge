@@ -16,17 +16,17 @@ internal static partial class EducationApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-education-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-education-api" }));
 
         app.MapGet("/health/ready", async (EducationDbContext db) =>
         {
             var canConnect = await db.Database.CanConnectAsync();
-            return canConnect ? Results.Ok(new { status = "ready", service = "taskforge-education-api" }) : Results.StatusCode(503);
+            return canConnect ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-education-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503);
         });
 
-        app.MapGet("/", () => Results.Ok(new { service = "taskforge-education-api", database = "taskforge_education", status = "education microservice active" }));
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-education-api", database = "taskforge_education", status = "education microservice active" }));
 
-        app.MapGet("/api/education/schema-owner", () => Results.Ok(new { database = "taskforge_education", ownedEntities = new[] { "Course", "Group", "GroupMember" } }));
+        app.MapGet("/api/education/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_education", ownedEntities = new[] { "Course", "Group", "GroupMember" } }));
 
         return app;
     }

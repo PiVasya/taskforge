@@ -149,9 +149,9 @@ public static partial class CourseAgentTools
             };
             var typeScore = item.Type.Contains("code", StringComparison.OrdinalIgnoreCase) ? 10 : item.Type.Contains("math", StringComparison.OrdinalIgnoreCase) ? 8 : 5;
             var declaredDifficultyScore = (item.Difficulty ?? 1) * 12;
-            var totalScore = typeScore + declaredDifficultyScore + conceptScore + textScore + Math.Min(20, testCount * 2) + (item.HasReferenceSolution ? 4 : 0);
+            var totalScore = typeScore + declaredDifficultyScore + conceptScore + textScore + System.Math.Min(20, testCount * 2) + (item.HasReferenceSolution ? 4 : 0);
             var estimatedDifficulty = totalScore >= 68 ? 3 : totalScore >= 42 ? 2 : 1;
-            var suggestedRating = Math.Max(1, RoundToNearest5(item.Index * 10 + (estimatedDifficulty - 1) * 15 + concepts.Count * 3 + Math.Min(10, testCount)));
+            var suggestedRating = System.Math.Max(1, RoundToNearest5(item.Index * 10 + (estimatedDifficulty - 1) * 15 + concepts.Count * 3 + System.Math.Min(10, testCount)));
             var confidence = string.IsNullOrWhiteSpace(item.Description) ? "low" : item.HiddenTestCount == 0 || string.IsNullOrWhiteSpace(item.Id) ? "medium" : "high";
 
             items.Add(new JsonObject

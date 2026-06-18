@@ -51,7 +51,7 @@ public sealed class TaskForgeAgentWorker : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Worker polling loop failed.");
-                await Task.Delay(Math.Max(1000, _apiOptions.ClaimBatchDelayMs * 2), stoppingToken);
+                await Task.Delay(System.Math.Max(1000, _apiOptions.ClaimBatchDelayMs * 2), stoppingToken);
             }
         }
     }

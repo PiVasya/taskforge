@@ -61,7 +61,7 @@ internal static partial class LearningContentEndpoints
                 .Select(Map)
                 .ToList();
 
-            return Results.Ok(roots);
+            return Microsoft.AspNetCore.Http.Results.Ok(roots);
         });
 
         app.MapGet("/api/learning/courses/{slug}/outline", async (LearningDbContext db, ClaimsPrincipal user, string slug, bool includeDraft = false) =>
@@ -95,7 +95,7 @@ internal static partial class LearningContentEndpoints
             var conspects = conspectEntities.Select(LearningConspectDto.FromEntity).ToList();
             var tasks = taskEntities.Select(LearningTaskLinkDto.FromEntity).ToList();
 
-            return Results.Ok(new LearningCourseOutlineDto(LearningCourseDto.FromEntity(course), children, pages, conspects, tasks));
+            return Microsoft.AspNetCore.Http.Results.Ok(new LearningCourseOutlineDto(LearningCourseDto.FromEntity(course), children, pages, conspects, tasks));
         });
 
         app.MapGet("/api/learning/courses/{slug}/conspects", async (LearningDbContext db, ClaimsPrincipal user, string slug, bool includeDraft = false) =>
@@ -108,7 +108,7 @@ internal static partial class LearningContentEndpoints
             if (!includeDraft) query = query.Where(x => x.IsPublished);
 
             var items = await query.OrderBy(x => x.SortOrder).ThenBy(x => x.Title).ToListAsync();
-            return Results.Ok(items.Select(LearningConspectDto.FromEntity).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(items.Select(LearningConspectDto.FromEntity).ToList());
         });
 
         app.MapGet("/api/learning/conspects", async (
@@ -133,12 +133,12 @@ internal static partial class LearningContentEndpoints
                     .Where(x => x.Slug == courseSlug)
                     .Select(x => (Guid?)x.Id)
                     .FirstOrDefaultAsync();
-                if (!courseId.HasValue) return Results.Ok(Array.Empty<LearningConspectDto>());
+                if (!courseId.HasValue) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<LearningConspectDto>());
                 query = query.Where(x => x.CourseId == courseId.Value);
             }
 
             var items = await query.OrderBy(x => x.SortOrder).ThenBy(x => x.Title).ToListAsync();
-            return Results.Ok(items.Select(LearningConspectDto.FromEntity).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(items.Select(LearningConspectDto.FromEntity).ToList());
         });
 
         app.MapGet("/api/learning/conspects/{idOrSlug}", async (LearningDbContext db, ClaimsPrincipal user, string idOrSlug, string? courseSlug, bool includeDraft = false) =>
@@ -171,7 +171,7 @@ internal static partial class LearningContentEndpoints
                 .ThenBy(x => x.Title)
                 .ToListAsync();
 
-            return Results.Ok(new LearningConspectDetailsDto(
+            return Microsoft.AspNetCore.Http.Results.Ok(new LearningConspectDetailsDto(
                 LearningConspectDto.FromEntity(conspect),
                 conspect.ContentJson,
                 conspect.SearchText,

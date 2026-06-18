@@ -25,11 +25,11 @@ internal static partial class IdentityApiEndpoints
 {
     private static WebApplication MapIntegrationsEndpoints(WebApplication app)
     {
-        app.MapGet("/api/integrations/telegram/status", () => Results.Ok(new { linked = false }));
+        app.MapGet("/api/integrations/telegram/status", () => Microsoft.AspNetCore.Http.Results.Ok(new { linked = false }));
 
-        app.MapPost("/api/integrations/telegram/code", () => Results.Ok(new { code = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), expiresInSeconds = 600 }));
+        app.MapPost("/api/integrations/telegram/code", () => Microsoft.AspNetCore.Http.Results.Ok(new { code = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), expiresInSeconds = 600 }));
 
-        app.MapDelete("/api/integrations/telegram/unlink", () => Results.Ok(new { linked = false }));
+        app.MapDelete("/api/integrations/telegram/unlink", () => Microsoft.AspNetCore.Http.Results.Ok(new { linked = false }));
 
         return app;
     }

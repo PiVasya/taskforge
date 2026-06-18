@@ -110,7 +110,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         var forbidden = ParseStringArray(job.CodeForbiddenCallsJson);
         var required = ParseStringArray(job.CodeRequiredCallsJson);
         var client = httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60));
+        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60));
 
         var payload = new AnalyzerRequest(
             Language: NormalizeLanguage(job.Language),
@@ -167,7 +167,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         // runners reject the request with 400 before the code is executed.
         var payload = new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb);
         var client = httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
+        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
 
         try
         {
@@ -189,7 +189,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             var allPassed = total > 0 && passed == total;
             var compileError = IsCompileErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsCompileErrorResult));
             var verdict = allPassed ? "Accepted" : compileError ? "CompileError" : "Rejected";
-            var score = total <= 0 ? 0 : (int)Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
+            var score = total <= 0 ? 0 : (int)System.Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
             return new RunnerResult(verdict, score, allPassed, root, results, null, null, null, compileError);
         }
         catch (Exception ex)
@@ -216,7 +216,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
     private async Task PublishVerdictAsync(Guid submissionId, RunnerResult result, CancellationToken ct)
     {
-        var attempts = Math.Clamp(configuration.GetValue("Judge:VerdictPublishAttempts", 5), 1, 10);
+        var attempts = System.Math.Clamp(configuration.GetValue("Judge:VerdictPublishAttempts", 5), 1, 10);
         var payload = new SolutionVerdictRequest(result.Verdict, result.Score, result.Message, result.ToSolutionJson());
         Exception? lastException = null;
         string? lastBody = null;
@@ -270,4 +270,13 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
     }
 
     private static string NormalizeLanguage(string? lang) => (lang ?? "csharp").Trim().ToLowerInvariant() switch
+    {
+        "c#" or "cs" or "csharp" => "csharp",
+        "c++" or "cpp" or "g++" or "gcc" or "cxx" => "cpp",
+        "py" or "python" or "python3" => "python",
+        "js" or "javascript" or "node" or "nodejs" or "node.js" => "javascript",
+        "java" => "java",
+        "pas" or "pascal" or "pascalabc" or "pascalabcnet" or "pabc" => "pascal",
+        var x => x
+    };
 }

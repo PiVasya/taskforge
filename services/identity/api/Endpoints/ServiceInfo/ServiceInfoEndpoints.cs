@@ -25,15 +25,15 @@ internal static partial class IdentityApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-identity-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-identity-api" }));
 
         app.MapGet("/health/ready", async (IdentityDbContext db) =>
         {
             var canConnect = await db.Database.CanConnectAsync();
-            return canConnect ? Results.Ok(new { status = "ready", service = "taskforge-identity-api" }) : Results.StatusCode(503);
+            return canConnect ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-identity-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503);
         });
 
-        app.MapGet("/", () => Results.Ok(new
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             service = "taskforge-identity-api",
             database = "taskforge_identity",
@@ -41,7 +41,7 @@ internal static partial class IdentityApiEndpoints
             endpoints = new[] { "/api/auth/login", "/api/auth/register", "/api/profile", "/api/me/ui-settings" }
         }));
 
-        app.MapGet("/api/identity/schema-owner", () => Results.Ok(new
+        app.MapGet("/api/identity/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             database = "taskforge_identity",
             ownedEntities = new[] { "User", "UserUiSettings", "UserLoginLog" }

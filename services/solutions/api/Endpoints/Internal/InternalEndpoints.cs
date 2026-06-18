@@ -25,12 +25,12 @@ internal static partial class SolutionsApiEndpoints
         app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, CancellationToken ct) =>
         {
             var sub = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
-            if (sub == null) return Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            if (sub == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
 
             var previous = sub.Status;
             var isTerminalBefore = IsTerminalVerdict(previous);
             sub.Status = CleanVerdict(request.Verdict);
-            sub.Score = Math.Clamp(request.Score, 0, 100);
+            sub.Score = System.Math.Clamp(request.Score, 0, 100);
             sub.ResultJson = request.Result.HasValue
                 ? request.Result.Value.GetRawText()
                 : JsonSerializer.Serialize(new { verdict = sub.Status, score = sub.Score, message = request.Message }, JsonOptions());
@@ -41,7 +41,7 @@ internal static partial class SolutionsApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(sub, includeSensitiveResult: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
         });
 
         app.MapPost("/api/internal/users/{userId:guid}/solved-assignments", async (Guid userId, SolvedAssignmentsRequest request, SolutionsDbContext db, CancellationToken ct) =>
@@ -54,7 +54,7 @@ internal static partial class SolutionsApiEndpoints
 
             if (ids.Length == 0)
             {
-                return Results.Ok(new SolvedAssignmentsResponse(userId, Array.Empty<Guid>()));
+                return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, Array.Empty<Guid>()));
             }
 
             var codeSolved = await db.Submissions.AsNoTracking()
@@ -68,7 +68,7 @@ internal static partial class SolutionsApiEndpoints
                 .ToListAsync(ct);
 
             var solved = codeSolved.Concat(imageSolved).Distinct().ToArray();
-            return Results.Ok(new SolvedAssignmentsResponse(userId, solved));
+            return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, solved));
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, CancellationToken ct) =>
@@ -79,7 +79,7 @@ internal static partial class SolutionsApiEndpoints
                 .Concat(imageAttempts.Where(x => x.Passed).Select(x => x.AssignmentId))
                 .Distinct()
                 .Count();
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 solvedAssignments = solved,
                 totalAttempts = codeAttempts.Count + imageAttempts.Count,

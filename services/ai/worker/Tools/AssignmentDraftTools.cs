@@ -27,8 +27,8 @@ public sealed class AssignmentDraftTools
             Description = description.Trim(),
             Language = NormalizeLanguage(language),
             ReferenceSolution = referenceSolution,
-            Difficulty = Math.Clamp(difficulty, 1, 3),
-            Rating = Math.Clamp(difficulty, 1, 3) * 10,
+            Difficulty = System.Math.Clamp(difficulty, 1, 3),
+            Rating = System.Math.Clamp(difficulty, 1, 3) * 10,
             CourseId = job.CourseId,
             Tags = new List<string> { "AI", "черновик", "code-test" },
             PublicTests = new List<TestCaseSpec>
@@ -58,8 +58,8 @@ public sealed class AssignmentDraftTools
             ["assignmentType"] = "math",
             ["title"] = title.Trim(),
             ["description"] = description.Trim(),
-            ["difficulty"] = Math.Clamp(difficulty, 1, 3),
-            ["rating"] = Math.Clamp(difficulty, 1, 3) * 10,
+            ["difficulty"] = System.Math.Clamp(difficulty, 1, 3),
+            ["rating"] = System.Math.Clamp(difficulty, 1, 3) * 10,
             ["courseId"] = job.CourseId?.ToString(),
             ["tags"] = "AI,черновик,math",
             ["mathBlocks"] = new JsonArray(new JsonObject

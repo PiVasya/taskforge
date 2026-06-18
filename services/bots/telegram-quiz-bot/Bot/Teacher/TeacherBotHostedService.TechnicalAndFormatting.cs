@@ -82,7 +82,7 @@ public sealed partial class TeacherBotHostedService
     private static int ParseDays(string[] parts, int index, int defaultValue)
     {
         return parts.Length > index && int.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var days)
-            ? Math.Clamp(days, 0, 3650)
+            ? System.Math.Clamp(days, 0, 3650)
             : defaultValue;
     }
 

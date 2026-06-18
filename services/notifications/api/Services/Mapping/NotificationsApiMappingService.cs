@@ -13,7 +13,7 @@ internal static class NotificationsApiMappingService
     {
         if (!request.UserId.HasValue || request.UserId.Value == Guid.Empty)
         {
-            return Results.BadRequest(new { message = "UserId is required.", code = "USER_ID_REQUIRED" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "UserId is required.", code = "USER_ID_REQUIRED" });
         }
 
         var item = new NotificationItem
@@ -25,7 +25,7 @@ internal static class NotificationsApiMappingService
         };
         db.Notifications.Add(item);
         await db.SaveChangesAsync();
-        return Results.Ok(ToDto(item));
+        return Microsoft.AspNetCore.Http.Results.Ok(ToDto(item));
     }
 
     internal static object ToDto(NotificationItem x) => new { x.Id, x.UserId, x.Type, x.Title, x.Message, x.IsRead, x.CreatedAt };

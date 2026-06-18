@@ -101,7 +101,7 @@ internal static class ObservabilityApiMappingService
 
     internal static object[] BuildAlerts(int errors, int total, double avgLatency, double successRate)
     {
-        var errorRate = Percent(errors, Math.Max(1, total));
+        var errorRate = Percent(errors, System.Math.Max(1, total));
         var alerts = new List<object>();
         if (errorRate > 10) alerts.Add(new { severity = "high", title = "Много ошибок API", message = $"За период {errorRate:0.0}% запросов завершились ошибкой." });
         if (avgLatency > 1000) alerts.Add(new { severity = "medium", title = "Высокая задержка", message = $"Средняя задержка backend около {avgLatency:0} мс." });

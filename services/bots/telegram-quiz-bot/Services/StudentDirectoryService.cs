@@ -82,7 +82,7 @@ public sealed class StudentDirectoryService
 
     public async Task<StudentDirectoryPage> SearchAsync(string? query, int limit, bool includeHidden, CancellationToken ct)
     {
-        limit = Math.Clamp(limit, 1, 30);
+        limit = System.Math.Clamp(limit, 1, 30);
         var normalizedQuery = NormalizeForSearch(query ?? string.Empty);
 
         var baseQuery = _db.StudentContacts.AsNoTracking();
@@ -189,7 +189,7 @@ public sealed class StudentDirectoryService
 
     public async Task<int> DeleteContactsWithoutActiveAccessAsync(int olderThanDays, bool includeHidden, CancellationToken ct)
     {
-        olderThanDays = Math.Clamp(olderThanDays, 0, 3650);
+        olderThanDays = System.Math.Clamp(olderThanDays, 0, 3650);
         var cutoff = DateTimeOffset.UtcNow.AddDays(-olderThanDays);
         var now = DateTimeOffset.UtcNow;
 
@@ -206,7 +206,7 @@ public sealed class StudentDirectoryService
 
     public async Task<int> DeleteHiddenContactsAsync(int olderThanDays, CancellationToken ct)
     {
-        olderThanDays = Math.Clamp(olderThanDays, 0, 3650);
+        olderThanDays = System.Math.Clamp(olderThanDays, 0, 3650);
         var cutoff = DateTimeOffset.UtcNow.AddDays(-olderThanDays);
         return await _db.StudentContacts
             .Where(x => x.IsHidden && (x.HiddenAt == null || x.HiddenAt < cutoff))
@@ -215,7 +215,7 @@ public sealed class StudentDirectoryService
 
     public async Task<int> DeleteStartLogsOlderThanAsync(int olderThanDays, CancellationToken ct)
     {
-        olderThanDays = Math.Clamp(olderThanDays, 0, 3650);
+        olderThanDays = System.Math.Clamp(olderThanDays, 0, 3650);
         var cutoff = DateTimeOffset.UtcNow.AddDays(-olderThanDays);
         return await _db.StartLog.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct);
     }
@@ -330,22 +330,22 @@ public sealed class StudentDirectoryService
         {
             foreach (var h in hayTokens)
             {
-                if (h == q) bestTokenScore = Math.Max(bestTokenScore, 730);
-                else if (h.StartsWith(q, StringComparison.Ordinal)) bestTokenScore = Math.Max(bestTokenScore, 690);
-                else bestTokenScore = Math.Max(bestTokenScore, Similarity(q, h));
+                if (h == q) bestTokenScore = System.Math.Max(bestTokenScore, 730);
+                else if (h.StartsWith(q, StringComparison.Ordinal)) bestTokenScore = System.Math.Max(bestTokenScore, 690);
+                else bestTokenScore = System.Math.Max(bestTokenScore, Similarity(q, h));
             }
         }
 
         var wholeScore = Similarity(query, haystack);
-        return Math.Max(bestTokenScore, wholeScore);
+        return System.Math.Max(bestTokenScore, wholeScore);
     }
 
     private static int Similarity(string a, string b)
     {
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0;
         var distance = LevenshteinDistance(a, b);
-        var max = Math.Max(a.Length, b.Length);
-        var score = (int)Math.Round(100.0 * (1.0 - (double)distance / max));
+        var max = System.Math.Max(a.Length, b.Length);
+        var score = (int)System.Math.Round(100.0 * (1.0 - (double)distance / max));
         return score >= 58 ? score : 0;
     }
 
@@ -366,8 +366,8 @@ public sealed class StudentDirectoryService
             for (var j = 1; j <= b.Length; j++)
             {
                 var cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                current[j] = Math.Min(
-                    Math.Min(current[j - 1] + 1, previous[j] + 1),
+                current[j] = System.Math.Min(
+                    System.Math.Min(current[j - 1] + 1, previous[j] + 1),
                     previous[j - 1] + cost);
             }
 

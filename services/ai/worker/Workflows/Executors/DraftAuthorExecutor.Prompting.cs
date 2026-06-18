@@ -33,10 +33,10 @@ public sealed partial class DraftAuthorExecutor
 
     private int ResolveDraftCount(int requestedCount, CourseSkillBridgeContext bridge)
     {
-        var maxDrafts = Math.Clamp(_options.MaxDraftsPerRun, 1, 50);
-        var requested = Math.Clamp(requestedCount, 1, maxDrafts);
+        var maxDrafts = System.Math.Clamp(_options.MaxDraftsPerRun, 1, 50);
+        var requested = System.Math.Clamp(requestedCount, 1, maxDrafts);
         var planned = bridge.BridgePlan?.Count ?? 0;
-        if (planned > 0) return Math.Clamp(planned, 1, Math.Min(maxDrafts, requested));
+        if (planned > 0) return System.Math.Clamp(planned, 1, System.Math.Min(maxDrafts, requested));
         return requested;
     }
 

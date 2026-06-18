@@ -15,6 +15,6 @@ internal static class NotificationsApiCommonService
         return principal is not null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin");
     }
 
-    internal static IResult Forbidden(string message) => Results.Json(new { message, code = "FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+    internal static IResult Forbidden(string message) => Microsoft.AspNetCore.Http.Results.Json(new { message, code = "FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
 
 }

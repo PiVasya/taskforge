@@ -53,7 +53,7 @@ internal static partial class MinecraftApiEndpoints
             {
                 grouped = grouped.Where(x => string.Join(' ', x.fullName, x.email, x.minecraftNick, x.minecraftUuid).ToLowerInvariant().Contains(search)).ToList();
             }
-            return Results.Ok(grouped);
+            return Microsoft.AspNetCore.Http.Results.Ok(grouped);
         });
 
         return app;

@@ -22,15 +22,15 @@ internal static partial class AiApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-ai-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-ai-api" }));
 
         app.MapGet("/health/ready", async (AiDbContext db) =>
         {
             var canConnect = await db.Database.CanConnectAsync();
-            return canConnect ? Results.Ok(new { status = "ready", service = "taskforge-ai-api" }) : Results.StatusCode(503);
+            return canConnect ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-ai-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503);
         });
 
-        app.MapGet("/", () => Results.Ok(new
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             service = "taskforge-ai-api",
             database = "taskforge_ai",
@@ -38,7 +38,7 @@ internal static partial class AiApiEndpoints
             status = "microservice boundary active"
         }));
 
-        app.MapGet("/api/ai/api/schema-owner", () => Results.Ok(new
+        app.MapGet("/api/ai/api/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             database = "taskforge_ai",
             ownedEntities = new[] { "AgentConversation", "AgentMessage", "AgentRun", "AgentStep", "AgentRunArtifact", "PromptTemplate" }

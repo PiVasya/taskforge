@@ -30,11 +30,11 @@ internal static partial class CourseSkillAnalyzer
     private static List<JsonObject> BuildNeighborhood(IReadOnlyList<AssignmentSkillCandidate> ordered, AssignmentSkillCandidate? anchor)
     {
         if (ordered.Count == 0) return new List<JsonObject>();
-        var anchorIndex = anchor == null ? Math.Max(0, ordered.Count - 1) : ordered.ToList().FindIndex(x => x.Id == anchor.Id);
+        var anchorIndex = anchor == null ? System.Math.Max(0, ordered.Count - 1) : ordered.ToList().FindIndex(x => x.Id == anchor.Id);
         if (anchorIndex < 0) anchorIndex = 0;
 
-        var start = Math.Max(0, anchorIndex - 4);
-        var end = Math.Min(ordered.Count - 1, anchorIndex + 4);
+        var start = System.Math.Max(0, anchorIndex - 4);
+        var end = System.Math.Min(ordered.Count - 1, anchorIndex + 4);
         var result = new List<JsonObject>();
         for (var i = start; i <= end; i++)
         {

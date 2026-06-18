@@ -23,7 +23,7 @@ internal static class LearningContentCommonService
 
     internal static IResult ApiError(int statusCode, string message, string? detail = null, string? hint = null)
     {
-        return Results.Json(new
+        return Microsoft.AspNetCore.Http.Results.Json(new
         {
             status = statusCode,
             message,

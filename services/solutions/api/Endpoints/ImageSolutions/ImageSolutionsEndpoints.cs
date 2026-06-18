@@ -33,8 +33,8 @@ internal static partial class SolutionsApiEndpoints
                 var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
                 q = q.Where(x => x.CreatedAt >= since);
             }
-            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
-            return Results.Ok(rows.Select(x => ImageDto(x, includeReference: false)).ToList());
+            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync();
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ImageDto(x, includeReference: false)).ToList());
         });
 
         app.MapGet("/api/me/image-solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
@@ -42,12 +42,12 @@ internal static partial class SolutionsApiEndpoints
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
             var row = await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
-            if (row == null) return Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" });
-            if (row.UserId != uid.Value) return Results.Json(new { message = "Нет доступа к этому решению.", code = "IMAGE_SOLUTION_FORBIDDEN" }, statusCode: 403);
-            return Results.Ok(ImageDto(row, includeReference: false));
+            if (row == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" });
+            if (row.UserId != uid.Value) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому решению.", code = "IMAGE_SOLUTION_FORBIDDEN" }, statusCode: 403);
+            return Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: false));
         });
 
-        app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Results.Ok(ImageDto(row, includeReference: true)) : Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
+        app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: true)) : Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
 
         app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
         {
@@ -58,8 +58,8 @@ internal static partial class SolutionsApiEndpoints
                 var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
                 q = q.Where(x => x.CreatedAt >= since);
             }
-            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, skip)).Take(Math.Clamp(take, 1, 200)).ToListAsync();
-            return Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
+            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync();
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
         });
 
         app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest request, SolutionsDbContext db, CancellationToken ct) =>
@@ -75,7 +75,7 @@ internal static partial class SolutionsApiEndpoints
                 AssignmentId = request.AssignmentId,
                 Language = NormalizeLanguage(request.Language) ?? "text",
                 Code = request.Code ?? string.Empty,
-                SimilarityPercent = Math.Clamp(request.SimilarityPercent, 0, 100),
+                SimilarityPercent = System.Math.Clamp(request.SimilarityPercent, 0, 100),
                 Passed = request.Passed,
                 ResultJson = request.Result.HasValue
                     ? request.Result.Value.GetRawText()
@@ -83,10 +83,10 @@ internal static partial class SolutionsApiEndpoints
             };
             db.ImageSolutions.Add(row);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ImageDto(row, includeReference: false));
+            return Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: false));
         });
 
-        app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var row = await db.ImageSolutions.FindAsync(id); if (row == null) return Results.NotFound(); db.ImageSolutions.Remove(row); await db.SaveChangesAsync(); return Results.NoContent(); });
+        app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var row = await db.ImageSolutions.FindAsync(id); if (row == null) return Microsoft.AspNetCore.Http.Results.NotFound(); db.ImageSolutions.Remove(row); await db.SaveChangesAsync(); return Microsoft.AspNetCore.Http.Results.NoContent(); });
 
         return app;
     }

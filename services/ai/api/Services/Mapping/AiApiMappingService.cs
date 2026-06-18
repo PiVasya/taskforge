@@ -42,11 +42,11 @@ internal static class AiApiMappingService
     internal static async Task<IResult> SaveAttachment(Guid conversationId, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct)
     {
         var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
-        if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
+        if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
         var form = await request.ReadFormAsync(ct);
         var file = form.Files.FirstOrDefault();
-        if (file == null || file.Length == 0) return Results.BadRequest(new { message = "Файл не передан.", code = "AI_ATTACHMENT_REQUIRED" });
-        if (file.Length > 8 * 1024 * 1024) return Results.Json(new { message = "Файл слишком большой для AI-вложения. Максимум 8 MB.", code = "AI_ATTACHMENT_TOO_LARGE" }, statusCode: 413);
+        if (file == null || file.Length == 0) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Файл не передан.", code = "AI_ATTACHMENT_REQUIRED" });
+        if (file.Length > 8 * 1024 * 1024) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Файл слишком большой для AI-вложения. Максимум 8 MB.", code = "AI_ATTACHMENT_TOO_LARGE" }, statusCode: 413);
         await using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);
         var node = new JsonObject
@@ -60,19 +60,19 @@ internal static class AiApiMappingService
         db.Messages.Add(msg);
         c.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new { attachment = ToMessageDto(msg), queued = false });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { attachment = ToMessageDto(msg), queued = false });
     }
 
     internal static async Task<IResult> ApplyArtifact(Guid? runId, Guid artifactId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, CancellationToken ct)
     {
         var artifact = await db.Artifacts.FirstOrDefaultAsync(x => x.Id == artifactId && (!runId.HasValue || x.RunId == runId.Value), ct);
-        if (artifact == null) return Results.NotFound(new { message = "Материал ассистента не найден. Обновите диалог и попробуйте снова.", code = "AI_ARTIFACT_NOT_FOUND" });
+        if (artifact == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Материал ассистента не найден. Обновите диалог и попробуйте снова.", code = "AI_ARTIFACT_NOT_FOUND" });
         var c = await GetConversationForUser(artifact.ConversationId, http, cfg, db, asNoTracking: true);
-        if (c == null) return Results.Json(new { message = "Нет доступа к этому материалу ассистента.", code = "AI_ARTIFACT_FORBIDDEN" }, statusCode: 403);
+        if (c == null) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому материалу ассистента.", code = "AI_ARTIFACT_FORBIDDEN" }, statusCode: 403);
         var dryRun = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("dryRun", out var dry) && dry.ValueKind == JsonValueKind.True;
         var data = JsonNode.Parse(artifact.DataJson) as JsonObject ?? new JsonObject();
         var type = artifact.Type.ToLowerInvariant();
-        if (dryRun) return Results.Ok(new { dryRun = true, artifact = ToArtifactDto(artifact), operations = InferApplyOperations(artifact.Type, data), patchSet = BuildPatchPreview(data) });
+        if (dryRun) return Microsoft.AspNetCore.Http.Results.Ok(new { dryRun = true, artifact = ToArtifactDto(artifact), operations = InferApplyOperations(artifact.Type, data), patchSet = BuildPatchPreview(data) });
         if (type.Contains("course_patch_set") || string.Equals(data["type"]?.ToString(), "course_patch_set", StringComparison.OrdinalIgnoreCase) || data["patches"] is JsonArray)
         {
             return await ApplyCoursePatchSet(artifact, data, request, factory, db, ct);
@@ -80,19 +80,19 @@ internal static class AiApiMappingService
         if (type.Contains("assignment") || data["assignmentType"] != null || data["title"] != null)
         {
             var courseId = GuidFromNode(data["courseId"]) ?? GuidFromPayload(payload, "courseId");
-            if (courseId == null) return Results.BadRequest(new { message = "Для применения задания нужен courseId.", code = "AI_ARTIFACT_COURSE_REQUIRED" });
+            if (courseId == null) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Для применения задания нужен courseId.", code = "AI_ARTIFACT_COURSE_REQUIRED" });
             var body = BuildAssignmentPayload(data, payload);
             var client = factory.CreateClient();
             ForwardAuth(request, client);
             var response = await client.PostAsJsonAsync($"http://tasks-api:8080/api/courses/{courseId}/assignments", body, ct);
             var raw = await response.Content.ReadAsStringAsync(ct);
-            if (!response.IsSuccessStatusCode) return Results.Content(raw, "application/json", statusCode: (int)response.StatusCode);
+            if (!response.IsSuccessStatusCode) return Microsoft.AspNetCore.Http.Results.Content(raw, "application/json", statusCode: (int)response.StatusCode);
             artifact.Applied = true;
             artifact.AppliedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Results.Content(raw, "application/json", statusCode: 200);
+            return Microsoft.AspNetCore.Http.Results.Content(raw, "application/json", statusCode: 200);
         }
-        return Results.BadRequest(new { message = $"Тип материала ассистента '{artifact.Type}' нельзя применить автоматически.", code = "AI_ARTIFACT_TYPE_UNSUPPORTED", artifact.Type });
+        return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = $"Тип материала ассистента '{artifact.Type}' нельзя применить автоматически.", code = "AI_ARTIFACT_TYPE_UNSUPPORTED", artifact.Type });
     }
 
     internal static object[] InferApplyOperations(string type, JsonObject data)
@@ -116,8 +116,8 @@ internal static class AiApiMappingService
     internal static async Task<IResult> ApplyCoursePatchSet(TaskForge.Ai.Api.Domain.AiArtifact artifact, JsonObject data, HttpRequest request, IHttpClientFactory factory, AiDbContext db, CancellationToken ct)
     {
         var patches = data["patches"] as JsonArray ?? new JsonArray();
-        if (patches.Count == 0) return Results.BadRequest(new { message = "Patch set пустой.", code = "AI_PATCH_SET_EMPTY" });
-        if (patches.Count > 250) return Results.BadRequest(new { message = "Слишком много правок за один раз. Максимум 250.", code = "AI_PATCH_SET_TOO_LARGE", count = patches.Count });
+        if (patches.Count == 0) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Patch set пустой.", code = "AI_PATCH_SET_EMPTY" });
+        if (patches.Count > 250) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Слишком много правок за один раз. Максимум 250.", code = "AI_PATCH_SET_TOO_LARGE", count = patches.Count });
 
         var client = factory.CreateClient();
         ForwardAuth(request, client);
@@ -128,21 +128,21 @@ internal static class AiApiMappingService
         {
             var assignmentIdText = patch["assignmentId"]?.ToString();
             if (!Guid.TryParse(assignmentIdText, out var assignmentId))
-                return Results.BadRequest(new { message = $"Патч без корректного assignmentId: {patch["title"]}", code = "AI_PATCH_ASSIGNMENT_ID_REQUIRED" });
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = $"Патч без корректного assignmentId: {patch["title"]}", code = "AI_PATCH_ASSIGNMENT_ID_REQUIRED" });
 
             var body = BuildAssignmentPatchPayload(patch);
             validations.Add(new { assignmentId, title = patch["title"]?.ToString(), changes = patch["changes"] is JsonArray ch ? ch.Count : 0 });
             var response = await client.PutAsJsonAsync($"http://tasks-api:8080/api/assignments/{assignmentId}", body, ct);
             var raw = await response.Content.ReadAsStringAsync(ct);
             if (!response.IsSuccessStatusCode)
-                return Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+                return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
             updated.Add(new { assignmentId, title = patch["title"]?.ToString(), response = ParseJson(raw) });
         }
 
         artifact.Applied = true;
         artifact.AppliedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new { ok = true, dryRun = false, updated, validations, message = $"Применено изменений: {updated.Count}." });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, dryRun = false, updated, validations, message = $"Применено изменений: {updated.Count}." });
     }
 
     internal static object BuildAssignmentPatchPayload(JsonObject patch)

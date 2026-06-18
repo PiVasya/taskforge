@@ -27,8 +27,8 @@ public sealed partial class TeacherBotHostedService
         var category = await ResolveCategoryAsync(quizzes, categoryIndex, ct);
         var subcategory = categoryIndex == 0 ? null : await ResolveSubcategoryAsync(quizzes, category, subcategoryIndex, ct);
         var total = await quizzes.CountAsync(category, subcategory, ct);
-        var pages = Math.Max(1, (int)Math.Ceiling(total / (double)QuizPageSize));
-        page = Math.Clamp(page, 1, pages);
+        var pages = System.Math.Max(1, (int)System.Math.Ceiling(total / (double)QuizPageSize));
+        page = System.Math.Clamp(page, 1, pages);
         var list = await quizzes.ListAsync(category, subcategory, (page - 1) * QuizPageSize, QuizPageSize, ct);
         var categories = await quizzes.GetCategoryStatsAsync(ct);
         var withImages = await quizzes.CountWithImagesAsync(ct);
@@ -94,9 +94,9 @@ public sealed partial class TeacherBotHostedService
 
         rows.Add(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:list:{Math.Max(1, page - 1)}:{categoryIndex}:{subcategoryIndex}"),
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:list:{System.Math.Max(1, page - 1)}:{categoryIndex}:{subcategoryIndex}"),
             InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:list:{page}:{categoryIndex}:{subcategoryIndex}"),
-            InlineKeyboardButton.WithCallbackData("➡️", $"tq:list:{Math.Min(pages, page + 1)}:{categoryIndex}:{subcategoryIndex}")
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:list:{System.Math.Min(pages, page + 1)}:{categoryIndex}:{subcategoryIndex}")
         });
 
         rows.Add(new[]
@@ -124,8 +124,8 @@ public sealed partial class TeacherBotHostedService
     {
         var categories = await quizzes.GetCategoryStatsAsync(ct);
         var total = categories.Sum(x => x.Count);
-        var pages = Math.Max(1, (int)Math.Ceiling(categories.Count / (double)PickerPageSize));
-        page = Math.Clamp(page, 1, pages);
+        var pages = System.Math.Max(1, (int)System.Math.Ceiling(categories.Count / (double)PickerPageSize));
+        page = System.Math.Clamp(page, 1, pages);
         var slice = categories.Skip((page - 1) * PickerPageSize).Take(PickerPageSize).ToList();
 
         var text = string.Join('\n',
@@ -149,9 +149,9 @@ public sealed partial class TeacherBotHostedService
 
         rows.Add(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:cats:{Math.Max(1, page - 1)}"),
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:cats:{System.Math.Max(1, page - 1)}"),
             InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:cats:{page}"),
-            InlineKeyboardButton.WithCallbackData("➡️", $"tq:cats:{Math.Min(pages, page + 1)}")
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:cats:{System.Math.Min(pages, page + 1)}")
         });
         rows.Add(new[] { InlineKeyboardButton.WithCallbackData("⬅️ К списку", "tq:list:1:0:0") });
 
@@ -170,8 +170,8 @@ public sealed partial class TeacherBotHostedService
         var category = await ResolveCategoryAsync(quizzes, categoryIndex, ct);
         var subcategories = await quizzes.GetSubcategoryStatsAsync(category, ct);
         var total = subcategories.Sum(x => x.Count);
-        var pages = Math.Max(1, (int)Math.Ceiling(subcategories.Count / (double)PickerPageSize));
-        page = Math.Clamp(page, 1, pages);
+        var pages = System.Math.Max(1, (int)System.Math.Ceiling(subcategories.Count / (double)PickerPageSize));
+        page = System.Math.Clamp(page, 1, pages);
         var slice = subcategories.Skip((page - 1) * PickerPageSize).Take(PickerPageSize).ToList();
 
         var text = string.Join('\n',
@@ -195,9 +195,9 @@ public sealed partial class TeacherBotHostedService
 
         rows.Add(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:subs:{categoryIndex}:{Math.Max(1, page - 1)}"),
+            InlineKeyboardButton.WithCallbackData("⬅️", $"tq:subs:{categoryIndex}:{System.Math.Max(1, page - 1)}"),
             InlineKeyboardButton.WithCallbackData($"{page}/{pages}", $"tq:subs:{categoryIndex}:{page}"),
-            InlineKeyboardButton.WithCallbackData("➡️", $"tq:subs:{categoryIndex}:{Math.Min(pages, page + 1)}")
+            InlineKeyboardButton.WithCallbackData("➡️", $"tq:subs:{categoryIndex}:{System.Math.Min(pages, page + 1)}")
         });
         rows.Add(new[]
         {
@@ -315,4 +315,9 @@ public sealed partial class TeacherBotHostedService
     }
 
     private static long ReadLong(string[] parts, int index, long fallback)
+    {
+        return parts.Length > index && long.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
+    }
 }

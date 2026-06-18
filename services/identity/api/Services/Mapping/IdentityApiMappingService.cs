@@ -82,7 +82,7 @@ internal static class IdentityApiMappingService
         if (!IsValidLogin(basePart, out _)) basePart = "user";
 
         var suffix = user.Id.ToString("N")[..8].ToLowerInvariant();
-        var maxBaseLength = Math.Max(3, 64 - suffix.Length - 1);
+        var maxBaseLength = System.Math.Max(3, 64 - suffix.Length - 1);
         if (basePart.Length > maxBaseLength) basePart = basePart[..maxBaseLength].Trim('.', '-', '_');
         if (!IsValidLogin(basePart, out _)) basePart = "user";
 
@@ -91,7 +91,7 @@ internal static class IdentityApiMappingService
         while (used.Contains(candidate))
         {
             var counterSuffix = $"{suffix}-{counter}";
-            maxBaseLength = Math.Max(3, 64 - counterSuffix.Length - 1);
+            maxBaseLength = System.Math.Max(3, 64 - counterSuffix.Length - 1);
             var trimmedBase = basePart.Length > maxBaseLength ? basePart[..maxBaseLength].Trim('.', '-', '_') : basePart;
             if (!IsValidLogin(trimmedBase, out _)) trimmedBase = "user";
             candidate = $"{trimmedBase}-{counterSuffix}";
@@ -129,8 +129,8 @@ internal static class IdentityApiMappingService
         var dot = domain.LastIndexOf('.');
         var host = dot > 0 ? domain[..dot] : domain;
         var zone = dot > 0 ? domain[(dot + 1)..] : string.Empty;
-        var maskedName = name.Length <= 2 ? $"{name[..1]}***" : $"{name[..Math.Min(2, name.Length)]}***";
-        var maskedHost = host.Length <= 2 ? $"{host[..1]}***" : $"{host[..Math.Min(2, host.Length)]}***";
+        var maskedName = name.Length <= 2 ? $"{name[..1]}***" : $"{name[..System.Math.Min(2, name.Length)]}***";
+        var maskedHost = host.Length <= 2 ? $"{host[..1]}***" : $"{host[..System.Math.Min(2, host.Length)]}***";
         return string.IsNullOrWhiteSpace(zone) ? $"{maskedName}@{maskedHost}" : $"{maskedName}@{maskedHost}.{zone}";
     }
 

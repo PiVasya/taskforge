@@ -115,7 +115,7 @@ public sealed class DraftValidationExecutor
     private static string MakeTrailingInputVariant(string? input, int salt)
     {
         var value = (input ?? string.Empty).Replace("\r\n", "\n");
-        var extraNewlines = Math.Clamp(salt, 1, 6);
+        var extraNewlines = System.Math.Clamp(salt, 1, 6);
         return value + new string('\n', extraNewlines);
     }
 

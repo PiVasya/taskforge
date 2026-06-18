@@ -29,10 +29,10 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
             if (assignment == null)
             {
-                return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             }
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignment.Id,
                 assignment.Type,
@@ -49,11 +49,11 @@ internal static partial class AssignmentApiEndpoints
         app.MapGet("/api/internal/assignments/{assignmentId:guid}/access/{userId:guid}", async (Guid assignmentId, Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
 
             var courseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId, clients, cfg, ct);
             var canView = assignment.IsVisible && courseAccess?.CanView == true;
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignmentId,
                 assignment.CourseId,
@@ -68,7 +68,7 @@ internal static partial class AssignmentApiEndpoints
         app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
         {
             var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).OrderBy(x => x).ToArray();
-            if (ids.Length == 0) return Results.Ok(Array.Empty<AssignmentSummaryDto>());
+            if (ids.Length == 0) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<AssignmentSummaryDto>());
 
             var key = TaskForgeCache.Key("tasks:assignment-summaries:v2", ids);
             var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
@@ -76,7 +76,7 @@ internal static partial class AssignmentApiEndpoints
                 var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
                 return assignments.Select(ToAssignmentSummaryDto).ToList();
             }, ct);
-            return Results.Ok(rows);
+            return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
@@ -87,7 +87,7 @@ internal static partial class AssignmentApiEndpoints
                 .Concat(mathAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId))
                 .Distinct()
                 .Count();
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 solvedAssignments = solved,
                 totalAttempts = testAttempts.Count + mathAttempts.Count,
@@ -117,7 +117,7 @@ internal static partial class AssignmentApiEndpoints
                     kind = x.Attempt.Kind
                 })
                 .ToListAsync(ct);
-            return Results.Ok(joined);
+            return Microsoft.AspNetCore.Http.Results.Ok(joined);
         });
 
         return app;

@@ -54,7 +54,7 @@ if (args.Length >= 2 && args[0] == "--import-old-sqlite")
     return;
 }
 
-app.MapGet("/health", () => Results.Ok(new
+app.MapGet("/health", () => Microsoft.AspNetCore.Http.Results.Ok(new
 {
     service = "taskforge-telegram-quiz-bot",
     status = "ok",
@@ -69,7 +69,7 @@ app.MapGet("/ready", async (IServiceProvider services, IConfiguration configurat
     var telegram = configuration.GetSection("TelegramQuiz").Get<TelegramQuizOptions>() ?? new TelegramQuizOptions();
 
     return canConnect
-        ? Results.Ok(new
+        ? Microsoft.AspNetCore.Http.Results.Ok(new
         {
             service = "taskforge-telegram-quiz-bot",
             status = "ready",
@@ -78,7 +78,7 @@ app.MapGet("/ready", async (IServiceProvider services, IConfiguration configurat
             studentBotConfigured = !string.IsNullOrWhiteSpace(telegram.StudentBotToken),
             utc = DateTimeOffset.UtcNow
         })
-        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        : Microsoft.AspNetCore.Http.Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
 
 app.Run();

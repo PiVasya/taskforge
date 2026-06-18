@@ -17,7 +17,7 @@ internal static partial class SupportApiEndpoints
 {
     private static WebApplication MapIntegrationsEndpoints(WebApplication app)
     {
-        app.MapGet("/api/telegram/status", () => Results.Ok(new { configured = false }));
+        app.MapGet("/api/telegram/status", () => Microsoft.AspNetCore.Http.Results.Ok(new { configured = false }));
 
         return app;
     }

@@ -146,7 +146,7 @@ public sealed partial class DraftCriticExecutor
         return new JsonObject
         {
             ["isAccepted"] = accepted,
-            ["score"] = accepted ? (advisory.Count == 0 ? 96 : 88) : Math.Max(25, 96 - blocking.Count * 24 - advisory.Count * 4),
+            ["score"] = accepted ? (advisory.Count == 0 ? 96 : 88) : System.Math.Max(25, 96 - blocking.Count * 24 - advisory.Count * 4),
             ["issues"] = issues,
             ["blockingIssues"] = blocking,
             ["advisoryIssues"] = advisory,

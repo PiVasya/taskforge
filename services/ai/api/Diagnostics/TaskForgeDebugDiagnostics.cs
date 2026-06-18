@@ -157,7 +157,7 @@ internal static class TaskForgeDebugDiagnostics
     internal static string NewTraceId(string serviceName)
     {
         var raw = $"{serviceName}-{DateTimeOffset.UtcNow:HHmmssfff}-{Guid.NewGuid():N}";
-        return raw[..Math.Min(48, raw.Length)];
+        return raw[..System.Math.Min(48, raw.Length)];
     }
 
     internal static string Short(string? value)
@@ -311,7 +311,7 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
             }
             if (IsUserSummaryCall(request) && requestSummary.GuidCount > 0)
             {
-                var missing = Math.Max(0, requestSummary.GuidCount - responseSummary.GuidCount);
+                var missing = System.Math.Max(0, requestSummary.GuidCount - responseSummary.GuidCount);
                 if (responseSummary.NamesCount == 0 || missing > 0 || responseSummary.PlaceholderCount > 0)
                 {
                     _logger.LogWarning(

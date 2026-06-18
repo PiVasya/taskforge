@@ -33,7 +33,7 @@ internal static class AiApiTestingService
         AddInternalKey(msg, cfg);
         var response = await client.SendAsync(msg, ct);
         var raw = await response.Content.ReadAsStringAsync(ct);
-        return Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+        return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
     }
 
 }

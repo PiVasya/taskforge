@@ -19,7 +19,7 @@ internal static partial class EducationApiEndpoints
         app.MapGet("/api/groups", async (HttpContext http, EducationDbContext db, IConfiguration cfg, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
-            if (!access.UserId.HasValue) return Results.Unauthorized();
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
             var query = db.Groups.AsNoTracking().OrderBy(x => x.Name);
             if (!access.IsEditorOrAdmin)
@@ -28,37 +28,37 @@ internal static partial class EducationApiEndpoints
             }
 
             var rows = await query.ToListAsync(ct);
-            return Results.Ok(rows.Select(x => ToGroupDto(x, showCode: access.IsEditorOrAdmin)).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToGroupDto(x, showCode: access.IsEditorOrAdmin)).ToList());
         });
 
-        app.MapGet("/api/admin/groups", async (EducationDbContext db) => Results.Ok((await db.Groups.AsNoTracking().OrderBy(x => x.Name).ToListAsync()).Select(x => ToGroupDto(x, showCode: true)).ToList()));
+        app.MapGet("/api/admin/groups", async (EducationDbContext db) => Microsoft.AspNetCore.Http.Results.Ok((await db.Groups.AsNoTracking().OrderBy(x => x.Name).ToListAsync()).Select(x => ToGroupDto(x, showCode: true)).ToList()));
 
         app.MapPost("/api/admin/groups", async (GroupRequest request, EducationDbContext db) =>
         {
             var group = new Group { Name = string.IsNullOrWhiteSpace(request.Name) ? "Новая группа" : request.Name.Trim(), Code = request.Code, IsActive = request.IsActive ?? true };
             db.Groups.Add(group);
             await db.SaveChangesAsync();
-            return Results.Ok(ToGroupDto(group, showCode: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToGroupDto(group, showCode: true));
         });
 
         app.MapPut("/api/admin/groups/{id:guid}", async (Guid id, GroupRequest request, EducationDbContext db) =>
         {
             var group = await db.Groups.FindAsync(id);
-            if (group == null) return Results.NotFound();
+            if (group == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!string.IsNullOrWhiteSpace(request.Name)) group.Name = request.Name.Trim();
             group.Code = request.Code;
             if (request.IsActive.HasValue) group.IsActive = request.IsActive.Value;
             await db.SaveChangesAsync();
-            return Results.Ok(ToGroupDto(group, showCode: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToGroupDto(group, showCode: true));
         });
 
         app.MapDelete("/api/admin/groups/{id:guid}", async (Guid id, EducationDbContext db) =>
         {
             var group = await db.Groups.FindAsync(id);
-            if (group == null) return Results.NotFound();
+            if (group == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             db.Groups.Remove(group);
             await db.SaveChangesAsync();
-            return Results.Ok(new { message = "deleted" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted" });
         });
 
         app.MapPost("/api/admin/groups/{groupId:guid}/members", async (Guid groupId, GroupMemberRequest request, EducationDbContext db) =>
@@ -68,7 +68,7 @@ internal static partial class EducationApiEndpoints
                 db.GroupMembers.Add(new GroupMember { GroupId = groupId, UserId = request.UserId });
                 await db.SaveChangesAsync();
             }
-            return Results.Ok(new { groupId, request.UserId });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { groupId, request.UserId });
         });
 
         app.MapDelete("/api/admin/groups/{groupId:guid}/members/{userId:guid}", async (Guid groupId, Guid userId, EducationDbContext db) =>
@@ -76,7 +76,7 @@ internal static partial class EducationApiEndpoints
             var rows = await db.GroupMembers.Where(x => x.GroupId == groupId && x.UserId == userId).ToListAsync();
             db.GroupMembers.RemoveRange(rows);
             await db.SaveChangesAsync();
-            return Results.Ok(new { groupId, userId });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { groupId, userId });
         });
 
         return app;

@@ -27,14 +27,14 @@ internal static partial class SolutionsApiEndpoints
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
             var status = await GetQuotaStatus(db, uid.Value);
-            return Results.Ok(status);
+            return Microsoft.AspNetCore.Http.Results.Ok(status);
         });
 
         app.MapGet("/api/quotas", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db) =>
         {
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
-            return Results.Ok(await GetQuotaStatus(db, uid.Value));
+            return Microsoft.AspNetCore.Http.Results.Ok(await GetQuotaStatus(db, uid.Value));
         });
 
         return app;

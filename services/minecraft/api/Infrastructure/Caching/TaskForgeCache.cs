@@ -50,7 +50,7 @@ public static class TaskForgeCache
         var specific = configuration.GetValue<int?>($"Cache:{name}TtlSeconds");
         var generic = configuration.GetValue<int?>("Cache:DefaultTtlSeconds");
         var seconds = specific ?? generic ?? fallbackSeconds;
-        return TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 86400));
+        return TimeSpan.FromSeconds(System.Math.Clamp(seconds, 1, 86400));
     }
 
     public static string Key(string prefix, params object?[] parts)
@@ -136,7 +136,7 @@ public static class TaskForgeCache
     private static void DebugCache(string action, string key, TimeSpan ttl, string details)
     {
         if (!DebugLogsEnabled) return;
-        Console.WriteLine($"[TFDBG CACHE {action}] key={key} ttl={Math.Round(ttl.TotalSeconds)}s details={details} utc={DateTimeOffset.UtcNow:O}");
+        Console.WriteLine($"[TFDBG CACHE {action}] key={key} ttl={System.Math.Round(ttl.TotalSeconds)}s details={details} utc={DateTimeOffset.UtcNow:O}");
     }
 
     private static string NormalizePart(object? value)

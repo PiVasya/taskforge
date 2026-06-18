@@ -24,7 +24,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
@@ -36,7 +36,7 @@ internal static partial class AssignmentApiImageService
             client.Timeout = TimeSpan.FromSeconds(90);
             var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true });
             var raw = await response.Content.ReadAsStringAsync();
-            return Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+            return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
         }
         catch (Exception ex)
         {
@@ -47,7 +47,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, bool submit, HttpContext? context = null)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, clients, CancellationToken.None))) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, clients, CancellationToken.None))) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var currentUserId = submit && context is not null ? RequireUser(context, cfg) : null;
         if (submit && currentUserId == null) return Unauthorized();
 
@@ -65,7 +65,7 @@ internal static partial class AssignmentApiImageService
         try
         {
             var client = clients.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(Math.Clamp((request.TimeoutSeconds ?? 20) * Math.Max(1, cases.Count) + 60, 90, 300));
+            client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp((request.TimeoutSeconds ?? 20) * System.Math.Max(1, cases.Count) + 60, 90, 300));
             var runnerTimeout = request.TimeoutSeconds ?? 20;
             var results = new List<ImageCaseResult>();
             var canViewReferenceImages = context != null && IsEditor(context, cfg);
@@ -117,7 +117,7 @@ internal static partial class AssignmentApiImageService
                     var uploadedActual = await UploadImageBytesToFilesApiAsync(clients, cfg, actualBytes, $"case-{i + 1}-actual.png", "image/png", $"image-tests/submissions/{assignmentId:N}/{currentUserId.Value:N}", CancellationToken.None);
                     actualUrl = uploadedActual.PrivateUrl ?? PrivateFileUrl(uploadedActual.Key);
                 }
-                var threshold = Math.Clamp(test.Threshold / 100.0, 0.0, 1.0);
+                var threshold = System.Math.Clamp(test.Threshold / 100.0, 0.0, 1.0);
                 using var mp = new MultipartFormDataContent();
                 var expectedPart = new ByteArrayContent(expectedBytes);
                 if (!string.IsNullOrWhiteSpace(expected.ContentType)) expectedPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(expected.ContentType);
@@ -135,7 +135,7 @@ internal static partial class AssignmentApiImageService
                 var analyzer = JsonSerializer.Deserialize<JsonElement>(compareRaw);
                 var combined = analyzer.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
                 var imagePassed = analyzer.TryGetProperty("passed", out var pass) && pass.ValueKind == JsonValueKind.True;
-                var similarityPercent = Math.Round(combined * 100, 2);
+                var similarityPercent = System.Math.Round(combined * 100, 2);
                 var stdoutPassed = StdoutMatches(stdout, test.ExpectedOutput);
                 results.Add(new ImageCaseResult(
                     Index: i + 1,
@@ -159,7 +159,7 @@ internal static partial class AssignmentApiImageService
 
             var passed = results.Count > 0 && results.All(x => x.Passed);
             var passedCount = results.Count(x => x.Passed);
-            var similarityPercentInt = results.Count == 0 ? 0 : (int)Math.Round(results.Average(x => x.SimilarityPercent));
+            var similarityPercentInt = results.Count == 0 ? 0 : (int)System.Math.Round(results.Average(x => x.SimilarityPercent));
             var referenceUrl = canViewReferenceImages ? results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.ReferenceUrl))?.ReferenceUrl ?? ReferenceUrl(root) : null;
             var submittedUrl = results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.SubmittedUrl))?.SubmittedUrl;
             var stdoutJoined = string.Join("\n---\n", results.Select(x => x.ActualOutput).Where(x => !string.IsNullOrWhiteSpace(x)));
@@ -198,7 +198,7 @@ internal static partial class AssignmentApiImageService
                     clients);
             }
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 id = savedSolutionId,
                 solutionId = savedSolutionId,

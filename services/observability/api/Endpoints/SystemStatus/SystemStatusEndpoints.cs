@@ -15,9 +15,9 @@ internal static partial class ObservabilityApiEndpoints
 {
     private static WebApplication MapSystemStatusEndpoints(WebApplication app)
     {
-        app.MapGet("/api/admin/system-status", () => Results.Ok(new { status = "ok", services = new[] { "identity", "education", "content", "tasks", "quiz", "solutions", "execution", "ai", "support", "minecraft", "files", "notifications", "observability" }, generatedAt = DateTimeOffset.UtcNow }));
+        app.MapGet("/api/admin/system-status", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", services = new[] { "identity", "education", "content", "tasks", "quiz", "solutions", "execution", "ai", "support", "minecraft", "files", "notifications", "observability" }, generatedAt = DateTimeOffset.UtcNow }));
 
-        app.MapGet("/api/system-status", () => Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));
+        app.MapGet("/api/system-status", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));
 
         return app;
     }

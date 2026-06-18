@@ -23,7 +23,7 @@ internal static partial class MinecraftApiEndpoints
             if (uid == null) return Unauthorized();
             var confirmed = await db.Links.AsNoTracking().Where(x => x.UserId == uid && x.Confirmed).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
             var count = await db.Links.AsNoTracking().CountAsync(x => x.UserId == uid, ct);
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 linked = confirmed != null,
                 playerName = confirmed?.PlayerName,
@@ -46,7 +46,7 @@ internal static partial class MinecraftApiEndpoints
             var link = new MinecraftLink { UserId = uid, Code = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), CreatedAt = DateTimeOffset.UtcNow };
             db.Links.Add(link);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { code = link.Code, expiresInSeconds = 600 });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { code = link.Code, expiresInSeconds = 600 });
         });
 
         app.MapPost("/api/integrations/minecraft/confirm", async (MinecraftConfirmRequest req, HttpContext http, IConfiguration cfg, MinecraftDbContext db, CancellationToken ct) =>
@@ -55,12 +55,12 @@ internal static partial class MinecraftApiEndpoints
             if (uid == null) return Unauthorized();
             var code = (req.Code ?? string.Empty).Trim().ToUpperInvariant();
             var link = await db.Links.Where(x => x.UserId == uid && x.Code == code).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
-            if (link == null) return Results.NotFound(new { message = "Код привязки не найден для текущего пользователя.", code = "MINECRAFT_LINK_CODE_NOT_FOUND" });
+            if (link == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Код привязки не найден для текущего пользователя.", code = "MINECRAFT_LINK_CODE_NOT_FOUND" });
             link.Confirmed = true;
             link.PlayerName = string.IsNullOrWhiteSpace(req.PlayerName) ? link.PlayerName : req.PlayerName.Trim();
             link.PlayerUuid = string.IsNullOrWhiteSpace(req.PlayerUuid) ? link.PlayerUuid : req.PlayerUuid.Trim();
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { linked = true, playerName = link.PlayerName, nick = link.PlayerName, uuid = link.PlayerUuid, minecraftUuid = link.PlayerUuid });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { linked = true, playerName = link.PlayerName, nick = link.PlayerName, uuid = link.PlayerUuid, minecraftUuid = link.PlayerUuid });
         });
 
         app.MapDelete("/api/integrations/minecraft/unlink", async (HttpContext http, IConfiguration cfg, MinecraftDbContext db, CancellationToken ct) =>
@@ -70,7 +70,7 @@ internal static partial class MinecraftApiEndpoints
             var links = await db.Links.Where(x => x.UserId == uid).ToListAsync(ct);
             db.Links.RemoveRange(links);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { linked = false });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false });
         });
 
         return app;

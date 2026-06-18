@@ -27,7 +27,7 @@ internal static partial class AssignmentApiEndpoints
         app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid assignmentId, TasksDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
 
             var rows = await db.Attempts.AsNoTracking().Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null).OrderByDescending(x => x.SubmittedAt).ToListAsync(ct);
             var users = await LoadUserSummariesAsync(rows.Select(x => x.UserId).Distinct(), cfg, httpFactory, ct);
@@ -35,7 +35,7 @@ internal static partial class AssignmentApiEndpoints
             var mathRows = rows.Where(x => string.Equals(x.Kind, "math", StringComparison.OrdinalIgnoreCase)).ToList();
             var uniqueUsers = rows.Select(x => x.UserId).Distinct().Count();
             var successUsers = rows.Where(x => x.Passed).Select(x => x.UserId).Distinct().Count();
-            var avgScore = rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.ScorePercent), 1);
+            var avgScore = rows.Count == 0 ? 0 : System.Math.Round(rows.Average(x => x.ScorePercent), 1);
             var courseTitle = await LoadCourseTitleAsync(assignment.CourseId, cfg, httpFactory, ct);
 
             var solvers = rows.GroupBy(x => x.UserId).Select(g =>
@@ -73,13 +73,13 @@ internal static partial class AssignmentApiEndpoints
                     status = x.Passed ? "passed" : "failed",
                     passed = x.Passed,
                     scorePercent = x.ScorePercent,
-                    durationSeconds = Math.Max(0, (int)Math.Round(((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)),
+                    durationSeconds = System.Math.Max(0, (int)System.Math.Round(((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)),
                     createdAtUtc = created,
                     submittedAtUtc = x.SubmittedAt
                 };
             }).ToList();
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignmentId,
                 title = assignment.Title,
@@ -103,7 +103,7 @@ internal static partial class AssignmentApiEndpoints
                 passedImages = 0,
                 mathAttempts = mathRows.Count,
                 passedMath = mathRows.Count(x => x.Passed),
-                avgReviewSeconds = rows.Count == 0 ? 0 : Math.Round(rows.Average(x => Math.Max(0, ((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)), 1),
+                avgReviewSeconds = rows.Count == 0 ? 0 : System.Math.Round(rows.Average(x => System.Math.Max(0, ((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)), 1),
                 avgTestScore = avgScore,
                 languages = string.IsNullOrWhiteSpace(assignment.Language) ? Array.Empty<object>() : new object[] { new { label = assignment.Language, value = rows.Count } },
                 solvers,

@@ -39,7 +39,7 @@ public sealed class TaskForgeAgentRuntime
     public async Task HandleAsync(ClaimedAgentJob job, string workerId, CancellationToken cancellationToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(30, _options.MaxJobSeconds)));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(System.Math.Max(30, _options.MaxJobSeconds)));
 
         var context = new AgentRunContext(job, _api, workerId, timeoutCts.Token);
         using var _ = _contextAccessor.Push(context);

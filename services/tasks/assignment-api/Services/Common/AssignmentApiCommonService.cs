@@ -27,7 +27,7 @@ internal static class AssignmentApiCommonService
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";
         if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
-        return Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
+        return Microsoft.AspNetCore.Http.Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
     }
 
     internal static string? NodeString(JsonObject o, string name) => o.TryGetPropertyValue(name, out var n) && n is not null ? n.ToString() : null;
@@ -62,7 +62,7 @@ internal static class AssignmentApiCommonService
         var forbidden = ParseStringArrayJson(assignment.CodeForbiddenCallsJson);
         var required = ParseStringArrayJson(assignment.CodeRequiredCallsJson);
         var client = clients.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(cfg.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60));
+        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(cfg.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60));
 
         try
         {
@@ -80,7 +80,7 @@ internal static class AssignmentApiCommonService
                 && okProp.GetBoolean();
             if (ok) return null;
             var message = BuildImagePolicyMessage(root);
-            return Results.Json(new { status = 400, code = "CODE_POLICY_FAILED", stage, message, severity = "warning" }, statusCode: StatusCodes.Status400BadRequest);
+            return Microsoft.AspNetCore.Http.Results.Json(new { status = 400, code = "CODE_POLICY_FAILED", stage, message, severity = "warning" }, statusCode: StatusCodes.Status400BadRequest);
         }
         catch (Exception ex)
         {
@@ -120,7 +120,7 @@ internal static class AssignmentApiCommonService
         if (trim) v = v.Trim();
         if (tolerance.HasValue && double.TryParse(v.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dv))
         {
-            return accepted.Any(x => double.TryParse((trim ? x.Trim() : x).Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var da) && Math.Abs(dv - da) <= tolerance.Value);
+            return accepted.Any(x => double.TryParse((trim ? x.Trim() : x).Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var da) && System.Math.Abs(dv - da) <= tolerance.Value);
         }
         return accepted.Any(x => string.Equals(v, trim ? x.Trim() : x, caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase));
     }
@@ -161,9 +161,9 @@ internal static class AssignmentApiCommonService
 
     internal static Guid? RequireUser(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 
-    internal static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
+    internal static IResult Unauthorized() => Microsoft.AspNetCore.Http.Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 
-    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
+    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Microsoft.AspNetCore.Http.Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
 
     internal static int? IntProp(JsonElement e, string prop) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(prop, out var v) && v.TryGetInt32(out var n) ? n : null;
 
@@ -289,6 +289,6 @@ internal static class AssignmentApiCommonService
 
     internal static bool LooksLikeEmail(string value) => value.Contains('@') && value.Contains('.');
 
-    internal static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
+    internal static double Percent(int num, int den) => den <= 0 ? 0 : System.Math.Round(num * 100.0 / den, 1);
 
 }

@@ -36,8 +36,8 @@ public sealed partial class DraftAuthorExecutor
         draft.Tags = BuildPublicTags(MergeTags(draft.Tags, requiredTags));
         draft.Language = NormalizeLanguage(draft.Language);
         draft.Title = SanitizeStudentFacingTitle(draft.Title);
-        draft.Difficulty = Math.Clamp(draft.Difficulty, 1, 3);
-        draft.Rating = Math.Max(1, draft.Rating);
+        draft.Difficulty = System.Math.Clamp(draft.Difficulty, 1, 3);
+        draft.Rating = System.Math.Max(1, draft.Rating);
         AddBridgeExtra(draft, bridge, stepIndex);
         draft.Description = SanitizeStudentFacingDescription(draft.Description);
 
@@ -104,7 +104,7 @@ public sealed partial class DraftAuthorExecutor
         if (planCount == 0)
             return drafts.Take(count).ToList();
 
-        var targetCount = Math.Min(count, planCount);
+        var targetCount = System.Math.Min(count, planCount);
         var remaining = drafts.ToList();
         var aligned = new List<DraftSpec>();
         for (var stepIndex = 0; stepIndex < targetCount && remaining.Count > 0; stepIndex++)

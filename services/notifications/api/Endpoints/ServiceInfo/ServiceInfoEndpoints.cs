@@ -12,15 +12,15 @@ internal static partial class NotificationsApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-notifications-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-notifications-api" }));
 
         app.MapGet("/health/ready", async (NotificationsDbContext db) =>
         {
             var canConnect = await db.Database.CanConnectAsync();
-            return canConnect ? Results.Ok(new { status = "ready", service = "taskforge-notifications-api" }) : Results.StatusCode(503);
+            return canConnect ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-notifications-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503);
         });
 
-        app.MapGet("/", () => Results.Ok(new
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             service = "taskforge-notifications-api",
             database = "taskforge_notifications",
@@ -28,7 +28,7 @@ internal static partial class NotificationsApiEndpoints
             status = "microservice boundary active"
         }));
 
-        app.MapGet("/api/notifications/schema-owner", () => Results.Ok(new
+        app.MapGet("/api/notifications/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new
         {
             database = "taskforge_notifications",
             ownedEntities = new[] { "Notification", "NotificationSubscription", "NotificationOutboxMessage" }

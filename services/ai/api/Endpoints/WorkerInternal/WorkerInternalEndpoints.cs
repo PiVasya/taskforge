@@ -25,7 +25,7 @@ internal static partial class AiApiEndpoints
         app.MapPost("/api/internal/agent/claim-next", async (AgentClaimNextRequest request, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {
             var run = await db.Runs.Where(x => x.Status == "queued").OrderBy(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
-            if (run == null) return Results.Ok(new { ok = true, request.WorkerId, job = (object?)null });
+            if (run == null) return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, request.WorkerId, job = (object?)null });
             run.Status = "running";
             run.WorkerId = request.WorkerId;
             run.StartedAtUtc = DateTimeOffset.UtcNow;
@@ -33,7 +33,7 @@ internal static partial class AiApiEndpoints
             await db.SaveChangesAsync(ct);
             await BroadcastAgentEventAsync(hub, run.ConversationId, "run.updated", new { run = ToRunDto(run), runId = run.Id, status = run.Status, workerId = request.WorkerId }, ct);
             var payload = ParseJson(run.PayloadJson) ?? new { conversationId = run.ConversationId, rawText = "" };
-            return Results.Ok(new { ok = true, request.WorkerId, job = new { id = run.Id, runId = run.Id, run.ConversationId, jobType = run.JobType, type = run.JobType, payload } });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, request.WorkerId, job = new { id = run.Id, runId = run.Id, run.ConversationId, jobType = run.JobType, type = run.JobType, payload } });
         });
 
         app.MapPost("/api/internal/agent/runs/{runId:guid}/heartbeat", async (Guid runId, AgentWorkerRequest request, AiDbContext db, CancellationToken ct) =>
@@ -45,13 +45,13 @@ internal static partial class AiApiEndpoints
                 run.UpdatedAtUtc = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
             }
-            return Results.Ok(new { ok = true, runId, request.WorkerId });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, runId, request.WorkerId });
         });
 
         app.MapPost("/api/internal/agent/runs/{runId:guid}/steps", async (Guid runId, AgentStepRequest request, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {
             var run = await db.Runs.FindAsync(new object?[] { runId }, ct);
-            if (run == null) return Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
+            if (run == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
 
             var nextSeq = (await db.Steps.Where(x => x.RunId == runId).Select(x => (int?)x.Seq).MaxAsync(ct) ?? 0) + 1;
             var step = BuildStep(run, request, nextSeq);
@@ -61,13 +61,13 @@ internal static partial class AiApiEndpoints
 
             var stepDto = ToStepDto(step);
             await BroadcastAgentEventAsync(hub, run.ConversationId, "step.created", new { runId, step = stepDto }, ct);
-            return Results.Ok(new { ok = true, runId, request.WorkerId, step = stepDto });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, runId, request.WorkerId, step = stepDto });
         });
 
         app.MapPost("/api/internal/agent/runs/{runId:guid}/complete", async (Guid runId, AgentCompleteRequest request, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {
             var run = await db.Runs.FindAsync(new object?[] { runId }, ct);
-            if (run == null) return Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
+            if (run == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
             run.Status = "completed";
             run.WorkerId = request.WorkerId;
             run.CompletedAtUtc = DateTimeOffset.UtcNow;
@@ -84,7 +84,7 @@ internal static partial class AiApiEndpoints
             var runDto = ToRunDto(run, artifacts, await db.Steps.AsNoTracking().Where(x => x.RunId == runId).OrderBy(x => x.Seq).ToListAsync(ct));
             await BroadcastAgentEventAsync(hub, run.ConversationId, "message.created", new { message = ToMessageDto(assistantMessage, artifacts) }, ct);
             await BroadcastAgentEventAsync(hub, run.ConversationId, "run.completed", new { runId, status = "completed", result = request.Result, run = runDto }, ct);
-            return Results.Ok(new { ok = true, runId, request.WorkerId, status = "completed" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, runId, request.WorkerId, status = "completed" });
         });
 
         app.MapPost("/api/internal/agent/runs/{runId:guid}/fail", async (Guid runId, AgentFailRequest request, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
@@ -103,7 +103,7 @@ internal static partial class AiApiEndpoints
                 await BroadcastAgentEventAsync(hub, run.ConversationId, "message.created", new { message = ToMessageDto(message) }, ct);
                 await BroadcastAgentEventAsync(hub, run.ConversationId, "run.failed", new { runId, status = "failed", error = request.Error, run = ToRunDto(run) }, ct);
             }
-            return Results.Ok(new { ok = true, runId, request.WorkerId, status = "failed" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, runId, request.WorkerId, status = "failed" });
         });
 
         app.MapPost("/api/internal/agent/tools/run-tests", async (AgentRunTestsRequest request, IHttpClientFactory factory, IConfiguration cfg, CancellationToken ct) => await RunTestsBridge(request, factory, cfg, ct));

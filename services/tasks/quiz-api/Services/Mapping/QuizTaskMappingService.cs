@@ -22,19 +22,19 @@ internal static class QuizTaskMappingService
     {
         if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Prompt))
         {
-            return Results.BadRequest(new { message = "Slug, Title and Prompt are required" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Slug, Title and Prompt are required" });
         }
 
         var sectionCode = NormalizeSectionCode(req.SectionCode);
         if (!string.IsNullOrWhiteSpace(sectionCode) && !System.Text.RegularExpressions.Regex.IsMatch(sectionCode, "^[AB][0-9]+$"))
         {
-            return Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "sectionCode must look like A1, A31, B1 or B11" });
         }
 
         var explanationJson = JsonOrDefault(req.Explanation, req.ExplanationJson, "{}");
         if (string.IsNullOrWhiteSpace(ExtractExplanationText(explanationJson)))
         {
-            return Results.BadRequest(new { message = "Explanation is required" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Explanation is required" });
         }
 
         var type = NormalizeTaskType(req.Type, sectionCode);
@@ -42,7 +42,7 @@ internal static class QuizTaskMappingService
         var correctAnswerJson = JsonOrDefault(req.CorrectAnswer, req.CorrectAnswerJson, "{}");
         if (string.IsNullOrWhiteSpace(ExtractAnswerText(correctAnswerJson)))
         {
-            return Results.BadRequest(new { message = "Correct answer is required" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Correct answer is required" });
         }
 
         if (string.Equals(type, "single-choice", StringComparison.OrdinalIgnoreCase) || string.Equals(type, "multiple-choice", StringComparison.OrdinalIgnoreCase))
@@ -59,25 +59,25 @@ internal static class QuizTaskMappingService
         var options = ExtractOptions(dataJson);
         if (options.Count == 0)
         {
-            return Results.BadRequest(new { message = "Choice task must contain data.options" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Choice task must contain data.options" });
         }
 
         var selected = ExtractSelectedAnswers(correctAnswerJson);
         if (selected.Count == 0)
         {
-            return Results.BadRequest(new { message = "Choice task must contain correctAnswer.selected" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Choice task must contain correctAnswer.selected" });
         }
 
         if (!allowMultiple && selected.Count != 1)
         {
-            return Results.BadRequest(new { message = "Single-choice task must contain exactly one correct answer" });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Single-choice task must contain exactly one correct answer" });
         }
 
         var normalizedOptions = options.Select(NormalizeForCompare).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unknown = selected.Where(x => !normalizedOptions.Contains(NormalizeForCompare(x))).ToList();
         if (unknown.Count > 0)
         {
-            return Results.BadRequest(new { message = "Correct answer must match one of data.options", unknownAnswers = unknown });
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Correct answer must match one of data.options", unknownAnswers = unknown });
         }
 
         return null;
@@ -110,7 +110,7 @@ internal static class QuizTaskMappingService
 
     internal static QuizAttemptResultDto ToResult(QuizAttempt attempt, string explanationJson, QuizProgress progress)
     {
-        var percent = attempt.MaxScore <= 0 ? 0 : Math.Round(attempt.Score / attempt.MaxScore * 100m, 2);
+        var percent = attempt.MaxScore <= 0 ? 0 : System.Math.Round(attempt.Score / attempt.MaxScore * 100m, 2);
         return new QuizAttemptResultDto(
             attempt.Id,
             attempt.TaskId,

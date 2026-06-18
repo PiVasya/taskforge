@@ -22,7 +22,7 @@ internal static class AiApiResultsService
     internal static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct)
     {
         var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
-        if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
+        if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
         var root = payload.ValueKind == JsonValueKind.Object ? JsonNode.Parse(payload.GetRawText()) as JsonObject ?? new JsonObject() : new JsonObject();
         if (root["request"] == null) root["request"] = root.DeepClone();
         root["conversationId"] = conversationId.ToString();
@@ -41,7 +41,7 @@ internal static class AiApiResultsService
         await db.SaveChangesAsync(ct);
         var runDto = ToRunDto(run);
         await BroadcastAgentEventAsync(hub, conversationId, "run.created", new { run = runDto }, ct);
-        return Results.Ok(new { run = runDto, queued = true });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { run = runDto, queued = true });
     }
 
     internal static async Task<JsonObject> BuildRunPayloadAsync(

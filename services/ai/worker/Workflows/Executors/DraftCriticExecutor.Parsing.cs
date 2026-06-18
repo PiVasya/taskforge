@@ -28,7 +28,7 @@ public sealed partial class DraftCriticExecutor
         var score = 50;
         var scoreMatch = Regex.Match(text, "\"?score\"?\\s*[:=]\\s*(\\d{1,3})", RegexOptions.IgnoreCase);
         if (scoreMatch.Success && int.TryParse(scoreMatch.Groups[1].Value, out var parsedScore))
-            score = Math.Clamp(parsedScore, 0, 100);
+            score = System.Math.Clamp(parsedScore, 0, 100);
 
         return new JsonObject
         {

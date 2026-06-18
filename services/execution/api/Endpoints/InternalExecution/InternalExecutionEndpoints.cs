@@ -21,8 +21,8 @@ internal static partial class ExecutionApiEndpoints
 
         app.MapPost("/api/internal/execution/jobs", async (CreateExecutionJobRequest request, ExecutionDbContext db, CancellationToken ct) =>
         {
-            if (request.SubmissionId == Guid.Empty) return Results.BadRequest(new { message = "submissionId is required", code = "SUBMISSION_ID_REQUIRED" });
-            if (string.IsNullOrWhiteSpace(request.Code)) return Results.BadRequest(new { message = "code is required", code = "CODE_REQUIRED" });
+            if (request.SubmissionId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "submissionId is required", code = "SUBMISSION_ID_REQUIRED" });
+            if (string.IsNullOrWhiteSpace(request.Code)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "code is required", code = "CODE_REQUIRED" });
 
             var job = new ExecutionJob
             {
@@ -41,14 +41,14 @@ internal static partial class ExecutionApiEndpoints
             };
             db.ExecutionJobs.Add(job);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToJobDto(job));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToJobDto(job));
         });
 
         app.MapPost("/api/internal/execution/jobs/claim-next", async (ExecutionDbContext db, IConfiguration cfg, CancellationToken ct) =>
         {
             var now = DateTimeOffset.UtcNow;
-            var maxAttempts = Math.Clamp(cfg.GetValue("ExecutionQueue:MaxAttempts", 3), 1, 10);
-            var runningTimeoutMinutes = Math.Clamp(cfg.GetValue("ExecutionQueue:RunningTimeoutMinutes", 5), 1, 60);
+            var maxAttempts = System.Math.Clamp(cfg.GetValue("ExecutionQueue:MaxAttempts", 3), 1, 10);
+            var runningTimeoutMinutes = System.Math.Clamp(cfg.GetValue("ExecutionQueue:RunningTimeoutMinutes", 5), 1, 60);
             var staleBefore = now.AddMinutes(-runningTimeoutMinutes);
 
             await db.ExecutionJobs
@@ -65,7 +65,7 @@ internal static partial class ExecutionApiEndpoints
                     .Select(x => x.Id)
                     .FirstOrDefaultAsync(ct);
 
-                if (candidateId == Guid.Empty) return Results.Ok(new { job = (object?)null });
+                if (candidateId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.Ok(new { job = (object?)null });
 
                 var claimed = await db.ExecutionJobs
                     .Where(x => x.Id == candidateId && x.Status == "queued")
@@ -77,14 +77,14 @@ internal static partial class ExecutionApiEndpoints
                 if (claimed == 0) continue;
 
                 var job = await db.ExecutionJobs.AsNoTracking().FirstAsync(x => x.Id == candidateId, ct);
-                return Results.Ok(new { job = ToJobDto(job) });
+                return Microsoft.AspNetCore.Http.Results.Ok(new { job = ToJobDto(job) });
             }
         });
 
         app.MapPost("/api/internal/execution/jobs/{jobId:guid}/complete", async (Guid jobId, CompleteExecutionJobRequest request, ExecutionDbContext db, CancellationToken ct) =>
         {
             var job = await db.ExecutionJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
-            if (job == null) return Results.NotFound(new { message = "Execution job not found", code = "EXECUTION_JOB_NOT_FOUND" });
+            if (job == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Execution job not found", code = "EXECUTION_JOB_NOT_FOUND" });
 
             job.Status = string.IsNullOrWhiteSpace(request.Status) ? "completed" : request.Status.Trim();
             job.CompletedAt = DateTimeOffset.UtcNow;
@@ -100,13 +100,13 @@ internal static partial class ExecutionApiEndpoints
             result.Stdout = request.Stdout;
             result.Stderr = request.Stderr;
             result.ExitCode = request.ExitCode;
-            result.Score = Math.Clamp(request.Score, 0, 100);
+            result.Score = System.Math.Clamp(request.Score, 0, 100);
             result.Passed = request.Passed;
-            result.DurationMs = Math.Max(0, request.DurationMs);
+            result.DurationMs = System.Math.Max(0, request.DurationMs);
             result.ResultJson = request.Result.HasValue ? request.Result.Value.GetRawText() : null;
 
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { job = ToJobDto(job), result });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { job = ToJobDto(job), result });
         });
 
         return app;

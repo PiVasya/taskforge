@@ -235,7 +235,7 @@ public sealed class LegacySqliteImportService
             contact.FullName = ReadNullableString(reader, 2);
             contact.LastSeenAt = timestamp > contact.LastSeenAt ? timestamp : contact.LastSeenAt;
             contact.LastMessageAt = contact.LastSeenAt;
-            contact.MessageCount = Math.Max(1, contact.MessageCount + 1);
+            contact.MessageCount = System.Math.Max(1, contact.MessageCount + 1);
             contact.SearchText = StudentDirectoryService.BuildSearchText(contact);
 
             if (_db.Entry(contact).State == EntityState.Detached) _db.StudentContacts.Add(contact);

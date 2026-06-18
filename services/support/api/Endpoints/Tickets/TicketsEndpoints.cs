@@ -31,7 +31,7 @@ internal static partial class SupportApiEndpoints
             var extras = await LoadTicketExtrasAsync(tickets.Select(x => x.Id), db, ct);
             var users = await LoadUserSummariesAsync(tickets.Select(x => x.UserId).Where(x => x.HasValue).Select(x => x!.Value), cfg, httpFactory, ct);
 
-            return Results.Ok(tickets.Select(t => ToTicketDto(t, extras.GetValueOrDefault(t.Id), t.UserId.HasValue ? users.GetValueOrDefault(t.UserId.Value) : null)).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(tickets.Select(t => ToTicketDto(t, extras.GetValueOrDefault(t.Id), t.UserId.HasValue ? users.GetValueOrDefault(t.UserId.Value) : null)).ToList());
         });
 
         app.MapPost("/api/support", async (SupportRequest req, HttpContext http, IConfiguration cfg, SupportDbContext db, IHttpClientFactory httpFactory, IHubContext<SupportHub> hub, CancellationToken ct) =>
@@ -49,7 +49,7 @@ internal static partial class SupportApiEndpoints
             var users = await LoadUserSummariesAsync(new[] { uid.Value }, cfg, httpFactory, ct);
             var ticketDto = ToTicketDto(t, new TicketExtra(1, Preview(text)), users.GetValueOrDefault(uid.Value));
             await hub.Clients.Group(SupportHubGroups.ForTicket(t.Id)).SendAsync("ReceiveMessage", t.Id.ToString(), ToMessageDto(m, users.GetValueOrDefault(uid.Value)), ct);
-            return Results.Ok(new { id = t.Id, ticketId = t.Id, ticket = ticketDto, subject = t.Subject, status = t.Status, createdAt = t.CreatedAt, updatedAt = t.UpdatedAt });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { id = t.Id, ticketId = t.Id, ticket = ticketDto, subject = t.Subject, status = t.Status, createdAt = t.CreatedAt, updatedAt = t.UpdatedAt });
         });
 
         app.MapGet("/api/support/{ticketId:guid}", async (Guid ticketId, HttpContext http, IConfiguration cfg, SupportDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
@@ -58,14 +58,14 @@ internal static partial class SupportApiEndpoints
             var uid = TaskForgeRequestSecurity.UserId(http, cfg);
             var isAdmin = principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin");
             var t = await db.Tickets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == ticketId, ct);
-            if (t == null) return Results.NotFound(new { message = "Обращение не найдено.", code = "SUPPORT_TICKET_NOT_FOUND" });
-            if (!isAdmin && t.UserId != uid) return Results.Json(new { message = "Нет доступа к этому обращению.", code = "SUPPORT_TICKET_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+            if (t == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обращение не найдено.", code = "SUPPORT_TICKET_NOT_FOUND" });
+            if (!isAdmin && t.UserId != uid) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому обращению.", code = "SUPPORT_TICKET_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
 
             var messages = await db.Messages.AsNoTracking().Where(x => x.TicketId == ticketId).OrderBy(x => x.CreatedAt).ToListAsync(ct);
             var userIds = messages.Select(x => x.UserId).Concat(new[] { t.UserId }).Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
             var users = await LoadUserSummariesAsync(userIds, cfg, httpFactory, ct);
             var extra = new TicketExtra(messages.Count, messages.Count == 0 ? null : Preview(messages[^1].Text));
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 ticket = ToTicketDto(t, extra, t.UserId.HasValue ? users.GetValueOrDefault(t.UserId.Value) : null),
                 messages = messages.Select(m => ToMessageDto(m, m.UserId.HasValue ? users.GetValueOrDefault(m.UserId.Value) : null)).ToList()
@@ -78,8 +78,8 @@ internal static partial class SupportApiEndpoints
             var uid = TaskForgeRequestSecurity.UserId(http, cfg);
             var isAdmin = principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin");
             var t = await db.Tickets.FindAsync([ticketId], ct);
-            if (t == null) return Results.NotFound(new { message = "Обращение не найдено.", code = "SUPPORT_TICKET_NOT_FOUND" });
-            if (!isAdmin && t.UserId != uid) return Results.Json(new { message = "Нет доступа к этому обращению.", code = "SUPPORT_TICKET_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+            if (t == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обращение не найдено.", code = "SUPPORT_TICKET_NOT_FOUND" });
+            if (!isAdmin && t.UserId != uid) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому обращению.", code = "SUPPORT_TICKET_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
 
             var text = req.Message ?? req.Text ?? string.Empty;
             var now = DateTimeOffset.UtcNow;
@@ -92,7 +92,7 @@ internal static partial class SupportApiEndpoints
             var users = uid.HasValue ? await LoadUserSummariesAsync(new[] { uid.Value }, cfg, httpFactory, ct) : new Dictionary<Guid, UserSummaryDto>();
             var dto = ToMessageDto(msg, uid.HasValue ? users.GetValueOrDefault(uid.Value) : null);
             await hub.Clients.Group(SupportHubGroups.ForTicket(ticketId)).SendAsync("ReceiveMessage", ticketId.ToString(), dto, ct);
-            return Results.Ok(new { ticket = ToTicketDto(t, new TicketExtra(0, Preview(text)), (UserSummaryDto?)null), message = dto, id = t.Id, ticketId = t.Id, status = t.Status, updatedAt = t.UpdatedAt });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ticket = ToTicketDto(t, new TicketExtra(0, Preview(text)), (UserSummaryDto?)null), message = dto, id = t.Id, ticketId = t.Id, status = t.Status, updatedAt = t.UpdatedAt });
         });
 
         return app;

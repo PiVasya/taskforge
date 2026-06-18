@@ -42,10 +42,10 @@ internal static class IdentityApiResultsService
         var best = int.MaxValue;
         foreach (var value in values)
         {
-            best = Math.Min(best, Levenshtein(value, query));
+            best = System.Math.Min(best, Levenshtein(value, query));
             foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                best = Math.Min(best, Levenshtein(token, query));
+                best = System.Math.Min(best, Levenshtein(token, query));
             }
         }
         return best == int.MaxValue ? 999 : best;

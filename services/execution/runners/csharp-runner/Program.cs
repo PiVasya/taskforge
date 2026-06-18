@@ -27,7 +27,7 @@ builder.Services.AddSingleton<IExecutionService, ExecutionService>();
 var app = builder.Build();
 
 app.UseTaskForgeDebugRequestLogging("csharp-runner");
-app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "csharp-runner" }));
+app.MapGet("/health", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "csharp-runner" }));
 app.MapControllers();
 app.Run();
 

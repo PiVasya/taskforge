@@ -24,13 +24,13 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-tasks-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-tasks-api" }));
 
-        app.MapGet("/health/ready", async (TasksDbContext db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ready", service = "taskforge-tasks-api" }) : Results.StatusCode(503));
+        app.MapGet("/health/ready", async (TasksDbContext db) => await db.Database.CanConnectAsync() ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-tasks-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503));
 
-        app.MapGet("/", () => Results.Ok(new { service = "taskforge-tasks-api", database = "taskforge_tasks", status = "tasks microservice active" }));
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-tasks-api", database = "taskforge_tasks", status = "tasks microservice active" }));
 
-        app.MapGet("/api/tasks/assignment-api/schema-owner", () => Results.Ok(new { database = "taskforge_tasks", ownedEntities = new[] { "Assignment", "TaskAttempt" } }));
+        app.MapGet("/api/tasks/assignment-api/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_tasks", ownedEntities = new[] { "Assignment", "TaskAttempt" } }));
 
         return app;
     }

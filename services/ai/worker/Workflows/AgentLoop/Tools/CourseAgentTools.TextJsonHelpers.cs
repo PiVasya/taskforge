@@ -42,7 +42,7 @@ public static partial class CourseAgentTools
     {
         var raw = GetString(obj, keys);
         if (int.TryParse(raw, out var value)) return value;
-        if (double.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number)) return (int)Math.Round(number);
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number)) return (int)System.Math.Round(number);
         return null;
     }
 
@@ -86,8 +86,8 @@ public static partial class CourseAgentTools
         return trimmed.Length > 0 && char.IsDigit(trimmed[0]);
     }
 
-    private static double Ratio(int part, int total) => total <= 0 ? 0 : Math.Round((double)part / total, 3);
-    private static double Average(List<int> values) => values.Count == 0 ? 0 : Math.Round(values.Average(), 2);
+    private static double Ratio(int part, int total) => total <= 0 ? 0 : System.Math.Round((double)part / total, 3);
+    private static double Average(List<int> values) => values.Count == 0 ? 0 : System.Math.Round(values.Average(), 2);
     private static string Normalize(string value) => (value ?? string.Empty).Trim().ToLowerInvariant();
     private static string Trim(string? value, int maxLength)
     {

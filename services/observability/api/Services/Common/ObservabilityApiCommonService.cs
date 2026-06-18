@@ -94,20 +94,20 @@ internal static class ObservabilityApiCommonService
     internal static double AvgDuration(IEnumerable<PageView> rows)
     {
         var vals = rows.Select(x => x.DurationMs).Where(x => x.HasValue).Select(x => (double)x!.Value).ToList();
-        return vals.Count == 0 ? 0 : Math.Round(vals.Average(), 1);
+        return vals.Count == 0 ? 0 : System.Math.Round(vals.Average(), 1);
     }
 
     internal static double PercentileDuration(IEnumerable<PageView> rows, double p)
     {
         var vals = rows.Select(x => x.DurationMs).Where(x => x.HasValue).Select(x => (double)x!.Value).OrderBy(x => x).ToList();
         if (vals.Count == 0) return 0;
-        var idx = Math.Clamp((int)Math.Ceiling(p * vals.Count) - 1, 0, vals.Count - 1);
+        var idx = System.Math.Clamp((int)System.Math.Ceiling(p * vals.Count) - 1, 0, vals.Count - 1);
         return vals[idx];
     }
 
-    internal static double Percent(int num, int den) => den <= 0 ? 0 : Math.Round(num * 100.0 / den, 1);
+    internal static double Percent(int num, int den) => den <= 0 ? 0 : System.Math.Round(num * 100.0 / den, 1);
 
-    internal static object Point(DateTime date, double value) => new { label = date.ToString("dd.MM"), date = date.ToString("yyyy-MM-dd"), value = Math.Round(value, 1), count = Math.Round(value, 1) };
+    internal static object Point(DateTime date, double value) => new { label = date.ToString("dd.MM"), date = date.ToString("yyyy-MM-dd"), value = System.Math.Round(value, 1), count = System.Math.Round(value, 1) };
 
     internal static List<object> DayPoints(IEnumerable<PageView> rows, int days, Func<IEnumerable<PageView>, double> selector)
     {
@@ -122,6 +122,6 @@ internal static class ObservabilityApiCommonService
         return Enumerable.Range(0, 24).Select(h => new { label = $"{h:00}:00", value = byHour.GetValueOrDefault(h), count = byHour.GetValueOrDefault(h) }).Cast<object>().ToList();
     }
 
-    internal static object Comparison(string label, double current, double previous, string? unit = null, bool percentMetric = false) => new { label, current, previous, unit, percentMetric, deltaPercent = previous == 0 ? (current == 0 ? 0 : 100) : Math.Round((current - previous) * 100.0 / previous, 1) };
+    internal static object Comparison(string label, double current, double previous, string? unit = null, bool percentMetric = false) => new { label, current, previous, unit, percentMetric, deltaPercent = previous == 0 ? (current == 0 ? 0 : 100) : System.Math.Round((current - previous) * 100.0 / previous, 1) };
 
 }

@@ -30,15 +30,15 @@ internal static partial class IdentityApiEndpoints
             if (CheckAuthRateLimit(http, "register", request.Login ?? request.Email) is { } limited) return limited;
 
             var login = NormalizeLogin(request.Login);
-            if (!IsValidLogin(login, out var loginMessage)) return Results.BadRequest(new { message = loginMessage });
+            if (!IsValidLogin(login, out var loginMessage)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = loginMessage });
 
             var email = NormalizeOptionalEmail(request.Email);
             if (!string.IsNullOrWhiteSpace(request.Email) && string.IsNullOrWhiteSpace(email))
-                return Results.BadRequest(new { message = "Email указан в неверном формате." });
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Email указан в неверном формате." });
 
-            if (!IsValidPassword(request.Password, out var passwordMessage)) return Results.BadRequest(new { message = passwordMessage });
-            if (await db.Users.AnyAsync(x => x.Login == login)) return Results.BadRequest(new { message = "Пользователь с таким логином уже существует." });
-            if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email)) return Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
+            if (!IsValidPassword(request.Password, out var passwordMessage)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = passwordMessage });
+            if (await db.Users.AnyAsync(x => x.Login == login)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким логином уже существует." });
+            if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
             var firstUser = !await db.Users.AnyAsync();
             var role = ResolveInitialRole(email ?? string.Empty, firstUser, cfg);
@@ -59,7 +59,7 @@ internal static partial class IdentityApiEndpoints
             db.UiSettings.Add(new UserUiSettings { UserId = user.Id, DataJson = DefaultUiSettingsJson() });
             await db.SaveChangesAsync();
 
-            return Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role });
         });
 
         app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -109,7 +109,7 @@ internal static partial class IdentityApiEndpoints
             var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
             var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
             SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
-            return Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
         });
 
         app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
@@ -129,13 +129,13 @@ internal static partial class IdentityApiEndpoints
             var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
             var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
             SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
-            return Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
         });
 
         app.MapPost("/api/auth/logout", (HttpContext http) =>
         {
             ClearAuthCookies(http);
-            return Results.Ok(new { message = "ok" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "ok" });
         });
 
         return app;

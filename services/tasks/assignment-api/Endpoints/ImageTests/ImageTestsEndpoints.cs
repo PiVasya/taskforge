@@ -27,14 +27,14 @@ internal static partial class AssignmentApiEndpoints
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
-            if (!IsEditor(http, cfg)) return Results.Json(new { message = "Для загрузки эталона нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для загрузки эталона нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var form = await req.ReadFormAsync(ct);
             var file = form.Files.FirstOrDefault();
             if (file == null || file.Length == 0) return Problem(400, "IMAGE_REFERENCE_REQUIRED", "request.validation", "Выберите эталонную картинку для image-test.");
             if (file.Length > MaxImageUploadBytes(cfg)) return Problem(413, "IMAGE_REFERENCE_TOO_LARGE", "request.validation", $"Эталонная картинка слишком большая. Максимум: {MaxImageUploadBytes(cfg) / 1024 / 1024} МБ.");
-            var threshold = form.TryGetValue("threshold", out var t) && int.TryParse(t, out var tv) ? Math.Clamp(tv, 0, 100) : 90;
+            var threshold = form.TryGetValue("threshold", out var t) && int.TryParse(t, out var tv) ? System.Math.Clamp(tv, 0, 100) : 90;
             await using var ms = new MemoryStream();
             await file.CopyToAsync(ms, ct);
             var uploaded = await UploadImageBytesToFilesApiAsync(clients, cfg, ms.ToArray(), file.FileName, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType, $"image-tests/reference/{assignmentId:N}", ct);
@@ -50,7 +50,7 @@ internal static partial class AssignmentApiEndpoints
             assignment.TestsJson = payload.ToJsonString(JsonOptions());
             assignment.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { assignmentId, key = uploaded.Key, url = uploaded.PrivateUrl, privateUrl = uploaded.PrivateUrl, threshold, storage = "minio" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { assignmentId, key = uploaded.Key, url = uploaded.PrivateUrl, privateUrl = uploaded.PrivateUrl, threshold, storage = "minio" });
         }).DisableAntiforgery();
 
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) =>

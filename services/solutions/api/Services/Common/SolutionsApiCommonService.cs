@@ -25,14 +25,14 @@ internal static class SolutionsApiCommonService
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";
         if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
-        return Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
+        return Microsoft.AspNetCore.Http.Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
     }
 
     internal static async Task<EnqueueResult> EnqueueExecutionJobAsync(Guid submissionId, Guid assignmentId, Guid userId, string language, string code, string? input, JsonElement[] tests, JudgeSpec? spec, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
     {
         var baseUrl = ServiceUrl(cfg, "ExecutionApi", "http://execution-api:8080");
         var client = httpFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(cfg.GetValue("Judge:EnqueueTimeoutSeconds", 10), 2, 60));
+        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(cfg.GetValue("Judge:EnqueueTimeoutSeconds", 10), 2, 60));
 
         var payload = new CreateExecutionJobRequest(
             submissionId,
@@ -76,7 +76,7 @@ internal static class SolutionsApiCommonService
 
     internal static async Task<SolutionSubmission?> WaitForTerminalSubmissionAsync(SolutionsDbContext db, Guid submissionId, IConfiguration cfg, CancellationToken ct)
     {
-        var timeoutMs = Math.Clamp(cfg.GetValue("Judge:SubmitWaitMilliseconds", 18000), 0, 60000);
+        var timeoutMs = System.Math.Clamp(cfg.GetValue("Judge:SubmitWaitMilliseconds", 18000), 0, 60000);
         if (timeoutMs <= 0) return null;
 
         var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
@@ -191,7 +191,7 @@ internal static class SolutionsApiCommonService
             for (var j = 1; j <= b.Length; j++)
             {
                 var cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                cur[j] = Math.Min(Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                cur[j] = System.Math.Min(System.Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
             }
             (prev, cur) = (cur, prev);
         }
@@ -211,19 +211,19 @@ internal static class SolutionsApiCommonService
         var elapsed = now - row.LastRefillAtUtc;
         if (elapsed.TotalSeconds >= interval.TotalSeconds)
         {
-            var refill = (int)Math.Floor(elapsed.TotalSeconds / interval.TotalSeconds);
-            row.Tokens = Math.Min(capacity, row.Tokens + refill);
+            var refill = (int)System.Math.Floor(elapsed.TotalSeconds / interval.TotalSeconds);
+            row.Tokens = System.Math.Min(capacity, row.Tokens + refill);
             row.LastRefillAtUtc = row.LastRefillAtUtc.AddSeconds(refill * interval.TotalSeconds);
             row.UpdatedAtUtc = now;
             await db.SaveChangesAsync();
         }
         var next = row.LastRefillAtUtc.Add(interval);
-        return new QuotaView(bucket, Math.Max(0, row.Tokens), capacity, row.Tokens >= capacity ? 0 : Math.Max(1, (int)Math.Ceiling((next - now).TotalSeconds)), next, row.Tokens > 0);
+        return new QuotaView(bucket, System.Math.Max(0, row.Tokens), capacity, row.Tokens >= capacity ? 0 : System.Math.Max(1, (int)System.Math.Ceiling((next - now).TotalSeconds)), next, row.Tokens > 0);
     }
 
-    internal static IResult Unauthorized() => Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
+    internal static IResult Unauthorized() => Microsoft.AspNetCore.Http.Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 
-    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
+    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Microsoft.AspNetCore.Http.Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
 
     internal static void RemoveReferenceFields(JsonNode? node)
     {

@@ -29,7 +29,7 @@ internal static partial class ObservabilityApiEndpoints
             };
             db.PageViews.Add(view);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { saved = true, view.Id });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { saved = true, view.Id });
         });
 
         app.MapGet("/api/admin/activity", async (
@@ -48,9 +48,9 @@ internal static partial class ObservabilityApiEndpoints
             int? take = null,
             CancellationToken ct = default) =>
         {
-            days = Math.Clamp(days, 1, 365);
-            page = Math.Max(1, page);
-            pageSize = Math.Clamp(take ?? pageSize, 10, 1000);
+            days = System.Math.Clamp(days, 1, 365);
+            page = System.Math.Max(1, page);
+            pageSize = System.Math.Clamp(take ?? pageSize, 10, 1000);
 
             var nowUtc = DateTimeOffset.UtcNow;
             var fromUtc = nowUtc.AddDays(-days);
@@ -96,7 +96,7 @@ internal static partial class ObservabilityApiEndpoints
                 .Take(10)
                 .ToList();
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 period = new { days, fromUtc, toUtc = nowUtc },
                 paging = new { page, pageSize, total },

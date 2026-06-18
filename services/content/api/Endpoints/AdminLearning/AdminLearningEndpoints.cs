@@ -52,7 +52,7 @@ internal static partial class LearningContentEndpoints
 
             db.Courses.Add(course);
             await db.SaveChangesAsync();
-            return Results.Ok(LearningCourseDto.FromEntity(course));
+            return Microsoft.AspNetCore.Http.Results.Ok(LearningCourseDto.FromEntity(course));
         });
 
         app.MapPut("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id, [FromBody] UpdateLearningCourseRequest req) =>
@@ -80,7 +80,7 @@ internal static partial class LearningContentEndpoints
             course.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync();
-            return Results.Ok(LearningCourseDto.FromEntity(course));
+            return Microsoft.AspNetCore.Http.Results.Ok(LearningCourseDto.FromEntity(course));
         });
 
         app.MapDelete("/api/admin/learning/courses/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id) =>
@@ -121,7 +121,7 @@ internal static partial class LearningContentEndpoints
             db.Courses.RemoveRange(courses);
             await db.SaveChangesAsync();
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 courseIdDeleted = id,
                 sectionCode = course.SectionCode,
@@ -154,7 +154,7 @@ internal static partial class LearningContentEndpoints
 
             db.Pages.Add(page);
             await db.SaveChangesAsync();
-            return Results.Ok(LearningPageDto.FromEntity(page));
+            return Microsoft.AspNetCore.Http.Results.Ok(LearningPageDto.FromEntity(page));
         });
 
         app.MapPost("/api/admin/learning/courses/{courseId:guid}/conspects", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningConspectRequest req) =>
@@ -190,7 +190,7 @@ internal static partial class LearningContentEndpoints
 
             db.Conspects.Add(conspect);
             await db.SaveChangesAsync();
-            return Results.Ok(new LearningConspectDetailsDto(LearningConspectDto.FromEntity(conspect), conspect.ContentJson, conspect.SearchText, Array.Empty<LearningConspectTaskLinkDto>()));
+            return Microsoft.AspNetCore.Http.Results.Ok(new LearningConspectDetailsDto(LearningConspectDto.FromEntity(conspect), conspect.ContentJson, conspect.SearchText, Array.Empty<LearningConspectTaskLinkDto>()));
         });
 
         app.MapPut("/api/admin/learning/conspects/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id, [FromBody] UpdateLearningConspectRequest req) =>
@@ -228,7 +228,7 @@ internal static partial class LearningContentEndpoints
                 .ThenBy(x => x.Title)
                 .ToListAsync();
 
-            return Results.Ok(new LearningConspectDetailsDto(
+            return Microsoft.AspNetCore.Http.Results.Ok(new LearningConspectDetailsDto(
                 LearningConspectDto.FromEntity(conspect),
                 conspect.ContentJson,
                 conspect.SearchText,
@@ -259,7 +259,7 @@ internal static partial class LearningContentEndpoints
 
             db.ConspectTaskLinks.Add(link);
             await db.SaveChangesAsync();
-            return Results.Ok(LearningConspectTaskLinkDto.FromEntity(link));
+            return Microsoft.AspNetCore.Http.Results.Ok(LearningConspectTaskLinkDto.FromEntity(link));
         });
 
         app.MapDelete("/api/admin/learning/conspect-task-links/{id:guid}", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid id) =>
@@ -268,7 +268,7 @@ internal static partial class LearningContentEndpoints
             if (link == null) return ApiError(StatusCodes.Status404NotFound, "Связь с заданием не найдена.", $"Id: {id}");
             db.ConspectTaskLinks.Remove(link);
             await db.SaveChangesAsync();
-            return Results.NoContent();
+            return Microsoft.AspNetCore.Http.Results.NoContent();
         });
 
         app.MapPost("/api/admin/learning/courses/{courseId:guid}/task-links", [Authorize(Roles = "Admin,LearningEditor")] async (LearningDbContext db, Guid courseId, [FromBody] CreateLearningTaskLinkRequest req) =>
@@ -291,7 +291,7 @@ internal static partial class LearningContentEndpoints
 
             db.CourseTaskLinks.Add(link);
             await db.SaveChangesAsync();
-            return Results.Ok(LearningTaskLinkDto.FromEntity(link));
+            return Microsoft.AspNetCore.Http.Results.Ok(LearningTaskLinkDto.FromEntity(link));
         });
 
         app.MapPost("/api/admin/learning/courses/{courseId}/conspects", [Authorize(Roles = "Admin,LearningEditor")] (string courseId) =>

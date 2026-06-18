@@ -15,7 +15,7 @@ public sealed class TelegramBotClientFactory
 
     public TelegramBotClient Create(string token)
     {
-        var timeoutSeconds = Math.Clamp(_options.RequestTimeoutSeconds, 120, 1800);
+        var timeoutSeconds = System.Math.Clamp(_options.RequestTimeoutSeconds, 120, 1800);
         var httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(timeoutSeconds)

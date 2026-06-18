@@ -93,7 +93,13 @@ def main() -> int:
                     f"{ctx.relative_to(ROOT)}: {src}"
                 )
 
-        if "AddTaskForgeRedisCache" in "".join(p.read_text(encoding="utf-8", errors="ignore") for p in dockerfile.parent.glob("*.cs")):
+        service_sources = "".join(
+            p.read_text(encoding="utf-8", errors="ignore")
+            for p in dockerfile.parent.rglob("*.cs")
+        )
+        uses_cache = "AddTaskForgeRedisCache" in service_sources
+        has_local_cache = "static IServiceCollection AddTaskForgeRedisCache" in service_sources
+        if uses_cache and not has_local_cache:
             if "COPY Directory.Build.props global.json ./" not in text or "COPY services/shared services/shared" not in text:
                 errors.append(
                     f"{name}: service uses AddTaskForgeRedisCache but Dockerfile does not copy "

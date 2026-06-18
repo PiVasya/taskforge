@@ -44,7 +44,7 @@ internal static class SolutionsApiResultsService
     {
         var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard", new ActivityLeaderboardRequest(courseId, days, userIds), ct) ?? new List<TaskActivityRowDto>();
         return rows.Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
-            .Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, Math.Max(1, x.Rating), x.SubmittedAt, x.Kind ?? "task"))
+            .Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, System.Math.Max(1, x.Rating), x.SubmittedAt, x.Kind ?? "task"))
             .ToList();
     }
 
@@ -71,8 +71,8 @@ internal static class SolutionsApiResultsService
         var best = int.MaxValue;
         foreach (var value in values)
         {
-            best = Math.Min(best, Levenshtein(value, query));
-            foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) best = Math.Min(best, Levenshtein(token, query));
+            best = System.Math.Min(best, Levenshtein(value, query));
+            foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) best = System.Math.Min(best, Levenshtein(token, query));
         }
         return best == int.MaxValue ? 999 : best;
     }

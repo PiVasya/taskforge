@@ -19,18 +19,18 @@ internal static partial class FilesApiEndpoints
 {
     private static WebApplication MapServiceInfoEndpoints(WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok", service = "taskforge-files-api" }));
+        app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-files-api" }));
 
         app.MapGet("/health/ready", async (FilesDbContext db, IAmazonS3 s3, IConfiguration cfg) =>
         {
-            if (!await db.Database.CanConnectAsync()) return Results.Json(new { status = 503, service = "taskforge-files-api", stage = "database.connect", code = "DB_NOT_READY", message = "files-api не может подключиться к PostgreSQL." }, statusCode: 503);
+            if (!await db.Database.CanConnectAsync()) return Microsoft.AspNetCore.Http.Results.Json(new { status = 503, service = "taskforge-files-api", stage = "database.connect", code = "DB_NOT_READY", message = "files-api не может подключиться к PostgreSQL." }, statusCode: 503);
             var bucketCheck = await TryEnsureBucket(s3, cfg, createIfMissing: true, default);
-            return bucketCheck.Ok ? Results.Ok(new { status = "ready", service = "taskforge-files-api", storage = "minio" }) : Results.Json(new { status = 503, service = "taskforge-files-api", storage = "minio", bucketCheck.Stage, bucketCheck.Code, bucketCheck.Message, bucketCheck.Detail }, statusCode: 503);
+            return bucketCheck.Ok ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-files-api", storage = "minio" }) : Microsoft.AspNetCore.Http.Results.Json(new { status = 503, service = "taskforge-files-api", storage = "minio", bucketCheck.Stage, bucketCheck.Code, bucketCheck.Message, bucketCheck.Detail }, statusCode: 503);
         });
 
-        app.MapGet("/", () => Results.Ok(new { service = "taskforge-files-api", database = "taskforge_files", storage = "minio", status = "files microservice active" }));
+        app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-files-api", database = "taskforge_files", storage = "minio", status = "files microservice active" }));
 
-        app.MapGet("/api/files/schema-owner", () => Results.Ok(new { database = "taskforge_files", ownedEntities = new[] { "StoredFile" }, storage = "MinIO/S3" }));
+        app.MapGet("/api/files/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_files", ownedEntities = new[] { "StoredFile" }, storage = "MinIO/S3" }));
 
         return app;
     }

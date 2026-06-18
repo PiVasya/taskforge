@@ -29,7 +29,7 @@ internal static partial class AssignmentApiEndpoints
             var includeHidden = IsEditor(http, cfg);
             if (!includeHidden && !await CanUserAccessCourseAsync(courseId, http, cfg, clients, ct))
             {
-                return Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
             }
 
             var query = db.Assignments.AsNoTracking().Where(x => x.CourseId == courseId);
@@ -41,14 +41,14 @@ internal static partial class AssignmentApiEndpoints
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
 
-            return Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
         });
 
         app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))
             {
-                return Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
             var rows = await db.Assignments.AsNoTracking()
@@ -57,7 +57,7 @@ internal static partial class AssignmentApiEndpoints
                 .ThenBy(x => x.CreatedAt)
                 .ToListAsync(ct);
 
-            return Results.Json(new
+            return Microsoft.AspNetCore.Http.Results.Json(new
             {
                 schemaVersion = 1,
                 format = "taskforge-course-assignment-import",
@@ -73,24 +73,24 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await BuildAssignmentEntityAsync(courseId, request, maxSort + 1, clients, cfg, ct);
             db.Assignments.Add(assignment);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))
             {
-                return Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
             var sourceItems = ExtractAssignmentImportItems(payload).ToList();
             if (sourceItems.Count == 0)
             {
-                return Results.Json(new { message = "JSON не содержит заданий. Передай объект задания, массив заданий или объект с полем assignments/items/tasks.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "JSON не содержит заданий. Передай объект задания, массив заданий или объект с полем assignments/items/tasks.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
             }
             if (sourceItems.Count > 200)
             {
-                return Results.Json(new { message = "За один импорт можно обработать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "За один импорт можно обработать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
             }
 
             var requests = new List<AssignmentRequest>();
@@ -115,7 +115,7 @@ internal static partial class AssignmentApiEndpoints
 
             if (issues.Count > 0)
             {
-                return Results.Json(new { message = "Импорт остановлен: в JSON есть ошибки.", code = "IMPORT_VALIDATION_FAILED", issues }, statusCode: StatusCodes.Status400BadRequest);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Импорт остановлен: в JSON есть ошибки.", code = "IMPORT_VALIDATION_FAILED", issues }, statusCode: StatusCodes.Status400BadRequest);
             }
 
             var ids = requests.Select(x => x.Id).Where(x => x.HasValue && x.Value != Guid.Empty).Select(x => x!.Value).Distinct().ToList();
@@ -153,7 +153,7 @@ internal static partial class AssignmentApiEndpoints
             if (created.Count > 0) db.Assignments.AddRange(created);
             await db.SaveChangesAsync(ct);
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 createdCount = created.Count,
                 updatedCount = updated.Count,
@@ -165,67 +165,67 @@ internal static partial class AssignmentApiEndpoints
         app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            return Results.Ok(ToDto(assignment, includeSensitive));
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive));
         });
 
         app.MapGet("/api/assignments/{assignmentId:guid}/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
         {
-            if (!IsEditor(http, cfg)) return Results.Json(new { message = "Для редактирования нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для редактирования нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-            return assignment == null ? Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" }) : Results.Ok(ToDto(assignment, includeSensitive: true));
+            return assignment == null ? Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" }) : Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
             await db.SaveChangesAsync();
-            return Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, TasksDbContext db) =>
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             db.Attempts.RemoveRange(await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync());
             db.Assignments.Remove(assignment);
             await db.SaveChangesAsync();
-            return Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
         });
 
         app.MapPatch("/api/assignments/{assignmentId:guid}/sort", async (Guid assignmentId, SortRequest request, TasksDbContext db) =>
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound();
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             assignment.Sort = request.Sort;
             assignment.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
-            return Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapPatch("/api/assignments/{assignmentId:guid}/position", async (Guid assignmentId, PositionRequest request, TasksDbContext db) =>
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound();
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             var siblings = await db.Assignments.Where(x => x.CourseId == assignment.CourseId && x.Id != assignment.Id).OrderBy(x => x.Sort).ToListAsync();
-            var pos = Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
+            var pos = System.Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
             siblings.Insert(pos, assignment);
             for (var i = 0; i < siblings.Count; i++) siblings[i].Sort = i;
             await db.SaveChangesAsync();
-            return Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, TasksDbContext db) =>
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Results.NotFound();
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             assignment.IsVisible = request.IsVisible;
             await db.SaveChangesAsync();
-            return Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         return app;

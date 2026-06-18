@@ -42,7 +42,7 @@ internal static partial class AssignmentApiImageService
                 var input = NodeString(o, "input") ?? NodeString(o, "stdin") ?? string.Empty;
                 var expected = NodeString(o, "expectedOutput") ?? NodeString(o, "expected") ?? NodeString(o, "stdout") ?? string.Empty;
                 var hidden = NodeBool(o, "isHidden") || NodeBool(o, "hidden");
-                list.Add(new ImageTestCaseSpec(name, input, expected, image, key, Math.Clamp(threshold, 0, 100), hidden, contentType, fileName));
+                list.Add(new ImageTestCaseSpec(name, input, expected, image, key, System.Math.Clamp(threshold, 0, 100), hidden, contentType, fileName));
             }
             if (list.Count > 0) return list;
         }
@@ -55,7 +55,7 @@ internal static partial class AssignmentApiImageService
             var contentType = NodeString(root, "referenceContentType") ?? NodeString(root, "expectedImageContentType") ?? "image/png";
             var fileName = NodeString(root, "referenceFileName") ?? NodeString(root, "expectedImageFileName") ?? "expected.png";
             var expected = NodeString(root, "expectedOutput") ?? string.Empty;
-            list.Add(new ImageTestCaseSpec("Основной тест", fallbackInput ?? string.Empty, expected, legacy, legacyKey, Math.Clamp(threshold, 0, 100), false, contentType, fileName));
+            list.Add(new ImageTestCaseSpec("Основной тест", fallbackInput ?? string.Empty, expected, legacy, legacyKey, System.Math.Clamp(threshold, 0, 100), false, contentType, fileName));
         }
 
         return list;

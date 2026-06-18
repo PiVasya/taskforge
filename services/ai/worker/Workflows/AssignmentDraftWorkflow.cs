@@ -141,17 +141,17 @@ public sealed class AssignmentDraftWorkflow : ITaskForgeWorkflow
     private int ResolveRequestedDraftCount(AgentIntent intent, string userText)
     {
         if (intent.RequestedCount is { } explicitCount)
-            return Math.Clamp(explicitCount, 1, _options.MaxDraftsPerRun);
+            return System.Math.Clamp(explicitCount, 1, _options.MaxDraftsPerRun);
 
         if (DraftAuthorExecutor.LooksLikeMultipleDraftRequest(userText))
             return 5;
 
         return intent.ScenarioId switch
         {
-            "guided_ladder" => Math.Min(5, _options.MaxDraftsPerRun),
-            "bridge_tasks" => Math.Min(4, _options.MaxDraftsPerRun),
-            "style_matched_tasks" => Math.Min(3, _options.MaxDraftsPerRun),
-            "draft_revision" => Math.Min(3, _options.MaxDraftsPerRun),
+            "guided_ladder" => System.Math.Min(5, _options.MaxDraftsPerRun),
+            "bridge_tasks" => System.Math.Min(4, _options.MaxDraftsPerRun),
+            "style_matched_tasks" => System.Math.Min(3, _options.MaxDraftsPerRun),
+            "draft_revision" => System.Math.Min(3, _options.MaxDraftsPerRun),
             _ => 1
         };
     }

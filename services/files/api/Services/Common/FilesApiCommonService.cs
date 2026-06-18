@@ -56,6 +56,6 @@ internal static class FilesApiCommonService
         return string.IsNullOrWhiteSpace(folder) ? file : $"{folder}/{file}";
     }
 
-    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
+    internal static IResult Problem(int status, string code, string stage, string message, string? detail = null) => Microsoft.AspNetCore.Http.Results.Json(new { status, code, stage, message, detail, severity = status >= 500 ? "error" : "warning" }, statusCode: status);
 
 }

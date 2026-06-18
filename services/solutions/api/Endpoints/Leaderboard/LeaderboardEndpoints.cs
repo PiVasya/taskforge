@@ -32,7 +32,7 @@ internal static partial class SolutionsApiEndpoints
                 var courseAccess = await LoadCourseAccessAsync(courseId.Value, uid.Value, cfg, httpFactory, ct);
                 if (courseAccess?.CanView != true)
                 {
-                    return Results.Json(new { message = "Нет доступа к рейтингу этого курса.", code = "COURSE_FORBIDDEN" }, statusCode: 403);
+                    return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к рейтингу этого курса.", code = "COURSE_FORBIDDEN" }, statusCode: 403);
                 }
             }
 
@@ -42,7 +42,7 @@ internal static partial class SolutionsApiEndpoints
                 groupUserIds = await LoadGroupMemberIdsAsync(groupId.Value, cfg, httpFactory, ct);
                 if (!IsEditor(http, cfg) && !groupUserIds.Contains(uid.Value))
                 {
-                    return Results.Json(new { message = "Нет доступа к рейтингу этой группы.", code = "GROUP_FORBIDDEN" }, statusCode: 403);
+                    return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к рейтингу этой группы.", code = "GROUP_FORBIDDEN" }, statusCode: 403);
                 }
             }
 
@@ -87,8 +87,8 @@ internal static partial class SolutionsApiEndpoints
             if (activityRows.Count == 0)
             {
                 var requestedEmptyPagedShape = page.HasValue || pageSize.HasValue;
-                if (requestedEmptyPagedShape) return Results.Ok(new PagedResult<object>(Array.Empty<object>(), Math.Max(1, page ?? 1), Math.Clamp(pageSize ?? 20, 1, 50), 0, false));
-                return Results.Ok(Array.Empty<object>());
+                if (requestedEmptyPagedShape) return Microsoft.AspNetCore.Http.Results.Ok(new PagedResult<object>(Array.Empty<object>(), System.Math.Max(1, page ?? 1), System.Math.Clamp(pageSize ?? 20, 1, 50), 0, false));
+                return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<object>());
             }
 
             var aggregated = activityRows
@@ -118,12 +118,12 @@ internal static partial class SolutionsApiEndpoints
             var filtered = aggregated
                 .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
                 .Where(x => x.User == null || x.User.ShowInLeaderboard)
-                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= Math.Max(1, Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
+                .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             var requestedPagedShape = page.HasValue || pageSize.HasValue;
-            var currentPage = Math.Max(1, page ?? 1);
-            var size = requestedPagedShape ? Math.Clamp(pageSize ?? 20, 1, 50) : Math.Clamp(top, 1, 200);
+            var currentPage = System.Math.Max(1, page ?? 1);
+            var size = requestedPagedShape ? System.Math.Clamp(pageSize ?? 20, 1, 50) : System.Math.Clamp(top, 1, 200);
             var offset = requestedPagedShape ? (currentPage - 1) * size : 0;
             var total = filtered.Count;
 
@@ -158,13 +158,13 @@ internal static partial class SolutionsApiEndpoints
 
             if (requestedPagedShape)
             {
-                return Results.Ok(new PagedResult<object>(visible, currentPage, size, total, offset + visible.Count < total));
+                return Microsoft.AspNetCore.Http.Results.Ok(new PagedResult<object>(visible, currentPage, size, total, offset + visible.Count < total));
             }
 
-            return Results.Ok(visible);
+            return Microsoft.AspNetCore.Http.Results.Ok(visible);
         });
 
-        app.MapGet("/api/admin/leaderboard", async (SolutionsDbContext db) => Results.Ok(await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).ToListAsync()));
+        app.MapGet("/api/admin/leaderboard", async (SolutionsDbContext db) => Microsoft.AspNetCore.Http.Results.Ok(await db.UserRatings.AsNoTracking().OrderByDescending(x => x.TotalScore).ToListAsync()));
 
         return app;
     }

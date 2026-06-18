@@ -29,7 +29,7 @@ internal static class IdentityApiCommonService
         var key = $"{bucket}:{ip}:{normalizedIdentity}";
         if (TaskForgeAuthRateLimiters.Allow(bucket, key)) return null;
 
-        return Results.Json(new
+        return Microsoft.AspNetCore.Http.Results.Json(new
         {
             message = "Слишком много попыток. Подождите немного и попробуйте снова.",
             code = "RATE_LIMITED"
@@ -57,17 +57,17 @@ internal static class IdentityApiCommonService
         var q = NormalizeSearch(text);
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await SortUsers(query, sortBy, sortDir).Take(Math.Clamp(take, 1, 500)).ToListAsync();
+            return await SortUsers(query, sortBy, sortDir).Take(System.Math.Clamp(take, 1, 500)).ToListAsync();
         }
 
         var rows = await query.Take(5000).ToListAsync();
-        var maxDistance = Math.Max(1, Math.Min(4, q.Length / 3));
+        var maxDistance = System.Math.Max(1, System.Math.Min(4, q.Length / 3));
         return rows
             .Select(u => new { User = u, Score = UserSearchScore(u, q) })
             .Where(x => x.Score <= maxDistance || UserSearchHaystack(x.User).Contains(q, StringComparison.OrdinalIgnoreCase))
             .OrderBy(x => x.Score)
             .ThenBy(x => x.User.Login ?? x.User.Email ?? x.User.Id.ToString())
-            .Take(Math.Clamp(take, 1, 500))
+            .Take(System.Math.Clamp(take, 1, 500))
             .Select(x => x.User)
             .ToList();
     }
@@ -101,7 +101,7 @@ internal static class IdentityApiCommonService
             for (var j = 1; j <= b.Length; j++)
             {
                 var cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                cur[j] = Math.Min(Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                cur[j] = System.Math.Min(System.Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
             }
             (prev, cur) = (cur, prev);
         }
@@ -200,7 +200,7 @@ internal static class IdentityApiCommonService
         }
     }
 
-    internal static IResult Unauthorized(string message, string code = "UNAUTHORIZED") => Results.Json(new { message, code, severity = "warning" }, statusCode: StatusCodes.Status401Unauthorized);
+    internal static IResult Unauthorized(string message, string code = "UNAUTHORIZED") => Microsoft.AspNetCore.Http.Results.Json(new { message, code, severity = "warning" }, statusCode: StatusCodes.Status401Unauthorized);
 
     internal static bool IsUnsafeProductionSecret(string? value, int minLength)
     {

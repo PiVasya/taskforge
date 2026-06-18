@@ -17,7 +17,7 @@ internal static partial class ObservabilityApiEndpoints
     {
         app.MapGet("/api/admin/analytics/overview", async (ObservabilityDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, int days = 30, CancellationToken ct = default) =>
         {
-            days = Math.Clamp(days, 1, 365);
+            days = System.Math.Clamp(days, 1, 365);
             var now = DateTimeOffset.UtcNow;
             var since = now.AddDays(-days);
             var prevSince = since.AddDays(-days);
@@ -34,9 +34,9 @@ internal static partial class ObservabilityApiEndpoints
             var prevActiveUserCount = prevViews.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().Count();
             var avgLatency = AvgDuration(views);
             var prevAvgLatency = AvgDuration(prevViews);
-            var assignmentSuccessRate = Percent(successAssignmentViews.Count, Math.Max(1, assignmentViews.Count));
+            var assignmentSuccessRate = Percent(successAssignmentViews.Count, System.Math.Max(1, assignmentViews.Count));
             var prevAssignmentViews = prevViews.Where(IsAssignmentActivity).ToList();
-            var prevSuccessRate = Percent(prevAssignmentViews.Count(IsSuccess), Math.Max(1, prevAssignmentViews.Count));
+            var prevSuccessRate = Percent(prevAssignmentViews.Count(IsSuccess), System.Math.Max(1, prevAssignmentViews.Count));
 
             var userRows = views.Where(x => x.UserId.HasValue).GroupBy(x => x.UserId!.Value).Select(g =>
             {
@@ -90,7 +90,7 @@ internal static partial class ObservabilityApiEndpoints
 
             var hardAssignments = assignmentRows.Where(x => x.attempts >= 2).OrderBy(x => x.successRate).ThenByDescending(x => x.attempts).Take(20).ToList();
 
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 periodDays = days,
                 users = new
@@ -159,18 +159,18 @@ internal static partial class ObservabilityApiEndpoints
             {
                 var u = users.GetValueOrDefault(x.userId);
                 return new { userId = x.userId, login = u?.Login, fullName = UserLabel(u), displayName = UserLabel(u), email = u?.Email ?? u?.MaskedEmail, role = u?.Role ?? "User", value = x.requests, requests = x.requests, lastSeenAt = x.lastSeenAt, lastLoginAt = x.lastLoginAt ?? x.lastSeenAt };
-            }).Where(x => string.IsNullOrWhiteSpace(query) || NormalizeSearch($"{x.fullName} {x.email} {x.role}").Contains(query)).Take(Math.Clamp(take, 1, 100)).ToList();
-            return Results.Ok(result);
+            }).Where(x => string.IsNullOrWhiteSpace(query) || NormalizeSearch($"{x.fullName} {x.email} {x.role}").Contains(query)).Take(System.Math.Clamp(take, 1, 100)).ToList();
+            return Microsoft.AspNetCore.Http.Results.Ok(result);
         });
 
         app.MapGet("/api/admin/analytics/users/{userId:guid}", async (Guid userId, ObservabilityDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, int days = 30, CancellationToken ct = default) =>
         {
-            days = Math.Clamp(days, 1, 365);
+            days = System.Math.Clamp(days, 1, 365);
             var since = DateTimeOffset.UtcNow.AddDays(-days);
             var rows = await db.PageViews.AsNoTracking().Where(x => x.UserId == userId && x.CreatedAt >= since).OrderByDescending(x => x.CreatedAt).Take(1000).ToListAsync(ct);
             var users = await LoadUserSummariesAsync(new[] { userId }, cfg, httpFactory, ct);
             var u = users.GetValueOrDefault(userId);
-            return Results.Ok(new
+            return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 userId,
                 periodDays = days,

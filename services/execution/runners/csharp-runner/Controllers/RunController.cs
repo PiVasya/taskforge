@@ -123,7 +123,7 @@ public sealed class RunController : ControllerBase
     private static TimeSpan Timeout(int? timeLimitMs)
     {
         var ms = timeLimitMs.GetValueOrDefault(3000);
-        ms = Math.Clamp(ms <= 0 ? 3000 : ms, 500, 30000);
+        ms = System.Math.Clamp(ms <= 0 ? 3000 : ms, 500, 30000);
         return TimeSpan.FromMilliseconds(ms + 1000);
     }
 

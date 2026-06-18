@@ -91,7 +91,7 @@ internal static class FilesApiImageService
             return Problem(503, "FILE_METADATA_SAVE_FAILED", "database.metadata_save", "Файл загружен в MinIO, но не удалось сохранить метаданные в БД. Повторите действие или проверьте files-api/PostgreSQL.", ex.Message);
         }
 
-        return Results.Ok(new
+        return Microsoft.AspNetCore.Http.Results.Ok(new
         {
             item.Id,
             item.FileName,
@@ -108,7 +108,7 @@ internal static class FilesApiImageService
     {
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         await using var stream = file.OpenReadStream();
-        var header = new byte[Math.Min(32, Math.Max(0, (int)Math.Min(file.Length, 32)))] ;
+        var header = new byte[System.Math.Min(32, System.Math.Max(0, (int)System.Math.Min(file.Length, 32)))] ;
         var read = header.Length == 0 ? 0 : await stream.ReadAsync(header.AsMemory(0, header.Length), ct);
         var detected = DetectImage(header.AsSpan(0, read), ext);
         if (detected is null)
@@ -152,7 +152,7 @@ internal static class FilesApiImageService
             http.Response.Headers.CacheControl = publicRoute
                 ? "public,max-age=31536000,immutable"
                 : "private,max-age=0,no-store";
-            return Results.File(resp.ResponseStream, string.IsNullOrWhiteSpace(resp.Headers.ContentType) ? "application/octet-stream" : resp.Headers.ContentType, fileName, enableRangeProcessing: true);
+            return Microsoft.AspNetCore.Http.Results.File(resp.ResponseStream, string.IsNullOrWhiteSpace(resp.Headers.ContentType) ? "application/octet-stream" : resp.Headers.ContentType, fileName, enableRangeProcessing: true);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {

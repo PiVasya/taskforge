@@ -31,7 +31,7 @@ internal static partial class IdentityApiEndpoints
             if (ids.Length == 0)
             {
                 TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, Array.Empty<UserSummaryDto>());
-                return Results.Ok(Array.Empty<UserSummaryDto>());
+                return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<UserSummaryDto>());
             }
 
             var key = TaskForgeCache.Key("identity:user-summaries:v3", ids);
@@ -44,7 +44,7 @@ internal static partial class IdentityApiEndpoints
             }, ct);
 
             TaskForgeDebugTrace.UserSummaryServed("identity-api", ids, result);
-            return Results.Ok(result);
+            return Microsoft.AspNetCore.Http.Results.Ok(result);
         });
 
         return app;

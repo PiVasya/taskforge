@@ -86,7 +86,7 @@ public static partial class CourseAgentTools
             ["available"] = true,
             ["min"] = values.Min(),
             ["max"] = values.Max(),
-            ["average"] = Math.Round(values.Average(), 2)
+            ["average"] = System.Math.Round(values.Average(), 2)
         };
     }
 
@@ -161,13 +161,13 @@ public static partial class CourseAgentTools
         return 4;
     }
 
-    private static int RoundToNearest5(int value) => (int)(Math.Round(value / 5.0) * 5);
+    private static int RoundToNearest5(int value) => (int)(System.Math.Round(value / 5.0) * 5);
 
     private static int? GetIntNode(JsonNode? node)
     {
         if (node is null) return null;
         if (int.TryParse(node.ToString(), out var value)) return value;
-        if (double.TryParse(node.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number)) return (int)Math.Round(number);
+        if (double.TryParse(node.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number)) return (int)System.Math.Round(number);
         return null;
     }
 

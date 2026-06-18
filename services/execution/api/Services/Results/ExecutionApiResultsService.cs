@@ -17,7 +17,7 @@ internal static class ExecutionApiResultsService
         var language = NormalizeLanguage(request.Language);
         var service = RunnerService(language, image);
         var port = image ? 8000 : 8080;
-        if (service == null) return Results.BadRequest(new { message = $"Unsupported language: {request.Language}" });
+        if (service == null) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = $"Unsupported language: {request.Language}" });
 
         var client = factory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(40);
@@ -30,11 +30,11 @@ internal static class ExecutionApiResultsService
         {
             using var response = await client.PostAsJsonAsync(url, payload);
             var text = await response.Content.ReadAsStringAsync();
-            return Results.Content(text, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+            return Microsoft.AspNetCore.Http.Results.Content(text, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
         }
         catch (Exception ex)
         {
-            return Results.Json(new { status = "runner_unavailable", message = ex.Message, runner = service }, statusCode: 503);
+            return Microsoft.AspNetCore.Http.Results.Json(new { status = "runner_unavailable", message = ex.Message, runner = service }, statusCode: 503);
         }
     }
 

@@ -25,19 +25,19 @@ internal static partial class AiApiEndpoints
         app.MapGet("/api/agent/conversations", async (HttpContext http, IConfiguration cfg, AiDbContext db, Guid? courseId, Guid? assignmentId) =>
         {
             var uid = CurrentUserId(http, cfg);
-            if (uid == null) return Results.Unauthorized();
+            if (uid == null) return Microsoft.AspNetCore.Http.Results.Unauthorized();
             var q = db.Conversations.AsNoTracking();
             if (!IsEditorOrAdmin(http)) q = q.Where(x => x.UserId == uid.Value);
             if (courseId.HasValue) q = q.Where(x => x.CourseId == courseId.Value);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
             var rows = await q.OrderByDescending(x => x.UpdatedAtUtc).Take(100).ToListAsync();
-            return Results.Ok(rows.Select(ToConversationDto).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(ToConversationDto).ToList());
         });
 
         app.MapPost("/api/agent/conversations", async (JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) =>
         {
             var uid = CurrentUserId(http, cfg);
-            if (uid == null) return Results.Unauthorized();
+            if (uid == null) return Microsoft.AspNetCore.Http.Results.Unauthorized();
             var title = payload.TryGetProperty("title", out var t) ? t.GetString() : null;
             var c = new AiConversation
             {
@@ -49,26 +49,26 @@ internal static partial class AiApiEndpoints
             };
             db.Conversations.Add(c);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { conversation = ToConversationDto(c) });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { conversation = ToConversationDto(c) });
         });
 
         app.MapGet("/api/agent/conversations/{conversationId:guid}", async (Guid conversationId, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) =>
         {
             var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: true);
-            if (c == null) return Results.NotFound();
+            if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             var messageRows = await db.Messages.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync(ct);
             var runRows = await db.Runs.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
             var stepRows = await db.Steps.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.Seq).ThenBy(x => x.CreatedAtUtc).ToListAsync(ct);
             var artifactRows = await db.Artifacts.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync(ct);
             var messages = messageRows.Select(m => ToMessageDto(m, m.RunId.HasValue ? artifactRows.Where(a => a.RunId == m.RunId.Value).ToList() : null)).ToList();
             var runs = runRows.Select(r => ToRunDto(r, artifactRows.Where(a => a.RunId == r.Id).ToList(), stepRows.Where(st => st.RunId == r.Id).ToList())).ToList();
-            return Results.Ok(new { conversation = ToConversationDto(c), messages, runs, artifacts = artifactRows.Select(ToArtifactDto).ToList() });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { conversation = ToConversationDto(c), messages, runs, artifacts = artifactRows.Select(ToArtifactDto).ToList() });
         });
 
         app.MapPost("/api/agent/conversations/{conversationId:guid}/messages", async (Guid conversationId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {
             var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
-            if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
+            if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
 
             var text = ReadMessageText(payload);
             var clientId = payload.TryGetProperty("clientMessageId", out var cmid) ? cmid.GetString() : null;
@@ -93,7 +93,7 @@ internal static partial class AiApiEndpoints
             var runDto = ToRunDto(run);
             await BroadcastAgentEventAsync(hub, conversationId, "message.created", new { message = messageDto }, ct);
             await BroadcastAgentEventAsync(hub, conversationId, "run.created", new { run = runDto }, ct);
-            return Results.Ok(new { conversation = ToConversationDto(c), message = messageDto, run = runDto, queued = true });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { conversation = ToConversationDto(c), message = messageDto, run = runDto, queued = true });
         });
 
         app.MapPost("/api/agent/conversations/{conversationId:guid}/attachments", async (Guid conversationId, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) => await SaveAttachment(conversationId, request, http, cfg, db, ct)).DisableAntiforgery();
@@ -105,14 +105,14 @@ internal static partial class AiApiEndpoints
         app.MapPost("/api/agent/runs/{runId:guid}/cancel", async (Guid runId, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {
             var run = await db.Runs.FindAsync(new object?[] { runId }, ct);
-            if (run == null) return Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
+            if (run == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обработка не найдена.", code = "AI_RUN_NOT_FOUND" });
             var c = await GetConversationForUser(run.ConversationId, http, cfg, db, asNoTracking: true);
-            if (c == null) return Results.Json(new { message = "Нет доступа к этой обработке.", code = "AI_RUN_FORBIDDEN" }, statusCode: 403);
+            if (c == null) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этой обработке.", code = "AI_RUN_FORBIDDEN" }, statusCode: 403);
             run.Status = "canceled";
             run.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             await BroadcastAgentEventAsync(hub, run.ConversationId, "run.updated", new { run = ToRunDto(run), runId, status = "canceled" }, ct);
-            return Results.Ok(new { runId, status = "canceled" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { runId, status = "canceled" });
         });
 
         app.MapPost("/api/agent/artifacts/{artifactId:guid}/apply", async (Guid artifactId, JsonElement payload, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, CancellationToken ct) => await ApplyArtifact(null, artifactId, payload, request, http, cfg, db, factory, ct));
@@ -122,7 +122,7 @@ internal static partial class AiApiEndpoints
         app.MapGet("/api/agent/conversations/{conversationId:guid}/debug-dump", async (Guid conversationId, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) =>
         {
             var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: true);
-            if (c == null) return Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
+            if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
 
             var messages = await db.Messages.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync(ct);
             var runs = await db.Runs.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAtUtc).ToListAsync(ct);
@@ -196,7 +196,7 @@ internal static partial class AiApiEndpoints
                 sb.AppendLine();
             }
 
-            return Results.Text(sb.ToString(), "text/plain");
+            return Microsoft.AspNetCore.Http.Results.Text(sb.ToString(), "text/plain");
         });
 
         return app;

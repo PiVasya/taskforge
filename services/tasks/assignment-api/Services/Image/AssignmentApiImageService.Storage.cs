@@ -105,7 +105,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
         var referenceKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
         var referenceBase64 = StripDataUrl(NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64"));
@@ -119,7 +119,7 @@ internal static partial class AssignmentApiImageService
         await using var actualMs = new MemoryStream();
         await actual.CopyToAsync(actualMs);
         var thresholdPercent = JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90);
-        var threshold = Math.Clamp(thresholdPercent / 100.0, 0.0, 1.0);
+        var threshold = System.Math.Clamp(thresholdPercent / 100.0, 0.0, 1.0);
         try
         {
             var client = clients.CreateClient();
@@ -138,7 +138,7 @@ internal static partial class AssignmentApiImageService
             var combined = json.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
             var clip = json.TryGetProperty("clip_similarity", out var cl) && cl.TryGetDouble(out var clv) ? clv : combined;
             var passed = json.TryGetProperty("passed", out var p) && p.ValueKind == JsonValueKind.True;
-            return Results.Ok(new { passed, similarity = Math.Round(combined * 100, 2), clipSimilarity = Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json, referenceUrl = IsEditor(http, cfg) ? expectedSpec.ExpectedImageUrl : null });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { passed, similarity = System.Math.Round(combined * 100, 2), clipSimilarity = System.Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json, referenceUrl = IsEditor(http, cfg) ? expectedSpec.ExpectedImageUrl : null });
         }
         catch (Exception ex)
         {

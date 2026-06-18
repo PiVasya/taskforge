@@ -17,11 +17,11 @@ internal static partial class MinecraftApiEndpoints
 {
     private static WebApplication MapChatEndpoints(WebApplication app)
     {
-        app.MapGet("/api/integrations/minecraft/chat/meta", () => Results.Ok(new { enabled = true, maxLength = 500 }));
+        app.MapGet("/api/integrations/minecraft/chat/meta", () => Microsoft.AspNetCore.Http.Results.Ok(new { enabled = true, maxLength = 500 }));
 
-        app.MapGet("/api/integrations/minecraft/chat/messages", async (MinecraftDbContext db, CancellationToken ct) => Results.Ok(await db.ChatMessages.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).OrderBy(x => x.CreatedAt).ToListAsync(ct)));
+        app.MapGet("/api/integrations/minecraft/chat/messages", async (MinecraftDbContext db, CancellationToken ct) => Microsoft.AspNetCore.Http.Results.Ok(await db.ChatMessages.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).OrderBy(x => x.CreatedAt).ToListAsync(ct)));
 
-        app.MapPost("/api/integrations/minecraft/chat/messages", async (MinecraftChatRequest req, MinecraftDbContext db, CancellationToken ct) => { var msg = new MinecraftChatMessage { Author = string.IsNullOrWhiteSpace(req.Author) ? "web" : req.Author!, Text = req.Text ?? string.Empty }; db.ChatMessages.Add(msg); await db.SaveChangesAsync(ct); return Results.Ok(msg); });
+        app.MapPost("/api/integrations/minecraft/chat/messages", async (MinecraftChatRequest req, MinecraftDbContext db, CancellationToken ct) => { var msg = new MinecraftChatMessage { Author = string.IsNullOrWhiteSpace(req.Author) ? "web" : req.Author!, Text = req.Text ?? string.Empty }; db.ChatMessages.Add(msg); await db.SaveChangesAsync(ct); return Microsoft.AspNetCore.Http.Results.Ok(msg); });
 
         app.MapHub<MinecraftChatHub>("/hubs/minecraft-chat");
 
