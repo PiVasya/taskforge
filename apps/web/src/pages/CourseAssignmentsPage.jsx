@@ -619,6 +619,25 @@ export default function CourseAssignmentsPage() {
 
   const sortMode = params.get("sort") || "default";
 
+  useEffect(() => {
+    if (!jsonImportDiffOpen) return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !jsonImportBusy) {
+        setJsonImportDiffOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [jsonImportDiffOpen, jsonImportBusy]);
+
   const reloadAssignments = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
@@ -1046,105 +1065,112 @@ export default function CourseAssignmentsPage() {
 
 
       {jsonImportDiffOpen && jsonImportDiff && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/55 px-3 py-6 sm:px-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy) setJsonImportDiffOpen(false); }}>
-          <Card className="mx-auto w-full max-w-6xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
-            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xl font-semibold">
-                  <GitCompare size={20} /> Дифф JSON-импорта
+        <div
+          className="fixed inset-0 z-[9999] flex h-[100dvh] items-center justify-center overflow-hidden bg-black/65 p-3 sm:p-5"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy) setJsonImportDiffOpen(false); }}
+        >
+          <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
+            <div className="shrink-0 border-b border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))] px-4 py-4 sm:px-6">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-xl font-semibold">
+                    <GitCompare size={20} /> Дифф JSON-импорта
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-neutral-500">
+                    Проверь, что будет создано или обновлено. Изменения применятся только после кнопки «Применить».
+                  </p>
                 </div>
-                <p className="mt-1 text-sm leading-6 text-neutral-500">
-                  Проверь, что будет создано или обновлено. Изменения применятся только после кнопки «Применить».
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
-                  <X size={16} /> Назад
-                </Button>
-                <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0}>
-                  <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Применить изменения"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
+                    <X size={16} /> Назад
+                  </Button>
+                  <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0}>
+                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Применить изменения"}
+                  </Button>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-4">
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500">Всего</div>
-                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.total}</div>
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                  <div className="text-xs text-neutral-500">Всего</div>
+                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.total}</div>
+                </div>
+                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                  <div className="text-xs text-neutral-500">Создать</div>
+                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.createCount}</div>
+                </div>
+                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                  <div className="text-xs text-neutral-500">Обновить</div>
+                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.updateCount}</div>
+                </div>
+                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
+                  <div className="text-xs text-neutral-500">Без изменений</div>
+                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.unchangedCount}</div>
+                </div>
               </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500">Создать</div>
-                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.createCount}</div>
-              </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500">Обновить</div>
-                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.updateCount}</div>
-              </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500">Без изменений</div>
-                <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.unchangedCount}</div>
-              </div>
-            </div>
 
-            {(jsonImportDiff.withoutIdCount > 0 || jsonImportDiff.duplicateTitleCount > 0) && (
-              <div className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                  <div>
-                    {jsonImportDiff.withoutIdCount > 0 ? <div>Заданий без <code>id</code>: {jsonImportDiff.withoutIdCount}. Они будут созданы как новые, а не заменят существующие.</div> : null}
-                    {jsonImportDiff.duplicateTitleCount > 0 ? <div>Есть новые задания с названием, которое уже встречается в курсе. Это может создать дубли, если нейронка не сохранила <code>id</code>.</div> : null}
+              {(jsonImportDiff.withoutIdCount > 0 || jsonImportDiff.duplicateTitleCount > 0) && (
+                <div className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                    <div>
+                      {jsonImportDiff.withoutIdCount > 0 ? <div>Заданий без <code>id</code>: {jsonImportDiff.withoutIdCount}. Они будут созданы как новые, а не заменят существующие.</div> : null}
+                      {jsonImportDiff.duplicateTitleCount > 0 ? <div>Есть новые задания с названием, которое уже встречается в курсе. Это может создать дубли, если нейронка не сохранила <code>id</code>.</div> : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="mt-4 max-h-[62vh] space-y-3 overflow-y-auto pr-1">
-              {jsonImportDiff.rows.map((row) => (
-                <div key={`${row.index}-${row.id || row.title}`} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={row.action === "create" ? "success" : row.action === "update" ? "outline" : "secondary"}>
-                          {row.action === "create" ? "Создать" : row.action === "update" ? "Обновить" : "Без изменений"}
-                        </Badge>
-                        <Badge variant="outline">{row.type}</Badge>
-                        {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
+              <div className="mt-4 space-y-3 pb-2">
+                {jsonImportDiff.rows.map((row) => (
+                  <div key={`${row.index}-${row.id || row.title}`} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={row.action === "create" ? "success" : row.action === "update" ? "outline" : "secondary"}>
+                            {row.action === "create" ? "Создать" : row.action === "update" ? "Обновить" : "Без изменений"}
+                          </Badge>
+                          <Badge variant="outline">{row.type}</Badge>
+                          {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
+                        </div>
+                        <div className="mt-2 break-words font-semibold">{row.title}</div>
+                        <div className="mt-1 break-all text-xs text-neutral-500">id: {row.id || "нет id"}</div>
                       </div>
-                      <div className="mt-2 break-words font-semibold">{row.title}</div>
-                      <div className="mt-1 break-all text-xs text-neutral-500">id: {row.id || "нет id"}</div>
+                      <div className="text-xs text-neutral-500">#{row.index + 1}</div>
                     </div>
-                    <div className="text-xs text-neutral-500">#{row.index + 1}</div>
-                  </div>
 
-                  {row.action === "create" ? (
-                    <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                      Новое задание. Полный текст будет взят из JSON.
-                    </div>
-                  ) : row.changes.length ? (
-                    <div className="mt-3 space-y-2">
-                      {row.changes.map((change) => (
-                        <div key={change.key} className="rounded-xl border border-[rgba(var(--border)/0.65)] p-3">
-                          <div className="mb-2 text-sm font-semibold">{change.label}</div>
-                          <div className="grid gap-2 lg:grid-cols-2">
-                            <div>
-                              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Было</div>
-                              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.before)}</pre>
-                            </div>
-                            <div>
-                              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Станет</div>
-                              <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.after)}</pre>
+                    {row.action === "create" ? (
+                      <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
+                        Новое задание. Полный текст будет взят из JSON.
+                      </div>
+                    ) : row.changes.length ? (
+                      <div className="mt-3 space-y-2">
+                        {row.changes.map((change) => (
+                          <div key={change.key} className="rounded-xl border border-[rgba(var(--border)/0.65)] p-3">
+                            <div className="mb-2 text-sm font-semibold">{change.label}</div>
+                            <div className="grid gap-2 lg:grid-cols-2">
+                              <div>
+                                <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Было</div>
+                                <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.before)}</pre>
+                              </div>
+                              <div>
+                                <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Станет</div>
+                                <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.after)}</pre>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                      Задание найдено по id, но в поддерживаемых полях изменений не обнаружено.
-                    </div>
-                  )}
-                </div>
-              ))}
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
+                        Задание найдено по id, но в поддерживаемых полях изменений не обнаружено.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </Card>
         </div>
