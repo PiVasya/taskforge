@@ -555,12 +555,12 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         ctx.save();
         const gx = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w,h)*0.75);
         if (isDarkTheme()) {
-          gx.addColorStop(0, 'rgba(35,50,120,0.08)');
-          gx.addColorStop(0.35, 'rgba(20,30,80,0.04)');
+          gx.addColorStop(0, rgba(fx1, 0.08));
+          gx.addColorStop(0.35, rgba(fx2, 0.04));
           gx.addColorStop(1, 'rgba(0,0,0,0)');
         } else {
-          gx.addColorStop(0, 'rgba(200,220,255,0.05)');
-          gx.addColorStop(0.35, 'rgba(180,200,240,0.02)');
+          gx.addColorStop(0, rgba(fx1, 0.05));
+          gx.addColorStop(0.35, rgba(fx2, 0.025));
           gx.addColorStop(1, 'rgba(255,255,255,0)');
         }
         ctx.fillStyle = gx;

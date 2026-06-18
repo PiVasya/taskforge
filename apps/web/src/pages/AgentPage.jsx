@@ -753,7 +753,7 @@ function PatchDiffCard({ patch, index }) {
     : changes.map((change) => ({
         header: `@@ assignment.${change.field || 'field'} @@`,
         lines: [
-          { type: 'context', text: `// ${patch?.title || `Задание ${index + 1}`}` },
+          { type: 'context', text: `${patch?.title || `Задание ${index + 1}`}` },
           { type: 'removed', text: `"${change.field}": ${formatDiffValue(change.oldValue)}` },
           { type: 'added', text: `"${change.field}": ${formatDiffValue(change.newValue)}` },
         ],

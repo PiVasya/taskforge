@@ -677,8 +677,8 @@ export default function AssignmentEditPage() {
                         onChange={(e) => setStarterCode(e.target.value)}
                         placeholder={
                           type === "image-test"
-                            ? "# Этот код появится у ученика при открытии image-test\nimport turtle\n\nt = turtle.Turtle()\n# Нарисуйте решение здесь"
-                            : "using System;\n\nclass Program\n{\n    static void Main()\n    {\n        // Ваш код здесь\n    }\n}"
+                            ? "import turtle\n\nt = turtle.Turtle()"
+                            : "using System;\n\nclass Program\n{\n    static void Main()\n    {\n        \n    }\n}"
                         }
                       />
                     </Field>

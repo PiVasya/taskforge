@@ -1,6 +1,102 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 
+function cssRgbToHex(value, fallback) {
+  const text = String(value || '').trim();
+  const parts = text.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map((n) => Math.max(0, Math.min(255, Number(n))));
+  if (!parts || parts.length < 3 || parts.some((n) => Number.isNaN(n))) return fallback;
+  return parts.map((n) => Math.round(n).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+function readThemeHex(name, fallback) {
+  const styles = getComputedStyle(document.documentElement);
+  return cssRgbToHex(styles.getPropertyValue(name), fallback);
+}
+
+function withAlpha(hex, alpha) {
+  const clean = String(hex || '').replace('#', '').slice(0, 6).padEnd(6, '0');
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+  return `${clean}${a}`.toUpperCase();
+}
+
+function defineDynamicMonacoThemes(monaco) {
+  if (!monaco || typeof document === 'undefined') return;
+
+  const accent = readThemeHex('--accent', '2563EB');
+  const accent2 = readThemeHex('--accent2', accent);
+  const accent3 = readThemeHex('--accent3', accent2);
+  const text = readThemeHex('--text', '0F172A');
+  const muted = readThemeHex('--text-muted', '64748B');
+  const card = readThemeHex('--card', 'FFFFFF');
+  const page = readThemeHex('--page-bg', 'F8FAFC');
+  const border = readThemeHex('--border', 'CBD5E1');
+
+  monaco.editor.defineTheme('taskforge-dynamic-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: '', foreground: 'D8DEE9' },
+      { token: 'comment', foreground: muted },
+      { token: 'string', foreground: accent3 },
+      { token: 'number', foreground: accent2 },
+      { token: 'keyword', foreground: accent, fontStyle: 'bold' },
+      { token: 'type', foreground: accent2 },
+      { token: 'function', foreground: 'F8FAFC' },
+      { token: 'identifier', foreground: 'D8DEE9' },
+    ],
+    colors: {
+      'editor.background': '#0f1115',
+      'editorGutter.background': '#0f1115',
+      'editor.foreground': '#D8DEE9',
+      'editorLineNumber.foreground': `#${withAlpha(muted, 0.72)}`,
+      'editorLineNumber.activeForeground': `#${accent2}`,
+      'editor.selectionBackground': `#${withAlpha(accent, 0.30)}`,
+      'editor.inactiveSelectionBackground': `#${withAlpha(accent, 0.18)}`,
+      'editor.lineHighlightBackground': `#${withAlpha(accent, 0.10)}`,
+      'editorCursor.foreground': `#${accent2}`,
+      'scrollbarSlider.background': `#${withAlpha(border, 0.40)}`,
+      'scrollbarSlider.hoverBackground': `#${withAlpha(accent, 0.38)}`,
+      'scrollbarSlider.activeBackground': `#${withAlpha(accent, 0.55)}`,
+      'editorIndentGuide.background': `#${withAlpha(border, 0.38)}`,
+      'editorIndentGuide.activeBackground': `#${withAlpha(accent, 0.55)}`,
+      'editorWidget.background': '#12151b',
+      'editorWidget.border': `#${withAlpha(border, 0.65)}`,
+      'editorSuggestWidget.background': '#12151b',
+      'editorSuggestWidget.border': `#${withAlpha(border, 0.65)}`,
+      'editorSuggestWidget.selectedBackground': `#${withAlpha(accent, 0.25)}`,
+      'list.hoverBackground': `#${withAlpha(accent, 0.14)}`,
+      'focusBorder': `#${accent}`,
+    },
+  });
+
+  monaco.editor.defineTheme('taskforge-dynamic-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: muted },
+      { token: 'string', foreground: accent2 },
+      { token: 'number', foreground: accent },
+      { token: 'keyword', foreground: accent, fontStyle: 'bold' },
+      { token: 'type', foreground: accent2 },
+      { token: 'function', foreground: text },
+      { token: 'identifier', foreground: text },
+    ],
+    colors: {
+      'editor.background': `#${card}`,
+      'editorGutter.background': `#${card}`,
+      'editor.foreground': `#${text}`,
+      'editorLineNumber.foreground': `#${muted}`,
+      'editorLineNumber.activeForeground': `#${accent}`,
+      'editor.selectionBackground': `#${withAlpha(accent, 0.24)}`,
+      'editor.inactiveSelectionBackground': `#${withAlpha(accent, 0.14)}`,
+      'editor.lineHighlightBackground': `#${withAlpha(page, 0.92)}`,
+      'editorIndentGuide.background': `#${withAlpha(border, 0.60)}`,
+      'editorIndentGuide.activeBackground': `#${withAlpha(accent, 0.45)}`,
+      'focusBorder': `#${accent}`,
+    },
+  });
+}
+
 
 export default function CodeEditor({
   language = 'cpp',
@@ -48,17 +144,13 @@ export default function CodeEditor({
 
   
   const pickThemeName = useCallback(() => {
-    const root = document.documentElement;
-    const pink = root.classList.contains('pink');
-    const apple = root.classList.contains('apple');
-    const dark = root.classList.contains('dark');
-    if (pink) return dark ? 'taskforge-pink-dark' : 'taskforge-pink-light';
-    if (apple) return dark ? 'taskforge-apple-dark' : 'taskforge-apple-light';
-    return dark ? 'taskforge-brand-dark' : 'taskforge-brand-light';
+    const dark = document.documentElement.classList.contains('dark');
+    return dark ? 'taskforge-dynamic-dark' : 'taskforge-dynamic-light';
   }, []);
 
   
   const handleBeforeMount = useCallback((monaco) => {
+    defineDynamicMonacoThemes(monaco);
     
     monaco.editor.defineTheme('taskforge-brand-dark', {
       base: 'vs-dark',
@@ -293,6 +385,7 @@ export default function CodeEditor({
       const dark = document.documentElement.classList.contains('dark');
       setIsDark(dark);
       try {
+        if (monacoRef.current) defineDynamicMonacoThemes(monacoRef.current);
         monacoRef.current?.editor?.setTheme(pickThemeName());
       } catch {}
     });

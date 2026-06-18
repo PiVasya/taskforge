@@ -121,8 +121,7 @@ const faqItems = [
 const checkSteps = [
   "Код получен",
   "Запуск проверки",
-  "Тест 1: пройден",
-  "Тест 2: пройден",
+  "Тест вывода: пройден",
   "Задание решено",
 ];
 
@@ -143,8 +142,8 @@ function SolutionCheckDemo() {
       <div className="landing-check-task">
         <div>
           <div className="landing-preview-kicker">TaskForge</div>
-          <h3>Сумма двух чисел</h3>
-          <p>Прочитай два числа и выведи их сумму.</p>
+          <h3>Hello World на C++</h3>
+          <p>Базовая программа выводит приветствие на экран.</p>
         </div>
         <div className="landing-check-result-badge">
           <CheckCircle2 size={18} />
@@ -155,11 +154,11 @@ function SolutionCheckDemo() {
       <div className="landing-check-io" aria-label="Пример входных и выходных данных">
         <div>
           <span>Ввод</span>
-          <strong>2 3</strong>
+          <strong>не требуется</strong>
         </div>
         <div>
           <span>Вывод</span>
-          <strong>5</strong>
+          <strong>Hello, World!</strong>
         </div>
       </div>
 
@@ -168,11 +167,26 @@ function SolutionCheckDemo() {
           <Code2 size={16} />
           <span>Решение</span>
         </div>
-        <div className="landing-demo-code-line" style={{ "--chars": 34, "--delay": "0.25s" }}>
-          a, b = map(int, input().split())
+        <div className="landing-demo-code-line" style={{ "--chars": 19, "--delay": "0.25s" }}>
+          #include &lt;iostream&gt;
         </div>
-        <div className="landing-demo-code-line" style={{ "--chars": 12, "--delay": "1.55s" }}>
-          print(a + b)
+        <div className="landing-demo-code-line" style={{ "--chars": 20, "--delay": "1.05s" }}>
+          using namespace std;
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 10, "--delay": "1.85s" }}>
+          int main()
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 1, "--delay": "2.35s" }}>
+          {'{'}
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 28, "--delay": "2.65s" }}>
+          &nbsp;&nbsp;&nbsp;&nbsp;cout &lt;&lt; "Hello, World!";
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 13, "--delay": "3.75s" }}>
+          &nbsp;&nbsp;&nbsp;&nbsp;return 0;
+        </div>
+        <div className="landing-demo-code-line" style={{ "--chars": 1, "--delay": "4.35s" }}>
+          {'}'}
         </div>
       </div>
 
@@ -188,7 +202,7 @@ function SolutionCheckDemo() {
 
       <div className="landing-check-steps">
         {checkSteps.map((step, index) => (
-          <div key={step} className="landing-check-step" style={{ "--delay": `${2.85 + index * 0.38}s` }}>
+          <div key={step} className="landing-check-step" style={{ "--delay": `${5.15 + index * 0.38}s` }}>
             <CheckCircle2 size={16} />
             <span>{step}</span>
           </div>
@@ -199,7 +213,7 @@ function SolutionCheckDemo() {
         <CheckCircle2 size={20} />
         <div>
           <strong>Accepted</strong>
-          <span>Все тесты пройдены, прогресс обновлён.</span>
+          <span>Вывод совпал с ожидаемым, прогресс обновлён.</span>
         </div>
         <button type="button" onClick={() => setRunKey((value) => value + 1)} aria-label="Повторить анимацию проверки">
           <RefreshCw size={16} />

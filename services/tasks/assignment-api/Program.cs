@@ -63,6 +63,29 @@ app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, Htt
     return Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
 });
 
+app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+{
+    if (!IsEditor(http, cfg))
+    {
+        return Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var rows = await db.Assignments.AsNoTracking()
+        .Where(x => x.CourseId == courseId)
+        .OrderBy(x => x.Sort)
+        .ThenBy(x => x.CreatedAt)
+        .ToListAsync(ct);
+
+    return Results.Json(new
+    {
+        schemaVersion = 1,
+        format = "taskforge-course-assignment-import",
+        courseId,
+        exportedAt = DateTimeOffset.UtcNow,
+        assignments = rows.Select(ToImportDto).ToList()
+    }, JsonOptions());
+});
+
 app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
 {
     var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
@@ -86,7 +109,7 @@ app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid 
     }
     if (sourceItems.Count > 200)
     {
-        return Results.Json(new { message = "За один импорт можно создать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
+        return Results.Json(new { message = "За один импорт можно обработать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
     }
 
     var requests = new List<AssignmentRequest>();
@@ -99,7 +122,7 @@ app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid 
             var itemIssues = ValidateImportedAssignment(req, i + 1).ToList();
             if (itemIssues.Count > 0)
             {
-                issues.Add(new { index = i + 1, title = req.Title, issues = itemIssues });
+                issues.Add(new { index = i + 1, id = req.Id, title = req.Title, issues = itemIssues });
             }
             requests.Add(req);
         }
@@ -114,20 +137,47 @@ app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid 
         return Results.Json(new { message = "Импорт остановлен: в JSON есть ошибки.", code = "IMPORT_VALIDATION_FAILED", issues }, statusCode: StatusCodes.Status400BadRequest);
     }
 
+    var ids = requests.Select(x => x.Id).Where(x => x.HasValue && x.Value != Guid.Empty).Select(x => x!.Value).Distinct().ToList();
+    var existingById = ids.Count == 0
+        ? new Dictionary<Guid, Assignment>()
+        : await db.Assignments.Where(x => x.CourseId == courseId && ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+    var usedIds = ids.Count == 0
+        ? new HashSet<Guid>()
+        : await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToHashSetAsync(ct);
+
     var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
     var created = new List<Assignment>();
-    for (var i = 0; i < requests.Count; i++)
+    var updated = new List<Assignment>();
+    var nextSort = maxSort + 1;
+
+    foreach (var request in requests)
     {
-        created.Add(await BuildAssignmentEntityAsync(courseId, requests[i], maxSort + 1 + i, clients, cfg, ct));
+        if (request.Id.HasValue && existingById.TryGetValue(request.Id.Value, out var existing))
+        {
+            await ApplyAssignmentRequestAsync(existing, request, clients, cfg, ct);
+            updated.Add(existing);
+            continue;
+        }
+
+        var createRequest = request;
+        if (createRequest.Id.HasValue && usedIds.Contains(createRequest.Id.Value))
+        {
+            createRequest = createRequest with { Id = null };
+        }
+
+        var assignment = await BuildAssignmentEntityAsync(courseId, createRequest, nextSort++, clients, cfg, ct);
+        created.Add(assignment);
     }
 
-    db.Assignments.AddRange(created);
+    if (created.Count > 0) db.Assignments.AddRange(created);
     await db.SaveChangesAsync(ct);
 
     return Results.Ok(new
     {
         createdCount = created.Count,
-        assignments = created.Select(x => ToDto(x, includeSensitive: true)).ToList()
+        updatedCount = updated.Count,
+        totalCount = created.Count + updated.Count,
+        assignments = created.Concat(updated).Select(x => ToDto(x, includeSensitive: true)).ToList()
     });
 });
 
@@ -247,32 +297,7 @@ app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, Ass
 {
     var assignment = await db.Assignments.FindAsync(assignmentId);
     if (assignment == null) return Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-    if (!string.IsNullOrWhiteSpace(request.Title)) assignment.Title = request.Title.Trim();
-    assignment.Description = request.Description ?? assignment.Description;
-    if (!string.IsNullOrWhiteSpace(request.Type)) assignment.Type = request.Type.Trim();
-    if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
-    if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
-    if (request.Tags != null) assignment.Tags = request.Tags;
-    if (request.Difficulty.HasValue) assignment.Difficulty = Math.Clamp(request.Difficulty.Value, 1, 3);
-    if (request.Rating.HasValue) assignment.Rating = Math.Max(0, request.Rating.Value);
-    if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
-    var nextType = !string.IsNullOrWhiteSpace(request.Type) ? request.Type.Trim() : assignment.Type;
-    if (string.Equals(nextType, "image-test", StringComparison.OrdinalIgnoreCase))
-    {
-        // Image-test keeps its reference/spec in TestsJson. Do not overwrite it with []
-        // from the generic editor payload when only metadata/rules are saved.
-        var hasRealSpec = HasMeaningfulJsonText(request.TestsJson) || HasMeaningfulJsonElement(request.Tests) || HasMeaningfulJsonElement(request.TestCases);
-        if (hasRealSpec || request.ImageTestReferenceKey != null || request.ImageTestSimilarityThreshold.HasValue)
-        {
-            assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases) : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
-        }
-    }
-    else if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue) assignment.TestsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases);
-    if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
-    if (request.CodeRequiredCalls != null) assignment.CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls);
-    if (request.IsVisible.HasValue) assignment.IsVisible = request.IsVisible.Value;
-    if (request.IsHidden.HasValue) assignment.IsVisible = !request.IsHidden.Value;
-    assignment.UpdatedAt = DateTimeOffset.UtcNow;
+    await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
     await db.SaveChangesAsync();
     return Results.Ok(ToDto(assignment, includeSensitive: true));
 });
@@ -1374,6 +1399,30 @@ static object ToDto(Assignment x, bool includeSensitive = false, bool isSolved =
     };
 }
 
+static object ToImportDto(Assignment x) => new
+{
+    id = x.Id,
+    courseId = x.CourseId,
+    type = x.Type,
+    title = x.Title,
+    description = x.Description,
+    language = x.Language,
+    allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
+    tags = x.Tags ?? string.Empty,
+    difficulty = x.Difficulty,
+    rating = x.Rating,
+    sort = x.Sort,
+    starterCode = x.StarterCode,
+    tests = ParseJson(x.TestsJson),
+    testsJson = x.TestsJson,
+    codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson),
+    codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson),
+    isVisible = x.IsVisible,
+    isHidden = !x.IsVisible,
+    imageTestReferenceKey = JsonString(x.TestsJson, "imageTestReferenceKey"),
+    imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90)
+};
+
 static AssignmentSummaryDto ToAssignmentSummaryDto(Assignment x) => new(
     x.Id,
     x.Id,
@@ -1609,6 +1658,41 @@ static string NormalizeAssignmentType(string? value)
     };
 }
 
+
+static async Task ApplyAssignmentRequestAsync(Assignment assignment, AssignmentRequest request, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+{
+    if (!string.IsNullOrWhiteSpace(request.Title)) assignment.Title = request.Title.Trim();
+    if (request.Description != null) assignment.Description = request.Description;
+    if (!string.IsNullOrWhiteSpace(request.Type)) assignment.Type = NormalizeAssignmentType(request.Type);
+    if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
+    if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
+    if (request.Tags != null) assignment.Tags = request.Tags;
+    if (request.Difficulty.HasValue) assignment.Difficulty = Math.Clamp(request.Difficulty.Value, 1, 3);
+    if (request.Rating.HasValue) assignment.Rating = Math.Max(0, request.Rating.Value);
+    if (request.Sort.HasValue) assignment.Sort = Math.Max(0, request.Sort.Value);
+    if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
+
+    var nextType = !string.IsNullOrWhiteSpace(request.Type) ? NormalizeAssignmentType(request.Type) : assignment.Type;
+    if (string.Equals(nextType, "image-test", StringComparison.OrdinalIgnoreCase))
+    {
+        var hasRealSpec = HasMeaningfulJsonText(request.TestsJson) || HasMeaningfulJsonElement(request.Tests) || HasMeaningfulJsonElement(request.TestCases);
+        if (hasRealSpec || request.ImageTestReferenceKey != null || request.ImageTestSimilarityThreshold.HasValue)
+        {
+            assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases) : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+        }
+    }
+    else if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue)
+    {
+        assignment.TestsJson = NormalizeSpecJsonForStorage(request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases), nextType);
+    }
+
+    if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
+    if (request.CodeRequiredCalls != null) assignment.CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls);
+    if (request.IsVisible.HasValue) assignment.IsVisible = request.IsVisible.Value;
+    if (request.IsHidden.HasValue) assignment.IsVisible = !request.IsHidden.Value;
+    assignment.UpdatedAt = DateTimeOffset.UtcNow;
+}
+
 static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, AssignmentRequest request, int sort, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
 {
     var type = NormalizeAssignmentType(request.Type);
@@ -1616,6 +1700,7 @@ static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, Assignme
     testsJson = NormalizeSpecJsonForStorage(testsJson, type);
     var assignment = new Assignment
     {
+        Id = request.Id.HasValue && request.Id.Value != Guid.Empty ? request.Id.Value : Guid.NewGuid(),
         CourseId = courseId,
         Title = Clean(request.Title, "Новое задание"),
         Description = request.Description,
@@ -1630,7 +1715,7 @@ static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, Assignme
         CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
         CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
         IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
-        Sort = sort
+        Sort = request.Sort ?? sort
     };
 
     if (type == "image-test")
@@ -1699,10 +1784,11 @@ static AssignmentRequest AssignmentRequestFromJson(JsonElement source)
         throw new InvalidOperationException("ожидался JSON-объект");
     }
 
-    var type = NormalizeAssignmentType(FirstString(source, "type", "kind", "assignmentType"));
-    var tests = PickTestsElement(source, type);
+    var type = FirstString(source, "type", "kind", "assignmentType");
+    var tests = PickTestsElement(source, NormalizeAssignmentType(type));
 
     return new AssignmentRequest(
+        FirstGuid(source, "id", "assignmentId"),
         FirstString(source, "title", "name", "assignmentTitle"),
         FirstString(source, "description", "statement", "condition", "body", "prompt"),
         type,
@@ -1719,6 +1805,7 @@ static AssignmentRequest AssignmentRequestFromJson(JsonElement source)
         FirstStringList(source, "codeRequiredCalls", "requiredCalls", "required"),
         FirstBool(source, "isVisible", "visible"),
         FirstBool(source, "isHidden", "hidden"),
+        FirstInt(source, "sort", "order"),
         FirstString(source, "imageTestReferenceKey", "referenceKey", "expectedImageKey"),
         FirstInt(source, "imageTestSimilarityThreshold", "similarityThreshold", "threshold")
     );
@@ -1806,15 +1893,19 @@ static JsonElement WrapImageTests(JsonElement source)
 
 static IEnumerable<string> ValidateImportedAssignment(AssignmentRequest request, int index)
 {
+    var isPatch = request.Id.HasValue && request.Id.Value != Guid.Empty;
+    var hasExplicitType = !string.IsNullOrWhiteSpace(request.Type);
     var title = (request.Title ?? string.Empty).Trim();
-    if (title.Length == 0) yield return "title обязателен.";
+    if (!isPatch && title.Length == 0) yield return "title обязателен.";
     if (title.Length > 200) yield return "title не должен быть длиннее 200 символов.";
     var type = NormalizeAssignmentType(request.Type);
-    if (!new[] { "code-test", "image-test", "test", "math" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
+    if (hasExplicitType && !new[] { "code-test", "image-test", "test", "math" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
     if (request.Difficulty.HasValue && (request.Difficulty.Value < 1 || request.Difficulty.Value > 3)) yield return "difficulty должен быть 1, 2 или 3.";
     if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
-    if ((type == "code-test" || type == "image-test") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для code-test/image-test желательно указать testCases/tests.";
-    if ((type == "test" || type == "math") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для test/math нужно указать spec/questions/blocks.";
+    if (request.Sort.HasValue && request.Sort.Value < 0) yield return "sort не может быть отрицательным.";
+    var mustValidateSpec = !isPatch || hasExplicitType;
+    if (mustValidateSpec && (type == "code-test" || type == "image-test") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для code-test/image-test желательно указать testCases/tests.";
+    if (mustValidateSpec && (type == "test" || type == "math") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для test/math нужно указать spec/questions/blocks.";
 }
 
 static string? FirstString(JsonElement source, params string[] names)
@@ -1829,6 +1920,17 @@ static string? FirstString(JsonElement source, params string[] names)
             var tags = v.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => x.Length > 0).ToArray();
             return tags.Length == 0 ? null : string.Join(", ", tags);
         }
+    }
+    return null;
+}
+
+static Guid? FirstGuid(JsonElement source, params string[] names)
+{
+    foreach (var name in names)
+    {
+        if (!source.TryGetProperty(name, out var v)) continue;
+        if (v.ValueKind == JsonValueKind.String && Guid.TryParse(v.GetString(), out var g) && g != Guid.Empty) return g;
+        if (v.ValueKind == JsonValueKind.Object && v.TryGetProperty("id", out var nested) && nested.ValueKind == JsonValueKind.String && Guid.TryParse(nested.GetString(), out g) && g != Guid.Empty) return g;
     }
     return null;
 }
@@ -2187,7 +2289,7 @@ public sealed class UserSummaryDto
     }
 }
 public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
-public sealed record AssignmentRequest(string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold);
+public sealed record AssignmentRequest(Guid? Id, string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, int? Sort, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold);
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
 public sealed record ImageTestCaseSpec(string Name, string Input, string ExpectedOutput, string? ExpectedImageBase64, string? ExpectedImageKey, int Threshold, bool IsHidden, string ExpectedImageContentType, string ExpectedImageFileName)
 {

@@ -12,10 +12,11 @@ import {
   getAssignmentsByCourse,
   createAssignment,
   importAssignmentsFromJson,
+  exportAssignmentsToJson,
   updateAssignmentSort,
   moveAssignmentAfter,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, Bot, FileJson, Upload, X, Copy, Sparkles } from "lucide-react";
+import { Plus, Layers, CheckCircle2, Bot, FileJson, Upload, X, Copy, Sparkles, Download } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -102,7 +103,8 @@ const JSON_IMPORT_EXAMPLE_OBJECT = {
     "Типы можно смешивать в одном файле: code-test, test, image-test, math.",
     "Для image-test вместо expectedImageKey можно передать expectedImageBase64 с data:image/png;base64,...; сервер переложит картинку в файловое хранилище.",
     "Описание можно передавать plain text или HTML; потом его можно красиво отредактировать в визуальном редакторе.",
-    "Заготовку кода для ученика можно передавать через starterCode, templateCode или initialCode; поле также редактируется в обычном редакторе задания."
+    "Заготовку кода для ученика можно передавать через starterCode, templateCode или initialCode; поле также редактируется в обычном редакторе задания.",
+    "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового."
   ],
   assignments: [
     {
@@ -403,6 +405,7 @@ export default function CourseAssignmentsPage() {
   const [createBusyType, setCreateBusyType] = useState("");
   const [jsonImportText, setJsonImportText] = useState(JSON_IMPORT_EXAMPLE);
   const [jsonImportBusy, setJsonImportBusy] = useState(false);
+  const [jsonExportBusy, setJsonExportBusy] = useState(false);
   const [jsonImportPreview, setJsonImportPreview] = useState("пример: 5 заданий");
   const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
@@ -621,22 +624,22 @@ export default function CourseAssignmentsPage() {
     await moveToPosition(sourceId, targetPos);
   };
 
-  const ensureCanCreate = () => {
+  const ensureCanManageAssignments = (actionText = "изменять задания") => {
     if (items.length > 0 && items[0].canEdit === false) {
       notifyOnce("no-edit-course", () =>
-        notify.warn("Вы не владелец курса — создавать задания нельзя")
+        notify.warn(`Вы не владелец курса — ${actionText} нельзя`)
       );
       return false;
     }
     if (!courseCanEdit) {
-      notify.warn("Вы не владелец курса — создавать задания нельзя");
+      notify.warn(`Вы не владелец курса — ${actionText} нельзя`);
       return false;
     }
     return true;
   };
 
   const handleCreateType = async (type) => {
-    if (!ensureCanCreate()) return;
+    if (!ensureCanManageAssignments("создавать задания")) return;
     setCreateBusyType(type);
     try {
       const payload = buildDefaultAssignmentPayload(type, items.length);
@@ -680,7 +683,7 @@ export default function CourseAssignmentsPage() {
   };
 
   const handleImportJson = async () => {
-    if (!ensureCanCreate()) return;
+    if (!ensureCanManageAssignments("импортировать JSON")) return;
     let parsed;
     try {
       parsed = JSON.parse(jsonImportText);
@@ -692,17 +695,47 @@ export default function CourseAssignmentsPage() {
     setJsonImportBusy(true);
     try {
       const res = await importAssignmentsFromJson(courseId, parsed);
-      const created = Array.isArray(res?.assignments) ? res.assignments : [];
+      const changed = Array.isArray(res?.assignments) ? res.assignments : [];
       await reloadAssignments(true);
       setCreateDialogOpen(false);
-      notify.success(`Импортировано заданий: ${res?.createdCount ?? created.length}`);
-      if ((res?.createdCount ?? created.length) === 1 && created[0]?.id) {
-        nav(`/assignment/${created[0].id}/edit`);
+      const created = res?.createdCount ?? 0;
+      const updated = res?.updatedCount ?? 0;
+      notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
+      if ((created + updated) === 1 && changed[0]?.id) {
+        nav(`/assignment/${changed[0].id}/edit`);
       }
     } catch (e) {
       handleApiError(e, notify, "Не удалось импортировать JSON");
     } finally {
       setJsonImportBusy(false);
+    }
+  };
+
+  const handleExportJson = async () => {
+    if (!ensureCanManageAssignments("экспортировать JSON")) return;
+    setJsonExportBusy(true);
+    try {
+      const data = await exportAssignmentsToJson(courseId);
+      const text = JSON.stringify(data, null, 2);
+      const safeTitle = (course?.title || "course")
+        .toLowerCase()
+        .replace(/[^a-zа-яё0-9]+/gi, "-")
+        .replace(/^-+|-+$/g, "") || "course";
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `taskforge-${safeTitle}-assignments.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      handleJsonImportTextChange(text);
+      notify.success("JSON экспортирован и загружен в редактор импорта");
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось экспортировать JSON");
+    } finally {
+      setJsonExportBusy(false);
     }
   };
 
@@ -754,9 +787,14 @@ export default function CourseAssignmentsPage() {
 
           <IfEditor>
             {courseCanEdit ? (
-              <Button className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)}>
-                <Plus size={16} /> Создать
-              </Button>
+              <>
+                <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
+                  <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
+                </Button>
+                <Button className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)}>
+                  <Plus size={16} /> Создать
+                </Button>
+              </>
             ) : null}
           </IfEditor>
         </div>
@@ -772,7 +810,7 @@ export default function CourseAssignmentsPage() {
                   <Sparkles size={20} /> Что создаём?
                 </div>
                 <p className="mt-1 text-sm leading-6 text-neutral-500">
-                  Теперь кнопка не зависит от нижнего селекта: сначала выбираешь тип, потом создаётся нормальный черновик. JSON может создать сразу пачку заданий разных типов.
+                  Создай черновик вручную или импортируй JSON. Если в JSON есть id уже существующего задания этого курса, оно будет обновлено данными из файла.
                 </p>
               </div>
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={jsonImportBusy || !!createBusyType} title="Закрыть">
@@ -804,7 +842,7 @@ export default function CourseAssignmentsPage() {
                     <FileJson size={16} /> Из JSON
                   </div>
                   <p className="mt-1">
-                    Вставь JSON или загрузи файл. Поддерживается один объект, массив объектов или объект с <code>assignments</code>, <code>items</code>, <code>tasks</code>.
+                    Вставь JSON или загрузи файл. Новые задания создаются, а задания с совпавшим <code>id</code> обновляются.
                   </p>
                 </div>
               </div>
@@ -813,13 +851,16 @@ export default function CourseAssignmentsPage() {
                 <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-3 xl:flex-row xl:items-center xl:justify-between">
                   <div>
                     <div className="flex items-center gap-2 font-semibold">
-                      <FileJson size={18} /> JSON-редактор импорта
+                      <FileJson size={18} /> JSON-экспорт и импорт
                     </div>
                     <div className="mt-1 text-xs text-neutral-500">
-                      Сейчас в поле: {jsonImportPreview}. Пример специально большой, чтобы его можно было отдать нейронке как схему.
+                      Сейчас в поле: {jsonImportPreview}. Экспорт содержит id, поэтому повторный импорт может обновлять существующие задания.
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={handleExportJson} disabled={jsonExportBusy || jsonImportBusy}>
+                      <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт"}
+                    </Button>
                     <label className="btn-outline cursor-pointer">
                       <Upload size={16} /> Загрузить .json
                       <input
@@ -870,10 +911,10 @@ export default function CourseAssignmentsPage() {
 
                 <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div className="text-xs leading-5 text-neutral-500">
-                    Поддерживаемые поля: <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>/<code>templateCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>tags</code>.
+                    Поддерживаемые поля: <code>id</code>, <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>/<code>templateCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>sort</code>, <code>tags</code>.
                   </div>
                   <Button onClick={handleImportJson} disabled={jsonImportBusy || !!createBusyType}>
-                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Создать из JSON"}
+                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Импортировать JSON"}
                   </Button>
                 </div>
               </div>

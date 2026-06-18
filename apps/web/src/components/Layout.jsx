@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   PanelsTopLeft,
   LogOut,
@@ -251,6 +251,7 @@ export default function Layout({
     useEditorMode();
   const canUseMinecraft = isAdmin || hasRole("Minecraft");
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!access) return;
@@ -266,11 +267,13 @@ export default function Layout({
   const [adminOpen, setAdminOpen] = useState(false);
   const adminRef = useRef(null);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setAdminOpen(false);
+    setMobileOpen(false);
     try {
-      logout();
+      await logout();
     } catch {}
+    navigate("/", { replace: true });
   };
 
   useEffect(() => {
