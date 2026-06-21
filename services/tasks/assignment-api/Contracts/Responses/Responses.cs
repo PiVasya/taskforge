@@ -19,6 +19,8 @@ public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid 
 
 public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, int Difficulty, bool IsVisible, int Sort);
 
+public sealed record CourseAssignmentProgressDto(Guid CourseId, int Total, int Solved, int Percent, bool IsComplete);
+
 public sealed class CourseSummaryDto
 {
     public Guid Id { get; set; }

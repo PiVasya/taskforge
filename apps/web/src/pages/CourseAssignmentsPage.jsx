@@ -9,6 +9,7 @@ import { getApiErrorMessage } from "../api/http";
 
 import {
   getAssignmentsByCourse,
+  getCourseProgressByCourses,
   createAssignment,
   importAssignmentsFromJson,
   exportAssignmentsToJson,
@@ -56,12 +57,50 @@ function isAssignmentSolved(item) {
   return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
 }
 
-function buildCourseProgress(assignments) {
-  const list = Array.isArray(assignments) ? assignments : [];
-  const total = list.length;
-  const solved = list.filter(isAssignmentSolved).length;
+function normalizeProgressRows(rows) {
+  const map = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = String(row?.courseId || row?.CourseId || "");
+    if (!id) continue;
+    const total = Number(row?.total ?? row?.Total ?? 0) || 0;
+    const solved = Number(row?.solved ?? row?.Solved ?? 0) || 0;
+    const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
+    map.set(id, { total, solved, percent, isComplete: total > 0 && solved === total, loading: false });
+  }
+  return map;
+}
+
+function buildChildrenByParent(courses) {
+  const map = new Map();
+  for (const course of Array.isArray(courses) ? courses : []) {
+    const parentKey = String(course?.parentCourseId || "");
+    if (!map.has(parentKey)) map.set(parentKey, []);
+    map.get(parentKey).push(course);
+  }
+  return map;
+}
+
+function collectCourseSubtreeIds(courseId, childrenByParent, seen = new Set()) {
+  const id = String(courseId || "");
+  if (!id || seen.has(id)) return [];
+  seen.add(id);
+  const ids = [id];
+  for (const child of childrenByParent.get(id) || []) {
+    ids.push(...collectCourseSubtreeIds(child.id, childrenByParent, seen));
+  }
+  return ids;
+}
+
+function sumCourseProgress(courseIds, directProgressByCourseId) {
+  let total = 0;
+  let solved = 0;
+  for (const id of courseIds) {
+    const row = directProgressByCourseId.get(String(id));
+    total += Number(row?.total || 0);
+    solved += Number(row?.solved || 0);
+  }
   const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
-  return { total, solved, percent, isComplete: total > 0 && solved === total };
+  return { total, solved, percent, isComplete: total > 0 && solved === total, loading: false };
 }
 
 const SORT_OPTIONS = [
@@ -668,6 +707,7 @@ export default function CourseAssignmentsPage() {
   const [childCourses, setChildCourses] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [childProgressByCourseId, setChildProgressByCourseId] = useState({});
+  const [courseProgressByCourseId, setCourseProgressByCourseId] = useState({});
   const [courseCanEdit, setCourseCanEdit] = useState(true);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -766,44 +806,65 @@ export default function CourseAssignmentsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const courses = (childCourses || []).filter((x) => x?.id);
-    if (courses.length === 0) {
+    const knownCourses = [...(allCourses || [])];
+    if (course?.id && !knownCourses.some((x) => String(x?.id || '') === String(course.id))) {
+      knownCourses.push(course);
+    }
+
+    const childrenByParent = buildChildrenByParent(knownCourses);
+    const subtreeIds = collectCourseSubtreeIds(courseId, childrenByParent);
+    if (subtreeIds.length === 0) {
+      setCourseProgressByCourseId({});
       setChildProgressByCourseId({});
       return () => {
         cancelled = true;
       };
     }
 
+    setCourseProgressByCourseId((prev) => ({
+      ...prev,
+      [courseId]: prev[courseId] || { loading: true, total: 0, solved: 0, percent: 0, isComplete: false },
+    }));
     setChildProgressByCourseId((prev) => {
       const next = { ...prev };
-      for (const child of courses) {
-        if (!next[child.id]) next[child.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
+      for (const child of childCourses || []) {
+        if (child?.id && !next[child.id]) next[child.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
       }
       return next;
     });
 
-    Promise.all(
-      courses.map(async (child) => {
-        try {
-          const assignments = await getAssignmentsByCourse(child.id);
-          return [child.id, { ...buildCourseProgress(assignments), loading: false }];
-        } catch {
-          return [child.id, { total: 0, solved: 0, percent: 0, isComplete: false, loading: false, failed: true }];
+    getCourseProgressByCourses(subtreeIds)
+      .then((rows) => {
+        if (cancelled) return;
+        const directProgress = normalizeProgressRows(rows);
+        const currentProgress = sumCourseProgress(subtreeIds, directProgress);
+        const nextChildProgress = {};
+        for (const child of childCourses || []) {
+          if (!child?.id) continue;
+          const childSubtreeIds = collectCourseSubtreeIds(child.id, childrenByParent);
+          nextChildProgress[child.id] = sumCourseProgress(childSubtreeIds, directProgress);
         }
+        setCourseProgressByCourseId({ [courseId]: currentProgress });
+        setChildProgressByCourseId(nextChildProgress);
       })
-    ).then((entries) => {
-      if (cancelled) return;
-      setChildProgressByCourseId((prev) => {
-        const next = { ...prev };
-        for (const [id, progress] of entries) next[id] = progress;
-        return next;
+      .catch(() => {
+        if (cancelled) return;
+        const directTotal = (items || []).length;
+        const directSolved = (items || []).filter(isAssignmentSolved).length;
+        const directPercent = directTotal > 0 ? Math.round((directSolved / directTotal) * 100) : 0;
+        const failedCurrent = { total: directTotal, solved: directSolved, percent: directPercent, isComplete: directTotal > 0 && directSolved === directTotal, loading: false, failed: true };
+        const failedChildren = {};
+        for (const child of childCourses || []) {
+          if (child?.id) failedChildren[child.id] = failedCurrent;
+        }
+        setCourseProgressByCourseId({ [courseId]: failedCurrent });
+        setChildProgressByCourseId(failedChildren);
       });
-    });
 
     return () => {
       cancelled = true;
     };
-  }, [childCourses]);
+  }, [allCourses, childCourses, course, courseId, items]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -850,12 +911,16 @@ export default function CourseAssignmentsPage() {
     return any ? !!any.canEdit : true;
   }, [items]);
 
-  const courseProgress = useMemo(() => {
+  const directCourseProgress = useMemo(() => {
     const total = (items || []).length;
     const solved = (items || []).filter(isAssignmentSolved).length;
     const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
-    return { total, solved, percent, isComplete: total > 0 && solved === total };
+    return { total, solved, percent, isComplete: total > 0 && solved === total, loading: false };
   }, [items]);
+
+  const courseProgress = useMemo(() => {
+    return courseProgressByCourseId[courseId] || directCourseProgress;
+  }, [courseProgressByCourseId, courseId, directCourseProgress]);
 
   const setSortMode = (mode) => {
     const next = new URLSearchParams(params);

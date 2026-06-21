@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import { Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
-import { getAssignmentsByCourse } from "../api/assignments";
+import { getCourseProgressByCourses } from "../api/assignments";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
@@ -22,16 +22,50 @@ function normalizePagedCourses(payload) {
   };
 }
 
-function isAssignmentSolved(item) {
-  return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
+function normalizeProgressRows(rows) {
+  const map = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = String(row?.courseId || row?.CourseId || "");
+    if (!id) continue;
+    const total = Number(row?.total ?? row?.Total ?? 0) || 0;
+    const solved = Number(row?.solved ?? row?.Solved ?? 0) || 0;
+    const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
+    map.set(id, { total, solved, percent, isComplete: total > 0 && solved === total, loading: false });
+  }
+  return map;
 }
 
-function buildCourseProgress(assignments) {
-  const list = Array.isArray(assignments) ? assignments : [];
-  const total = list.length;
-  const solved = list.filter(isAssignmentSolved).length;
+function buildChildrenByParent(courses) {
+  const map = new Map();
+  for (const course of Array.isArray(courses) ? courses : []) {
+    const parentKey = String(course?.parentCourseId || "");
+    if (!map.has(parentKey)) map.set(parentKey, []);
+    map.get(parentKey).push(course);
+  }
+  return map;
+}
+
+function collectCourseSubtreeIds(courseId, childrenByParent, seen = new Set()) {
+  const id = String(courseId || "");
+  if (!id || seen.has(id)) return [];
+  seen.add(id);
+  const ids = [id];
+  for (const child of childrenByParent.get(id) || []) {
+    ids.push(...collectCourseSubtreeIds(child.id, childrenByParent, seen));
+  }
+  return ids;
+}
+
+function sumCourseProgress(courseIds, directProgressByCourseId) {
+  let total = 0;
+  let solved = 0;
+  for (const id of courseIds) {
+    const row = directProgressByCourseId.get(String(id));
+    total += Number(row?.total || 0);
+    solved += Number(row?.solved || 0);
+  }
   const percent = total > 0 ? Math.round((solved / total) * 100) : 0;
-  return { total, solved, percent, isComplete: total > 0 && solved === total };
+  return { total, solved, percent, isComplete: total > 0 && solved === total, loading: false };
 }
 
 function courseSortValue(course) {
@@ -142,15 +176,25 @@ export default function CoursesPage() {
   const { canEdit, isEditorMode } = useEditorMode();
 
   const editorTools = canEdit && isEditorMode;
-  const rootCourses = useMemo(() => (items || []).filter((course) => !course?.parentCourseId).sort(compareCourses), [items]);
+  const rootCourses = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return (items || [])
+      .filter((course) => !course?.parentCourseId)
+      .filter((course) => {
+        if (!query) return true;
+        return String(course?.title || "").toLowerCase().includes(query)
+          || String(course?.description || "").toLowerCase().includes(query);
+      })
+      .sort(compareCourses);
+  }, [items, q]);
 
-  const loadCourses = async ({ reset = false, query = q } = {}) => {
+  const loadCourses = async ({ reset = false } = {}) => {
     const nextPage = reset ? 1 : page + 1;
     try {
       if (reset) setLoading(true);
       else setLoadingMore(true);
       setLoadError("");
-      const payload = await getCourses({ tree: true, page: nextPage, pageSize: COURSE_PAGE_SIZE, q: query.trim() || undefined });
+      const payload = await getCourses({ tree: true, page: nextPage, pageSize: COURSE_PAGE_SIZE });
       const parsed = normalizePagedCourses(payload);
       setItems((prev) => reset ? parsed.items : [...prev, ...parsed.items]);
       setPage(parsed.page);
@@ -166,16 +210,13 @@ export default function CoursesPage() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadCourses({ reset: true, query: q });
-    }, 250);
-    return () => clearTimeout(timer);
+    loadCourses({ reset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const visibleCourses = (rootCourses || []).filter((course) => course?.id);
+    const visibleCourses = (items || []).filter((course) => course?.id);
     if (visibleCourses.length === 0) {
       setProgressByCourseId({});
       return () => {
@@ -185,34 +226,37 @@ export default function CoursesPage() {
 
     setProgressByCourseId((prev) => {
       const next = { ...prev };
-      for (const course of visibleCourses) {
+      for (const course of rootCourses) {
         if (!next[course.id]) next[course.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
       }
       return next;
     });
 
-    Promise.all(
-      visibleCourses.map(async (course) => {
-        try {
-          const assignments = await getAssignmentsByCourse(course.id);
-          return [course.id, { ...buildCourseProgress(assignments), loading: false }];
-        } catch {
-          return [course.id, { total: 0, solved: 0, percent: 0, isComplete: false, loading: false, failed: true }];
+    getCourseProgressByCourses(visibleCourses.map((course) => course.id))
+      .then((rows) => {
+        if (cancelled) return;
+        const directProgress = normalizeProgressRows(rows);
+        const childrenByParent = buildChildrenByParent(visibleCourses);
+        const next = {};
+        for (const course of rootCourses) {
+          const subtreeIds = collectCourseSubtreeIds(course.id, childrenByParent);
+          next[course.id] = sumCourseProgress(subtreeIds, directProgress);
         }
+        setProgressByCourseId(next);
       })
-    ).then((entries) => {
-      if (cancelled) return;
-      setProgressByCourseId((prev) => {
-        const next = { ...prev };
-        for (const [id, progress] of entries) next[id] = progress;
-        return next;
+      .catch(() => {
+        if (cancelled) return;
+        const failed = {};
+        for (const course of rootCourses) {
+          failed[course.id] = { total: 0, solved: 0, percent: 0, isComplete: false, loading: false, failed: true };
+        }
+        setProgressByCourseId(failed);
       });
-    });
 
     return () => {
       cancelled = true;
     };
-  }, [rootCourses]);
+  }, [items, rootCourses]);
 
   const handleCreate = async () => {
     try {
@@ -302,7 +346,7 @@ export default function CoursesPage() {
       }
     } catch (e) {
       handleApiError(e, notify, "Не удалось переместить курс");
-      await loadCourses({ reset: true, query: q });
+      await loadCourses({ reset: true });
     }
   };
 

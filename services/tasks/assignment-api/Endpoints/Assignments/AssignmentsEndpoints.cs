@@ -44,6 +44,70 @@ internal static partial class AssignmentApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
         });
 
+
+        app.MapPost("/api/assignments/course-progress", async (CourseIdsRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var requestedIds = (request.CourseIds ?? Array.Empty<Guid>())
+                .Where(x => x != Guid.Empty)
+                .Distinct()
+                .Take(2000)
+                .ToArray();
+
+            if (requestedIds.Length == 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAssignmentProgressDto>());
+            }
+
+            var includeHidden = IsEditor(http, cfg);
+            var allowedIds = requestedIds;
+            if (!includeHidden)
+            {
+                var allowed = new List<Guid>();
+                foreach (var id in requestedIds)
+                {
+                    if (await CanUserAccessCourseAsync(id, http, cfg, clients, ct))
+                    {
+                        allowed.Add(id);
+                    }
+                }
+                allowedIds = allowed.ToArray();
+            }
+
+            if (allowedIds.Length == 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAssignmentProgressDto>());
+            }
+
+            var query = db.Assignments.AsNoTracking().Where(x => allowedIds.Contains(x.CourseId));
+            if (!includeHidden) query = query.Where(x => x.IsVisible);
+
+            var rows = await query
+                .Select(x => new { x.Id, x.CourseId })
+                .ToListAsync(ct);
+
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            var solvedIds = userId.HasValue
+                ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
+                : new HashSet<Guid>();
+
+            var grouped = rows
+                .GroupBy(x => x.CourseId)
+                .ToDictionary(
+                    g => g.Key,
+                    g =>
+                    {
+                        var total = g.Count();
+                        var solved = g.Count(x => solvedIds.Contains(x.Id));
+                        var percent = total > 0 ? (int)System.Math.Round((double)solved / total * 100) : 0;
+                        return new CourseAssignmentProgressDto(g.Key, total, solved, percent, total > 0 && solved == total);
+                    });
+
+            return Microsoft.AspNetCore.Http.Results.Ok(allowedIds.Select(id =>
+                grouped.TryGetValue(id, out var progress)
+                    ? progress
+                    : new CourseAssignmentProgressDto(id, 0, 0, 0, false)).ToList());
+        });
+
         app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))

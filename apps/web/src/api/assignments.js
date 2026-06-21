@@ -9,6 +9,14 @@ export async function getAssignmentsByCourse(courseId) {
 }
 
 
+export async function getCourseProgressByCourses(courseIds) {
+  const ids = Array.isArray(courseIds) ? courseIds.filter(Boolean) : [];
+  if (ids.length === 0) return [];
+  const res = await api.post('/api/assignments/course-progress', { courseIds: ids });
+  return res.data;
+}
+
+
 export async function getAssignment(assignmentId) {
   const res = await api.get(`/api/assignments/${assignmentId}`);
   return res.data;
