@@ -4,7 +4,7 @@ import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
 import Layout from "../components/Layout";
 import { Card, Button, Input, Textarea, Badge } from "../components/ui";
 
-import { getCourse } from "../api/courses";
+import { getCourse, getCourses, createCourse, updateCourseSort } from "../api/courses";
 import { getApiErrorMessage } from "../api/http";
 
 import {
@@ -13,7 +13,6 @@ import {
   importAssignmentsFromJson,
   exportAssignmentsToJson,
   updateAssignmentSort,
-  moveAssignmentAfter,
 } from "../api/assignments";
 import { Plus, Layers, CheckCircle2, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle } from "lucide-react";
 import IfEditor from "../components/IfEditor";
@@ -64,6 +63,66 @@ const SORT_OPTIONS = [
   { v: "created_desc", label: "Сначала новые" },
   { v: "created_asc", label: "Сначала старые" },
 ];
+
+function courseSortValue(course) {
+  return Number.isFinite(Number(course?.sort)) ? Number(course.sort) : 0;
+}
+
+function compareCourses(a, b) {
+  const bySort = courseSortValue(a) - courseSortValue(b);
+  if (bySort !== 0) return bySort;
+  return String(a?.title || "").localeCompare(String(b?.title || ""), "ru", { sensitivity: "base" });
+}
+
+function contentKey(kind, id) {
+  return `${kind}:${id}`;
+}
+
+function contentSortValue(item) {
+  return Number.isFinite(Number(item?.sort)) ? Number(item.sort) : 0;
+}
+
+function contentTitle(item) {
+  return item?.kind === "course"
+    ? String(item.course?.title || "")
+    : previewAssignmentTitle(item.assignment?.title, "");
+}
+
+function contentCreatedAt(item) {
+  return item?.kind === "course" ? item.course?.createdAt : item.assignment?.createdAt;
+}
+
+function compareContentItems(a, b) {
+  const bySort = contentSortValue(a) - contentSortValue(b);
+  if (bySort !== 0) return bySort;
+  if (a.kind !== b.kind) return a.kind === "course" ? -1 : 1;
+  return contentTitle(a).localeCompare(contentTitle(b), "ru", { sensitivity: "base" });
+}
+
+function makeCourseContentItem(course) {
+  return {
+    kind: "course",
+    key: contentKey("course", course.id),
+    id: course.id,
+    sort: courseSortValue(course),
+    title: course.title || "Вложенный курс",
+    description: course.description || "",
+    course,
+  };
+}
+
+function makeAssignmentContentItem(assignment, index = 0) {
+  return {
+    kind: "assignment",
+    key: contentKey("assignment", assignment.id),
+    id: assignment.id,
+    sort: typeof assignment.sort === "number" ? assignment.sort : index,
+    title: previewAssignmentTitle(assignment.title, `Задание ${index + 1}`),
+    description: assignment.description || "",
+    tags: assignment.tags || "",
+    assignment,
+  };
+}
 
 const CREATE_OPTIONS = [
   {
@@ -598,6 +657,7 @@ export default function CourseAssignmentsPage() {
   const notify = useNotify();
   const [items, setItems] = useState([]);
   const [course, setCourse] = useState(null);
+  const [childCourses, setChildCourses] = useState([]);
   const [courseCanEdit, setCourseCanEdit] = useState(true);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -613,8 +673,8 @@ export default function CourseAssignmentsPage() {
   const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
-  const [draggedAssignmentId, setDraggedAssignmentId] = useState(null);
-  const [dragOverAssignmentId, setDragOverAssignmentId] = useState(null);
+  const [draggedContentKey, setDraggedContentKey] = useState(null);
+  const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get("sort") || "default";
@@ -658,36 +718,53 @@ export default function CourseAssignmentsPage() {
     }
   };
 
+  const reloadCourseData = async () => {
+    try {
+      const [c, coursesPayload] = await Promise.all([
+        getCourse(courseId),
+        getCourses().catch(() => []),
+      ]);
+      setCourse(c || null);
+      if (typeof c?.canEdit === 'boolean') setCourseCanEdit(!!c.canEdit);
+      const allCourses = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
+      const children = (Array.isArray(allCourses) ? allCourses : [])
+        .filter((x) => String(x?.parentCourseId || '') === String(courseId))
+        .sort(compareCourses);
+      setChildCourses(children);
+      return children;
+    } catch {
+      setChildCourses([]);
+      return [];
+    }
+  };
+
   useEffect(() => {
     reloadAssignments(false).catch(() => {});
+    reloadCourseData().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const c = await getCourse(courseId);
-        setCourse(c || null);
-        if (typeof c?.canEdit === 'boolean') setCourseCanEdit(!!c.canEdit);
-      } catch {
-        
-      }
-    })();
-  }, [courseId]);
+  const contentItems = useMemo(() => {
+    const courses = (childCourses || []).map(makeCourseContentItem);
+    const assignments = (items || []).map((assignment, index) => makeAssignmentContentItem(assignment, index));
+    return [...courses, ...assignments];
+  }, [childCourses, items]);
 
   const filtered = useMemo(() => {
-    const s = (items || []).filter(
-      (x) =>
-        (x.title || "").toLowerCase().includes(q.toLowerCase()) ||
-        (x.tags || "").toLowerCase().includes(q.toLowerCase())
-    );
+    const query = q.trim().toLowerCase();
+    const s = (contentItems || []).filter((x) => {
+      if (!query) return true;
+      return (
+        contentTitle(x).toLowerCase().includes(query) ||
+        String(x.description || "").toLowerCase().includes(query) ||
+        String(x.tags || "").toLowerCase().includes(query)
+      );
+    });
+
     const byTitle = (a, b, dir = 1) =>
-      (a.title || "").localeCompare(b.title || "", undefined, {
-        sensitivity: "base",
-      }) * dir;
-    
+      contentTitle(a).localeCompare(contentTitle(b), "ru", { sensitivity: "base" }) * dir;
     const byCreated = (a, b, dir = 1) =>
-      (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
-    const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
+      ((new Date(contentCreatedAt(a) || 0).getTime()) - (new Date(contentCreatedAt(b) || 0).getTime())) * dir;
 
     switch (sortMode) {
       case "title_asc":
@@ -700,26 +777,18 @@ export default function CourseAssignmentsPage() {
         return [...s].sort((a, b) => byCreated(a, b, -1));
       case "default":
       default:
-        return [...s].sort(bySort);
+        return [...s].sort(compareContentItems);
     }
-  }, [items, q, sortMode]);
+  }, [contentItems, q, sortMode]);
 
-  
-  
-  const orderedAll = useMemo(() => {
-    const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
-    return [...(items || [])].sort(bySort);
-  }, [items]);
+  const orderedAll = useMemo(() => [...(contentItems || [])].sort(compareContentItems), [contentItems]);
 
-  const positionById = useMemo(() => {
+  const positionByKey = useMemo(() => {
     const m = new Map();
-    orderedAll.forEach((x, idx) => m.set(x.id, idx + 1));
+    orderedAll.forEach((x, idx) => m.set(x.key, idx + 1));
     return m;
   }, [orderedAll]);
 
-  
-  
-  
   const canEdit = useMemo(() => {
     if (!items || items.length === 0) return true;
     const any = items.find((x) => typeof x?.canEdit === "boolean");
@@ -739,54 +808,29 @@ export default function CourseAssignmentsPage() {
     setParams(next, { replace: true });
   };
 
-  const swapByIndex = async (i, j) => {
-    if (i < 0 || j < 0 || i >= filtered.length || j >= filtered.length) return;
-
-    const a = filtered[i];
-    const b = filtered[j];
-
-    
-    if (!a.canEdit || !b.canEdit) {
-      notifyOnce("no-edit-sort", () =>
-        notify.warn("Вы не владелец курса — менять порядок заданий нельзя")
-      );
-      return;
-    }
-
-    const newItems = items.map((x) => {
-      if (x.id === a.id) return { ...x, sort: b.sort ?? j };
-      if (x.id === b.id) return { ...x, sort: a.sort ?? i };
-      return x;
-    });
-    setItems(newItems);
-
-    try {
-      await Promise.all([
-        updateAssignmentSort(a.id, b.sort ?? j),
-        updateAssignmentSort(b.id, a.sort ?? i),
-      ]);
-    } catch (e) {
-      handleApiError(e, notify, "Не удалось изменить порядок");
-      try {
-        const data = await getAssignmentsByCourse(courseId);
-        const norm = (data || []).map((x, k) => ({
-          ...x,
-          sort: typeof x.sort === "number" ? x.sort : k,
-        }));
-        setItems(norm);
-      } catch {}
-    }
+  const canReorderContentItem = (item) => {
+    if (!courseCanEdit) return false;
+    if (item?.kind === "course") return item.course?.canEdit !== false;
+    return canEdit && item?.assignment?.canEdit !== false;
   };
 
-  
-  
-  const moveToPosition = async (assignmentId, newPos1Based) => {
-    if (!canEdit) {
+  const saveMixedOrder = async (nextOrder) => {
+    const calls = [];
+    nextOrder.forEach((entry, index) => {
+      if (entry.sort === index) return;
+      if (entry.kind === "course") calls.push(updateCourseSort(entry.id, index));
+      else calls.push(updateAssignmentSort(entry.id, index));
+    });
+    if (calls.length > 0) await Promise.all(calls);
+  };
+
+  const moveToPosition = async (contentItemKey, newPos1Based) => {
+    if (!courseCanEdit) {
       notify.error("Недостаточно прав");
       return;
     }
     if (sortMode !== "default") {
-      notify.info("Изменение позиции доступно только в режиме сортировки: По порядку");
+      notify.info("Изменение позиции доступно только в стандартной сортировке");
       return;
     }
 
@@ -796,8 +840,14 @@ export default function CourseAssignmentsPage() {
     if (targetPos < 1) targetPos = 1;
     if (targetPos > n) targetPos = n;
 
-    const curIndex = orderedAll.findIndex((x) => x.id === assignmentId);
+    const curIndex = orderedAll.findIndex((x) => x.key === contentItemKey);
     if (curIndex < 0) return;
+    const source = orderedAll[curIndex];
+    if (!canReorderContentItem(source)) {
+      notify.error("Недостаточно прав");
+      return;
+    }
+
     const newIndex = targetPos - 1;
     if (newIndex === curIndex) return;
 
@@ -805,48 +855,45 @@ export default function CourseAssignmentsPage() {
     const [moved] = nextOrder.splice(curIndex, 1);
     nextOrder.splice(newIndex, 0, moved);
 
-    const newSort = new Map();
-    nextOrder.forEach((x, idx) => newSort.set(x.id, idx));
-
-    
-    setItems((prev) =>
-      prev.map((x) => (newSort.has(x.id) ? { ...x, sort: newSort.get(x.id) } : x))
-    );
+    const newSort = new Map(nextOrder.map((x, idx) => [x.key, idx]));
+    setItems((prev) => prev.map((x) => {
+      const next = newSort.get(contentKey("assignment", x.id));
+      return Number.isFinite(next) ? { ...x, sort: next } : x;
+    }));
+    setChildCourses((prev) => prev.map((x) => {
+      const next = newSort.get(contentKey("course", x.id));
+      return Number.isFinite(next) ? { ...x, sort: next } : x;
+    }));
 
     try {
-      const afterAssignmentId = newIndex > 0 ? nextOrder[newIndex - 1]?.id : null;
-      await moveAssignmentAfter(assignmentId, afterAssignmentId || null);
+      await saveMixedOrder(nextOrder);
       notify.success("Позиция обновлена");
     } catch (e) {
-      
-      notify.error("Не удалось изменить позицию");
-      
-      try {
-        const list = await getAssignmentsByCourse(courseId);
-        setItems(Array.isArray(list) ? list : []);
-      } catch {
-        
-      }
+      handleApiError(e, notify, "Не удалось изменить позицию");
+      await Promise.all([
+        reloadAssignments(true).catch(() => []),
+        reloadCourseData().catch(() => []),
+      ]);
     }
   };
 
-  const handleDropOnAssignment = async (targetId, sourceFromEvent) => {
-    const sourceId = sourceFromEvent || draggedAssignmentId;
-    setDraggedAssignmentId(null);
-    setDragOverAssignmentId(null);
-    if (!sourceId || !targetId || sourceId === targetId) return;
+  const handleDropOnContentItem = async (targetKey, sourceFromEvent) => {
+    const sourceKey = sourceFromEvent || draggedContentKey;
+    setDraggedContentKey(null);
+    setDragOverContentKey(null);
+    if (!sourceKey || !targetKey || sourceKey === targetKey) return;
     if (sortMode !== "default") {
       notify.info("Перетаскивание доступно только в стандартной сортировке");
       return;
     }
-    const source = orderedAll.find((x) => x.id === sourceId);
-    const targetPos = positionById.get(targetId);
+    const source = orderedAll.find((x) => x.key === sourceKey);
+    const targetPos = positionByKey.get(targetKey);
     if (!source || !targetPos) return;
-    if (source.canEdit === false) {
+    if (!canReorderContentItem(source)) {
       notify.error("Недостаточно прав");
       return;
     }
-    await moveToPosition(sourceId, targetPos);
+    await moveToPosition(sourceKey, targetPos);
   };
 
   const ensureCanManageAssignments = (actionText = "изменять задания") => {
@@ -867,7 +914,7 @@ export default function CourseAssignmentsPage() {
     if (!ensureCanManageAssignments("создавать задания")) return;
     setCreateBusyType(type);
     try {
-      const payload = buildDefaultAssignmentPayload(type, items.length);
+      const payload = buildDefaultAssignmentPayload(type, orderedAll.length);
       const res = await createAssignment(courseId, payload);
       const id = res && res.id;
       setCreateDialogOpen(false);
@@ -881,6 +928,30 @@ export default function CourseAssignmentsPage() {
         return;
       }
       handleApiError(e, notify, "Не удалось создать задание");
+    } finally {
+      setCreateBusyType("");
+    }
+  };
+
+  const handleCreateChildCourse = async () => {
+    if (!ensureCanManageAssignments("создавать вложенный курс")) return;
+    setCreateBusyType("course");
+    try {
+      const res = await createCourse({
+        title: "Новый вложенный курс",
+        description: "Описание курса",
+        isPublic: false,
+        visibleGroupIds: [],
+        ownerIds: [],
+        parentCourseId: courseId,
+        sort: orderedAll.length,
+      });
+      const id = res && res.id;
+      setCreateDialogOpen(false);
+      notify.success("Вложенный курс создан");
+      if (id) nav(`/courses/${id}/edit`);
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось создать вложенный курс");
     } finally {
       setCreateBusyType("");
     }
@@ -1063,7 +1134,6 @@ export default function CourseAssignmentsPage() {
       </div>
       </div>
 
-
       {jsonImportDiffOpen && jsonImportDiff && (
         <div
           className="fixed inset-0 z-[9999] flex h-[100dvh] items-center justify-center overflow-hidden bg-black/65 p-3 sm:p-5"
@@ -1212,6 +1282,20 @@ export default function CourseAssignmentsPage() {
                   </button>
                 ))}
 
+                <button
+                  type="button"
+                  disabled={!!createBusyType || jsonImportBusy}
+                  onClick={handleCreateChildCourse}
+                  className="w-full rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--accent))]/10 p-4 text-left transition hover:-translate-y-0.5 hover:border-[rgb(var(--accent))]/70 hover:bg-[rgb(var(--accent))]/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold">Вложенный курс</div>
+                    <Badge variant="outline">course</Badge>
+                  </div>
+                  <div className="mt-1 text-sm leading-5 text-neutral-500">Курс внутри текущего курса, в общем порядке вместе с заданиями.</div>
+                  <div className="mt-2 text-xs text-neutral-400">{createBusyType === "course" ? "Создаю…" : "Можно сделать курс → курс → курс"}</div>
+                </button>
+
                 <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.9)] p-4 text-sm leading-6 text-neutral-500">
                   <div className="flex items-center gap-2 font-semibold text-[rgb(var(--fg))]">
                     <FileJson size={16} /> Из JSON
@@ -1345,10 +1429,115 @@ export default function CourseAssignmentsPage() {
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
       <div className="auto-fill-grid auto-fill-grid--dense">
-        {filtered.map((a, idx) => {
+        {filtered.map((entry, idx) => {
+          const itemCanEdit = canReorderContentItem(entry);
+          const itemPosition = positionByKey.get(entry.key) ?? idx + 1;
+          const isDragged = draggedContentKey === entry.key;
+          const isDropTarget = dragOverContentKey === entry.key;
+
+          if (entry.kind === "course") {
+            const child = entry.course;
+            const title = child.title || `Курс ${itemPosition}`;
+            const href = courseCanEdit && child.canEdit !== false ? `/courses/${child.id}/edit` : `/course/${child.id}`;
+            const ViewWrap = ({ children }) => (
+              <Link to={`/course/${child.id}`} className="block group">
+                {children}
+              </Link>
+            );
+            const CardMain = (
+              <div className="assignment-card-main min-w-0">
+                <div className="assignment-card-heading">
+                  <div className="assignment-card-kicker">Вложенный курс {itemPosition}</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline">курс</Badge>
+                    {courseCanEdit ? <Badge variant="secondary">sort: {contentSortValue(entry)}</Badge> : null}
+                  </div>
+                </div>
+                <div className="assignment-card-title-wrap">
+                  <div className="assignment-card-title" title={title}>{title}</div>
+                </div>
+                {child.description ? (
+                  <p className="mt-3 text-sm leading-6 text-neutral-500 line-clamp-3">{child.description}</p>
+                ) : (
+                  <p className="mt-3 text-sm leading-6 text-neutral-400 line-clamp-3">Описание пока не добавлено.</p>
+                )}
+              </div>
+            );
+            const baseCardClass =
+              "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 border-[rgba(var(--accent)/0.35)] " +
+              (isDragged ? "assignment-card--dragging " : "") +
+              (isDropTarget ? "assignment-card--drop-target " : "");
+            const CardBase = <Card className={baseCardClass}>{CardMain}</Card>;
+            const EditorCard = (
+              <Card
+                role="link"
+                tabIndex={0}
+                draggable={itemCanEdit && sortMode === "default"}
+                onClick={() => {
+                  if (dragStartedRef.current) {
+                    dragStartedRef.current = false;
+                    return;
+                  }
+                  nav(href);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    nav(href);
+                  }
+                }}
+                onDragStart={(e) => {
+                  if (!itemCanEdit || sortMode !== "default") {
+                    e.preventDefault();
+                    return;
+                  }
+                  dragStartedRef.current = true;
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", entry.key);
+                  setDraggedContentKey(entry.key);
+                }}
+                onDragEnter={(e) => {
+                  if (!draggedContentKey || draggedContentKey === entry.key) return;
+                  e.preventDefault();
+                  setDragOverContentKey(entry.key);
+                }}
+                onDragOver={(e) => {
+                  if (!draggedContentKey || draggedContentKey === entry.key) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDragLeave={() => {
+                  if (dragOverContentKey === entry.key) setDragOverContentKey(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const sourceKey = e.dataTransfer.getData("text/plain");
+                  handleDropOnContentItem(entry.key, sourceKey);
+                }}
+                onDragEnd={() => {
+                  setDraggedContentKey(null);
+                  setDragOverContentKey(null);
+                  setTimeout(() => {
+                    dragStartedRef.current = false;
+                  }, 0);
+                }}
+                className={baseCardClass + (itemCanEdit && sortMode === "default" ? " cursor-move" : " cursor-pointer")}
+                title={sortMode === "default" ? "Перетащи карточку, чтобы изменить общий порядок" : "Открыть курс"}
+              >
+                {CardMain}
+              </Card>
+            );
+            return (
+              <IfEditor key={entry.key} otherwise={<ViewWrap>{CardBase}</ViewWrap>}>
+                {itemCanEdit ? EditorCard : <ViewWrap>{CardBase}</ViewWrap>}
+              </IfEditor>
+            );
+          }
+
+          const a = entry.assignment;
           const solved = isAssignmentSolved(a);
-          const title = previewAssignmentTitle(a.title, `Задание ${idx + 1}`);
-          const assignmentCanEdit = canEdit && a.canEdit !== false;
+          const title = previewAssignmentTitle(a.title, `Задание ${itemPosition}`);
+          const assignmentCanEdit = itemCanEdit;
 
           const ViewWrap = ({ children }) => (
             <Link to={`/assignment/${a.id}`} className="block group">
@@ -1358,7 +1547,7 @@ export default function CourseAssignmentsPage() {
           const CardMain = (
             <div className="assignment-card-main min-w-0">
               <div className="assignment-card-heading">
-                <div className="assignment-card-kicker">Задание {positionById.get(a.id) ?? idx + 1}</div>
+                <div className="assignment-card-kicker">Задание {itemPosition}</div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {a.isAiDraft && <Badge variant="secondary">AI-черновик</Badge>}
                   {a.isHidden && <Badge variant="outline">скрыто</Badge>}
@@ -1398,8 +1587,8 @@ export default function CourseAssignmentsPage() {
           const baseCardClass =
             "assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 " +
             (solved ? "assignment-card--solved " : "") +
-            (draggedAssignmentId === a.id ? "assignment-card--dragging " : "") +
-            (dragOverAssignmentId === a.id ? "assignment-card--drop-target " : "");
+            (isDragged ? "assignment-card--dragging " : "") +
+            (isDropTarget ? "assignment-card--drop-target " : "");
 
           const CardBase = (
             <Card className={baseCardClass}>
@@ -1432,43 +1621,43 @@ export default function CourseAssignmentsPage() {
                 }
                 dragStartedRef.current = true;
                 e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", a.id);
-                setDraggedAssignmentId(a.id);
+                e.dataTransfer.setData("text/plain", entry.key);
+                setDraggedContentKey(entry.key);
               }}
               onDragEnter={(e) => {
-                if (!draggedAssignmentId || draggedAssignmentId === a.id) return;
+                if (!draggedContentKey || draggedContentKey === entry.key) return;
                 e.preventDefault();
-                setDragOverAssignmentId(a.id);
+                setDragOverContentKey(entry.key);
               }}
               onDragOver={(e) => {
-                if (!draggedAssignmentId || draggedAssignmentId === a.id) return;
+                if (!draggedContentKey || draggedContentKey === entry.key) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
               }}
               onDragLeave={() => {
-                if (dragOverAssignmentId === a.id) setDragOverAssignmentId(null);
+                if (dragOverContentKey === entry.key) setDragOverContentKey(null);
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const sourceId = e.dataTransfer.getData("text/plain");
-                handleDropOnAssignment(a.id, sourceId);
+                const sourceKey = e.dataTransfer.getData("text/plain");
+                handleDropOnContentItem(entry.key, sourceKey);
               }}
               onDragEnd={() => {
-                setDraggedAssignmentId(null);
-                setDragOverAssignmentId(null);
+                setDraggedContentKey(null);
+                setDragOverContentKey(null);
                 setTimeout(() => {
                   dragStartedRef.current = false;
                 }, 0);
               }}
               className={baseCardClass + (assignmentCanEdit && sortMode === "default" ? " cursor-move" : " cursor-pointer")}
-              title={sortMode === "default" ? "Перетащи карточку, чтобы изменить порядок" : "Открыть редактор задания"}
+              title={sortMode === "default" ? "Перетащи карточку, чтобы изменить общий порядок" : "Открыть редактор задания"}
             >
               {CardMain}
             </Card>
           );
 
           return (
-            <IfEditor key={a.id} otherwise={<ViewWrap>{CardBase}</ViewWrap>}>
+            <IfEditor key={entry.key} otherwise={<ViewWrap>{CardBase}</ViewWrap>}>
               {assignmentCanEdit ? EditorCard : <ViewWrap>{CardBase}</ViewWrap>}
             </IfEditor>
           );

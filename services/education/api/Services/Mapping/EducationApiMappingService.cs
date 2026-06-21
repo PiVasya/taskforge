@@ -27,7 +27,9 @@ internal static class EducationApiMappingService
             canEdit,
             false,
             c.CreatedAt,
-            c.UpdatedAt);
+            c.UpdatedAt,
+            c.ParentCourseId,
+            c.Sort);
     }
 
     internal static object ToGroupDto(Group g, bool showCode) => new { g.Id, g.Name, code = showCode ? g.Code ?? string.Empty : string.Empty, g.IsActive, g.CreatedAt };

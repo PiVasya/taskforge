@@ -23,7 +23,23 @@ export async function createCourse(payload) {
 
 
 export async function updateCourse(id, payload) {
-  await api.put(`/api/courses/${id}`, payload);
+  const { data } = await api.put(`/api/courses/${id}`, payload);
+  return data;
+}
+
+
+export async function updateCourseSort(courseId, sort) {
+  const { data } = await api.patch(`/api/courses/${courseId}/sort`, { sort });
+  return data;
+}
+
+
+export async function moveCoursePosition(courseId, parentCourseId, position) {
+  const { data } = await api.patch(`/api/courses/${courseId}/position`, {
+    parentCourseId: parentCourseId || null,
+    position,
+  });
+  return data;
 }
 
 

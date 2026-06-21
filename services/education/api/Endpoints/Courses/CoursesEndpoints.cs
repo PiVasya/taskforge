@@ -16,17 +16,22 @@ internal static partial class EducationApiEndpoints
 {
     private static WebApplication MapCoursesEndpoints(WebApplication app)
     {
-        app.MapGet("/api/courses", async (HttpContext http, EducationDbContext db, IConfiguration cfg, int? page, int? pageSize, string? q, CancellationToken ct) =>
+        app.MapGet("/api/courses", async (HttpContext http, EducationDbContext db, IConfiguration cfg, int? page, int? pageSize, string? q, bool? tree, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
             var normalizedQuery = string.Join(' ', (q ?? string.Empty).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-            var requestedPagedShape = page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(normalizedQuery);
+            var requestedPagedShape = tree == true ? false : page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(normalizedQuery);
             var size = System.Math.Clamp(pageSize ?? 12, 1, 50);
             var currentPage = System.Math.Max(1, page ?? 1);
 
-            var rows = await db.Courses.AsNoTracking().OrderBy(x => x.Title).ToListAsync(ct);
+            var rows = await db.Courses.AsNoTracking()
+                .OrderBy(x => x.ParentCourseId.HasValue)
+                .ThenBy(x => x.ParentCourseId)
+                .ThenBy(x => x.Sort)
+                .ThenBy(x => x.Title)
+                .ToListAsync(ct);
             var visibleRows = rows.Where(x => CanViewCourse(access, x));
             if (!string.IsNullOrWhiteSpace(normalizedQuery))
             {
@@ -46,7 +51,7 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new PagedResult<CourseDto>(pageRows, currentPage, size, total, currentPage * size < total));
         });
 
-        app.MapPost("/api/courses", async (CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db) =>
+        app.MapPost("/api/courses", async (CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
             var currentUserId = TaskForgeRequestSecurity.UserId(http, cfg);
             var ownerIds = request.OwnerIds?.Where(x => x != Guid.Empty).Distinct().ToArray();
@@ -55,16 +60,25 @@ internal static partial class EducationApiEndpoints
                 ownerIds = new[] { currentUserId.Value };
             }
 
+            var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
+            if (parentId.HasValue && !await db.Courses.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var maxSort = await db.Courses.Where(x => x.ParentCourseId == parentId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
             var course = new Course
             {
                 Title = string.IsNullOrWhiteSpace(request.Title) ? "Новый курс" : request.Title.Trim(),
                 Description = request.Description,
                 IsPublic = request.IsPublic ?? false,
+                ParentCourseId = parentId,
+                Sort = request.Sort.HasValue ? System.Math.Max(0, request.Sort.Value) : maxSort + 1,
                 OwnerIdsJson = Serialize(ownerIds),
                 VisibleGroupIdsJson = Serialize(request.VisibleGroupIds)
             };
             db.Courses.Add(course);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
         });
 
@@ -79,49 +93,127 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, EducationDbContext db) =>
+        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.FindAsync(id);
+            var course = await db.Courses.FindAsync(new object[] { id }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!string.IsNullOrWhiteSpace(request.Title)) course.Title = request.Title.Trim();
             course.Description = request.Description;
             if (request.IsPublic.HasValue) course.IsPublic = request.IsPublic.Value;
+            if (request.Sort.HasValue) course.Sort = System.Math.Max(0, request.Sort.Value);
             if (request.OwnerIds != null) course.OwnerIdsJson = Serialize(request.OwnerIds);
             if (request.VisibleGroupIds != null) course.VisibleGroupIdsJson = Serialize(request.VisibleGroupIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
         });
 
-        app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db) =>
+        app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.FindAsync(id);
+            var course = await db.Courses.FindAsync(new object[] { id }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+
+            var children = await db.Courses.Where(x => x.ParentCourseId == id).ToListAsync(ct);
+            foreach (var child in children)
+            {
+                child.ParentCourseId = null;
+                child.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             db.Courses.Remove(course);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted" });
         });
 
-        app.MapPost("/api/courses/{courseId:guid}/visible-groups", async (Guid courseId, CourseGroupsRequest request, EducationDbContext db) =>
+        app.MapPatch("/api/courses/{courseId:guid}/sort", async (Guid courseId, CourseSortRequest request, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.FindAsync(courseId);
-            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
-            course.VisibleGroupIdsJson = Serialize(request.GroupIds);
+            var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
+            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+            course.Sort = System.Math.Max(0, request.Sort);
             course.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
         });
 
-        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, EducationDbContext db) =>
+        app.MapPatch("/api/courses/{courseId:guid}/position", async (Guid courseId, CoursePositionRequest request, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.FindAsync(courseId);
+            var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
+            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+
+            var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
+            if (parentId == course.Id)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Курс нельзя вложить сам в себя.", code = "COURSE_PARENT_SELF" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (parentId.HasValue && !await db.Courses.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (await WouldCreateCourseCycleAsync(course.Id, parentId, db, ct))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Такое вложение создаст цикл курсов.", code = "COURSE_PARENT_CYCLE" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var siblings = await db.Courses
+                .Where(x => x.ParentCourseId == parentId && x.Id != course.Id)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.Title)
+                .ToListAsync(ct);
+            var position = System.Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
+
+            course.ParentCourseId = parentId;
+            course.UpdatedAt = DateTimeOffset.UtcNow;
+            siblings.Insert(position, course);
+            for (var i = 0; i < siblings.Count; i++)
+            {
+                siblings[i].Sort = i;
+                siblings[i].UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+        });
+
+        app.MapPost("/api/courses/{courseId:guid}/visible-groups", async (Guid courseId, CourseGroupsRequest request, EducationDbContext db, CancellationToken ct) =>
+        {
+            var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
+            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            course.VisibleGroupIdsJson = Serialize(request.GroupIds);
+            course.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+        });
+
+        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, EducationDbContext db, CancellationToken ct) =>
+        {
+            var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             course.OwnerIdsJson = Serialize(request.OwnerIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
         });
 
         return app;
+    }
+
+    private static async Task<bool> WouldCreateCourseCycleAsync(Guid courseId, Guid? parentId, EducationDbContext db, CancellationToken ct)
+    {
+        if (!parentId.HasValue) return false;
+
+        var parents = await db.Courses.AsNoTracking()
+            .Where(x => x.ParentCourseId.HasValue)
+            .Select(x => new { x.Id, x.ParentCourseId })
+            .ToDictionaryAsync(x => x.Id, x => x.ParentCourseId, ct);
+
+        var seen = new HashSet<Guid>();
+        var current = parentId.Value;
+        while (true)
+        {
+            if (current == courseId) return true;
+            if (!seen.Add(current)) return true;
+            if (!parents.TryGetValue(current, out var next) || !next.HasValue) return false;
+            current = next.Value;
+        }
     }
 }

@@ -2,8 +2,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import Layout from '../components/Layout';
-import { Field, Input, Textarea, Button, Card, Badge } from '../components/ui';
-import { getCourse, updateCourse, deleteCourse } from '../api/courses';
+import { Field, Input, Textarea, Button, Card, Badge, Select } from '../components/ui';
+import { getCourse, getCourses, updateCourse, deleteCourse, moveCoursePosition, updateCourseSort } from '../api/courses';
 import { getGroups } from '../api/groups';
 import { searchUsersOnce } from '../api/admin';
 import { getAdminUsers } from '../api/adminUsers';
@@ -17,6 +17,60 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
+
+function courseSortValue(course) {
+  return Number.isFinite(Number(course?.sort)) ? Number(course.sort) : 0;
+}
+
+function compareCourses(a, b) {
+  const bySort = courseSortValue(a) - courseSortValue(b);
+  if (bySort !== 0) return bySort;
+  return String(a?.title || '').localeCompare(String(b?.title || ''), 'ru', { sensitivity: 'base' });
+}
+
+function flattenParentOptions(courses, currentCourseId) {
+  const currentId = String(currentCourseId || '');
+  const byId = new Map((courses || []).filter((x) => x?.id).map((x) => [String(x.id), x]));
+
+  const isDescendantOfCurrent = (course) => {
+    let parentId = course?.parentCourseId ? String(course.parentCourseId) : '';
+    const seen = new Set();
+    while (parentId) {
+      if (parentId === currentId) return true;
+      if (seen.has(parentId)) return true;
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      parentId = parent?.parentCourseId ? String(parent.parentCourseId) : '';
+    }
+    return false;
+  };
+
+  const nodesById = new Map();
+  for (const course of courses || []) {
+    if (!course?.id || String(course.id) === currentId || isDescendantOfCurrent(course)) continue;
+    nodesById.set(String(course.id), { ...course, children: [] });
+  }
+
+  const roots = [];
+  for (const node of nodesById.values()) {
+    const parentId = node.parentCourseId ? String(node.parentCourseId) : '';
+    const parent = parentId ? nodesById.get(parentId) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const result = [];
+  const walk = (level, depth = 0) => {
+    level.sort(compareCourses);
+    for (const node of level) {
+      result.push({ ...node, depth });
+      walk(node.children || [], depth + 1);
+    }
+  };
+  walk(roots);
+  return result;
+}
+
 export default function CourseEditPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -28,8 +82,11 @@ export default function CourseEditPage() {
   const [isPublic, setIsPublic] = useState(false);
   const [visibleGroupIds, setVisibleGroupIds] = useState([]);
   const [ownerIds, setOwnerIds] = useState([]);
+  const [parentCourseId, setParentCourseId] = useState('');
+  const [sort, setSort] = useState(0);
 
   const [groups, setGroups] = useState([]);
+  const [allCourses, setAllCourses] = useState([]);
 
   const [ownerQuery, setOwnerQuery] = useState('');
   const [ownerSearchBusy, setOwnerSearchBusy] = useState(false);
@@ -42,6 +99,7 @@ export default function CourseEditPage() {
   const [loading, setLoading] = useState(true);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map((x) => String(x).toLowerCase())), [ownerIds]);
+  const parentOptions = useMemo(() => flattenParentOptions(allCourses, courseId), [allCourses, courseId]);
 
   const rememberOwners = (users) => {
     const list = Array.isArray(users) ? users : [];
@@ -69,10 +127,10 @@ export default function CourseEditPage() {
         setErr('');
         setLoading(true);
 
-        const [c, g] = await Promise.all([
+        const [c, g, coursesPayload] = await Promise.all([
           getCourse(courseId),
-          
           getGroups().catch(() => []),
+          getCourses().catch(() => []),
         ]);
 
         if (c?.canEdit === false) {
@@ -84,6 +142,8 @@ export default function CourseEditPage() {
         setTitle(c.title || '');
         setDescription(c.description || '');
         setIsPublic(!!c.isPublic);
+        setParentCourseId(c.parentCourseId ? String(c.parentCourseId) : '');
+        setSort(courseSortValue(c));
         setVisibleGroupIds(Array.isArray(c.visibleGroupIds) ? c.visibleGroupIds : []);
         const loadedOwnerIds = Array.isArray(c.ownerIds) && c.ownerIds.length ? c.ownerIds : (c.ownerId ? [c.ownerId] : []);
         setOwnerIds(loadedOwnerIds);
@@ -97,6 +157,8 @@ export default function CourseEditPage() {
         }
 
         setGroups(Array.isArray(g) ? g : []);
+        const loadedCourses = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
+        setAllCourses(Array.isArray(loadedCourses) ? loadedCourses : []);
       } catch (e) {
         handleApiError(e, notify, 'Не удалось загрузить курс');
         setErr(e?.userMessage || e?.message || 'Не удалось загрузить курс');
@@ -104,7 +166,7 @@ export default function CourseEditPage() {
         setLoading(false);
       }
     })();
-    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, nav, isAdmin]);
 
   const toggleGroup = (id) => {
@@ -163,15 +225,19 @@ export default function CourseEditPage() {
     setBusy(true);
     setErr('');
     try {
+      const normalizedSort = Math.max(0, Number.parseInt(String(sort || 0), 10) || 0);
       const payload = {
         title,
         description,
         isPublic,
         visibleGroupIds: isPublic ? [] : (visibleGroupIds || []),
         ownerIds: ownerIds || [],
+        sort: normalizedSort,
       };
 
       await updateCourse(courseId, payload);
+      await moveCoursePosition(courseId, parentCourseId || null, normalizedSort + 1);
+      await updateCourseSort(courseId, normalizedSort);
       notify.success('Курс обновлён');
       nav(`/course/${courseId}`);
     } catch (e) {
@@ -226,6 +292,29 @@ export default function CourseEditPage() {
               <Field label="Название">
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: Основы C++" />
               </Field>
+
+              <Field label="Порядок sort" hint="0 — первый среди курсов того же уровня.">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                />
+              </Field>
+
+              <div className="sm:col-span-2">
+                <Field label="Родительский курс" hint="Если выбрать родителя, этот курс спрячется внутри него в каталоге.">
+                  <Select value={parentCourseId} onChange={(e) => setParentCourseId(e.target.value)}>
+                    <option value="">Нет — показывать в корне каталога</option>
+                    {parentOptions.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {`${'— '.repeat(course.depth || 0)}${course.title || 'Без названия'}`}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
 
               <div className="sm:col-span-2">
                 <Field label="Описание">

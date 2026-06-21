@@ -6,6 +6,8 @@ public sealed class Course
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public bool IsPublic { get; set; } = true;
+    public Guid? ParentCourseId { get; set; }
+    public int Sort { get; set; }
     public string OwnerIdsJson { get; set; } = "[]";
     public string VisibleGroupIdsJson { get; set; } = "[]";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

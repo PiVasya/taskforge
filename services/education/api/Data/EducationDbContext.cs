@@ -26,6 +26,7 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(4000);
+            entity.HasIndex(x => new { x.ParentCourseId, x.Sort });
         });
 
         modelBuilder.Entity<Group>(entity =>
