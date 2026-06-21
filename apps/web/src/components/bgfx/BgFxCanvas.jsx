@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import BgFxNeuralWebgl from './BgFxNeuralWebgl';
 
 
 
@@ -83,7 +84,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   }, [variant]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || preset === 2) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -545,221 +546,8 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       }
 
       
-      if (preset === 2) {
-        const TAU = Math.PI * 2;
-        
-        
-        ctx.clearRect(0, 0, w, h);
-        
-        
-        ctx.save();
-        const gx = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w,h)*0.75);
-        if (isDarkTheme()) {
-          gx.addColorStop(0, rgba(fx1, 0.08));
-          gx.addColorStop(0.35, rgba(fx2, 0.04));
-          gx.addColorStop(1, 'rgba(0,0,0,0)');
-        } else {
-          gx.addColorStop(0, rgba(fx1, 0.05));
-          gx.addColorStop(0.35, rgba(fx2, 0.025));
-          gx.addColorStop(1, 'rgba(255,255,255,0)');
-        }
-        ctx.fillStyle = gx;
-        ctx.fillRect(0, 0, w, h);
-        ctx.restore();
-        
-        
-        const pointerPull = pointer.has ? (pointer.down ? 0.024 : 0.012) : 0.0;
-        const pointerBoost = pointer.has ? (pointer.down ? 1.55 : 1.15) : 1.0;
-        
-        
-        for (const p of state.nodes) {
-          
-          p.wob += p.wobSp * (dt * 1000);
-          const wob = Math.sin(p.wob) * 0.12;
-          
-          
-          if (pointer.has) {
-            const dx = pointer.x - p.x;
-            const dy = pointer.y - p.y;
-            const d2 = dx*dx + dy*dy + 1;
-            const f = pointerPull * (1 / Math.sqrt(d2)) * (120*dpr);
-            p.vx += (dx / Math.sqrt(d2)) * f / p.mass;
-            p.vy += (dy / Math.sqrt(d2)) * f / p.mass;
-          }
-          
-          
-          p.vx *= 0.992;
-          p.vy *= 0.992;
-          
-          
-          p.x += (p.vx + wob) * (dt * 1000) * 0.06;
-          p.y += (p.vy - wob) * (dt * 1000) * 0.06;
-          
-          
-          const margin = 40*dpr;
-          if (p.x < -margin) p.x = w + margin;
-          if (p.x > w + margin) p.x = -margin;
-          if (p.y < -margin) p.y = h + margin;
-          if (p.y > h + margin) p.y = -margin;
-        }
-        
-        
-        const LR = clamp(Math.sqrt(w*h) * 0.085, 140*dpr, 260*dpr); 
-        const LR2 = LR*LR;
-        const edges = [];
-        const nearPairs = []; 
-        
-        for (let i = 0; i < state.nodes.length; i += 1) {
-          const a = state.nodes[i];
-          for (let j = i + 1; j < state.nodes.length; j += 1) {
-            const b = state.nodes[j];
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const d2 = dx*dx + dy*dy;
-            if (d2 < LR2) {
-              const d = Math.sqrt(d2);
-              const k = 1 - (d/LR);
-              const alpha = (k*k) * 0.55;
-              edges.push({ i, j, d, alpha });
-              if (d < LR*0.55 && Math.random() < 0.0025) nearPairs.push([i,j]);
-            }
-          }
-        }
-        
-        
-        state.pulseTimer += dt * 1000;
-        if (state.pulseTimer > 40) {
-          state.pulseTimer = 0;
-          const count = Math.floor(Math.random() * 3) + (pointer.down ? 1 : 0);
-          for (let k = 0; k < count; k += 1) {
-            if (nearPairs.length) {
-              const [a, b] = nearPairs[Math.floor(Math.random() * nearPairs.length)];
-              
-              state.pulses.push({
-                a, b, t: 0,
-                speed: rand(0.006, 0.02),
-                w: rand(0.8, 2.0)*dpr,
-                c: Math.random() < 0.5 ? fx2 : fx1,
-                alpha: rand(0.25, 0.75)
-              });
-            } else if (edges.length) {
-              const e = edges[Math.floor(Math.random() * edges.length)];
-              state.pulses.push({
-                a: e.i, b: e.j, t: 0,
-                speed: rand(0.006, 0.02),
-                w: rand(0.8, 2.0)*dpr,
-                c: Math.random() < 0.5 ? fx2 : fx1,
-                alpha: rand(0.25, 0.75)
-              });
-            }
-          }
-          
-          if (state.pulses.length > 120) state.pulses.splice(0, state.pulses.length - 120);
-        }
-        
-        
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen';
-        ctx.lineCap = 'round';
-        
-        for (const e of edges) {
-          const a = state.nodes[e.i];
-          const b = state.nodes[e.j];
-          
-          
-          let hl = 1.0;
-          if (pointer.has) {
-            const mx = (a.x + b.x) * 0.5;
-            const my = (a.y + b.y) * 0.5;
-            const dx = mx - pointer.x;
-            const dy = my - pointer.y;
-            const d = Math.sqrt(dx*dx + dy*dy);
-            hl = clamp(1.35 - d/(260*dpr), 1.0, 1.35);
-          }
-          
-          
-          const [r1, g1, b1] = a.c;
-          const [r2, g2, b2] = b.c;
-          const r = Math.floor((r1+r2)/2);
-          const g = Math.floor((g1+g2)/2);
-          const b_ = Math.floor((b1+b2)/2);
-          
-          const w_ = (0.7 + e.alpha*1.9) * dpr * hl;
-          const alpha_ = e.alpha * 0.55 * pointerBoost * alphaBoost();
-          
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b_}, ${Math.min(1, alpha_)})`;
-          ctx.lineWidth = w_;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-        
-        
-        for (let k = state.pulses.length - 1; k >= 0; k -= 1) {
-          const P = state.pulses[k];
-          P.t += P.speed * (dt * 1000 / 16);
-          if (P.t >= 1) {
-            state.pulses.splice(k, 1);
-            continue;
-          }
-          
-          const a = state.nodes[P.a];
-          const b = state.nodes[P.b];
-          const x = a.x + (b.x - a.x) * P.t;
-          const y = a.y + (b.y - a.y) * P.t;
-          
-          
-          const [r, g, b_] = P.c;
-          ctx.beginPath();
-          ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${P.alpha * alphaBoost()})`;
-          ctx.arc(x, y, (2.2*dpr + P.w*0.6) * (0.7 + 0.6*Math.sin(P.t*TAU)), 0, TAU);
-          ctx.fill();
-          
-          
-          const backT = clamp(P.t - 0.03, 0, 1);
-          const x2 = a.x + (b.x - a.x) * backT;
-          const y2 = a.y + (b.y - a.y) * backT;
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b_}, ${P.alpha*0.75})`;
-          ctx.lineWidth = P.w * 0.9;
-          ctx.beginPath();
-          ctx.moveTo(x2, y2);
-          ctx.lineTo(x, y);
-          ctx.stroke();
-        }
-        
-        
-        for (const p of state.nodes) {
-          const r_ = p.r * (1 + 0.15*Math.sin(p.wob*1.2));
-          const [r, g, b_] = p.c;
-          
-          
-          const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r_*10);
-          glow.addColorStop(0, `rgba(${r}, ${g}, ${b_}, ${0.30*p.core*pointerBoost*alphaBoost()})`);
-          glow.addColorStop(0.25, `rgba(${Math.min(255,r+25)}, ${Math.min(255,g+25)}, ${Math.min(255,b_+25)}, ${0.14*p.core*alphaBoost()})`);
-          glow.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = glow;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r_*10, 0, TAU);
-          ctx.fill();
-          
-          
-          ctx.fillStyle = `rgba(${r}, ${g}, ${b_}, ${0.85*p.core*alphaBoost()})`;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r_*1.15, 0, TAU);
-          ctx.fill();
-        }
-        
-        
-        ctx.globalAlpha = 0.25;
-        ctx.globalCompositeOperation = 'screen';
-        ctx.drawImage(canvas, 0, 0, w*dpr, h*dpr, 0, 0, w, h);
-        
-        ctx.restore();
-        return;
-      }
+      // Preset 2 is rendered by BgFxNeuralWebgl. Keep the 2D canvas effect for the other presets only.
 
-      
       if (preset === 3) {
         ctx.save();
         ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
@@ -1318,6 +1106,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   }, [enabled, preset, intensity, uiRev]);
 
   if (!enabled) return null;
+
+  if (preset === 2) {
+    return <BgFxNeuralWebgl enabled={enabled} intensity={intensity} uiRev={uiRev} />;
+  }
 
   return (
     <canvas
