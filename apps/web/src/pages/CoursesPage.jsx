@@ -1,16 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import { Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
 import { getAssignmentsByCourse } from "../api/assignments";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 
 const COURSE_PAGE_SIZE = 50;
-const ROOT_PARENT_KEY = "__root__";
 
 function normalizePagedCourses(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -45,88 +44,60 @@ function compareCourses(a, b) {
   return String(a?.title || "").localeCompare(String(b?.title || ""), "ru", { sensitivity: "base" });
 }
 
-function parentKey(parentCourseId) {
-  return parentCourseId ? String(parentCourseId) : ROOT_PARENT_KEY;
-}
-
-function CourseNode({
+function CourseCard({
   course,
-  depth = 0,
   revealIndex = 0,
   editorTools,
-  progressByCourseId,
-  openCourseIds,
-  forceOpen,
-  onToggleOpen,
-  onNavigateCourse,
-  onSwapCourse,
+  progress,
+  isDragged,
+  isDropTarget,
+  dropMode,
+  onNavigate,
+  onDragStart,
+  onDragEnter,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }) {
-  const progress = progressByCourseId[course.id];
   const progressText = progress?.loading ? "—/—" : `${progress?.solved ?? 0}/${progress?.total ?? 0}`;
   const unavailable = course.canAccess === false || course.isAccessible === false || course.isAvailable === false;
   const foreignInEditor = editorTools && course.canEdit === false;
-  const hasChildren = Array.isArray(course.children) && course.children.length > 0;
-  const isOpen = forceOpen || openCourseIds.has(String(course.id));
-
-  const href = editorTools && course.canEdit ? `/courses/${course.id}/edit` : `/course/${course.id}`;
+  const canDrag = editorTools && course.canEdit !== false;
   const cardClass =
-    "transition hover:shadow-lg cursor-pointer " +
-    (depth > 0 ? "p-4 min-h-[150px] " : "p-5 min-h-[190px] ") +
+    "transition hover:shadow-lg cursor-pointer p-5 min-h-[190px] " +
     (progress?.isComplete || course.isCompletedForCurrentUser
       ? "border-emerald-400/40 bg-emerald-500/5 "
       : foreignInEditor || unavailable
         ? "border-neutral-300/60 bg-neutral-500/5 opacity-70 grayscale-[0.25] "
-        : "border-[rgba(var(--accent)/0.25)] ");
+        : "border-[rgba(var(--accent)/0.25)] ") +
+    (isDragged ? "opacity-60 scale-[0.99] " : "") +
+    (isDropTarget && dropMode === "inside" ? "ring-2 ring-[rgb(var(--accent))] " : "") +
+    (isDropTarget && dropMode === "before" ? "border-t-4 border-t-[rgb(var(--accent))] " : "") +
+    (isDropTarget && dropMode === "after" ? "border-b-4 border-b-[rgb(var(--accent))] " : "") +
+    (canDrag ? "cursor-move " : "cursor-pointer ");
 
   return (
-    <div
-      className={(depth === 0 ? "tf-reveal-item" : "mt-3 border-l border-[rgba(var(--border)/0.8)] pl-3")}
-      style={depth === 0 ? { "--tf-reveal-delay": `${(revealIndex % COURSE_PAGE_SIZE) * 35}ms` } : undefined}
-    >
-      <Card className={cardClass} onClick={() => onNavigateCourse(href)} role="button" tabIndex={0}>
+    <div className="tf-reveal-item" style={{ "--tf-reveal-delay": `${(revealIndex % COURSE_PAGE_SIZE) * 35}ms` }}>
+      <Card
+        className={cardClass}
+        onClick={onNavigate}
+        role="button"
+        tabIndex={0}
+        draggable={canDrag}
+        onDragStart={onDragStart}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        onDragEnd={onDragEnd}
+        title={canDrag ? "Перетащи курс: между карточками — сортировка, на середину карточки — вложить внутрь" : "Открыть курс"}
+      >
         <div className="flex h-full flex-col justify-between gap-4">
           <div className="min-w-0">
             <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className={(depth > 0 ? "text-base" : "text-lg") + " font-semibold leading-7 truncate"}>{course.title}</div>
-                {editorTools ? (
-                  <div className="mt-1 text-[11px] text-neutral-400">sort: {courseSortValue(course)}</div>
-                ) : null}
-              </div>
-
-              <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                {editorTools && course.canEdit ? (
-                  <>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[rgba(var(--border)/0.8)] px-2 py-1 text-xs hover:bg-[rgba(var(--muted)/0.35)]"
-                      title="Поднять курс выше"
-                      onClick={() => onSwapCourse(course, -1)}
-                    >
-                      <ArrowUp size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[rgba(var(--border)/0.8)] px-2 py-1 text-xs hover:bg-[rgba(var(--muted)/0.35)]"
-                      title="Опустить курс ниже"
-                      onClick={() => onSwapCourse(course, 1)}
-                    >
-                      <ArrowDown size={14} />
-                    </button>
-                  </>
-                ) : null}
-
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[rgba(var(--border)/0.8)] px-2 py-1 text-xs hover:bg-[rgba(var(--muted)/0.35)]"
-                    title={isOpen ? "Скрыть вложенные курсы" : "Показать вложенные курсы"}
-                    onClick={() => onToggleOpen(course.id)}
-                  >
-                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </button>
-                ) : null}
-              </div>
+              <div className="min-w-0 text-lg font-semibold leading-7 truncate">{course.title}</div>
+              <div className="shrink-0 rounded-full border border-[rgba(var(--border)/0.75)] px-3 py-1 text-xs text-neutral-500">курс</div>
             </div>
 
             {course.description ? (
@@ -134,12 +105,6 @@ function CourseNode({
             ) : (
               <p className="text-sm text-neutral-400 mt-2">Описание пока не добавлено.</p>
             )}
-
-            {hasChildren ? (
-              <div className="mt-3 text-xs font-medium text-neutral-500">
-                Вложенные курсы: {course.children.length}
-              </div>
-            ) : null}
           </div>
 
           <div className="mt-auto space-y-2">
@@ -153,26 +118,6 @@ function CourseNode({
           </div>
         </div>
       </Card>
-
-      {hasChildren && isOpen ? (
-        <div className="mt-3">
-          {course.children.map((child, index) => (
-            <CourseNode
-              key={child.id}
-              course={child}
-              depth={depth + 1}
-              revealIndex={index}
-              editorTools={editorTools}
-              progressByCourseId={progressByCourseId}
-              openCourseIds={openCourseIds}
-              forceOpen={forceOpen}
-              onToggleOpen={onToggleOpen}
-              onNavigateCourse={onNavigateCourse}
-              onSwapCourse={onSwapCourse}
-            />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -187,7 +132,10 @@ export default function CoursesPage() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [progressByCourseId, setProgressByCourseId] = useState({});
-  const [openCourseIds, setOpenCourseIds] = useState(() => new Set());
+  const [draggedCourseId, setDraggedCourseId] = useState(null);
+  const [dragOverCourseId, setDragOverCourseId] = useState(null);
+  const [dragOverMode, setDragOverMode] = useState("before");
+  const dragStartedRef = useRef(false);
 
   const nav = useNavigate();
   const notify = useNotify();
@@ -195,18 +143,6 @@ export default function CoursesPage() {
 
   const editorTools = canEdit && isEditorMode;
   const rootCourses = useMemo(() => (items || []).filter((course) => !course?.parentCourseId).sort(compareCourses), [items]);
-  const forceOpenTree = false;
-
-  const siblingGroups = useMemo(() => {
-    const groups = new Map();
-    for (const course of items || []) {
-      const key = parentKey(course?.parentCourseId || null);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(course);
-    }
-    for (const group of groups.values()) group.sort(compareCourses);
-    return groups;
-  }, [items]);
 
   const loadCourses = async ({ reset = false, query = q } = {}) => {
     const nextPage = reset ? 1 : page + 1;
@@ -296,47 +232,86 @@ export default function CoursesPage() {
     }
   };
 
-  const toggleOpen = (courseId) => {
-    setOpenCourseIds((prev) => {
-      const next = new Set(prev);
-      const id = String(courseId);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const getDropMode = (event, targetCourse) => {
+    if (!draggedCourseId || String(draggedCourseId) === String(targetCourse.id)) return "before";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    if (y < rect.height * 0.25) return "before";
+    if (y > rect.height * 0.75) return "after";
+    return "inside";
   };
 
-  const swapCourse = async (course, dir) => {
-    if (!editorTools) return;
-    const key = parentKey(course?.parentCourseId || null);
-    const siblings = siblingGroups.get(key) || [];
-    const currentIndex = siblings.findIndex((x) => String(x.id) === String(course.id));
-    const targetIndex = currentIndex + dir;
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
+  const resetDrag = () => {
+    setDraggedCourseId(null);
+    setDragOverCourseId(null);
+    setDragOverMode("before");
+    setTimeout(() => {
+      dragStartedRef.current = false;
+    }, 0);
+  };
 
-    const a = siblings[currentIndex];
-    const b = siblings[targetIndex];
-    if (a.canEdit === false || b.canEdit === false) {
+  const moveRootCourse = async (sourceCourse, targetCourse, mode) => {
+    const nextRoot = rootCourses.filter((x) => String(x.id) !== String(sourceCourse.id));
+    const targetIndex = nextRoot.findIndex((x) => String(x.id) === String(targetCourse.id));
+    if (targetIndex < 0) return;
+    const insertIndex = mode === "after" ? targetIndex + 1 : targetIndex;
+    nextRoot.splice(insertIndex, 0, sourceCourse);
+    const sortById = new Map(nextRoot.map((x, index) => [String(x.id), index]));
+
+    setItems((prev) => prev.map((x) => {
+      const nextSort = sortById.get(String(x.id));
+      return Number.isFinite(nextSort) ? { ...x, parentCourseId: null, sort: nextSort } : x;
+    }));
+
+    await moveCoursePosition(sourceCourse.id, null, insertIndex + 1);
+  };
+
+  const moveCourseInside = async (sourceCourse, targetCourse) => {
+    const childCount = (items || []).filter((x) => String(x?.parentCourseId || "") === String(targetCourse.id)).length;
+    setItems((prev) => prev.map((x) => (
+      String(x.id) === String(sourceCourse.id)
+        ? { ...x, parentCourseId: targetCourse.id, sort: childCount }
+        : x
+    )));
+    await moveCoursePosition(sourceCourse.id, targetCourse.id, childCount + 1);
+  };
+
+  const handleDropCourse = async (targetCourse, modeFromEvent) => {
+    const sourceId = draggedCourseId;
+    const mode = modeFromEvent || dragOverMode;
+    resetDrag();
+    if (!editorTools || !sourceId || String(sourceId) === String(targetCourse.id)) return;
+
+    const sourceCourse = items.find((x) => String(x.id) === String(sourceId));
+    if (!sourceCourse || sourceCourse.canEdit === false) {
       notify.warn("Вы не владелец курса — менять порядок нельзя");
       return;
     }
-
-    const nextSiblings = [...siblings];
-    const [moved] = nextSiblings.splice(currentIndex, 1);
-    nextSiblings.splice(targetIndex, 0, moved);
-    const nextSortById = new Map(nextSiblings.map((x, index) => [String(x.id), index]));
-
-    setItems((prev) => prev.map((x) => {
-      const nextSort = nextSortById.get(String(x.id));
-      return Number.isFinite(nextSort) ? { ...x, sort: nextSort } : x;
-    }));
+    if (mode === "inside" && targetCourse.canEdit === false) {
+      notify.warn("Нельзя вложить курс в чужой курс");
+      return;
+    }
 
     try {
-      await moveCoursePosition(a.id, a.parentCourseId || null, targetIndex + 1);
+      if (mode === "inside") {
+        await moveCourseInside(sourceCourse, targetCourse);
+        notify.success("Курс вложен");
+      } else {
+        await moveRootCourse(sourceCourse, targetCourse, mode);
+        notify.success("Порядок курсов обновлён");
+      }
     } catch (e) {
-      handleApiError(e, notify, "Не удалось изменить порядок курсов");
+      handleApiError(e, notify, "Не удалось переместить курс");
       await loadCourses({ reset: true, query: q });
     }
+  };
+
+  const navigateCourse = (course) => {
+    if (dragStartedRef.current) {
+      dragStartedRef.current = false;
+      return;
+    }
+    nav(`/course/${course.id}`);
   };
 
   return (
@@ -347,7 +322,7 @@ export default function CoursesPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-400">Каталог</div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Курсы</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500">
-              Выберите курс и переходите к заданиям. В каталоге показываются только курсы верхнего уровня; вложенные курсы открываются уже внутри родителя.
+              В каталоге показываются только курсы верхнего уровня. В режиме редактора порядок и вложенность меняются перетаскиванием карточек.
             </p>
           </div>
 
@@ -389,17 +364,51 @@ export default function CoursesPage() {
       {!loading && (
         <div className="auto-fill-grid">
           {rootCourses.map((course, index) => (
-            <CourseNode
+            <CourseCard
               key={course.id}
               course={course}
               revealIndex={index}
               editorTools={editorTools}
-              progressByCourseId={progressByCourseId}
-              openCourseIds={openCourseIds}
-              forceOpen={forceOpenTree}
-              onToggleOpen={toggleOpen}
-              onNavigateCourse={nav}
-              onSwapCourse={swapCourse}
+              progress={progressByCourseId[course.id]}
+              isDragged={String(draggedCourseId || "") === String(course.id)}
+              isDropTarget={String(dragOverCourseId || "") === String(course.id)}
+              dropMode={dragOverMode}
+              onNavigate={() => navigateCourse(course)}
+              onDragStart={(e) => {
+                if (!editorTools || course.canEdit === false) {
+                  e.preventDefault();
+                  return;
+                }
+                dragStartedRef.current = true;
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", String(course.id));
+                setDraggedCourseId(course.id);
+              }}
+              onDragEnter={(e) => {
+                if (!draggedCourseId || String(draggedCourseId) === String(course.id)) return;
+                e.preventDefault();
+                setDragOverCourseId(course.id);
+                setDragOverMode(getDropMode(e, course));
+              }}
+              onDragOver={(e) => {
+                if (!draggedCourseId || String(draggedCourseId) === String(course.id)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDragOverCourseId(course.id);
+                setDragOverMode(getDropMode(e, course));
+              }}
+              onDragLeave={() => {
+                if (String(dragOverCourseId || "") === String(course.id)) {
+                  setDragOverCourseId(null);
+                  setDragOverMode("before");
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const mode = getDropMode(e, course);
+                handleDropCourse(course, mode);
+              }}
+              onDragEnd={resetDrag}
             />
           ))}
         </div>
@@ -411,7 +420,7 @@ export default function CoursesPage() {
 
       {!loading && items.length > 0 && (
         <div className="mt-6 flex flex-col items-center gap-2">
-          <div className="text-xs text-neutral-500">Показано {items.length}{total ? ` из ${total}` : ''}</div>
+          <div className="text-xs text-neutral-500">Показано {rootCourses.length}{total ? ` из ${total}` : ''}</div>
           {hasMore && (
             <Button variant="outline" onClick={() => loadCourses({ reset: false })} disabled={loadingMore}>
               {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
