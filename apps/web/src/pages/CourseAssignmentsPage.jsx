@@ -1336,13 +1336,13 @@ export default function CourseAssignmentsPage() {
 
 
       <IfEditor>
-        {courseCanEdit && childCourses.length > 0 ? (
+        {courseCanEdit && childCourses.length > 0 && getDraggedCourseItem() ? (
           <div
             className={
-              "mb-6 rounded-[24px] border border-dashed p-4 text-sm transition " +
+              "fixed bottom-5 left-1/2 z-[1000] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-dashed px-5 py-4 text-sm shadow-2xl backdrop-blur transition sm:bottom-7 " +
               (extractDropActive
-                ? "border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)] text-[rgb(var(--accent))]"
-                : "border-[rgba(var(--border)/0.85)] bg-[rgba(var(--muted)/0.22)] text-neutral-500")
+                ? "border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.16)] text-[rgb(var(--accent))]"
+                : "border-[rgba(var(--border)/0.9)] bg-[rgba(var(--card)/0.96)] text-neutral-500")
             }
             onDragOver={handleExtractZoneDragOver}
             onDragEnter={handleExtractZoneDragOver}
@@ -1353,7 +1353,7 @@ export default function CourseAssignmentsPage() {
               Вынести курс на уровень выше
             </div>
             <div className="mt-1 text-xs opacity-80">
-              Перетащи сюда вложенный курс: он переместится {course?.parentCourseId ? "в родительский курс" : "в корень каталога"}.
+              Отпусти здесь курс: он переместится {course?.parentCourseId ? "в родительский курс" : "в корень каталога"}.
             </div>
           </div>
         ) : null}
@@ -1672,7 +1672,6 @@ export default function CourseAssignmentsPage() {
             const CardMain = (
               <div className="assignment-card-main min-w-0">
                 <div className="assignment-card-heading">
-                  <div className="assignment-card-kicker">Вложенный курс {itemPosition}</div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline">курс</Badge>
                   </div>
@@ -1788,6 +1787,12 @@ export default function CourseAssignmentsPage() {
           const solved = isAssignmentSolved(a);
           const title = previewAssignmentTitle(a.title, `Задание ${itemPosition}`);
           const assignmentCanEdit = itemCanEdit;
+          const hasAssignmentMeta = Boolean(
+            a.isAiDraft ||
+            a.isHidden ||
+            (a.lifecycleStatus && a.lifecycleStatus !== 'published') ||
+            solved
+          );
 
           const ViewWrap = ({ children }) => (
             <Link to={`/assignment/${a.id}`} className="block group">
@@ -1796,20 +1801,21 @@ export default function CourseAssignmentsPage() {
           );
           const CardMain = (
             <div className="assignment-card-main min-w-0">
-              <div className="assignment-card-heading">
-                <div className="assignment-card-kicker">Задание {itemPosition}</div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {a.isAiDraft && <Badge variant="secondary">AI-черновик</Badge>}
-                  {a.isHidden && <Badge variant="outline">скрыто</Badge>}
-                  {a.lifecycleStatus && a.lifecycleStatus !== 'published' && <Badge variant="outline">{a.lifecycleStatus}</Badge>}
-                  {solved && (
-                    <span className="assignment-card-status">
-                      <CheckCircle2 size={14} />
-                      Решено
-                    </span>
-                  )}
+              {hasAssignmentMeta && (
+                <div className="assignment-card-heading">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {a.isAiDraft && <Badge variant="secondary">AI-черновик</Badge>}
+                    {a.isHidden && <Badge variant="outline">скрыто</Badge>}
+                    {a.lifecycleStatus && a.lifecycleStatus !== 'published' && <Badge variant="outline">{a.lifecycleStatus}</Badge>}
+                    {solved && (
+                      <span className="assignment-card-status">
+                        <CheckCircle2 size={14} />
+                        Решено
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="assignment-card-title-wrap">
                 <div
