@@ -53,6 +53,36 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { courseId, userId, canView = CanViewCourse(access, course), canEdit = CanEditCourse(access, course), isPublic = course.IsPublic });
         });
 
+        app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
+        {
+            var rows = await db.Courses.AsNoTracking()
+                .Select(x => new { x.Id, x.ParentCourseId })
+                .ToListAsync(ct);
+
+            if (!rows.Any(x => x.Id == courseId)) return Microsoft.AspNetCore.Http.Results.NotFound();
+
+            var children = rows
+                .Where(x => x.ParentCourseId.HasValue)
+                .GroupBy(x => x.ParentCourseId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
+
+            var result = new List<Guid>();
+            var seen = new HashSet<Guid>();
+            var queue = new Queue<Guid>();
+            queue.Enqueue(courseId);
+
+            while (queue.Count > 0)
+            {
+                var id = queue.Dequeue();
+                if (!seen.Add(id)) continue;
+                result.Add(id);
+                if (!children.TryGetValue(id, out var directChildren)) continue;
+                foreach (var childId in directChildren) queue.Enqueue(childId);
+            }
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new { courseId, courseIds = result });
+        });
+
         return app;
     }
 }

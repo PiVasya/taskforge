@@ -46,6 +46,8 @@ internal static partial class SolutionsApiEndpoints
                 }
             }
 
+            var courseScopeIds = await LoadCourseTreeIdsAsync(courseId, cfg, httpFactory, ct);
+
             var since = days.HasValue && days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-days.Value) : (DateTimeOffset?)null;
             var codeRows = await db.Submissions.AsNoTracking()
                 .Where(x => x.UserId.HasValue && x.Status == "Accepted")
@@ -71,17 +73,19 @@ internal static partial class SolutionsApiEndpoints
             var assignmentIds = codeRows.Select(x => x.AssignmentId).Concat(imageRows.Select(x => x.AssignmentId)).Distinct().ToArray();
             var metadata = await LoadAssignmentMetadataAsync(assignmentIds, cfg, httpFactory, ct);
 
+            codeRows = codeRows
+                .Where(x => metadata.TryGetValue(x.AssignmentId, out var m) && (courseScopeIds == null || courseScopeIds.Contains(m.CourseId)))
+                .ToList();
+            imageRows = imageRows
+                .Where(x => metadata.TryGetValue(x.AssignmentId, out var m) && (courseScopeIds == null || courseScopeIds.Contains(m.CourseId)))
+                .ToList();
+
             var activityRows = new List<LeaderboardActivityRow>();
             activityRows.AddRange(codeRows.Where(x => x.UserId.HasValue).Select(x => new LeaderboardActivityRow(x.UserId.Value, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
             activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
             if (!groupId.HasValue || groupUserIds is { Length: > 0 })
             {
-                activityRows.AddRange(await LoadTaskLeaderboardRowsAsync(courseId, days, groupUserIds, cfg, httpFactory, ct));
-            }
-
-            if (courseId.HasValue)
-            {
-                activityRows = activityRows.Where(x => metadata.TryGetValue(x.AssignmentId, out var m) ? m.CourseId == courseId.Value : true).ToList();
+                activityRows.AddRange(await LoadTaskLeaderboardRowsAsync(courseId, days, groupUserIds, cfg, httpFactory, ct, courseScopeIds));
             }
 
             if (activityRows.Count == 0)

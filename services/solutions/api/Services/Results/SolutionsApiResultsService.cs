@@ -40,12 +40,43 @@ internal static class SolutionsApiResultsService
     internal static int MetadataRating(Dictionary<Guid, AssignmentMetadata> metadata, Guid assignmentId)
         => metadata.TryGetValue(assignmentId, out var m) && m.Rating > 0 ? m.Rating : 1;
 
-    internal static async Task<List<LeaderboardActivityRow>> LoadTaskLeaderboardRowsAsync(Guid? courseId, int? days, Guid[]? userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<List<LeaderboardActivityRow>> LoadTaskLeaderboardRowsAsync(Guid? courseId, int? days, Guid[]? userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct, IReadOnlyCollection<Guid>? courseIds = null)
     {
-        var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard", new ActivityLeaderboardRequest(courseId, days, userIds), ct) ?? new List<TaskActivityRowDto>();
+        var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard", new ActivityLeaderboardRequest(courseId, days, userIds, courseIds?.Where(x => x != Guid.Empty).Distinct().ToArray()), ct) ?? new List<TaskActivityRowDto>();
         return rows.Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
             .Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, System.Math.Max(1, x.Rating), x.SubmittedAt, x.Kind ?? "task"))
             .ToList();
+    }
+
+    internal static async Task<HashSet<Guid>?> LoadCourseTreeIdsAsync(Guid? courseId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    {
+        if (!courseId.HasValue || courseId.Value == Guid.Empty) return null;
+
+        var result = await GetInternalJsonAsync<CourseTreeResponse>(httpFactory, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId.Value:D}/tree", ct);
+        var ids = (result?.CourseIds ?? Array.Empty<Guid>())
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToHashSet();
+
+        if (ids.Count == 0) ids.Add(courseId.Value);
+        return ids;
+    }
+
+    private static async Task<T?> GetInternalJsonAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, CancellationToken ct)
+    {
+        try
+        {
+            var client = httpFactory.CreateClient();
+            using var msg = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + path);
+            AddInternalKey(msg, cfg);
+            using var resp = await client.SendAsync(msg, ct);
+            if (!resp.IsSuccessStatusCode) return default;
+            return await resp.Content.ReadFromJsonAsync<T>(JsonOptions(), ct);
+        }
+        catch
+        {
+            return default;
+        }
     }
 
     internal static async Task<Dictionary<Guid, List<object>>> LoadBadgeMapAsync(SolutionsDbContext db, IEnumerable<Guid> userIds, CancellationToken ct)

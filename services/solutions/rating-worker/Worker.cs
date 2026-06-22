@@ -296,7 +296,7 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
         var baseUrl = ServiceUrl("TasksApi", "http://tasks-api:8080");
         using var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/activity/leaderboard")
         {
-            Content = JsonContent.Create(new ActivityLeaderboardRequest(null, null, userIds), options: JsonOptions)
+            Content = JsonContent.Create(new ActivityLeaderboardRequest(null, null, userIds, null), options: JsonOptions)
         };
         AddInternalKey(msg);
         var client = httpClientFactory.CreateClient();
@@ -379,7 +379,7 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
     private sealed record CodeActivityRow(Guid UserId, Guid AssignmentId, bool Accepted, DateTimeOffset CreatedAt);
     private sealed record ImageActivityRow(Guid UserId, Guid AssignmentId, bool Passed, DateTimeOffset CreatedAt);
     private sealed record SolvedAssignment(int Rating, DateTimeOffset LastSubmittedAt);
-    private sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
+    private sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds, Guid[]? CourseIds = null);
     private sealed record AssignmentIdsRequest(Guid[]? AssignmentIds);
 
     private sealed class TaskActivityRow

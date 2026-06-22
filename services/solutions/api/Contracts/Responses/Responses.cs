@@ -65,6 +65,12 @@ public sealed class GroupMembersResponse
     public Guid[]? UserIds { get; set; }
 }
 
+public sealed class CourseTreeResponse
+{
+    public Guid CourseId { get; set; }
+    public Guid[]? CourseIds { get; set; }
+}
+
 public sealed class TaskActivityRowDto
 {
     public Guid UserId { get; set; }

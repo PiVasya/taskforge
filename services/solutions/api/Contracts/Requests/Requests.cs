@@ -18,7 +18,7 @@ public sealed record UserIdsRequest(Guid[]? UserIds);
 
 public sealed record RatingDirtyUsersRequest(Guid[]? UserIds, string? Reason, Guid? AssignmentId);
 
-public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds);
+public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds, Guid[]? CourseIds = null);
 
 public sealed record SolvedAssignmentsRequest(Guid[]? AssignmentIds);
 

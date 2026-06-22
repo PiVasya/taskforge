@@ -108,12 +108,15 @@ internal static partial class AssignmentApiEndpoints
         {
             var since = request.Days.HasValue && request.Days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-request.Days.Value) : (DateTimeOffset?)null;
             var userFilter = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
+            var courseFilter = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
             var q = db.Attempts.AsNoTracking().Where(x => x.Passed);
             if (since.HasValue) q = q.Where(x => x.SubmittedAt.HasValue && x.SubmittedAt.Value >= since.Value);
             if (userFilter.Count > 0) q = q.Where(x => userFilter.Contains(x.UserId));
 
             var joined = await q.Join(db.Assignments.AsNoTracking(), a => a.TaskAssignmentId, assignment => assignment.Id, (a, assignment) => new { Attempt = a, Assignment = assignment })
-                .Where(x => !request.CourseId.HasValue || x.Assignment.CourseId == request.CourseId.Value)
+                .Where(x => courseFilter.Count > 0
+                    ? courseFilter.Contains(x.Assignment.CourseId)
+                    : (!request.CourseId.HasValue || x.Assignment.CourseId == request.CourseId.Value))
                 .Select(x => new
                 {
                     userId = x.Attempt.UserId,
