@@ -8,6 +8,7 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<UserRating> UserRatings => Set<UserRating>();
     public DbSet<LeaderboardEntry> LeaderboardEntries => Set<LeaderboardEntry>();
+    public DbSet<RatingDirtyUser> RatingDirtyUsers => Set<RatingDirtyUser>();
     public DbSet<RatingProjectionCheckpoint> RatingProjectionCheckpoints => Set<RatingProjectionCheckpoint>();
     public DbSet<SolutionSubmission> Submissions => Set<SolutionSubmission>();
     public DbSet<Badge> Badges => Set<Badge>();
@@ -47,6 +48,14 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
             entity.ToTable("RatingProjectionCheckpoints");
             entity.HasKey(x => x.ProjectionName);
             entity.Property(x => x.ProjectionName).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<RatingDirtyUser>(entity =>
+        {
+            entity.ToTable("RatingDirtyUsers");
+            entity.HasKey(x => x.UserId);
+            entity.HasIndex(x => x.MarkedAtUtc);
+            entity.Property(x => x.Reason).HasMaxLength(200).IsRequired();
         });
 
         modelBuilder.Entity<SolutionSubmission>(entity =>

@@ -25,6 +25,14 @@ public sealed class LeaderboardEntry
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+public sealed class RatingDirtyUser
+{
+    public Guid UserId { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public Guid? AssignmentId { get; set; }
+    public DateTimeOffset MarkedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class RatingProjectionCheckpoint
 {
     public string ProjectionName { get; set; } = string.Empty;

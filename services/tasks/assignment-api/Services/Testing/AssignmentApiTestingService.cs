@@ -78,7 +78,8 @@ internal static class AssignmentApiTestingService
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
         attempt.ReviewJson = new JsonObject { ["questions"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
+        await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }
 

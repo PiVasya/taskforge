@@ -139,6 +139,33 @@ internal static class AssignmentApiCommonService
 
     internal static void Shuffle<T>(IList<T> list, Guid seed) { var rnd = new Random(BitConverter.ToInt32(seed.ToByteArray(), 0)); for (var i = list.Count - 1; i > 0; i--) { var j = rnd.Next(i + 1); (list[i], list[j]) = (list[j], list[i]); } }
 
+
+    internal static async Task MarkRatingDirtyInSolutionsAsync(IHttpClientFactory httpFactory, IConfiguration cfg, IEnumerable<Guid> userIds, string reason, Guid? assignmentId, CancellationToken ct)
+    {
+        var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
+        if (ids.Length == 0) return;
+        await PostInternalAsync<object>(
+            httpFactory,
+            cfg,
+            ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
+            "/api/internal/rating/dirty-users",
+            new { userIds = ids, reason, assignmentId },
+            ct);
+    }
+
+    internal static async Task MarkAssignmentRatingDirtyInSolutionsAsync(IHttpClientFactory httpFactory, IConfiguration cfg, Guid assignmentId, IEnumerable<Guid> taskUserIds, string reason, CancellationToken ct)
+    {
+        if (assignmentId == Guid.Empty) return;
+        var ids = taskUserIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
+        await PostInternalAsync<object>(
+            httpFactory,
+            cfg,
+            ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
+            $"/api/internal/rating/assignments/{assignmentId:D}/dirty-users",
+            new { userIds = ids, reason, assignmentId },
+            ct);
+    }
+
     internal static async Task<T?> PostInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, object payload, CancellationToken ct)
     {
         try

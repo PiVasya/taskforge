@@ -58,12 +58,15 @@ internal static class AssignmentApiResultsService
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = testSpec?.Settings.PassPercent ?? 60, totalQuestions = attempt.TotalUnits, correctQuestions = attempt.CorrectUnits, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview = testAllowReview, questions = testAllowReview ? JsonPropArray(review, "questions") : Array.Empty<object>() });
     }
 
-    internal static async Task<IResult> DeleteAttempt(Guid attemptId, string kind, TasksDbContext db)
+    internal static async Task<IResult> DeleteAttempt(Guid attemptId, string kind, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
-        var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == kind);
+        var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == kind, ct);
         if (attempt == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
+        var userId = attempt.UserId;
+        var assignmentId = attempt.TaskAssignmentId;
         db.Attempts.Remove(attempt);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
+        await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId }, $"{kind}-attempt-deleted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.NoContent();
     }
 

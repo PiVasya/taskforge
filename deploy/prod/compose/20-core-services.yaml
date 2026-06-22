@@ -356,6 +356,11 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Services__TasksApi: http://tasks-api:8080
+      Rating__DirtyIntervalMinutes: ${RATING_DIRTY_INTERVAL_MINUTES:-10}
+      Rating__FullRebuildIntervalHours: ${RATING_FULL_REBUILD_INTERVAL_HOURS:-24}
+      Rating__DirtyBatchSize: ${RATING_DIRTY_BATCH_SIZE:-500}
       ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}

@@ -28,16 +28,19 @@ internal static partial class SolutionsApiEndpoints
             if (sub == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
 
             var previous = sub.Status;
-            var isTerminalBefore = IsTerminalVerdict(previous);
+            var previousScore = sub.Score;
+            var isRatingRelevantBefore = AffectsRatingStatus(previous);
             sub.Status = CleanVerdict(request.Verdict);
             sub.Score = System.Math.Clamp(request.Score, 0, 100);
             sub.ResultJson = request.Result.HasValue
                 ? request.Result.Value.GetRawText()
                 : JsonSerializer.Serialize(new { verdict = sub.Status, score = sub.Score, message = request.Message }, JsonOptions());
 
-            if (!isTerminalBefore && sub.UserId.HasValue && IsTerminalVerdict(sub.Status))
+            var isRatingRelevantAfter = AffectsRatingStatus(sub.Status);
+            if (sub.UserId.HasValue && (isRatingRelevantBefore || isRatingRelevantAfter) &&
+                (!string.Equals(previous, sub.Status, StringComparison.OrdinalIgnoreCase) || previousScore != sub.Score))
             {
-                await AddRating(db, sub.UserId.Value, sub.Score, accepted: string.Equals(sub.Status, "Accepted", StringComparison.OrdinalIgnoreCase));
+                await MarkRatingDirtyAsync(db, sub.UserId.Value, "code-verdict", sub.AssignmentId, ct);
             }
 
             await db.SaveChangesAsync(ct);
@@ -94,6 +97,49 @@ internal static partial class SolutionsApiEndpoints
                 rating = score
             });
         });
+
+
+
+        app.MapPost("/api/internal/rating/dirty-users", async (RatingDirtyUsersRequest request, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            var ids = (request.UserIds ?? Array.Empty<Guid>())
+                .Where(x => x != Guid.Empty)
+                .Distinct()
+                .Take(5000)
+                .ToArray();
+            await MarkRatingDirtyAsync(db, ids, request.Reason ?? "external-change", request.AssignmentId, ct);
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { marked = ids.Length });
+        });
+
+        app.MapPost("/api/internal/rating/assignments/{assignmentId:guid}/dirty-users", async (Guid assignmentId, RatingDirtyUsersRequest request, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            var explicitIds = (request.UserIds ?? Array.Empty<Guid>())
+                .Where(x => x != Guid.Empty)
+                .Distinct();
+
+            var codeUserIds = await db.Submissions.AsNoTracking()
+                .Where(x => x.AssignmentId == assignmentId && x.UserId.HasValue)
+                .Select(x => x.UserId!.Value)
+                .ToListAsync(ct);
+            var imageUserIds = await db.ImageSolutions.AsNoTracking()
+                .Where(x => x.AssignmentId == assignmentId)
+                .Select(x => x.UserId)
+                .ToListAsync(ct);
+
+            var ids = explicitIds
+                .Concat(codeUserIds)
+                .Concat(imageUserIds)
+                .Where(x => x != Guid.Empty)
+                .Distinct()
+                .Take(5000)
+                .ToArray();
+
+            await MarkRatingDirtyAsync(db, ids, request.Reason ?? "assignment-change", assignmentId, ct);
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { assignmentId, marked = ids.Length });
+        });
+
 
         return app;
     }

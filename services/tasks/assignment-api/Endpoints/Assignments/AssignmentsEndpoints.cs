@@ -193,13 +193,17 @@ internal static partial class AssignmentApiEndpoints
             var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
             var created = new List<Assignment>();
             var updated = new List<Assignment>();
+            var ratingAffectedAssignmentIds = new HashSet<Guid>();
             var nextSort = maxSort + 1;
 
             foreach (var request in requests)
             {
                 if (request.Id.HasValue && existingById.TryGetValue(request.Id.Value, out var existing))
                 {
+                    var oldRating = existing.Rating;
+                    var oldVisible = existing.IsVisible;
                     await ApplyAssignmentRequestAsync(existing, request, clients, cfg, ct);
+                    if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
                     continue;
                 }
@@ -216,6 +220,16 @@ internal static partial class AssignmentApiEndpoints
 
             if (created.Count > 0) db.Assignments.AddRange(created);
             await db.SaveChangesAsync(ct);
+
+            foreach (var affectedId in ratingAffectedAssignmentIds)
+            {
+                var users = await db.Attempts.AsNoTracking()
+                    .Where(x => x.TaskAssignmentId == affectedId)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .ToListAsync(ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, affectedId, users, "assignment-import-updated", ct);
+            }
 
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
@@ -246,18 +260,33 @@ internal static partial class AssignmentApiEndpoints
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            var oldRating = assignment.Rating;
+            var oldVisible = assignment.IsVisible;
             await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
-            await db.SaveChangesAsync();
+            var affectsRating = oldRating != assignment.Rating || oldVisible != assignment.IsVisible;
+            await db.SaveChangesAsync(ct);
+            if (affectsRating)
+            {
+                var users = await db.Attempts.AsNoTracking()
+                    .Where(x => x.TaskAssignmentId == assignmentId)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .ToListAsync(ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-updated", ct);
+            }
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
-        app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, TasksDbContext db) =>
+        app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
-            var assignment = await db.Assignments.FindAsync(assignmentId);
+            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            db.Attempts.RemoveRange(await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync());
+            var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
+            var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
+            db.Attempts.RemoveRange(attempts);
             db.Assignments.Remove(assignment);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
+            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-deleted", ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
         });
 
@@ -283,12 +312,22 @@ internal static partial class AssignmentApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
-        app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, TasksDbContext db) =>
+        app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
-            var assignment = await db.Assignments.FindAsync(assignmentId);
+            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var changed = assignment.IsVisible != request.IsVisible;
             assignment.IsVisible = request.IsVisible;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
+            if (changed)
+            {
+                var users = await db.Attempts.AsNoTracking()
+                    .Where(x => x.TaskAssignmentId == assignmentId)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .ToListAsync(ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
+            }
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 

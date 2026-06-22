@@ -83,24 +83,64 @@ internal static class SolutionsApiResultsService
 
     internal static string CleanVerdict(string? value) => string.IsNullOrWhiteSpace(value) ? "Rejected" : value.Trim();
 
+    internal static bool AffectsRatingStatus(string? status)
+        => IsTerminalVerdict(status) || string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
+
+    internal static async Task MarkRatingDirtyAsync(SolutionsDbContext db, Guid userId, string reason, Guid? assignmentId = null, CancellationToken ct = default)
+    {
+        if (userId == Guid.Empty) return;
+
+        var now = DateTimeOffset.UtcNow;
+        var dirty = await db.RatingDirtyUsers.FirstOrDefaultAsync(x => x.UserId == userId, ct);
+        if (dirty == null)
+        {
+            db.RatingDirtyUsers.Add(new RatingDirtyUser
+            {
+                UserId = userId,
+                Reason = string.IsNullOrWhiteSpace(reason) ? "changed" : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)],
+                AssignmentId = assignmentId,
+                MarkedAtUtc = now
+            });
+            return;
+        }
+
+        dirty.Reason = string.IsNullOrWhiteSpace(reason) ? dirty.Reason : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)];
+        dirty.AssignmentId = assignmentId ?? dirty.AssignmentId;
+        dirty.MarkedAtUtc = now;
+    }
+
+    internal static async Task MarkRatingDirtyAsync(SolutionsDbContext db, IEnumerable<Guid> userIds, string reason, Guid? assignmentId = null, CancellationToken ct = default)
+    {
+        var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
+        if (ids.Length == 0) return;
+
+        var existing = await db.RatingDirtyUsers.Where(x => ids.Contains(x.UserId)).ToDictionaryAsync(x => x.UserId, ct);
+        var now = DateTimeOffset.UtcNow;
+        var cleanReason = string.IsNullOrWhiteSpace(reason) ? "changed" : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)];
+        foreach (var id in ids)
+        {
+            if (existing.TryGetValue(id, out var row))
+            {
+                row.Reason = cleanReason;
+                row.AssignmentId = assignmentId ?? row.AssignmentId;
+                row.MarkedAtUtc = now;
+            }
+            else
+            {
+                db.RatingDirtyUsers.Add(new RatingDirtyUser
+                {
+                    UserId = id,
+                    Reason = cleanReason,
+                    AssignmentId = assignmentId,
+                    MarkedAtUtc = now
+                });
+            }
+        }
+    }
+
     internal static async Task AddRating(SolutionsDbContext db, Guid userId, int score, bool accepted)
     {
-        var rating = await db.UserRatings.FirstOrDefaultAsync(x => x.UserId == userId);
-        if (rating == null)
-        {
-            rating = new UserRating { UserId = userId };
-            db.UserRatings.Add(rating);
-        }
-        rating.AttemptsCount++;
-        if (accepted)
-        {
-            rating.AcceptedCount++;
-            rating.SolvedCount++;
-            rating.TotalScore += score;
-            rating.LastAcceptedAt = DateTimeOffset.UtcNow;
-        }
-        else rating.RejectedCount++;
-        rating.UpdatedAt = DateTimeOffset.UtcNow;
+        await MarkRatingDirtyAsync(db, userId, accepted ? "accepted-verdict" : "terminal-verdict");
     }
 
     internal static async Task<object> GetQuotaStatus(SolutionsDbContext db, Guid userId)

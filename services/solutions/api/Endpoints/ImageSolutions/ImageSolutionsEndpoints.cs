@@ -82,11 +82,20 @@ internal static partial class SolutionsApiEndpoints
                     : JsonSerializer.Serialize(new { passed = request.Passed, similarityPercent = request.SimilarityPercent }, JsonOptions())
             };
             db.ImageSolutions.Add(row);
+            await MarkRatingDirtyAsync(db, row.UserId, "image-solution", row.AssignmentId, ct);
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: false));
         });
 
-        app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var row = await db.ImageSolutions.FindAsync(id); if (row == null) return Microsoft.AspNetCore.Http.Results.NotFound(); db.ImageSolutions.Remove(row); await db.SaveChangesAsync(); return Microsoft.AspNetCore.Http.Results.NoContent(); });
+        app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            var row = await db.ImageSolutions.FindAsync([id], ct);
+            if (row == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            await MarkRatingDirtyAsync(db, row.UserId, "image-solution-deleted", row.AssignmentId, ct);
+            db.ImageSolutions.Remove(row);
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.NoContent();
+        });
 
         return app;
     }

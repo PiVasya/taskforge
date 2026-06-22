@@ -314,6 +314,11 @@ services:
     environment:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       RabbitMq__Host: rabbitmq
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev-internal-key}
+      Services__TasksApi: http://tasks-api:8080
+      Rating__DirtyIntervalMinutes: ${RATING_DIRTY_INTERVAL_MINUTES:-10}
+      Rating__FullRebuildIntervalHours: ${RATING_FULL_REBUILD_INTERVAL_HOURS:-24}
+      Rating__DirtyBatchSize: ${RATING_DIRTY_BATCH_SIZE:-500}
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}

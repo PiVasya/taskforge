@@ -207,7 +207,15 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(s, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(s.AssignmentId)));
         });
 
-        app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => { var s = await db.Submissions.FindAsync(id); if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound(); db.Submissions.Remove(s); await db.SaveChangesAsync(); return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id }); });
+        app.MapDelete("/api/admin/solutions/{id:guid}", async (Guid id, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            var s = await db.Submissions.FindAsync([id], ct);
+            if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (s.UserId.HasValue) await MarkRatingDirtyAsync(db, s.UserId.Value, "code-solution-deleted", s.AssignmentId, ct);
+            db.Submissions.Remove(s);
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id });
+        });
 
         app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
         {
