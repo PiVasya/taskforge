@@ -42,7 +42,7 @@ internal static partial class SupportApiEndpoints
             var text = req.Message ?? req.Text ?? string.Empty;
             var now = DateTimeOffset.UtcNow;
             var t = new SupportTicket { UserId = uid, Subject = subject, Status = "open", CreatedAt = now, UpdatedAt = now };
-            var m = new SupportMessage { TicketId = t.Id, UserId = uid, AuthorRole = "user", Text = text, CreatedAt = now };
+            var m = new SupportMessage { TicketId = t.Id, UserId = uid, AuthorRole = "user", Text = text, Source = "Web", CreatedAt = now };
             db.Tickets.Add(t);
             db.Messages.Add(m);
             await db.SaveChangesAsync(ct);
@@ -85,7 +85,7 @@ internal static partial class SupportApiEndpoints
             var now = DateTimeOffset.UtcNow;
             t.UpdatedAt = now;
             if (isAdmin && string.Equals(t.Status, "open", StringComparison.OrdinalIgnoreCase)) t.Status = "in-progress";
-            var msg = new SupportMessage { TicketId = ticketId, UserId = uid, AuthorRole = isAdmin ? "admin" : "user", Text = text, CreatedAt = now };
+            var msg = new SupportMessage { TicketId = ticketId, UserId = uid, AuthorRole = isAdmin ? "admin" : "user", Text = text, Source = "Web", CreatedAt = now };
             db.Messages.Add(msg);
             await db.SaveChangesAsync(ct);
 

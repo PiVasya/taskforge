@@ -11,6 +11,7 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<UserLoginLog> LoginLogs => Set<UserLoginLog>();
     public DbSet<FeatureRole> FeatureRoles => Set<FeatureRole>();
     public DbSet<UserFeatureRole> UserFeatureRoles => Set<UserFeatureRole>();
+    public DbSet<TelegramLinkCode> TelegramLinkCodes => Set<TelegramLinkCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +39,17 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.Property(x => x.PhoneNumber).HasMaxLength(40);
             entity.Property(x => x.ProfilePictureUrl).HasMaxLength(2048);
             entity.Property(x => x.AdditionalDataJson);
+            entity.HasIndex(x => x.TelegramChatId).IsUnique();
+            entity.Property(x => x.TelegramUsername).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<TelegramLinkCode>(entity =>
+        {
+            entity.ToTable("TelegramLinkCodes");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.CodeHash).IsUnique();
+            entity.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();
         });
 
         modelBuilder.Entity<UserUiSettings>(entity =>

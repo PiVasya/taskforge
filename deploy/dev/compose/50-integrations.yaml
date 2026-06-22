@@ -53,6 +53,17 @@ services:
       dockerfile: services/bots/support-bot/Dockerfile
     environment:
       SupportApi__BaseUrl: http://support-api:8080
+      IdentityApi__BaseUrl: http://identity-api:8080
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
+      Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
+      Telegram__SupportGroupId: ${SUPPORT_BOT_GROUP_ID:-}
+      Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      SUPPORT_BOT_TOKEN: ${SUPPORT_BOT_TOKEN:-}
+      SUPPORT_BOT_GROUP_ID: ${SUPPORT_BOT_GROUP_ID:-}
+      SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_SUPPORT_GROUP_ID: ${TELEGRAM_SUPPORT_GROUP_ID:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -63,6 +74,8 @@ services:
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       support-api:
+        condition: service_healthy
+      identity-api:
         condition: service_healthy
       redis:
         condition: service_healthy

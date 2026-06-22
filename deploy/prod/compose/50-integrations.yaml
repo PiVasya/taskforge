@@ -62,7 +62,17 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       SupportApi__BaseUrl: http://support-api:8080
+      IdentityApi__BaseUrl: http://identity-api:8080
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
+      Telegram__SupportGroupId: ${SUPPORT_BOT_GROUP_ID:-}
+      Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      SUPPORT_BOT_TOKEN: ${SUPPORT_BOT_TOKEN:-}
+      SUPPORT_BOT_GROUP_ID: ${SUPPORT_BOT_GROUP_ID:-}
+      SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_SUPPORT_GROUP_ID: ${TELEGRAM_SUPPORT_GROUP_ID:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -73,6 +83,8 @@ services:
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       support-api:
+        condition: service_healthy
+      identity-api:
         condition: service_healthy
       redis:
         condition: service_healthy

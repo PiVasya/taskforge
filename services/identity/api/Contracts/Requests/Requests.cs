@@ -33,3 +33,5 @@ public sealed record RoleAssignRequest(string? Code);
 public sealed record FeatureRoleRequest(string? Code, string? Title, string? Description, bool? IsActive);
 
 public sealed record UserIdsRequest(Guid[]? UserIds);
+
+public sealed record TelegramConfirmRequest(string? Code, long ChatId, string? Username);

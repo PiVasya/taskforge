@@ -13,6 +13,10 @@ public sealed class IdentityUser
     public string? PhoneNumber { get; set; }
     public string? ProfilePictureUrl { get; set; }
     public string? AdditionalDataJson { get; set; }
+    public long? TelegramChatId { get; set; }
+    public string? TelegramUsername { get; set; }
+    public DateTimeOffset? TelegramLinkedAtUtc { get; set; }
+    public int TelegramLinkCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
 }

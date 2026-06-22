@@ -35,6 +35,9 @@ public sealed class SupportDbContext(DbContextOptions<SupportDbContext> options)
             entity.HasIndex(x => new { x.TicketId, x.CreatedAt });
             entity.Property(x => x.AuthorRole).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Text).HasMaxLength(8000);
+            entity.Property(x => x.Source).HasMaxLength(80);
+            entity.HasIndex(x => x.TelegramMessageId);
+            entity.HasIndex(x => new { x.TelegramChatId, x.TelegramMessageId });
         });
     }
 }

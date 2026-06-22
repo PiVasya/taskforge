@@ -1360,7 +1360,7 @@ export default function SettingsPage() {
           </div>
           {tgStatus ? (
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              Привязки: {tgStatus.linkCount ?? 0}/2
+              Привязки: {tgStatus.linkCount ?? 0}/{tgStatus.maxLinkCount ?? 2}
             </div>
           ) : null}
         </div>

@@ -44,7 +44,7 @@ internal static class IdentityApiCommonService
             query = query.Where(x => ((x.Login != null && x.Login.ToLower().Contains(q)) || (x.Email != null && x.Email.ToLower().Contains(q)) || x.FirstName.ToLower().Contains(q)) || x.LastName.ToLower().Contains(q));
         }
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
-        if (linkedOnly) query = query.Where(x => false);
+        if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         return query;
     }
 
@@ -52,7 +52,7 @@ internal static class IdentityApiCommonService
     {
         var query = db.Users.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
-        if (linkedOnly) return new List<IdentityUser>();
+        if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
 
         var q = NormalizeSearch(text);
         if (string.IsNullOrWhiteSpace(q))
@@ -74,10 +74,10 @@ internal static class IdentityApiCommonService
 
     internal static async Task<int> CountUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly)
     {
-        if (linkedOnly) return 0;
+        var query = db.Users.AsNoTracking();
+        if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         if (string.IsNullOrWhiteSpace(text))
         {
-            var query = db.Users.AsNoTracking();
             if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
             return await query.CountAsync();
         }

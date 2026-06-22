@@ -16,6 +16,9 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       Services__SolutionsApi: http://solutions-api:8080
       Services__TasksApi: http://tasks-api:8080
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}

@@ -8,6 +8,9 @@ services:
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
+      Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       Services__SolutionsApi: http://solutions-api:8080
       Services__TasksApi: http://tasks-api:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
