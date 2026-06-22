@@ -726,6 +726,7 @@ export default function CourseAssignmentsPage() {
   const [draggedContentKey, setDraggedContentKey] = useState(null);
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const [dragOverContentMode, setDragOverContentMode] = useState('before');
+  const [extractDropActive, setExtractDropActive] = useState(false);
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get("sort") || "default";
@@ -1057,6 +1058,7 @@ export default function CourseAssignmentsPage() {
 
   const handleDropCourseOneLevelUp = async (event) => {
     event.preventDefault();
+    setExtractDropActive(false);
     const sourceKey = event.dataTransfer.getData("text/plain") || draggedContentKey;
     setDraggedContentKey(null);
     setDragOverContentKey(null);
@@ -1065,6 +1067,21 @@ export default function CourseAssignmentsPage() {
     const source = orderedAll.find((x) => x.key === sourceKey);
     if (!source || source.kind !== 'course') return;
     await moveCourseIntoParent(sourceKey, course?.parentCourseId || null);
+  };
+
+  const getDraggedCourseItem = () => orderedAll.find((x) => x.key === draggedContentKey && x.kind === 'course');
+
+  const handleExtractZoneDragOver = (event) => {
+    const source = getDraggedCourseItem();
+    if (!source || !canReorderContentItem(source) || sortMode !== "default") return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setExtractDropActive(true);
+  };
+
+  const handleExtractZoneDragLeave = (event) => {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    setExtractDropActive(false);
   };
 
   const ensureCanManageAssignments = (actionText = "изменять задания") => {
@@ -1316,6 +1333,31 @@ export default function CourseAssignmentsPage() {
         </div>
       </div>
       </div>
+
+
+      <IfEditor>
+        {courseCanEdit && childCourses.length > 0 ? (
+          <div
+            className={
+              "mb-6 rounded-[24px] border border-dashed p-4 text-sm transition " +
+              (extractDropActive
+                ? "border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)] text-[rgb(var(--accent))]"
+                : "border-[rgba(var(--border)/0.85)] bg-[rgba(var(--muted)/0.22)] text-neutral-500")
+            }
+            onDragOver={handleExtractZoneDragOver}
+            onDragEnter={handleExtractZoneDragOver}
+            onDragLeave={handleExtractZoneDragLeave}
+            onDrop={handleDropCourseOneLevelUp}
+          >
+            <div className="font-medium text-current">
+              Вынести курс на уровень выше
+            </div>
+            <div className="mt-1 text-xs opacity-80">
+              Перетащи сюда вложенный курс: он переместится {course?.parentCourseId ? "в родительский курс" : "в корень каталога"}.
+            </div>
+          </div>
+        ) : null}
+      </IfEditor>
 
       {jsonImportDiffOpen && jsonImportDiff && (
         <div
@@ -1724,6 +1766,7 @@ export default function CourseAssignmentsPage() {
                   setDraggedContentKey(null);
                   setDragOverContentKey(null);
                   setDragOverContentMode('before');
+                  setExtractDropActive(false);
                   setTimeout(() => {
                     dragStartedRef.current = false;
                   }, 0);
@@ -1860,6 +1903,7 @@ export default function CourseAssignmentsPage() {
                 setDraggedContentKey(null);
                 setDragOverContentKey(null);
                 setDragOverContentMode('before');
+                setExtractDropActive(false);
                 setTimeout(() => {
                   dragStartedRef.current = false;
                 }, 0);

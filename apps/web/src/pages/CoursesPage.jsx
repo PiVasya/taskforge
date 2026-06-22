@@ -125,7 +125,7 @@ function CourseCard({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onDragEnd={onDragEnd}
-        title={canDrag ? "Перетащи курс: между карточками — сортировка, на середину карточки — вложить внутрь" : "Открыть курс"}
+        title={canDrag ? "Клик — редактировать курс. Перетащи: между карточками — сортировка, на середину карточки — вложить внутрь" : "Открыть курс"}
       >
         <div className="flex h-full flex-col justify-between gap-4">
           <div className="min-w-0">
@@ -353,6 +353,10 @@ export default function CoursesPage() {
   const navigateCourse = (course) => {
     if (dragStartedRef.current) {
       dragStartedRef.current = false;
+      return;
+    }
+    if (editorTools && course.canEdit !== false) {
+      nav(`/courses/${course.id}/edit`);
       return;
     }
     nav(`/course/${course.id}`);
