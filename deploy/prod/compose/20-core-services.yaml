@@ -17,6 +17,12 @@ services:
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      Telegram__CodeLifetimeMinutes: ${TELEGRAM_LINK_CODE_LIFETIME_MINUTES:-10}
+      Telegram__CodeCooldownSeconds: ${TELEGRAM_LINK_CODE_COOLDOWN_SECONDS:-30}
+      Telegram__CodeIssueLimit: ${TELEGRAM_LINK_CODE_ISSUE_LIMIT:-5}
+      Telegram__CodeIssueWindowMinutes: ${TELEGRAM_LINK_CODE_ISSUE_WINDOW_MINUTES:-60}
+      Telegram__ConfirmAttemptLimit: ${TELEGRAM_LINK_CONFIRM_ATTEMPT_LIMIT:-8}
+      Telegram__ConfirmAttemptWindowMinutes: ${TELEGRAM_LINK_CONFIRM_ATTEMPT_WINDOW_MINUTES:-5}
       SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       Services__SolutionsApi: http://solutions-api:8080
