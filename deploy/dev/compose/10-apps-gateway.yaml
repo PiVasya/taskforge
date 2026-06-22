@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     environment:
       GATEWAY_MODE: dev
+      TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
       DOMAIN: ${DOMAIN:-taskforge.local}
       CT_DOMAIN: ${CT_DOMAIN:-ct.taskforge.local}
     ports:

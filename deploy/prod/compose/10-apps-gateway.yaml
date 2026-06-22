@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       GATEWAY_MODE: ${GATEWAY_MODE:-auto}
+      TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
       DOMAIN: ${DOMAIN:?set DOMAIN}
       CT_DOMAIN: ${CT_DOMAIN:?set CT_DOMAIN}
     ports:
