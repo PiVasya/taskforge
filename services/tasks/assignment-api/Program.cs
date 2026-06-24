@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Hubs;
 
 using TaskForge.Tasks.Api.Endpoints;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -25,6 +26,7 @@ builder.Services.AddTaskForgeRedisCache(builder.Configuration, "tasks-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
@@ -49,5 +51,6 @@ if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 app.UseTaskForgeRequestSecurity("tasks");
 
 app.MapAssignmentApiEndpoints();
+app.MapHub<AssignmentAnalyticsHub>("/hubs/assignment-analytics");
 
 app.Run();

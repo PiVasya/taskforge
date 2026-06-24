@@ -16,6 +16,7 @@ public sealed class Assignment
     public string? TestsJson { get; set; }
     public string? CodeForbiddenCallsJson { get; set; }
     public string? CodeRequiredCallsJson { get; set; }
+    public string? AnalyticsSettingsJson { get; set; }
     public bool IsVisible { get; set; } = true;
     public int Sort { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

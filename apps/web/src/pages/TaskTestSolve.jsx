@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Field, Input, Textarea, Select, Badge } from '../components/ui';
 import { startTaskTest, submitTaskTest } from '../api/taskTests';
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -12,7 +12,37 @@ function fmtSeconds(total) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export default function TaskTestSolve({ assignmentId, assignment }) {
+function hashActivityText(value) {
+  const text = typeof value === 'string' ? value : '';
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `fnv1a:${(h >>> 0).toString(16).padStart(8, '0')}:${text.length}`;
+}
+
+function summarizeAnswerDraft(answers) {
+  const entries = Object.entries(answers || {});
+  const textParts = [];
+  let selectedCount = 0;
+  for (const [, value] of entries) {
+    const text = typeof value?.text === 'string' ? value.text : '';
+    if (text) textParts.push(text);
+    if (value?.selectedOptionKey) selectedCount += 1;
+    if (Array.isArray(value?.selectedOptionKeys)) selectedCount += value.selectedOptionKeys.length;
+  }
+  const joinedText = textParts.join('\n');
+  return {
+    touched: entries.length,
+    selectedCount,
+    textLength: joinedText.length,
+    textHash: hashActivityText(joinedText),
+    textSample: joinedText.slice(0, 1200),
+  };
+}
+
+export default function TaskTestSolve({ assignmentId, assignment, onActivity }) {
   const notify = useNotify();
 
   const [loading, setLoading] = useState(false);
@@ -26,6 +56,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   
   
   const [limitReached, setLimitReached] = useState(false);
+  const lastAnswerActivityRef = useRef({ signature: '', at: 0 });
 
   const timeLimit = startData?.timeLimitSeconds ?? null;
   const startedAt = startData?.startedAtUtc ? new Date(startData.startedAtUtc) : null;
@@ -53,6 +84,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
       setStartData(null);
       setResult(null);
       setAnswers({});
+      onActivity?.('test_started', { payload: { kind: 'test' } });
       const data = await startTaskTest(assignmentId);
       setStartData(data);
     } catch (err) {
@@ -82,6 +114,14 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
     if (!startData?.attemptId) return;
     try {
       setSubmitLoading(true);
+      const finalSummary = summarizeAnswerDraft(answers);
+      onActivity?.('test_answers_final', {
+        attemptId: startData.attemptId,
+        textLength: finalSummary.textLength,
+        textHash: finalSummary.textHash,
+        textSample: finalSummary.textSample,
+        payload: { kind: 'test', touched: finalSummary.touched, selectedCount: finalSummary.selectedCount },
+      });
       const payload = {
         attemptId: startData.attemptId,
         answers: Object.entries(answers).map(([questionId, v]) => ({
@@ -95,6 +135,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
         })),
       };
       const res = await submitTaskTest(assignmentId, payload);
+      onActivity?.('test_finished', { attemptId: startData.attemptId, payload: { passed: !!res?.passed, scorePercent: res?.scorePercent ?? null } });
       setResult(res);
 
       
@@ -108,6 +149,7 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
       }
       notify.success(res.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
     } catch (err) {
+      onActivity?.('submit_failed', { attemptId: startData?.attemptId || null, payload: { kind: 'test', message: err?.userMessage || err?.message || 'Не удалось отправить ответы' } });
       notify.error(err?.userMessage || err?.message || 'Не удалось отправить ответы');
     } finally {
       setSubmitLoading(false);
@@ -115,6 +157,24 @@ export default function TaskTestSolve({ assignmentId, assignment }) {
   };
 
   
+  useEffect(() => {
+    if (!startData?.attemptId || result) return;
+    const signature = JSON.stringify(answers || {});
+    if (signature === lastAnswerActivityRef.current.signature) return;
+    const now = Date.now();
+    if (lastAnswerActivityRef.current.signature && now - lastAnswerActivityRef.current.at < 2500) return;
+    lastAnswerActivityRef.current = { signature, at: now };
+    const summary = summarizeAnswerDraft(answers);
+    if (summary.touched <= 0) return;
+    onActivity?.('test_answers_changed', {
+      attemptId: startData.attemptId,
+      textLength: summary.textLength,
+      textHash: summary.textHash,
+      textSample: summary.textSample,
+      payload: { kind: 'test', touched: summary.touched, selectedCount: summary.selectedCount },
+    });
+  }, [answers, startData?.attemptId, result, onActivity]);
+
   useEffect(() => {
     if (!startData?.attemptId) return;
     if (secondsLeft == null) return;

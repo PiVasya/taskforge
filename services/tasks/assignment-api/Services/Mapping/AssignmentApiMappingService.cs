@@ -9,6 +9,7 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 
 using TaskForge.Tasks.Api.Contracts;
+using TaskForge.Tasks.Api.Services.Analytics;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Image.AssignmentApiImageService;
@@ -77,6 +78,7 @@ internal static class AssignmentApiMappingService
             codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
             imageTestReferenceKey = includeSensitive ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
             imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
+            analyticsSettings = includeSensitive ? ParseJson(x.AnalyticsSettingsJson) ?? AssignmentAnalyticsSettingsService.ToPublicDto(AssignmentAnalyticsSettingsService.Default()) : null,
             x.IsVisible,
             x.Sort,
             canEdit = includeSensitive,
@@ -130,6 +132,7 @@ internal static class AssignmentApiMappingService
 
         if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
         if (request.CodeRequiredCalls != null) assignment.CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls);
+        if (request.AnalyticsSettings.HasValue) assignment.AnalyticsSettingsJson = AssignmentAnalyticsSettingsService.NormalizeJson(request.AnalyticsSettings);
         if (request.IsVisible.HasValue) assignment.IsVisible = request.IsVisible.Value;
         if (request.IsHidden.HasValue) assignment.IsVisible = !request.IsHidden.Value;
         assignment.UpdatedAt = DateTimeOffset.UtcNow;
@@ -156,6 +159,7 @@ internal static class AssignmentApiMappingService
             TestsJson = type == "image-test" ? null : testsJson,
             CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
             CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
+            AnalyticsSettingsJson = AssignmentAnalyticsSettingsService.NormalizeJson(request.AnalyticsSettings),
             IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
             Sort = request.Sort ?? sort
         };

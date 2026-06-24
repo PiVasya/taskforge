@@ -55,3 +55,41 @@ public sealed record ImageCaseResult(int Index, string Name, string Input, strin
 public sealed record TestSettings(int MaxAttempts, int PassPercent, bool ShuffleQuestions, bool ShuffleAnswers, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
 
 public sealed record MathSettings(int MaxAttempts, int PassPercent, bool ShuffleBlocks, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
+
+public sealed class AssignmentSolutionsInsightsDto
+{
+    public Guid AssignmentId { get; set; }
+    public int CodeAttempts { get; set; }
+    public int PassedCodeAttempts { get; set; }
+    public int ImageAttempts { get; set; }
+    public int PassedImages { get; set; }
+    public int UniqueUsers { get; set; }
+    public int SuccessUsers { get; set; }
+    public Guid[] UserIds { get; set; } = Array.Empty<Guid>();
+    public List<AssignmentLanguageStatDto> Languages { get; set; } = new();
+    public List<AssignmentExternalAttemptDto> RecentAttempts { get; set; } = new();
+}
+
+public sealed class AssignmentLanguageStatDto
+{
+    public string? Label { get; set; }
+    public int Value { get; set; }
+}
+
+public sealed class AssignmentExternalAttemptDto
+{
+    public Guid AttemptId { get; set; }
+    public Guid? UserId { get; set; }
+    public string? SourceKind { get; set; }
+    public string? Kind { get; set; }
+    public string? Language { get; set; }
+    public string? Status { get; set; }
+    public bool Passed { get; set; }
+    public int ScorePercent { get; set; }
+    public int CodeLength { get; set; }
+    public string? CodeHash { get; set; }
+    public string? CodeSample { get; set; }
+    public string? FullCode { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? SubmittedAtUtc { get; set; }
+}

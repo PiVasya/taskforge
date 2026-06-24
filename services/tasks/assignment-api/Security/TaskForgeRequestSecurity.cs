@@ -117,6 +117,7 @@ public static class TaskForgeRequestSecurity
         if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Authenticated : Requirement.Editor;
         if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Authenticated : Requirement.Admin;
         if (path == "/api/assignments/course-progress") return Requirement.Authenticated;
+        if (path.StartsWith("/api/assignments/") && path.EndsWith("/activity/batch")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/submit")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/edit")) return Requirement.Editor;

@@ -16,6 +16,7 @@ import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution, getMySolutionDetails } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
+import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../api/assignmentActivity';
 import { extractApiErrorMessages } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
 import { sanitizeRunnerText } from '../utils/runnerText';
@@ -132,6 +133,40 @@ function saveSolveDraft(assignmentId, draft) {
       version: 2,
     }));
   } catch {}
+}
+
+
+function createActivitySessionId(assignmentId) {
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  const timePart = Date.now().toString(36);
+  return `solve:${assignmentId}:${timePart}:${randomPart}`;
+}
+
+function clampActivityText(value, max = 1200) {
+  const text = typeof value === 'string' ? value : '';
+  if (!text) return '';
+  return text.length <= max ? text : text.slice(0, max);
+}
+
+function hashActivityText(value) {
+  const text = typeof value === 'string' ? value : '';
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `fnv1a:${(h >>> 0).toString(16).padStart(8, '0')}:${text.length}`;
+}
+
+function clipboardTextFromEvent(event) {
+  try {
+    const text = event?.clipboardData?.getData?.('text/plain');
+    if (typeof text === 'string' && text.length > 0) return text;
+    const selection = typeof window !== 'undefined' ? window.getSelection?.()?.toString?.() : '';
+    return typeof selection === 'string' ? selection : '';
+  } catch {
+    return '';
+  }
 }
 
 function getSolutionCases(resObj) {
@@ -617,6 +652,15 @@ export default function AssignmentSolvePage() {
   const [checkedDraftKey, setCheckedDraftKey] = useState('');
   const [hydratedAssignmentId, setHydratedAssignmentId] = useState('');
 
+  const activitySessionIdRef = React.useRef('');
+  const activityQueueRef = React.useRef([]);
+  const activitySendingRef = React.useRef(false);
+  const lastCodeActivityRef = React.useRef({ initialized: false, length: 0, at: 0 });
+  const lastLanguageActivityRef = React.useRef('');
+  const activityStatsRef = React.useRef({ startedAt: Date.now(), hiddenAt: 0, blurAt: 0, hiddenDurationMs: 0, blurDurationMs: 0 });
+  const activitySeqRef = React.useRef(0);
+  const latestActivityRef = React.useRef({ code: '', language: 'cpp', type: 'code-test' });
+
   
   const [imgBusy, setImgBusy] = useState(false);
   const [imgError, setImgError] = useState('');
@@ -652,6 +696,241 @@ export default function AssignmentSolvePage() {
     const set = new Set(allowedLangs);
     return ALL_LANGS.filter(x => set.has(x.value));
   }, [allowedLangs]);
+
+  useEffect(() => {
+    latestActivityRef.current = { code, language, type: a?.type || 'code-test' };
+  }, [code, language, a?.type]);
+
+  const flushActivity = React.useCallback((useBeacon = false) => {
+    const events = activityQueueRef.current.splice(0, activityQueueRef.current.length);
+    if (!assignmentId || events.length === 0) return;
+    const payload = {
+      sessionId: activitySessionIdRef.current || createActivitySessionId(assignmentId),
+      events,
+    };
+    activitySessionIdRef.current = payload.sessionId;
+
+    if (useBeacon) {
+      sendAssignmentActivityBeacon(assignmentId, payload);
+      return;
+    }
+
+    if (activitySendingRef.current) {
+      activityQueueRef.current.unshift(...events);
+      return;
+    }
+
+    activitySendingRef.current = true;
+    recordAssignmentActivityBatch(assignmentId, payload)
+      .catch(() => {})
+      .finally(() => {
+        activitySendingRef.current = false;
+      });
+  }, [assignmentId]);
+
+  const queueActivity = React.useCallback((eventType, event = {}) => {
+    if (!a?.id || !sameAssignmentId(a.id, assignmentId)) return;
+    if (!activitySessionIdRef.current) activitySessionIdRef.current = createActivitySessionId(assignmentId);
+    const stats = activityStatsRef.current || {};
+    const now = Date.now();
+    const seq = activitySeqRef.current + 1;
+    activitySeqRef.current = seq;
+    const latest = latestActivityRef.current || {};
+    activityQueueRef.current.push({
+      eventType,
+      eventUid: `${activitySessionIdRef.current}:${seq}`,
+      sequence: seq,
+      clientTime: new Date().toISOString(),
+      language: event.language ?? latest.language ?? 'cpp',
+      activeDurationMs: Math.max(0, now - (stats.startedAt || now) - (stats.hiddenDurationMs || 0) - (stats.blurDurationMs || 0)),
+      hiddenDurationMs: Math.max(0, stats.hiddenDurationMs || 0),
+      blurDurationMs: Math.max(0, stats.blurDurationMs || 0),
+      ...event,
+    });
+
+    const important = ['assignment_closed', 'page_unloaded', 'submit_started', 'submit_finished', 'submit_failed', 'paste', 'visibility_hidden', 'window_blur', 'fullscreen_exit'];
+    if (activityQueueRef.current.length >= 25 || important.includes(eventType)) {
+      flushActivity(false);
+    }
+  }, [a?.id, assignmentId, flushActivity]);
+
+  useEffect(() => {
+    if (!a?.id || !sameAssignmentId(a.id, assignmentId)) return undefined;
+    activitySessionIdRef.current = createActivitySessionId(assignmentId);
+    activityStatsRef.current = { startedAt: Date.now(), hiddenAt: 0, blurAt: 0, hiddenDurationMs: 0, blurDurationMs: 0 };
+    activitySeqRef.current = 0;
+    lastCodeActivityRef.current = { initialized: false, length: latestActivityRef.current.code.length, at: Date.now() };
+    lastLanguageActivityRef.current = latestActivityRef.current.language;
+    queueActivity('assignment_opened', {
+      codeLength: latestActivityRef.current.code.length,
+      payload: { type: latestActivityRef.current.type || 'code-test', layout: codeSolveLayout },
+    });
+
+    const timer = window.setInterval(() => flushActivity(false), 10000);
+    return () => {
+      window.clearInterval(timer);
+      const latest = latestActivityRef.current || { code: '', language: 'cpp', type: 'code-test' };
+      const closeNow = Date.now();
+      if (activityStatsRef.current.hiddenAt) {
+        activityStatsRef.current.hiddenDurationMs += Math.max(0, closeNow - activityStatsRef.current.hiddenAt);
+        activityStatsRef.current.hiddenAt = 0;
+      }
+      if (activityStatsRef.current.blurAt) {
+        activityStatsRef.current.blurDurationMs += Math.max(0, closeNow - activityStatsRef.current.blurAt);
+        activityStatsRef.current.blurAt = 0;
+      }
+      const seq = activitySeqRef.current + 1;
+      activitySeqRef.current = seq;
+      activityQueueRef.current.push({
+        eventType: 'assignment_closed',
+        eventUid: `${activitySessionIdRef.current}:${seq}`,
+        sequence: seq,
+        clientTime: new Date().toISOString(),
+        language: latest.language,
+        codeLength: latest.code.length,
+        codeHash: hashActivityText(latest.code),
+        activeDurationMs: Math.max(0, Date.now() - (activityStatsRef.current.startedAt || Date.now()) - (activityStatsRef.current.hiddenDurationMs || 0) - (activityStatsRef.current.blurDurationMs || 0)),
+        hiddenDurationMs: Math.max(0, activityStatsRef.current.hiddenDurationMs || 0),
+        blurDurationMs: Math.max(0, activityStatsRef.current.blurDurationMs || 0),
+        payload: { type: latest.type || 'code-test' },
+      });
+      flushActivity(true);
+    };
+  }, [a?.id, assignmentId, queueActivity, flushActivity]);
+
+  useEffect(() => {
+    if (!a?.id) return undefined;
+
+    const onVisibility = () => {
+      const stats = activityStatsRef.current;
+      if (document.visibilityState === 'hidden') {
+        stats.hiddenAt = Date.now();
+      } else if (stats.hiddenAt) {
+        stats.hiddenDurationMs += Math.max(0, Date.now() - stats.hiddenAt);
+        stats.hiddenAt = 0;
+      }
+      const latest = latestActivityRef.current;
+      queueActivity(document.visibilityState === 'hidden' ? 'visibility_hidden' : 'visibility_visible', {
+        codeLength: latest.code.length,
+        codeHash: hashActivityText(latest.code),
+        language: latest.language,
+        payload: { visibilityState: document.visibilityState },
+      });
+    };
+    const onBlur = () => {
+      activityStatsRef.current.blurAt = Date.now();
+      const latest = latestActivityRef.current;
+      queueActivity('window_blur', { codeLength: latest.code.length, codeHash: hashActivityText(latest.code), language: latest.language });
+    };
+    const onFocus = () => {
+      const stats = activityStatsRef.current;
+      if (stats.blurAt) {
+        stats.blurDurationMs += Math.max(0, Date.now() - stats.blurAt);
+        stats.blurAt = 0;
+      }
+      const latest = latestActivityRef.current;
+      queueActivity('window_focus', { codeLength: latest.code.length, codeHash: hashActivityText(latest.code), language: latest.language });
+    };
+    const onCopy = (event) => {
+      const sample = clipboardTextFromEvent(event);
+      const latest = latestActivityRef.current;
+      queueActivity('copy', { textLength: sample.length, textHash: hashActivityText(sample), textSample: clampActivityText(sample), codeLength: latest.code.length, codeHash: hashActivityText(latest.code), language: latest.language });
+    };
+    const onCut = (event) => {
+      const sample = clipboardTextFromEvent(event);
+      const latest = latestActivityRef.current;
+      queueActivity('cut', { textLength: sample.length, textHash: hashActivityText(sample), textSample: clampActivityText(sample), codeLength: latest.code.length, codeHash: hashActivityText(latest.code), language: latest.language });
+    };
+    const onPaste = (event) => {
+      const sample = clipboardTextFromEvent(event);
+      const latest = latestActivityRef.current;
+      queueActivity('paste', { textLength: sample.length, textHash: hashActivityText(sample), textSample: clampActivityText(sample), codeLength: latest.code.length, codeHash: hashActivityText(latest.code), codeSample: clampActivityText(latest.code), language: latest.language });
+    };
+    const onFullscreen = () => {
+      const latest = latestActivityRef.current;
+      queueActivity(document.fullscreenElement ? 'fullscreen_enter' : 'fullscreen_exit', { codeLength: latest.code.length, codeHash: hashActivityText(latest.code), language: latest.language });
+    };
+    const onBeforeUnload = () => {
+      const closeNow = Date.now();
+      if (activityStatsRef.current.hiddenAt) {
+        activityStatsRef.current.hiddenDurationMs += Math.max(0, closeNow - activityStatsRef.current.hiddenAt);
+        activityStatsRef.current.hiddenAt = 0;
+      }
+      if (activityStatsRef.current.blurAt) {
+        activityStatsRef.current.blurDurationMs += Math.max(0, closeNow - activityStatsRef.current.blurAt);
+        activityStatsRef.current.blurAt = 0;
+      }
+      const seq = activitySeqRef.current + 1;
+      activitySeqRef.current = seq;
+      activityQueueRef.current.push({
+        eventType: 'page_unloaded',
+        eventUid: `${activitySessionIdRef.current}:${seq}`,
+        sequence: seq,
+        clientTime: new Date().toISOString(),
+        language: latestActivityRef.current.language,
+        codeLength: latestActivityRef.current.code.length,
+        codeHash: hashActivityText(latestActivityRef.current.code),
+        activeDurationMs: Math.max(0, Date.now() - (activityStatsRef.current.startedAt || Date.now()) - (activityStatsRef.current.hiddenDurationMs || 0) - (activityStatsRef.current.blurDurationMs || 0)),
+        hiddenDurationMs: Math.max(0, activityStatsRef.current.hiddenDurationMs || 0),
+        blurDurationMs: Math.max(0, activityStatsRef.current.blurDurationMs || 0),
+      });
+      flushActivity(true);
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    document.addEventListener('paste', onPaste);
+    document.addEventListener('fullscreenchange', onFullscreen);
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('paste', onPaste);
+      document.removeEventListener('fullscreenchange', onFullscreen);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [a?.id, queueActivity, flushActivity]);
+
+  useEffect(() => {
+    if (!a?.id) return;
+    const now = Date.now();
+    const prev = lastCodeActivityRef.current;
+    if (!prev.initialized) {
+      lastCodeActivityRef.current = { initialized: true, length: code.length, at: now };
+      return;
+    }
+    const delta = code.length - prev.length;
+    if (Math.abs(delta) >= 200 || now - prev.at >= 5000) {
+      queueActivity('code_changed_aggregate', {
+        codeLength: code.length,
+        codeDelta: delta,
+        codeHash: hashActivityText(code),
+        codeSample: Math.abs(delta) >= 500 ? clampActivityText(code) : undefined,
+        payload: { layout: codeSolveLayout, plainMode },
+      });
+      lastCodeActivityRef.current = { initialized: true, length: code.length, at: now };
+    }
+  }, [a?.id, code, codeSolveLayout, plainMode, queueActivity]);
+
+  useEffect(() => {
+    if (!a?.id) return;
+    const prev = lastLanguageActivityRef.current;
+    if (!prev) {
+      lastLanguageActivityRef.current = language;
+      return;
+    }
+    if (prev !== language) {
+      queueActivity('language_changed', { payload: { from: prev, to: language }, language });
+      lastLanguageActivityRef.current = language;
+    }
+  }, [a?.id, language, queueActivity]);
 
   useEffect(() => {
     let alive = true;
@@ -818,6 +1097,15 @@ export default function AssignmentSolvePage() {
     setError('');
     setResult(null);
     setCheckedDraftKey('');
+    queueActivity('submit_started', {
+      codeLength: code.length,
+      codeHash: hashActivityText(code),
+      codeSample: clampActivityText(code),
+      fullCode: code,
+      textLength: code.length,
+      payload: { type: 'code-test' },
+      language,
+    });
 
     try {
       let r = await submitSolution(assignmentId, { language, code });
@@ -856,6 +1144,16 @@ export default function AssignmentSolvePage() {
         : explicitPassedAll || statusKey === 'accepted' || (cases.length > 0 && cases.every(isCasePassed));
 
       const nextResult = { ...r, __allPassed: allOk };
+      queueActivity('submit_finished', {
+        codeLength: code.length,
+        codeHash: hashActivityText(code),
+        codeSample: clampActivityText(code),
+        fullCode: code,
+        textLength: code.length,
+        submissionId: solutionId || null,
+        payload: { status: statusKey || null, passed: allOk, timedOut: !!timedOut },
+        language,
+      });
       setCheckedDraftKey(`${language}\n${code}`);
       setResult(nextResult);
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: nextResult })); } catch {}
@@ -888,10 +1186,20 @@ export default function AssignmentSolvePage() {
       }
     } catch (e) {
       const msg = getApiErrorMessage(e, 'Не удалось отправить решение');
+      queueActivity('submit_failed', {
+        codeLength: code.length,
+        codeHash: hashActivityText(code),
+        codeSample: clampActivityText(code),
+        fullCode: code,
+        textLength: code.length,
+        payload: { message: msg },
+        language,
+      });
       setSubmitPhase('error');
       setError(msg);
       notify.error(msg);
     } finally {
+      flushActivity(false);
       setSubmitting(false);
     }
   };
@@ -1186,7 +1494,7 @@ export default function AssignmentSolvePage() {
         </div>
 
         {renderAdminQuickInsights()}
-        <TaskTestSolve assignment={a} assignmentId={a.id} />
+        <TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
       </Layout>
     );
   }
@@ -1222,7 +1530,7 @@ export default function AssignmentSolvePage() {
         </div>
 
         {renderAdminQuickInsights()}
-        <MathTaskSolve assignment={a} assignmentId={a.id} />
+        <MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
       </Layout>
     );
   }
@@ -1252,6 +1560,7 @@ export default function AssignmentSolvePage() {
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
+      queueActivity('image_trial_started', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, language });
 
       try {
         const resp = await runImageTestCode(assignmentId, language, code, imageInput);
@@ -1262,6 +1571,17 @@ export default function AssignmentSolvePage() {
           assignmentTitle: a.title,
         });
 
+        queueActivity('image_trial_finished', {
+          codeLength: code.length,
+          codeHash: hashActivityText(code),
+          codeSample: clampActivityText(code),
+          fullCode: code,
+          textLength: code.length,
+          payload: { passed: !!normalized.passed, similarityPercent: normalized.similarityPercent ?? null },
+          language,
+        });
+
+
         if (hasImageResultPayload(resp) && normalized.actualUrl) {
           setImgCompare(normalized);
         } else {
@@ -1270,8 +1590,10 @@ export default function AssignmentSolvePage() {
         }
       } catch (e) {
         const errMsg = buildImageTaskErrorText(e, 'Не удалось выполнить пробный запуск');
+        queueActivity('image_trial_finished', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, payload: { error: errMsg }, language });
         setImgError(errMsg);
       } finally {
+        flushActivity(false);
         setImgBusy(false);
       }
     };
@@ -1289,6 +1611,7 @@ export default function AssignmentSolvePage() {
       setImgError(null);
       setImgCompare(null);
       setImgBusy(true);
+      queueActivity('image_submit_started', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, language });
 
       try {
         const resp = await submitImageTestCode(assignmentId, language, code, imageInput);
@@ -1297,6 +1620,17 @@ export default function AssignmentSolvePage() {
           code,
           language,
           assignmentTitle: a.title,
+        });
+
+        queueActivity('image_submit_finished', {
+          codeLength: code.length,
+          codeHash: hashActivityText(code),
+          codeSample: clampActivityText(code),
+          fullCode: code,
+          textLength: code.length,
+          submissionId: normalized.solutionId || null,
+          payload: { passed: !!normalized.passed, similarityPercent: normalized.similarityPercent ?? null },
+          language,
         });
 
         if (hasImageResultPayload(resp) && normalized.actualUrl) {
@@ -1320,9 +1654,11 @@ export default function AssignmentSolvePage() {
         }
       } catch (e) {
         const errMsg = buildImageTaskErrorText(e, 'Не удалось отправить решение');
+        queueActivity('image_submit_finished', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, payload: { error: errMsg }, language });
         setImgError(errMsg);
         notify.error(errMsg);
       } finally {
+        flushActivity(false);
         setImgBusy(false);
       }
     };

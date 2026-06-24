@@ -263,6 +263,15 @@ internal static class AssignmentApiCommonService
         return null;
     }
 
+    internal static JsonElement? FirstElement(JsonElement source, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (source.TryGetProperty(name, out var v)) return v;
+        }
+        return null;
+    }
+
     internal static List<string>? FirstStringList(JsonElement source, params string[] names)
     {
         foreach (var name in names)

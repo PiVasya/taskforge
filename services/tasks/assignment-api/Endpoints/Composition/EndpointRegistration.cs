@@ -30,6 +30,7 @@ internal static partial class AssignmentApiEndpoints
         MapTaskTestsEndpoints(app);
         MapMathTasksEndpoints(app);
         MapInsightsEndpoints(app);
+        MapAssignmentActivityEndpoints(app);
         MapImageTestsEndpoints(app);
 
         return app;

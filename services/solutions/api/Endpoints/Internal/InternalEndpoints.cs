@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -45,6 +47,100 @@ internal static partial class SolutionsApiEndpoints
 
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
+        });
+
+
+        app.MapGet("/api/internal/assignments/{assignmentId:guid}/attempts-summary", async (Guid assignmentId, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            static bool IsAccepted(string? status) => string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
+            static string? HashCodeText(string? code)
+            {
+                if (string.IsNullOrEmpty(code)) return null;
+                var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(code));
+                return Convert.ToHexString(bytes).ToLowerInvariant();
+            }
+            static string? SampleCode(string? code) => string.IsNullOrEmpty(code) ? null : (code.Length <= 1200 ? code : code[..1200]);
+
+            var codeQuery = db.Submissions.AsNoTracking().Where(x => x.AssignmentId == assignmentId);
+            var imageQuery = db.ImageSolutions.AsNoTracking().Where(x => x.AssignmentId == assignmentId);
+            var codeCount = await codeQuery.CountAsync(ct);
+            var passedCodeCount = await codeQuery.CountAsync(x => x.Status != null && x.Status.ToLower() == "accepted", ct);
+            var imageCount = await imageQuery.CountAsync(ct);
+            var passedImageCount = await imageQuery.CountAsync(x => x.Passed, ct);
+
+            var codeRows = await codeQuery
+                .OrderByDescending(x => x.CreatedAt)
+                .Take(500)
+                .ToListAsync(ct);
+
+            var imageRows = await imageQuery
+                .OrderByDescending(x => x.CreatedAt)
+                .Take(500)
+                .ToListAsync(ct);
+
+            var codeAttempts = codeRows.Select(x => new
+            {
+                attemptId = x.Id,
+                userId = x.UserId,
+                sourceKind = "code",
+                kind = "code",
+                language = x.Language,
+                status = x.Status,
+                passed = IsAccepted(x.Status),
+                scorePercent = x.Score,
+                codeLength = string.IsNullOrEmpty(x.Code) ? 0 : x.Code.Length,
+                codeHash = HashCodeText(x.Code),
+                codeSample = SampleCode(x.Code),
+                fullCode = x.Code,
+                createdAtUtc = x.CreatedAt,
+                submittedAtUtc = x.CreatedAt
+            });
+
+            var imageAttempts = imageRows.Select(x => new
+            {
+                attemptId = x.Id,
+                userId = (Guid?)x.UserId,
+                sourceKind = "image",
+                kind = "image",
+                language = x.Language,
+                status = x.Passed ? "passed" : "failed",
+                passed = x.Passed,
+                scorePercent = x.SimilarityPercent,
+                codeLength = string.IsNullOrEmpty(x.Code) ? 0 : x.Code.Length,
+                codeHash = HashCodeText(x.Code),
+                codeSample = SampleCode(x.Code),
+                fullCode = x.Code,
+                createdAtUtc = x.CreatedAt,
+                submittedAtUtc = x.CreatedAt
+            });
+
+            var all = codeAttempts.Concat(imageAttempts).OrderByDescending(x => x.createdAtUtc).Take(150).ToList();
+            var codeUserIds = await codeQuery.Where(x => x.UserId.HasValue && x.UserId.Value != Guid.Empty).Select(x => x.UserId!.Value).Distinct().ToListAsync(ct);
+            var imageUserIds = await imageQuery.Where(x => x.UserId != Guid.Empty).Select(x => x.UserId).Distinct().ToListAsync(ct);
+            var acceptedCodeUserIds = await codeQuery.Where(x => x.UserId.HasValue && x.UserId.Value != Guid.Empty && x.Status != null && x.Status.ToLower() == "accepted").Select(x => x.UserId!.Value).Distinct().ToListAsync(ct);
+            var passedImageUserIds = await imageQuery.Where(x => x.UserId != Guid.Empty && x.Passed).Select(x => x.UserId).Distinct().ToListAsync(ct);
+            var userIds = codeUserIds.Concat(imageUserIds).Distinct().ToArray();
+            var successUserIds = acceptedCodeUserIds.Concat(passedImageUserIds).Distinct().ToArray();
+            var languages = all
+                .Where(x => !string.IsNullOrWhiteSpace(x.language))
+                .GroupBy(x => x.language)
+                .Select(g => new { label = g.Key, value = g.Count() })
+                .OrderByDescending(x => x.value)
+                .ToArray();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                assignmentId,
+                codeAttempts = codeCount,
+                passedCodeAttempts = passedCodeCount,
+                imageAttempts = imageCount,
+                passedImages = passedImageCount,
+                uniqueUsers = userIds.Length,
+                successUsers = successUserIds.Length,
+                userIds,
+                languages,
+                recentAttempts = all
+            });
         });
 
         app.MapPost("/api/internal/users/{userId:guid}/solved-assignments", async (Guid userId, SolvedAssignmentsRequest request, SolutionsDbContext db, CancellationToken ct) =>

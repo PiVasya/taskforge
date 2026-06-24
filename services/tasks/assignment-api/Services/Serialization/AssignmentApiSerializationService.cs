@@ -60,7 +60,8 @@ internal static class AssignmentApiSerializationService
         isVisible = x.IsVisible,
         isHidden = !x.IsVisible,
         imageTestReferenceKey = JsonString(x.TestsJson, "imageTestReferenceKey"),
-        imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90)
+        imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
+        analyticsSettings = ParseJson(x.AnalyticsSettingsJson)
     };
 
     internal static bool HasMeaningfulJsonText(string? text)
@@ -179,7 +180,8 @@ internal static class AssignmentApiSerializationService
             FirstBool(source, "isHidden", "hidden"),
             FirstInt(source, "sort", "order"),
             FirstString(source, "imageTestReferenceKey", "referenceKey", "expectedImageKey"),
-            FirstInt(source, "imageTestSimilarityThreshold", "similarityThreshold", "threshold")
+            FirstInt(source, "imageTestSimilarityThreshold", "similarityThreshold", "threshold"),
+            FirstElement(source, "analyticsSettings", "assignmentAnalyticsSettings", "analytics")
         );
     }
 
