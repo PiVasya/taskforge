@@ -611,6 +611,14 @@ export default function AdminAnalyticsPage() {
               {(executive.comparisons || []).map((item) => <ComparisonCard key={item.label} item={item} />)}
             </div>
             <SignalsBoard alerts={executive.alerts || []} />
+            {data.privacy ? (
+              <Card className="p-5">
+                <div className="text-base font-semibold">Сбор IP и приватность</div>
+                <div className="mt-2 text-sm text-neutral-500 dark:text-neutral-300">
+                  {data.privacy.note || 'Сырые IP не сохраняются.'} Подсеть: {data.privacy.ipPrefix || 'анонимно'}.
+                </div>
+              </Card>
+            ) : null}
             <div className="grid gap-4 xl:grid-cols-3">
               <ChartCard title="Потенциально шумные пользователи" subtitle="Кто создаёт больше всего API-нагрузки за период. По клику можно открыть личную аналитику.">
                 <RankedTable
@@ -673,7 +681,7 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="space-y-4">
-              <ChartCard title="Топ пользователей по входам" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя." tall>
+              <ChartCard title="Топ пользователей по активности" subtitle="Нажми на строку, чтобы открыть личную статистику пользователя. Считаются реальные API-вызовы, а не только входы." tall>
                 <div className="mb-5 space-y-3">
                   <div className="max-w-xl">
                     <label className="mb-2 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Найти любого пользователя по всей базе</label>
@@ -728,7 +736,7 @@ export default function AdminAnalyticsPage() {
                   searchPlaceholder="Поиск по имени, почте или роли"
                   columns={[
                     { key: 'fullName', label: 'Пользователь', render: (row) => <div><div className="font-medium">{row.fullName}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.email || '—'} · {row.role || 'User'}</div></div> },
-                    { key: 'value', label: 'Входов', render: (row) => formatNumber(row.value) },
+                    { key: 'value', label: 'API-запросов', render: (row) => formatNumber(row.value) },
                     { key: 'activeDays', label: 'Активных дней', render: (row) => formatNumber(row.activeDays) },
                     { key: 'lastLoginAt', label: 'Последний вход', render: (row) => formatDateTime(row.lastLoginAt) },
                   ]}
@@ -777,6 +785,32 @@ export default function AdminAnalyticsPage() {
                     { key: 'value', label: 'Запросов', render: (row) => formatNumber(row.value) },
                     { key: 'errors', label: 'Ошибок', render: (row) => formatNumber(row.errors) },
                     { key: 'avgLatencyMs', label: 'Средняя задержка', render: (row) => formatMs(row.avgLatencyMs) },
+                  ]}
+                />
+              </ChartCard>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-3">
+              <ChartCard title="Ошибочные endpoint’ы" subtitle="Где реально были 4xx/5xx. Теперь сюда попадают ошибки из axios-перехватчика, а не только переходы по страницам.">
+                <RankedTable
+                  rows={data.api?.errorEndpoints || []}
+                  columns={[
+                    { key: 'label', label: 'Маршрут', render: (row) => <div><span className="block break-all text-sm font-medium">{row.label}</span><span className="text-xs text-neutral-500 dark:text-neutral-300">{row.sample || '—'}</span></div> },
+                    { key: 'errors', label: 'Ошибок', render: (row) => formatNumber(row.errors || row.value) },
+                    { key: 'lastErrorAt', label: 'Последняя', render: (row) => formatDateTime(row.lastErrorAt) },
+                  ]}
+                />
+              </ChartCard>
+              <ChartCard title="HTTP-статусы" subtitle="Распределение ответов backend за выбранный период.">
+                <DonutChart data={data.api?.statusCodes || []} />
+              </ChartCard>
+              <ChartCard title="Сетевые источники" subtitle="IP сохраняются только анонимно: hash + подсеть /24 или /48. Сырых адресов здесь нет.">
+                <RankedTable
+                  rows={data.api?.ipPrefixes || []}
+                  columns={[
+                    { key: 'label', label: 'Подсеть', render: (row) => <span className="block break-all text-sm">{row.label}</span> },
+                    { key: 'requests', label: 'Запросов', render: (row) => formatNumber(row.requests || row.value) },
+                    { key: 'errors', label: 'Ошибок', render: (row) => formatNumber(row.errors) },
                   ]}
                 />
               </ChartCard>

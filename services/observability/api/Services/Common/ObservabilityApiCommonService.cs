@@ -44,15 +44,16 @@ internal static class ObservabilityApiCommonService
     {
         var method = string.IsNullOrWhiteSpace(view.Method) ? "REQUEST" : view.Method!.ToUpperInvariant();
         var status = view.StatusCode.HasValue ? $", статус {view.StatusCode.Value}" : string.Empty;
+        var error = string.IsNullOrWhiteSpace(view.ErrorMessage) ? string.Empty : $" — {view.ErrorMessage}";
         return category switch
         {
-            "admin" => $"Действие в админке: {actionType} {target}{status}",
-            "auth" => $"Действие авторизации: {actionType} {target}{status}",
-            "assignment" => $"Активность по заданию: {actionType} {target}{status}",
-            "support" => $"Активность поддержки: {actionType} {target}{status}",
-            "error" => $"Ошибка запроса: {method} {target}{status}",
+            "admin" => $"Действие в админке: {actionType} {target}{status}{error}",
+            "auth" => $"Действие авторизации: {actionType} {target}{status}{error}",
+            "assignment" => $"Активность по заданию: {actionType} {target}{status}{error}",
+            "support" => $"Активность поддержки: {actionType} {target}{status}{error}",
+            "error" => $"Ошибка запроса: {method} {target}{status}{error}",
             "navigation" => $"Переход по странице: {target}{status}",
-            _ => $"{method} {target}{status}",
+            _ => $"{method} {target}{status}{error}",
         };
     }
 
@@ -60,18 +61,22 @@ internal static class ObservabilityApiCommonService
 
     internal static bool Contains(string? value, string term) => (value ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase);
 
-    internal static bool IsError(PageView v) => v.StatusCode is >= 400;
+    internal static bool IsError(PageView v) => v.StatusCode is >= 400 || string.Equals(v.Action, "api-error", StringComparison.OrdinalIgnoreCase);
 
-    internal static bool IsSuccess(PageView v) => v.StatusCode is null or >= 200 and < 300;
+    internal static bool IsSuccess(PageView v) => v.StatusCode is null or >= 200 and < 400;
 
-    internal static bool IsLogin(PageView v) => string.Equals(v.Action, "login", StringComparison.OrdinalIgnoreCase) || Contains(v.Path, "/login");
+    internal static bool IsLogin(PageView v) => string.Equals(v.Action, "login", StringComparison.OrdinalIgnoreCase) || Contains(v.Path, "/login") || Contains(v.Path, "/api/auth/login");
 
-    internal static bool IsAssignmentActivity(PageView v) => Contains(v.Path, "assignment") || Contains(v.Path, "submit") || Contains(v.Path, "attempt") || Contains(v.Path, "task-test") || Contains(v.Path, "math-task") || Contains(v.Path, "image-test") || Contains(v.Path, "solutions");
+    internal static bool IsApiRequest(PageView v) => string.Equals(v.Action, "api-request", StringComparison.OrdinalIgnoreCase) || string.Equals(v.Action, "api-error", StringComparison.OrdinalIgnoreCase) || (v.Path ?? string.Empty).StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsAssignmentActivity(PageView v) => Contains(v.Path, "assignment") || Contains(v.Path, "submit") || Contains(v.Path, "attempt") || Contains(v.Path, "task-test") || Contains(v.Path, "math-task") || Contains(v.Path, "image-test") || Contains(v.Path, "solutions") || Contains(v.Path, "judge");
 
     internal static string ClientType(PageView v)
     {
         if (Contains(v.Path, "/admin")) return "Админка";
         if (Contains(v.UserAgent, "bot")) return "Бот";
+        if (string.Equals(v.Source, "api-client", StringComparison.OrdinalIgnoreCase)) return "Web API";
+        if (string.Equals(v.Source, "page", StringComparison.OrdinalIgnoreCase)) return "Web navigation";
         if (string.IsNullOrWhiteSpace(v.UserAgent)) return "Внутренний клиент";
         return "Web";
     }

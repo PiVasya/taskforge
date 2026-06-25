@@ -95,6 +95,96 @@ internal static partial class SupportApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { ticket = ToTicketDto(t, new TicketExtra(0, Preview(text)), (UserSummaryDto?)null), message = dto, id = t.Id, ticketId = t.Id, status = t.Status, updatedAt = t.UpdatedAt });
         });
 
+
+        app.MapGet("/api/internal/support/analytics/summary", async (DateTimeOffset? fromUtc, DateTimeOffset? toUtc, int days, SupportDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, CancellationToken ct) =>
+        {
+            days = System.Math.Clamp(days <= 0 ? 30 : days, 1, 365);
+            var to = toUtc ?? DateTimeOffset.UtcNow;
+            var from = fromUtc ?? to.AddDays(-days);
+
+            var tickets = await db.Tickets.AsNoTracking()
+                .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .ToListAsync(ct);
+
+            var ticketIds = tickets.Select(x => x.Id).ToArray();
+            var messages = ticketIds.Length == 0
+                ? new List<SupportMessage>()
+                : await db.Messages.AsNoTracking()
+                    .Where(x => ticketIds.Contains(x.TicketId))
+                    .OrderBy(x => x.CreatedAt)
+                    .ToListAsync(ct);
+
+            var firstResponseMinutes = tickets.Select(t =>
+                messages.FirstOrDefault(m => m.TicketId == t.Id && string.Equals(m.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) && m.CreatedAt >= t.CreatedAt) is { } firstAdmin
+                    ? (double?)(firstAdmin.CreatedAt - t.CreatedAt).TotalMinutes
+                    : null)
+                .Where(x => x.HasValue)
+                .Select(x => x!.Value)
+                .ToList();
+
+            var closedTickets = tickets.Where(x => IsClosed(x.Status)).ToList();
+            var closeMinutes = closedTickets
+                .Select(x => System.Math.Max(0, (x.UpdatedAt - x.CreatedAt).TotalMinutes))
+                .ToList();
+
+            var adminIds = messages
+                .Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) && x.UserId.HasValue)
+                .Select(x => x.UserId!.Value)
+                .Distinct()
+                .ToArray();
+            var users = await LoadUserSummariesAsync(adminIds, cfg, httpFactory, ct);
+
+            var byDay = tickets.GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.Count());
+            var closedByDay = closedTickets.GroupBy(x => x.UpdatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.Count());
+            var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
+            var ticketPoints = Enumerable.Range(0, days).Select(i =>
+            {
+                var day = start.AddDays(i);
+                var count = byDay.GetValueOrDefault(day);
+                return new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = count, count };
+            }).ToList();
+            var closedPoints = Enumerable.Range(0, days).Select(i =>
+            {
+                var day = start.AddDays(i);
+                var count = closedByDay.GetValueOrDefault(day);
+                return new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = count, count };
+            }).ToList();
+
+            var topAdmins = messages
+                .Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(x => x.UserId)
+                .Select(g =>
+                {
+                    var user = g.Key.HasValue ? users.GetValueOrDefault(g.Key.Value) : null;
+                    return new
+                    {
+                        userId = g.Key,
+                        label = UserLabel(user),
+                        email = user?.Email ?? user?.MaskedEmail,
+                        value = g.Count()
+                    };
+                })
+                .OrderByDescending(x => x.value)
+                .Take(10)
+                .ToList();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                totals = new
+                {
+                    totalTickets = tickets.Count,
+                    openTickets = tickets.Count(x => !IsClosed(x.Status)),
+                    closedTickets = closedTickets.Count,
+                    avgFirstResponseMinutes = firstResponseMinutes.Count == 0 ? 0 : System.Math.Round(firstResponseMinutes.Average(), 1),
+                    avgCloseMinutes = closeMinutes.Count == 0 ? 0 : System.Math.Round(closeMinutes.Average(), 1),
+                },
+                ticketsByDay = ticketPoints,
+                closedByDay = closedPoints,
+                ticketTypes = tickets.GroupBy(x => string.IsNullOrWhiteSpace(x.Status) ? "unknown" : x.Status).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
+                topAdmins,
+            });
+        });
+
         return app;
     }
 }

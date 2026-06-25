@@ -14,6 +14,71 @@ const api = axios.create({
   withCredentials: true,
 });
 
+function telemetryPath(url) {
+  try {
+    const raw = String(url || '');
+    const parsed = new URL(raw, window.location.origin);
+    return `${parsed.pathname}${parsed.search || ''}`;
+  } catch {
+    return String(url || '');
+  }
+}
+
+function shouldSkipApiTelemetry(config = {}) {
+  const path = telemetryPath(config.url || '').toLowerCase();
+  if (!path.startsWith('/api/')) return true;
+  if (path.startsWith('/api/activity/page-view')) return true;
+  if (path.startsWith('/api/admin/analytics')) return true;
+  if (path.startsWith('/api/admin/activity')) return true;
+  if (path.startsWith('/api/auth/refresh')) return true;
+  return false;
+}
+
+function safeErrorMessage(error) {
+  const data = error?.response?.data;
+  const raw = data?.userMessage || data?.message || data?.error || data?.detail || data?.title || error?.userMessage || error?.message;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || isTechnicalMessage(trimmed)) return undefined;
+  return trimmed.slice(0, 1000);
+}
+
+function trackApiTelemetry(config = {}, statusCode, error) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (shouldSkipApiTelemetry(config)) return;
+    const startedAt = Number(config?.metadata?.startedAt || Date.now());
+    const durationMs = Math.max(0, Math.round(Date.now() - startedAt));
+    const path = telemetryPath(config.url || '');
+    const method = String(config.method || 'GET').toUpperCase();
+    const normalizedStatus = Number(statusCode || 0) || null;
+    const isError = normalizedStatus != null && normalizedStatus >= 400;
+    const payload = {
+      path,
+      method,
+      action: isError ? 'api-error' : 'api-request',
+      source: 'api-client',
+      statusCode: normalizedStatus,
+      durationMs,
+      traceId: error?.response?.data?.traceId || error?.response?.data?.trace || error?.response?.headers?.['x-trace-id'],
+      errorCode: error?.response?.data?.code,
+      errorMessage: isError ? safeErrorMessage(error) : undefined,
+    };
+    const body = JSON.stringify(payload);
+    const headers = { 'Content-Type': 'application/json' };
+    const token = accessToken;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    fetch('/api/activity/page-view', {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: body.length < 60000,
+      headers,
+      body,
+    }).catch(() => {});
+  } catch {
+  }
+}
+
 function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
   try {
     if (typeof window === 'undefined') return;
@@ -161,6 +226,7 @@ export function normalizeApiError(error, fallback = 'Не удалось вып�
 
 api.interceptors.request.use((config) => {
   config.headers = config.headers || {};
+  config.metadata = { ...(config.metadata || {}), startedAt: Date.now() };
   const token = accessToken;
   if (token) {
     if (!config.headers.Authorization && !config.headers.authorization) {
@@ -184,11 +250,15 @@ function resolveQueue(err) {
 api.interceptors.response.use(
   (response) => {
     emitQuotaFromHeaders(response?.headers);
+    trackApiTelemetry(response?.config || {}, response?.status);
     return response;
   },
   async (error) => {
     const original = error.config || {};
     const status = error?.response?.status;
+    const url = (original.url || '').toLowerCase();
+    const refreshableAuthError = status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/refresh') && !original.__skipAuthRefresh;
+    if (!refreshableAuthError) trackApiTelemetry(original, status, error);
 
     if (status === 429) {
       const bucket = error?.response?.data?.bucket;
@@ -223,7 +293,6 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const url = (original.url || '').toLowerCase();
     if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh')) {
       return Promise.reject(error);
     }

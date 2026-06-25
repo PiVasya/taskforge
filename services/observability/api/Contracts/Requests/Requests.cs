@@ -7,6 +7,6 @@ using TaskForge.Observability.Api.Domain;
 
 namespace TaskForge.Observability.Api.Contracts;
 
-public sealed record PageViewRequest(string? Path, string? Url, string? Method, string? Action, int? StatusCode, long? DurationMs);
+public sealed record PageViewRequest(string? Path, string? Url, string? Method, string? Action, int? StatusCode, long? DurationMs, string? Source, string? TraceId, string? ErrorCode, string? ErrorMessage);
 
 public sealed record UserIdsRequest(Guid[] UserIds);

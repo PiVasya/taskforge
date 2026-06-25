@@ -39,30 +39,69 @@ internal static class AssignmentApiSerializationService
         }
     }
 
-    internal static object ToImportDto(Assignment x) => new
+    internal static object ToImportDto(Assignment x)
     {
-        id = x.Id,
-        courseId = x.CourseId,
-        type = x.Type,
-        title = x.Title,
-        description = x.Description,
-        language = x.Language,
-        allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
-        tags = x.Tags ?? string.Empty,
-        difficulty = x.Difficulty,
-        rating = x.Rating,
-        sort = x.Sort,
-        starterCode = x.StarterCode,
-        tests = ParseJson(x.TestsJson),
-        testsJson = x.TestsJson,
-        codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson),
-        codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson),
-        isVisible = x.IsVisible,
-        isHidden = !x.IsVisible,
-        imageTestReferenceKey = JsonString(x.TestsJson, "imageTestReferenceKey"),
-        imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
-        analyticsSettings = ParseJson(x.AnalyticsSettingsJson)
-    };
+        var type = NormalizeAssignmentType(x.Type);
+        var testsPayload = ExportTestsPayload(x);
+        var testsJson = ExportTestsJson(x, testsPayload);
+
+        return new
+        {
+            id = x.Id,
+            courseId = x.CourseId,
+            type = x.Type,
+            title = x.Title,
+            description = x.Description,
+            language = x.Language,
+            allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
+            tags = x.Tags ?? string.Empty,
+            difficulty = x.Difficulty,
+            rating = x.Rating,
+            sort = x.Sort,
+            starterCode = x.StarterCode,
+            tests = testsPayload,
+            testCases = type is "code-test" or "image-test" ? testsPayload : null,
+            testSpec = type == "test" ? testsPayload : null,
+            mathSpec = type == "math" ? testsPayload : null,
+            settings = ExportInteractiveSettingsPayload(x, testsPayload),
+            questions = type == "test" ? JsonPropArray(testsPayload, "questions") : Array.Empty<object>(),
+            blocks = type == "math" ? JsonPropArray(testsPayload, "blocks") : Array.Empty<object>(),
+            testsJson,
+            codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson),
+            codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson),
+            isVisible = x.IsVisible,
+            isHidden = !x.IsVisible,
+            imageTestReferenceKey = JsonString(testsJson, "imageTestReferenceKey"),
+            imageTestSimilarityThreshold = JsonInt(testsJson, "imageTestSimilarityThreshold", 90),
+            analyticsSettings = ParseJson(x.AnalyticsSettingsJson)
+        };
+    }
+
+    internal static object? ExportTestsPayload(Assignment x)
+    {
+        var type = NormalizeAssignmentType(x.Type);
+        return type switch
+        {
+            "test" => TaskSpecToJsonObject(ReadTaskSpec(x)),
+            "math" => MathSpecToJsonObject(ReadMathSpec(x)),
+            _ => ParseJson(x.TestsJson)
+        };
+    }
+
+    internal static string? ExportTestsJson(Assignment x, object? testsPayload)
+    {
+        if (testsPayload is JsonNode node) return node.ToJsonString(JsonOptions());
+        return x.TestsJson;
+    }
+
+    internal static object? ExportInteractiveSettingsPayload(Assignment x, object? testsPayload)
+    {
+        var type = NormalizeAssignmentType(x.Type);
+        if (type is not ("test" or "math")) return null;
+        if (testsPayload is JsonObject obj && obj["settings"] is JsonObject settings) return JsonNode.Parse(settings.ToJsonString(JsonOptions()));
+        if (testsPayload is JsonElement e && e.ValueKind == JsonValueKind.Object && e.TryGetProperty("settings", out var settingsElement)) return settingsElement;
+        return null;
+    }
 
     internal static bool HasMeaningfulJsonText(string? text)
     {
@@ -260,7 +299,12 @@ internal static class AssignmentApiSerializationService
 
     internal static JsonElement? ParseJsonElement(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return null; } }
 
-    internal static object JsonPropArray(object? json, string name) { if (json is JsonElement e && e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array) return p; return Array.Empty<object>(); }
+    internal static object JsonPropArray(object? json, string name)
+    {
+        if (json is JsonElement e && e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array) return p;
+        if (json is JsonObject o && o[name] is JsonArray arr) return JsonNode.Parse(arr.ToJsonString(JsonOptions())) ?? Array.Empty<object>();
+        return Array.Empty<object>();
+    }
 
     internal static List<Guid> ParseGuidList(string? json) { try { return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<Guid>>(json, JsonOptions()) ?? []; } catch { return []; } }
 

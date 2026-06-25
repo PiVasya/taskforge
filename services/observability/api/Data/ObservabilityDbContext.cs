@@ -29,6 +29,16 @@ public sealed class ObservabilityDbContext(DbContextOptions<ObservabilityDbConte
             entity.Property(x => x.Method).HasMaxLength(20);
             entity.Property(x => x.Action).HasMaxLength(120);
             entity.Property(x => x.UserAgent).HasMaxLength(800);
+            entity.Property(x => x.Source).HasMaxLength(80);
+            entity.Property(x => x.TraceId).HasMaxLength(160);
+            entity.Property(x => x.ErrorCode).HasMaxLength(120);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            entity.Property(x => x.ClientIpHash).HasMaxLength(128);
+            entity.Property(x => x.ClientIpPrefix).HasMaxLength(80);
+            entity.Property(x => x.ClientCountry).HasMaxLength(8);
+            entity.HasIndex(x => new { x.Action, x.CreatedAt });
+            entity.HasIndex(x => new { x.StatusCode, x.CreatedAt });
+            entity.HasIndex(x => new { x.ClientIpHash, x.CreatedAt });
         });
     }
 }

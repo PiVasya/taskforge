@@ -202,13 +202,14 @@ const ZERO_GUID = "00000000-0000-0000-0000-000000000000";
 
 function makeImportExamplePayload(assignments, authoringNotes = []) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     format: "taskforge-course-assignment-import",
     authoringNotes: [
       "Корневой объект может содержать assignments/items/tasks или быть обычным массивом заданий.",
       "Каждый элемент массива станет отдельным заданием курса.",
       "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового.",
       "Описание можно передавать plain text или HTML; потом его можно отредактировать в визуальном редакторе.",
+      "Для test/math все настройки попыток и случайного порядка лежат в tests.settings и сохраняются при export/import round-trip.",
       ...authoringNotes,
     ],
     assignments,
@@ -646,7 +647,10 @@ const IMPORT_DIFF_FIELDS = [
   { key: "rating", label: "Рейтинг", read: (x) => x?.rating },
   { key: "sort", label: "Порядок", read: (x) => x?.sort },
   { key: "starterCode", label: "Стартовый код", read: (x) => x?.starterCode ?? x?.templateCode },
-  { key: "tests", label: "Тесты / вопросы / блоки", read: (x) => x?.testCases ?? x?.tests ?? x?.testsJson },
+  { key: "tests", label: "Тесты / вопросы / блоки", read: (x) => x?.testCases ?? x?.tests ?? x?.testSpec ?? x?.mathSpec ?? x?.testsJson },
+  { key: "settings", label: "Настройки теста", read: (x) => x?.settings ?? x?.testSettings ?? x?.mathSettings ?? x?.tests?.settings ?? x?.testSpec?.settings ?? x?.mathSpec?.settings },
+  { key: "questions", label: "Вопросы теста", read: (x) => x?.questions ?? x?.tests?.questions ?? x?.testSpec?.questions },
+  { key: "blocks", label: "Math-блоки", read: (x) => x?.blocks ?? x?.tests?.blocks ?? x?.mathSpec?.blocks },
   { key: "codeRequiredCalls", label: "Обязательные вызовы", read: (x) => x?.codeRequiredCalls },
   { key: "codeForbiddenCalls", label: "Запрещённые вызовы", read: (x) => x?.codeForbiddenCalls },
   { key: "isVisible", label: "Видимость", read: (x) => x?.isVisible },

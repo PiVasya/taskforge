@@ -153,11 +153,11 @@ internal static class AssignmentApiTestingService
         {
             foreach (var name in new[] { "testSpec", "taskTest", "quiz", "tests", "testCases", "spec" })
             {
-                if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
+                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
             }
-            if (source.TryGetProperty("questions", out var questions) && questions.ValueKind == JsonValueKind.Array)
+            if (TryGetPropertyLoose(source, "questions", out var questions) && questions.ValueKind == JsonValueKind.Array)
             {
-                return WrapSpec(source, "settings", "questions");
+                return WrapInteractiveSpec(source, "questions", isMath: false);
             }
         }
 
@@ -165,11 +165,11 @@ internal static class AssignmentApiTestingService
         {
             foreach (var name in new[] { "mathSpec", "mathTask", "math", "tests", "testCases", "spec" })
             {
-                if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
+                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
             }
-            if (source.TryGetProperty("blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
+            if (TryGetPropertyLoose(source, "blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
             {
-                return WrapSpec(source, "settings", "blocks");
+                return WrapInteractiveSpec(source, "blocks", isMath: true);
             }
         }
 
@@ -177,7 +177,7 @@ internal static class AssignmentApiTestingService
         {
             foreach (var name in new[] { "imageSpec", "imageTest", "tests", "testCases", "cases", "publicTests", "hiddenTests" })
             {
-                if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
                 {
                     return name is "publicTests" or "hiddenTests" ? WrapImageTests(source) : v.Clone();
                 }
@@ -186,7 +186,7 @@ internal static class AssignmentApiTestingService
 
         foreach (var name in new[] { "tests", "testCases", "cases", "publicTests", "hiddenTests" })
         {
-            if (source.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+            if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
             {
                 return name is "publicTests" or "hiddenTests" ? WrapCodeTests(source) : v.Clone();
             }
@@ -198,8 +198,8 @@ internal static class AssignmentApiTestingService
     internal static JsonElement WrapCodeTests(JsonElement source)
     {
         var node = new JsonObject();
-        if (source.TryGetProperty("publicTests", out var publicTests) && publicTests.ValueKind == JsonValueKind.Array) node["publicTests"] = JsonNode.Parse(publicTests.GetRawText());
-        if (source.TryGetProperty("hiddenTests", out var hiddenTests) && hiddenTests.ValueKind == JsonValueKind.Array) node["hiddenTests"] = JsonNode.Parse(hiddenTests.GetRawText());
+        if (TryGetPropertyLoose(source, "publicTests", out var publicTests) && publicTests.ValueKind == JsonValueKind.Array) node["publicTests"] = JsonNode.Parse(publicTests.GetRawText());
+        if (TryGetPropertyLoose(source, "hiddenTests", out var hiddenTests) && hiddenTests.ValueKind == JsonValueKind.Array) node["hiddenTests"] = JsonNode.Parse(hiddenTests.GetRawText());
         return JsonSerializer.SerializeToElement(node, JsonOptions());
     }
 

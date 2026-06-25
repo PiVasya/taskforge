@@ -214,11 +214,80 @@ internal static class AssignmentApiCommonService
         return JsonSerializer.SerializeToElement(node, JsonOptions());
     }
 
+    internal static JsonElement WrapInteractiveSpec(JsonElement source, string arrayName, bool isMath)
+    {
+        var node = new JsonObject();
+        var settings = new JsonObject();
+
+        foreach (var settingsName in isMath
+                     ? new[] { "settings", "mathSettings", "attemptSettings" }
+                     : new[] { "settings", "testSettings", "quizSettings", "attemptSettings" })
+        {
+            if (TryGetPropertyLoose(source, settingsName, out var nested) && nested.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in nested.EnumerateObject())
+                {
+                    settings[prop.Name] = JsonNode.Parse(prop.Value.GetRawText());
+                }
+            }
+        }
+
+        CopyLoose(source, settings, "maxAttempts", "maxAttempts", "attempts", "attemptLimit", "maxAttemptCount");
+        CopyLoose(source, settings, "passPercent", "passPercent", "passingPercent", "passScore", "successPercent");
+        CopyLoose(source, settings, "allowReview", "allowReview", "showReview", "reviewAllowed", "showResults");
+        CopyLoose(source, settings, "attemptTimeLimitsSeconds", "attemptTimeLimitsSeconds", "timeLimits", "timeLimitSecondsByAttempt");
+
+        if (isMath)
+        {
+            CopyLoose(source, settings, "shuffleBlocks", "shuffleBlocks", "randomizeBlocks", "randomBlocks", "blocksRandomOrder");
+        }
+        else
+        {
+            CopyLoose(source, settings, "shuffleQuestions", "shuffleQuestions", "randomizeQuestions", "randomQuestions", "questionsRandomOrder");
+            CopyLoose(source, settings, "shuffleAnswers", "shuffleAnswers", "randomizeAnswers", "randomAnswers", "answersRandomOrder", "shuffleOptions", "randomizeOptions");
+        }
+
+        if (settings.Count > 0) node["settings"] = settings;
+        if (TryGetPropertyLoose(source, arrayName, out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            node[arrayName] = JsonNode.Parse(arr.GetRawText());
+        }
+        return JsonSerializer.SerializeToElement(node, JsonOptions());
+    }
+
+    internal static bool TryGetPropertyLoose(JsonElement source, string name, out JsonElement value)
+    {
+        if (source.ValueKind == JsonValueKind.Object)
+        {
+            if (source.TryGetProperty(name, out value)) return true;
+            foreach (var prop in source.EnumerateObject())
+            {
+                if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = prop.Value;
+                    return true;
+                }
+            }
+        }
+        value = default;
+        return false;
+    }
+
+    internal static void CopyLoose(JsonElement source, JsonObject target, string targetName, params string[] sourceNames)
+    {
+        foreach (var sourceName in sourceNames)
+        {
+            if (!TryGetPropertyLoose(source, sourceName, out var value)) continue;
+            target[targetName] = JsonNode.Parse(value.GetRawText());
+            return;
+        }
+    }
+
     internal static string? FirstString(JsonElement source, params string[] names)
     {
         foreach (var name in names)
         {
-            if (!source.TryGetProperty(name, out var v)) continue;
+            if (!TryGetPropertyLoose(source, name, out var v)) continue;
             if (v.ValueKind == JsonValueKind.String) return v.GetString();
             if (v.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return v.ToString();
             if (name == "tags" && v.ValueKind == JsonValueKind.Array)
@@ -234,7 +303,7 @@ internal static class AssignmentApiCommonService
     {
         foreach (var name in names)
         {
-            if (!source.TryGetProperty(name, out var v)) continue;
+            if (!TryGetPropertyLoose(source, name, out var v)) continue;
             if (v.ValueKind == JsonValueKind.String && Guid.TryParse(v.GetString(), out var g) && g != Guid.Empty) return g;
             if (v.ValueKind == JsonValueKind.Object && v.TryGetProperty("id", out var nested) && nested.ValueKind == JsonValueKind.String && Guid.TryParse(nested.GetString(), out g) && g != Guid.Empty) return g;
         }
@@ -245,7 +314,7 @@ internal static class AssignmentApiCommonService
     {
         foreach (var name in names)
         {
-            if (!source.TryGetProperty(name, out var v)) continue;
+            if (!TryGetPropertyLoose(source, name, out var v)) continue;
             if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
             if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out n)) return n;
         }
@@ -256,7 +325,7 @@ internal static class AssignmentApiCommonService
     {
         foreach (var name in names)
         {
-            if (!source.TryGetProperty(name, out var v)) continue;
+            if (!TryGetPropertyLoose(source, name, out var v)) continue;
             if (v.ValueKind is JsonValueKind.True or JsonValueKind.False) return v.GetBoolean();
             if (v.ValueKind == JsonValueKind.String && bool.TryParse(v.GetString(), out var b)) return b;
         }
@@ -267,7 +336,7 @@ internal static class AssignmentApiCommonService
     {
         foreach (var name in names)
         {
-            if (source.TryGetProperty(name, out var v)) return v;
+            if (TryGetPropertyLoose(source, name, out var v)) return v;
         }
         return null;
     }
@@ -276,7 +345,7 @@ internal static class AssignmentApiCommonService
     {
         foreach (var name in names)
         {
-            if (!source.TryGetProperty(name, out var v)) continue;
+            if (!TryGetPropertyLoose(source, name, out var v)) continue;
             if (v.ValueKind == JsonValueKind.Array)
             {
                 var list = v.EnumerateArray().Select(x => x.ToString().Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

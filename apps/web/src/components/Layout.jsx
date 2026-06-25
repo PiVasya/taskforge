@@ -260,7 +260,7 @@ export default function Layout({
     if (!path || path === lastTrackedPathRef.current) return;
     lastTrackedPathRef.current = path;
     const title = document?.title || path;
-    api.post("/api/activity/page-view", { path, title }).catch(() => {});
+    api.post("/api/activity/page-view", { path, title, action: "page-view", source: "page" }).catch(() => {});
   }, [access, location.pathname, location.search]);
 
   const [mobileOpen, setMobileOpen] = useState(false);

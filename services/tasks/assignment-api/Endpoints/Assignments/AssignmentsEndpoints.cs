@@ -123,10 +123,16 @@ internal static partial class AssignmentApiEndpoints
 
             return Microsoft.AspNetCore.Http.Results.Json(new
             {
-                schemaVersion = 1,
+                schemaVersion = 2,
                 format = "taskforge-course-assignment-import",
                 courseId,
                 exportedAt = DateTimeOffset.UtcNow,
+                roundTrip = true,
+                notes = new[]
+                {
+                    "Для type=test экспорт содержит полный tests.settings/questions, включая shuffleQuestions, shuffleAnswers, allowReview и таймеры.",
+                    "Для type=math экспорт содержит полный tests.settings/blocks, включая shuffleBlocks, allowReview и таймеры."
+                },
                 assignments = rows.Select(ToImportDto).ToList()
             }, JsonOptions());
         });

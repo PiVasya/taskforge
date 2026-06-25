@@ -106,6 +106,7 @@ internal static class ObservabilityApiMappingService
         if (errorRate > 10) alerts.Add(new { severity = "high", title = "Много ошибок API", message = $"За период {errorRate:0.0}% запросов завершились ошибкой." });
         if (avgLatency > 1000) alerts.Add(new { severity = "medium", title = "Высокая задержка", message = $"Средняя задержка backend около {avgLatency:0} мс." });
         if (successRate > 0 && successRate < 35) alerts.Add(new { severity = "medium", title = "Низкая успешность заданий", message = $"Успешность попыток по заданиям {successRate:0.0}%." });
+        if (errors > 0 && errorRate <= 10) alerts.Add(new { severity = "medium", title = "Есть ошибки API", message = $"За период найдено {errors} ошибочных запросов ({errorRate:0.0}%)." });
         if (alerts.Count == 0) alerts.Add(new { severity = "good", title = "Критичных сигналов нет", message = "По собранной активности явных проблем не найдено." });
         return alerts.ToArray();
     }

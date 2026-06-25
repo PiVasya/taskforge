@@ -10,5 +10,12 @@ public sealed class PageView
     public int? StatusCode { get; set; }
     public long? DurationMs { get; set; }
     public string? UserAgent { get; set; }
+    public string? Source { get; set; }
+    public string? TraceId { get; set; }
+    public string? ErrorCode { get; set; }
+    public string? ErrorMessage { get; set; }
+    public string? ClientIpHash { get; set; }
+    public string? ClientIpPrefix { get; set; }
+    public string? ClientCountry { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

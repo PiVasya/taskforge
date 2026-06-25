@@ -1,4 +1,7 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Observability.Api.Data;
@@ -17,15 +20,23 @@ internal static partial class ObservabilityApiEndpoints
     {
         app.MapPost("/api/activity/page-view", async (PageViewRequest req, HttpContext http, IConfiguration cfg, ObservabilityDbContext db, CancellationToken ct) =>
         {
+            var ipMetadata = BuildIpMetadata(http, cfg);
             var view = new PageView
             {
                 UserId = TaskForgeRequestSecurity.UserId(http, cfg),
-                Path = req.Path ?? req.Url ?? http.Request.Headers.Referer.ToString() ?? "/",
-                Method = req.Method ?? "GET",
-                Action = req.Action ?? "page-view",
+                Path = NormalizeClientPath(req.Path ?? req.Url ?? http.Request.Headers.Referer.ToString() ?? "/"),
+                Method = NormalizeMethod(req.Method),
+                Action = NormalizeAction(req.Action),
                 StatusCode = req.StatusCode,
                 DurationMs = req.DurationMs,
-                UserAgent = http.Request.Headers.UserAgent.ToString()
+                UserAgent = Truncate(http.Request.Headers.UserAgent.ToString(), 800),
+                Source = Truncate(req.Source, 80),
+                TraceId = Truncate(req.TraceId, 160),
+                ErrorCode = Truncate(req.ErrorCode, 120),
+                ErrorMessage = Truncate(req.ErrorMessage, 1000),
+                ClientIpHash = ipMetadata.Hash,
+                ClientIpPrefix = ipMetadata.Prefix,
+                ClientCountry = Truncate(ReadHeader(http, "CF-IPCountry"), 8),
             };
             db.PageViews.Add(view);
             await db.SaveChangesAsync(ct);
@@ -116,5 +127,85 @@ internal static partial class ObservabilityApiEndpoints
         });
 
         return app;
+    }
+
+    private static string NormalizeClientPath(string value)
+    {
+        var raw = string.IsNullOrWhiteSpace(value) ? "/" : value.Trim();
+        if (Uri.TryCreate(raw, UriKind.Absolute, out var uri)) raw = string.IsNullOrWhiteSpace(uri.Query) ? uri.AbsolutePath : uri.PathAndQuery;
+        if (!raw.StartsWith('/')) raw = "/" + raw;
+        return Truncate(raw, 2048) ?? "/";
+    }
+
+    private static string NormalizeMethod(string? method)
+    {
+        var normalized = string.IsNullOrWhiteSpace(method) ? "GET" : method.Trim().ToUpperInvariant();
+        return Truncate(normalized, 20) ?? "GET";
+    }
+
+    private static string NormalizeAction(string? action)
+    {
+        var normalized = string.IsNullOrWhiteSpace(action) ? "page-view" : action.Trim();
+        return Truncate(normalized, 120) ?? "page-view";
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
+    }
+
+    private static string? ReadHeader(HttpContext http, string name)
+    {
+        var value = http.Request.Headers[name].FirstOrDefault();
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static (string? Hash, string? Prefix) BuildIpMetadata(HttpContext http, IConfiguration cfg)
+    {
+        if (!cfg.GetValue("Analytics:CollectIpMetadata", true)) return (null, null);
+        var raw = ReadClientIp(http);
+        if (!IPAddress.TryParse(raw, out var ip)) return (null, null);
+        var prefix = AnonymizeIp(ip);
+        var salt = FirstNonEmpty(
+            cfg["Analytics:IpHashSalt"],
+            cfg["InternalApi:Key"],
+            cfg["Jwt:SigningKey"],
+            cfg["Jwt:Key"],
+            "taskforge-observability-dev-salt");
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{salt}:{ip}"))).ToLowerInvariant();
+        return (hash, prefix);
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))!.Trim();
+    }
+
+    private static string? ReadClientIp(HttpContext http)
+    {
+        var candidates = new[]
+        {
+            ReadHeader(http, "CF-Connecting-IP"),
+            ReadHeader(http, "X-Real-IP"),
+            ReadHeader(http, "X-Forwarded-For")?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(),
+            http.Connection.RemoteIpAddress?.ToString(),
+        };
+        return candidates.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    private static string? AnonymizeIp(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        var bytes = ip.GetAddressBytes();
+        if (bytes.Length == 4) return $"{bytes[0]}.{bytes[1]}.{bytes[2]}.0/24";
+        if (bytes.Length == 16)
+        {
+            var groups = Enumerable.Range(0, 3)
+                .Select(i => ((bytes[i * 2] << 8) | bytes[i * 2 + 1]).ToString("x"));
+            return string.Join(':', groups) + "::/48";
+        }
+        return null;
     }
 }
