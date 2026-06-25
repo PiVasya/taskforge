@@ -302,7 +302,7 @@ internal static class AssignmentApiSerializationService
     internal static object JsonPropArray(object? json, string name)
     {
         if (json is JsonElement e && e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array) return p;
-        if (json is JsonObject o && o[name] is JsonArray arr) return JsonNode.Parse(arr.ToJsonString(JsonOptions())) ?? Array.Empty<object>();
+        if (json is JsonObject o && o[name] is JsonArray arr) return (object?)JsonNode.Parse(arr.ToJsonString(JsonOptions())) ?? Array.Empty<object>();
         return Array.Empty<object>();
     }
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TaskForge.Observability.Api.Data;
@@ -11,9 +12,11 @@ using TaskForge.Observability.Api.Data;
 namespace TaskForge.Observability.Api.Migrations
 {
     [DbContext(typeof(ObservabilityDbContext))]
-    partial class ObservabilityDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260625144735_ObservabilityAnalyticsNetworkMetadata")]
+    partial class ObservabilityAnalyticsNetworkMetadata
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
