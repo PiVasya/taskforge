@@ -33,6 +33,7 @@ public sealed class SupportDbContext(DbContextOptions<SupportDbContext> options)
             entity.ToTable("SupportMessages");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.TicketId, x.CreatedAt });
+            entity.HasIndex(x => x.ReplyToMessageId);
             entity.Property(x => x.AuthorRole).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Text).HasMaxLength(8000);
             entity.Property(x => x.Source).HasMaxLength(80);

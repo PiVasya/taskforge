@@ -28,8 +28,6 @@ import MySolutionsPage from './pages/MySolutionsPage';
 import PublicProfilePage from './pages/PublicProfilePage';
 
 
-import SupportTicketsPage from './pages/SupportTicketsPage';
-import SupportCreatePage from './pages/SupportCreatePage';
 import SupportChatPage from './pages/SupportChatPage';
 import AdminSupportPage from './pages/AdminSupportPage';
 
@@ -160,19 +158,14 @@ const pageMetaRules = [
     description: 'Minecraft-интеграция TaskForge: чат и связь учебной платформы с игровым сервером.',
   },
   {
-    path: '/support/new',
-    title: 'новое обращение',
-    description: 'Создание обращения в поддержку TaskForge.',
-  },
-  {
-    path: '/support/:ticketId',
-    title: 'обращение в поддержку',
-    description: 'Переписка с поддержкой TaskForge по выбранному обращению.',
-  },
-  {
     path: '/support',
     title: 'поддержка',
-    description: 'Раздел поддержки TaskForge: обращения, ответы и помощь по работе платформы.',
+    description: 'Личный чат с поддержкой TaskForge без технических ID в интерфейсе.',
+  },
+  {
+    path: '/admin/support/:ticketId',
+    title: 'админ · чат поддержки',
+    description: 'Административный чат поддержки с конкретным пользователем TaskForge.',
   },
   {
     path: '/admin/assignments/:assignmentId/insights',
@@ -212,7 +205,7 @@ const pageMetaRules = [
   {
     path: '/admin/support',
     title: 'админ · поддержка',
-    description: 'Административная обработка обращений пользователей TaskForge.',
+    description: 'Административные чаты поддержки с пользователями TaskForge.',
   },
   {
     path: '/admin/groups',
@@ -367,8 +360,8 @@ export default function App() {
           <Route path="/users/:userId" element={<PublicProfilePage />} />
 
           
-          <Route path="/support" element={<SupportTicketsPage />} />
-          <Route path="/support/new" element={<SupportCreatePage />} />
+          <Route path="/support" element={<SupportChatPage />} />
+          <Route path="/support/new" element={<Navigate to="/support" replace />} />
           <Route path="/support/:ticketId" element={<SupportChatPage />} />
 
           
@@ -382,6 +375,7 @@ export default function App() {
             <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
             <Route path="/admin/badges" element={<AdminBadgesPage />} />
             <Route path="/admin/support" element={<AdminSupportPage />} />
+            <Route path="/admin/support/:ticketId" element={<SupportChatPage />} />
             <Route path="/admin/groups" element={<AdminGroupsPage />} />
             <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
             <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />

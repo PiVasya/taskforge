@@ -10,5 +10,6 @@ public sealed class SupportMessage
     public string? Source { get; set; }
     public long? TelegramChatId { get; set; }
     public int? TelegramMessageId { get; set; }
+    public Guid? ReplyToMessageId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

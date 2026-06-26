@@ -55,52 +55,70 @@ internal static class SupportApiMappingService
         return messages.GroupBy(x => x.TicketId).ToDictionary(g => g.Key, g => new TicketExtra(g.Count(), Preview(g.Last().Text)));
     }
 
-    internal static object ToTicketDto(SupportTicket x, TicketExtra? extra, UserSummaryDto? user) => new
+    internal static object ToChatDto(SupportTicket x, TicketExtra? extra, UserSummaryDto? user) => new
     {
         id = x.Id,
+        chatId = x.Id,
         ticketId = x.Id,
-        subject = x.Subject,
-        title = x.Subject,
-        type = TicketType(x.Subject),
-        status = x.Status,
-        isClosed = IsClosed(x.Status),
+        title = "Чат с поддержкой",
+        subject = "Чат с поддержкой",
         userId = x.UserId,
-        user = user == null ? null : new
-        {
-            id = user.UserId,
-            userId = user.UserId,
-            login = user.Login,
-            user.Email,
-            user.MaskedEmail,
-            user.FirstName,
-            user.LastName,
-            displayName = UserLabel(user),
-            fullName = UserLabel(user)
-        },
+        user = user == null ? null : UserDto(user),
         messagesCount = extra?.MessagesCount ?? 0,
         lastMessagePreview = extra?.LastMessagePreview,
         createdAt = x.CreatedAt,
         updatedAt = x.UpdatedAt
     };
 
-    internal static object ToMessageDto(SupportMessage x, UserSummaryDto? user)
+    internal static object ToTicketDto(SupportTicket x, TicketExtra? extra, UserSummaryDto? user) => ToChatDto(x, extra, user);
+
+    internal static object ToMessageDto(SupportMessage x, UserSummaryDto? user, SupportMessage? replyTo = null, UserSummaryDto? replyUser = null)
     {
         var isAdmin = string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase);
+        var authorName = isAdmin ? "Поддержка" : UserLabel(user);
         return new
         {
             id = x.Id,
             messageId = x.Id,
             ticketId = x.TicketId,
+            chatId = x.TicketId,
             userId = x.UserId,
             text = x.Text,
             body = x.Text,
             authorRole = x.AuthorRole,
             isFromAdmin = isAdmin,
-            authorName = isAdmin ? "Поддержка" : UserLabel(user),
+            authorName,
+            authorDisplayName = authorName,
+            authorLogin = user?.Login,
+            authorEmail = user?.Email ?? user?.MaskedEmail,
+            source = x.Source,
+            replyToMessageId = x.ReplyToMessageId,
+            replyTo = replyTo == null ? null : new
+            {
+                id = replyTo.Id,
+                messageId = replyTo.Id,
+                textPreview = Preview(replyTo.Text),
+                authorRole = replyTo.AuthorRole,
+                authorName = string.Equals(replyTo.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) ? "Поддержка" : UserLabel(replyUser),
+                createdAt = replyTo.CreatedAt
+            },
             createdAt = x.CreatedAt,
             createdAtUtc = x.CreatedAt
         };
     }
+
+    internal static object UserDto(UserSummaryDto user) => new
+    {
+        id = user.UserId,
+        userId = user.UserId,
+        login = user.Login,
+        user.Email,
+        user.MaskedEmail,
+        user.FirstName,
+        user.LastName,
+        displayName = UserLabel(user),
+        fullName = UserLabel(user)
+    };
 
     internal static string? Preview(string? text)
     {

@@ -187,7 +187,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
                 authorName,
                 message.Text,
                 message.Chat.Id,
-                message.MessageId), options: JsonOptions)
+                message.MessageId,
+                source.MessageId), options: JsonOptions)
         };
         AddInternalKey(request);
         using var response = await SupportClient().SendAsync(request, ct);
@@ -211,10 +212,9 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
                 "1) TaskForge -> Профиль -> Интеграции -> Telegram -> Сгенерировать код\n" +
                 "2) Отправь мне: /link ТВОЙ_КОД\n" +
                 "или просто пришли код первым сообщением.\n\n" +
-                "После привязки просто пиши сюда — сообщение уйдёт в техподдержку.\n" +
+                "После привязки просто пиши сюда — сообщение уйдёт в единый чат поддержки.\n" +
                 "Команды:\n" +
                 "/link CODE — привязать Telegram\n" +
-                "/new текст — создать новое обращение\n" +
                 "/help — помощь",
                 cancellationToken: ct);
             return;
@@ -233,14 +233,12 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             return;
         }
 
-        var forceNewTicket = false;
         if (text.StartsWith("/new", StringComparison.OrdinalIgnoreCase))
         {
-            forceNewTicket = true;
             text = string.Join(' ', text.Split(' ').Skip(1)).Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
-                await _bot.SendTextMessageAsync(msg.Chat.Id, "Напиши текст обращения после /new.", cancellationToken: ct);
+                await _bot.SendTextMessageAsync(msg.Chat.Id, "Просто напиши сообщение — оно попадёт в единый чат поддержки.", cancellationToken: ct);
                 return;
             }
         }
@@ -251,7 +249,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             return;
         }
 
-        await HandleSupportMessageAsync(msg, text, forceNewTicket, ct);
+        await HandleSupportMessageAsync(msg, text, ct);
     }
 
     private async Task TryLinkByCodeAsync(Message msg, string codeRaw, CancellationToken ct)
@@ -287,7 +285,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         }
     }
 
-    private async Task HandleSupportMessageAsync(Message msg, string text, bool forceNewTicket, CancellationToken ct)
+    private async Task HandleSupportMessageAsync(Message msg, string text, CancellationToken ct)
     {
         if (_bot == null) return;
         var contact = await LoadTelegramContactByChatIdAsync(msg.Chat.Id, ct);
@@ -302,14 +300,14 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/internal/support/telegram/user-message")
         {
-            Content = JsonContent.Create(new TelegramUserMessageRequest(contact.UserId.Value, text, forceNewTicket), options: JsonOptions)
+            Content = JsonContent.Create(new TelegramUserMessageRequest(contact.UserId.Value, text, false), options: JsonOptions)
         };
         AddInternalKey(request);
         using var response = await SupportClient().SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
         {
             await _bot.SendTextMessageAsync(msg.Chat.Id,
-                "✅ Сообщение отправлено в техподдержку. Если нужно новое обращение — напиши /new и текст.",
+                "✅ Сообщение отправлено в техподдержку.",
                 cancellationToken: ct);
             return;
         }
@@ -377,11 +375,12 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     private static string FormatGroupUserMessage(PendingUserMessageDto msg)
     {
         var user = msg.User?.DisplayName ?? msg.User?.Login ?? msg.User?.MaskedEmail ?? msg.User?.Email ?? "Пользователь";
+        var login = string.IsNullOrWhiteSpace(msg.User?.Login) ? "—" : "@" + msg.User!.Login;
         return
-            $"🛠️ Ticket {msg.TicketId}\n" +
-            $"Тема: {msg.Subject}\n" +
+            "💬 Новое сообщение в поддержке\n" +
             $"Источник: {SourceLabel(msg.Source)}\n" +
             $"Пользователь: {user}\n" +
+            $"Логин: {login}\n" +
             $"Email: {msg.User?.MaskedEmail ?? msg.User?.Email ?? "—"}\n\n" +
             (msg.Text ?? string.Empty);
     }
@@ -394,8 +393,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     };
 
     private static string FormatPrivateAdminReply(PendingAdminReplyDto reply) =>
-        $"🛠️ Ответ поддержки по обращению {reply.TicketId}\n" +
-        $"Тема: {reply.Subject}\n\n" +
+        "🛠️ Ответ поддержки\n\n" +
         (reply.Text ?? string.Empty);
 
     private static string TelegramAuthorName(Message message)
@@ -508,5 +506,5 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
     private sealed record TelegramUserMessageRequest(Guid UserId, string Message, bool ForceNewTicket);
 
-    private sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId);
+    private sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId, Guid? ReplyToMessageId);
 }

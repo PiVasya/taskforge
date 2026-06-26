@@ -65,20 +65,18 @@ export default function SupportNotifier() {
             if (cur && lastSeen === cur) return;
             if (cur) localStorage.setItem(key, cur);
 
-            const shortId = String(ticketId).slice(0, 8);
-
-            
             if (!isAdmin && isFromAdmin) {
               notifyOnce(
                 `support_notify_${ticketId}_${cur}`,
-                () => notify.info(`Ответ от техподдержки в обращении #${shortId}`),
+                () => notify.info('Ответ от техподдержки'),
                 8000
               );
             }
             if (isAdmin && !isFromAdmin) {
+              const author = getMsgField(msg, 'authorName', 'AuthorName') || 'пользователя';
               notifyOnce(
                 `support_notify_admin_${ticketId}_${cur}`,
-                () => notify.info(`Новое сообщение в обращении #${shortId}`),
+                () => notify.info(`Новое сообщение в поддержке от ${author}`),
                 8000
               );
             }

@@ -41,8 +41,8 @@ internal static partial class SupportApiEndpoints
                 {
                     messageId = m.Id,
                     ticketId = m.TicketId,
-                    subject = ticket?.Subject ?? "Обращение",
-                    status = ticket?.Status ?? "open",
+                    subject = "Чат с поддержкой",
+                    title = "Чат с поддержкой",
                     userId = uid,
                     user = user == null ? null : new
                     {
@@ -101,7 +101,8 @@ internal static partial class SupportApiEndpoints
                     messageId = m.Id,
                     ticketId = m.TicketId,
                     userId = ticket?.UserId ?? m.UserId,
-                    subject = ticket?.Subject ?? "Обращение",
+                    subject = "Чат с поддержкой",
+                    title = "Чат с поддержкой",
                     text = m.Text,
                     source = m.Source,
                     createdAt = m.CreatedAt
@@ -142,7 +143,7 @@ internal static partial class SupportApiEndpoints
 
             var now = DateTimeOffset.UtcNow;
             ticket.UpdatedAt = now;
-            if (string.Equals(ticket.Status, "open", StringComparison.OrdinalIgnoreCase)) ticket.Status = "in-progress";
+            ticket.Subject = "Чат с поддержкой";
             var msg = new SupportMessage
             {
                 TicketId = ticket.Id,
@@ -152,13 +153,22 @@ internal static partial class SupportApiEndpoints
                 Source = "TelegramGroup",
                 TelegramChatId = req.TelegramChatId,
                 TelegramMessageId = req.TelegramMessageId,
+                ReplyToMessageId = req.ReplyToMessageId,
                 CreatedAt = now
             };
             db.Messages.Add(msg);
             await db.SaveChangesAsync(ct);
 
-            var dto = ToMessageDto(msg, null);
-            await hub.Clients.Group(SupportHubGroups.ForTicket(ticket.Id)).SendAsync("ReceiveMessage", ticket.Id.ToString(), dto, ct);
+            SupportMessage? replyTo = null;
+            if (req.ReplyToMessageId.HasValue)
+            {
+                replyTo = await db.Messages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == req.ReplyToMessageId.Value && x.TicketId == ticket.Id, ct);
+            }
+            var replyUsers = replyTo?.UserId is { } replyUid
+                ? await LoadUserSummariesAsync(new[] { replyUid }, cfg, httpFactory, ct)
+                : new Dictionary<Guid, UserSummaryDto>();
+            var dto = ToMessageDto(msg, null, replyTo, replyTo?.UserId is { } ruid ? replyUsers.GetValueOrDefault(ruid) : null);
+            await BroadcastSupportMessageAsync(hub, ticket.Id, ticket.UserId, dto, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, messageId = msg.Id, ticketId = ticket.Id });
         });
 
@@ -170,15 +180,11 @@ internal static partial class SupportApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пустое сообщение поддержки." });
             }
 
-            SupportTicket? ticket = null;
-            if (!req.ForceNewTicket)
-            {
-                var since = DateTimeOffset.UtcNow.AddHours(-24);
-                ticket = await db.Tickets
-                    .Where(x => x.UserId == req.UserId && x.Status != "closed" && x.UpdatedAt >= since)
-                    .OrderByDescending(x => x.UpdatedAt)
-                    .FirstOrDefaultAsync(ct);
-            }
+            var ticket = await db.Tickets
+                .Where(x => x.UserId == req.UserId)
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync(ct);
 
             var now = DateTimeOffset.UtcNow;
             if (ticket == null)
@@ -186,7 +192,7 @@ internal static partial class SupportApiEndpoints
                 ticket = new SupportTicket
                 {
                     UserId = req.UserId,
-                    Subject = "Telegram",
+                    Subject = "Чат с поддержкой",
                     Status = "open",
                     CreatedAt = now,
                     UpdatedAt = now
@@ -195,6 +201,7 @@ internal static partial class SupportApiEndpoints
             }
             else
             {
+                ticket.Subject = "Чат с поддержкой";
                 ticket.UpdatedAt = now;
             }
 
@@ -211,7 +218,7 @@ internal static partial class SupportApiEndpoints
             await db.SaveChangesAsync(ct);
 
             var users = await LoadUserSummariesAsync(new[] { req.UserId }, cfg, httpFactory, ct);
-            await hub.Clients.Group(SupportHubGroups.ForTicket(ticket.Id)).SendAsync("ReceiveMessage", ticket.Id.ToString(), ToMessageDto(msg, users.GetValueOrDefault(req.UserId)), ct);
+            await BroadcastSupportMessageAsync(hub, ticket.Id, ticket.UserId, ToMessageDto(msg, users.GetValueOrDefault(req.UserId)), ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, ticketId = ticket.Id, messageId = msg.Id });
         });
 

@@ -34,11 +34,28 @@ public sealed class SupportHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.ForTicket(id));
     }
 
+
+    public async Task JoinUser()
+    {
+        var http = Context.GetHttpContext();
+        var uid = http == null ? null : TaskForgeRequestSecurity.UserId(http, _cfg);
+        if (!uid.HasValue) return;
+        await Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.ForUser(uid.Value));
+    }
+
+    public async Task JoinAdmins()
+    {
+        if (Context.User?.Identity?.IsAuthenticated != true || !TaskForgeRequestSecurity.HasAnyRole(Context.User, "Admin")) return;
+        await Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.ForAdmins());
+    }
+
     public Task LeaveTicket(string ticketId) => Groups.RemoveFromGroupAsync(Context.ConnectionId, SupportHubGroups.FromString(ticketId));
 }
 
 public static class SupportHubGroups
 {
     public static string ForTicket(Guid id) => $"support-ticket-{id:N}";
+    public static string ForUser(Guid userId) => $"support-user-{userId:N}";
+    public static string ForAdmins() => "support-admins";
     public static string FromString(string? id) => Guid.TryParse(id, out var guid) ? ForTicket(guid) : $"support-ticket-{id}";
 }
