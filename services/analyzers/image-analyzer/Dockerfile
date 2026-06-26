@@ -4,6 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     OPENCLIP_CACHE_DIR=/models/openclip \
+    HF_HOME=/models/openclip \
+    HUGGINGFACE_HUB_CACHE=/models/openclip \
+    HF_HUB_CACHE=/models/openclip \
+    HF_HUB_DISABLE_XET=1 \
     HOME=/tmp
 
 WORKDIR /app
@@ -35,7 +39,8 @@ ARG MODEL_PRETRAINED=laion2b_s32b_b82k
 ENV MODEL_NAME=${MODEL_NAME} \
     MODEL_PRETRAINED=${MODEL_PRETRAINED}
 
-RUN python scripts/download_models.py
+RUN python scripts/download_models.py \
+    && chown -R 65534:65534 /models
 
 EXPOSE 8080
 

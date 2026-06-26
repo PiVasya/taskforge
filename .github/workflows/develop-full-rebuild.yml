@@ -4,7 +4,7 @@ name: docker images full rebuild
 # It ignores changed-file detection and rebuilds every TaskForge image in the same
 # GHCR repository/tag scheme as the normal docker images workflow.
 env:
-  TASKFORGE_BUILD_DEBUG_LOGS: "1"
+  TASKFORGE_BUILD_DEBUG_LOGS: "0"
   # BuildKit GHA cache can occasionally leave a manifest pointing to an expired/missing blob.
   # Bump this value (v3, v4, ...) to force all Docker builds to ignore the old broken cache.
   TF_DOCKER_GHA_CACHE_VERSION: "v2"
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       debug_logs:
-        description: Build backend image binaries with ultra TaskForge dev logs baked in. Use 1 now, 0 for quiet images.
+        description: Build backend image binaries with ultra TaskForge dev logs baked in. Use 1 only for investigation, 0 for normal production images.
         type: choice
         options:
           - "1"

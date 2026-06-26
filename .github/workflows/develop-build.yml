@@ -1,10 +1,10 @@
 name: docker images
 
-# Current policy: GHCR develop images are built with ultra development logs enabled.
+# Current policy: GHCR develop images are built with production-style quiet logs by default.
 # This is the workflow-level switch. Change to "0" and push; the workflow file
 # change forces a full rebuild so GHCR images are rebuilt without dev probes.
 env:
-  TASKFORGE_BUILD_DEBUG_LOGS: "1"
+  TASKFORGE_BUILD_DEBUG_LOGS: "0"
   # BuildKit GHA cache can occasionally leave a manifest pointing to an expired/missing blob.
   # Bump this value (v3, v4, ...) to force all Docker builds to ignore the old broken cache.
   TF_DOCKER_GHA_CACHE_VERSION: "v2"
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       debug_logs:
-        description: Build image binaries with ultra TaskForge dev logs baked in. Use 1 now, 0 for quiet images.
+        description: Build image binaries with ultra TaskForge dev logs baked in. Use 1 only for investigation, 0 for normal production images.
         type: choice
         options:
           - "1"

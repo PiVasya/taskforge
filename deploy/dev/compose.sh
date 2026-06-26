@@ -5,6 +5,12 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 cd "$ROOT_DIR"
 
+TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR="${TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR:-$ROOT_DIR/.runtime/image-analyzer-model-cache}"
+mkdir -p "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" 2>/dev/null || true
+chmod 0777 "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" 2>/dev/null || true
+export TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR
+export TASKFORGE_ROOT="$ROOT_DIR"
+
 ENV_FILE="${TASKFORGE_DEV_ENV_FILE:-deploy/dev/.env}"
 if [ ! -f "$ENV_FILE" ]; then
   cp deploy/dev/.env.example "$ENV_FILE"

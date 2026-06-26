@@ -8,14 +8,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: postgres
     volumes:
-    - postgres-data:/var/lib/postgresql
-    - ../../../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+      - postgres-data:/var/lib/postgresql
+      - ../../../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
-    - ${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432
+      - ${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432
     healthcheck:
       test:
-      - CMD-SHELL
-      - pg_isready -U ${POSTGRES_USER:-taskforge} -d postgres
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-taskforge} -d postgres
       interval: 5s
       timeout: 5s
       retries: 60
@@ -27,15 +27,15 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
     ports:
-    - ${RABBITMQ_BIND:-127.0.0.1}:${RABBITMQ_PORT:-5672}:5672
-    - ${RABBITMQ_MANAGEMENT_BIND:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
+      - ${RABBITMQ_BIND:-127.0.0.1}:${RABBITMQ_PORT:-5672}:5672
+      - ${RABBITMQ_MANAGEMENT_BIND:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
     volumes:
-    - rabbitmq-data:/var/lib/rabbitmq
+      - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test:
-      - CMD
-      - rabbitmq-diagnostics
-      - ping
+        - CMD
+        - rabbitmq-diagnostics
+        - ping
       interval: 5s
       timeout: 5s
       retries: 60
@@ -46,19 +46,19 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     command:
-    - redis-server
-    - --appendonly
-    - "yes"
-    - --requirepass
-    - ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     ports:
-    - ${REDIS_BIND:-127.0.0.1}:${REDIS_PORT:-6379}:6379
+      - ${REDIS_BIND:-127.0.0.1}:${REDIS_PORT:-6379}:6379
     volumes:
-    - redis-data:/data
+      - redis-data:/data
     healthcheck:
       test:
-      - CMD-SHELL
-      - redis-cli -a "$${REDIS_PASSWORD}" ping | grep PONG
+        - CMD-SHELL
+        - redis-cli -a "$${REDIS_PASSWORD}" ping | grep PONG
       interval: 5s
       timeout: 5s
       retries: 30
@@ -71,20 +71,20 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-taskforge}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
     ports:
-    - ${MINIO_BIND:-127.0.0.1}:${MINIO_PORT:-9000}:9000
-    - ${MINIO_CONSOLE_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001
+      - ${MINIO_BIND:-127.0.0.1}:${MINIO_PORT:-9000}:9000
+      - ${MINIO_CONSOLE_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001
     volumes:
-    - minio-data:/data
+      - minio-data:/data
     healthcheck:
       test:
-      - CMD-SHELL
-      - wget -q --spider http://127.0.0.1:9000/minio/health/live || curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || kill -0 1
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1:9000/minio/health/live || curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || kill -0 1
       interval: 10s
       timeout: 5s
       retries: 18
       start_period: 30s
 volumes:
-  postgres-data: null
-  rabbitmq-data: null
-  minio-data: null
-  redis-data: null
+  postgres-data:
+  rabbitmq-data:
+  minio-data:
+  redis-data:

@@ -4,6 +4,7 @@ services:
       context: ../../..
       dockerfile: services/identity/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -44,7 +45,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,8 +55,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -65,6 +66,7 @@ services:
       context: ../../..
       dockerfile: services/education/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -91,7 +93,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,8 +103,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -112,6 +114,7 @@ services:
       context: ../../../services/content/api
       dockerfile: Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -138,9 +141,9 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     volumes:
-    - content-data-protection:/root/.aspnet/DataProtection-Keys
+      - content-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,8 +153,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -161,6 +164,7 @@ services:
       context: ../../../services/tasks/quiz-api
       dockerfile: Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -187,9 +191,9 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     volumes:
-    - quiz-data-protection:/root/.aspnet/DataProtection-Keys
+      - quiz-data-protection:/root/.aspnet/DataProtection-Keys
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -199,8 +203,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -210,6 +214,7 @@ services:
       context: ../../..
       dockerfile: services/tasks/assignment-api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -240,7 +245,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -250,8 +255,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -261,6 +266,7 @@ services:
       context: ../../..
       dockerfile: services/solutions/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -291,7 +297,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -301,8 +307,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -312,6 +318,7 @@ services:
       context: ../../..
       dockerfile: services/solutions/rating-worker/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev-internal-key}
@@ -336,12 +343,12 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - kill -0 1
+        - CMD-SHELL
+        - kill -0 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
 volumes:
-  content-data-protection: null
-  quiz-data-protection: null
+  content-data-protection:
+  quiz-data-protection:

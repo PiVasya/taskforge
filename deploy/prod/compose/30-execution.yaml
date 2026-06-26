@@ -1,23 +1,24 @@
 x-runner-security:
   security_opt: &id001
-  - no-new-privileges:true
+    - no-new-privileges:true
   cap_drop: &id002
-  - ALL
+    - ALL
   pids_limit: ${RUNNER_PIDS_LIMIT:-128}
   mem_limit: ${RUNNER_MEM_LIMIT:-512m}
   read_only: true
   tmpfs: &id003
-  - /tmp:size=${RUNNER_TMPFS_SIZE:-256m},mode=1777,exec
+    - /tmp:size=${RUNNER_TMPFS_SIZE:-256m},mode=1777,exec
   networks: &id004
-  - runner-net
+    - runner-net
 services:
   execution-api:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/execution-api:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
@@ -34,8 +35,7 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_execution;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set
-        POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_execution;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
@@ -48,7 +48,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,8 +58,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -67,10 +67,11 @@ services:
   execution-worker:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/execution-worker:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -103,8 +104,8 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     networks:
-    - default
-    - runner-net
+      - default
+      - runner-net
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -136,8 +137,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - kill -0 1
+        - CMD-SHELL
+        - kill -0 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -152,20 +153,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/csharp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -187,19 +189,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/cpp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   java-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -210,19 +214,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/java-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   javascript-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -233,19 +239,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/javascript-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -256,19 +264,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/pascal-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -279,19 +289,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/python-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8080'
+      - '8080'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   image-cpp-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -302,19 +314,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-cpp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8000'
+      - '8000'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   image-pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -325,19 +339,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-pascal-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8000'
+      - '8000'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
   image-python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -348,19 +364,21 @@ services:
     networks: *id004
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-python-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
-    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
-    - '8000'
+      - '8000'
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
 networks:
   default: {}
   runner-net:

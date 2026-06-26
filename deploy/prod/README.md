@@ -203,3 +203,9 @@ Recommended one-time Redis host tuning:
 echo "vm.overcommit_memory=1" | sudo tee /etc/sysctl.d/99-taskforge-redis.conf
 sudo sysctl --system
 ```
+
+
+## Image analyzer model cache
+
+`image-analyzer` uses a persistent host cache directory `.runtime/image-analyzer-model-cache` for OpenCLIP/HuggingFace weights.
+Do not remove this directory during normal updates; otherwise the analyzer will download the CLIP weights again.

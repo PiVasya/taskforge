@@ -4,6 +4,7 @@ services:
       context: ../../..
       dockerfile: services/support/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -31,7 +32,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,8 +42,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -52,6 +53,10 @@ services:
       context: ../../..
       dockerfile: services/bots/support-bot/Dockerfile
     environment:
+      Services__SupportApi: http://support-api:8080
+      Services__IdentityApi: http://identity-api:8080
+      SupportApi__InternalKey: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       SupportApi__BaseUrl: http://support-api:8080
       IdentityApi__BaseUrl: http://identity-api:8080
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
@@ -81,8 +86,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - kill -0 1
+        - CMD-SHELL
+        - kill -0 1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -92,6 +97,7 @@ services:
       context: ../../..
       dockerfile: services/minecraft/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -119,7 +125,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,8 +135,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -140,6 +146,7 @@ services:
       context: ../../..
       dockerfile: services/files/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -167,7 +174,7 @@ services:
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
       Files__MaxUploadBytes: ${FILES_MAX_UPLOAD_BYTES:-10485760}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -179,8 +186,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -190,6 +197,7 @@ services:
       context: ../../..
       dockerfile: services/notifications/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -216,7 +224,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -226,8 +234,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -237,6 +245,7 @@ services:
       context: ../../..
       dockerfile: services/observability/api/Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -267,7 +276,7 @@ services:
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     expose:
-    - '8080'
+      - '8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -279,8 +288,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health/ready >/dev/null || exit 1
       interval: 10s
       timeout: 5s
       retries: 18
@@ -290,6 +299,7 @@ services:
       context: ../../../services/bots/telegram-quiz-bot
       dockerfile: Dockerfile
     environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
       ConnectionStrings__TelegramQuizDb: Host=postgres;Port=5432;Database=taskforge_telegram_quiz;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:-taskforge_dev_password}
       TelegramQuiz__ApplyMigrationsOnStartup: ${MIGRATE_ON_STARTUP:-true}
       TaskForge__ApiBaseUrl: http://gateway
@@ -310,8 +320,8 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-      - CMD-SHELL
-      - wget -qO- http://127.0.0.1:8080/ready >/dev/null 2>&1 || exit 1
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8080/ready >/dev/null 2>&1 || exit 1
       interval: 10s
       timeout: 5s
       retries: 18

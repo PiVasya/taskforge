@@ -50,7 +50,11 @@ class ImageComparator:
         self.phash_weight /= s
 
         os.makedirs(self.cache_dir, exist_ok=True)
-        os.environ.setdefault("OPENCLIP_CACHE_DIR", self.cache_dir)
+        os.environ["OPENCLIP_CACHE_DIR"] = self.cache_dir
+        os.environ["HF_HOME"] = self.cache_dir
+        os.environ["HUGGINGFACE_HUB_CACHE"] = self.cache_dir
+        os.environ["HF_HUB_CACHE"] = self.cache_dir
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
         # CPU-first. If you run the container with GPU + CUDA build, this will use CUDA.
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -58,6 +62,7 @@ class ImageComparator:
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             self.model_name,
             pretrained=self.pretrained,
+            cache_dir=self.cache_dir,
         )
         self.model.to(self.device)
         self.model.eval()
