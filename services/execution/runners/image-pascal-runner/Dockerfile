@@ -1,3 +1,7 @@
+# PASCAL_IMAGE_BASE must be declared before the first FROM. Docker only allows
+# globally-scoped ARG values to be used in FROM instructions across stages.
+ARG PASCAL_IMAGE_BASE=ghcr.io/pivasya/taskforge/image-pascal-runner:develop
+
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
@@ -12,7 +16,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-r
 # If the base image ever needs to be bootstrapped from PascalABC.NET again, use
 # Dockerfile.bootstrap manually. Do not make the regular CI path depend on
 # pascalabc.net DNS/download availability.
-ARG PASCAL_IMAGE_BASE=ghcr.io/pivasya/taskforge/image-pascal-runner:develop
 FROM ${PASCAL_IMAGE_BASE}
 
 WORKDIR /app
