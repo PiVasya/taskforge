@@ -4,51 +4,28 @@ COPY go.mod ./
 COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
 
-FROM debian:bookworm-slim
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    ca-certificates wget curl unzip p7zip-full \
-    mono-complete libgdiplus \
-    xvfb xauth xdotool x11-utils openbox imagemagick \
-    fonts-dejavu-core libgtk2.0-0 \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /opt/pabcnetc \
-  && (curl -fL --retry 3 --retry-all-errors \
-        -A "Mozilla/5.0" \
-        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -o /tmp/PABCNETC.zip \
-        https://pascalabc.net/downloads/PABCNETC.zip \
-      || curl -fL --retry 3 --retry-all-errors \
-        -A "Mozilla/5.0" \
-        -e "https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -o /tmp/PABCNETC.zip \
-        http://pascalabc.net/downloads/PABCNETC.zip \
-      || wget --tries=3 --timeout=30 \
-        --user-agent="Mozilla/5.0" \
-        --referer="https://pascalabc.net/ssyilki-dlya-skachivaniya" \
-        -O /tmp/PABCNETC.zip \
-        https://pascalabc.net/downloads/PABCNETC.zip) \
-  && (7z x -y -bd -o/opt/pabcnetc /tmp/PABCNETC.zip >/tmp/pabcnetc-extract.log \
-      || unzip -q -O cp866 /tmp/PABCNETC.zip -d /opt/pabcnetc \
-      || unzip -q /tmp/PABCNETC.zip -d /opt/pabcnetc) \
-  && found="$(find /opt/pabcnetc -maxdepth 8 -iname 'pabcnetc.exe' -print -quit)" \
-  && if [ -z "$found" ]; then echo "pabcnetc.exe was not found after extraction"; cat /tmp/pabcnetc-extract.log 2>/dev/null || true; find /opt/pabcnetc -maxdepth 4 -type f | sed -n '1,120p'; exit 1; fi \
-  && target="/opt/pabcnetc/pabcnetc.exe" \
-  && if [ "$found" != "$target" ]; then ln -sfn "$found" "$target"; fi \
-  && test -f "$target" \
-  && rm -f /tmp/PABCNETC.zip /tmp/pabcnetc-extract.log
-
-ENV MONO_REGISTRY_PATH=/tmp/mono-registry \
-    PABCNETC=/opt/pabcnetc/pabcnetc.exe
-RUN mkdir -p /tmp/mono-registry/LocalMachine
+# The PascalABC.NET compiler bundle is huge and pascalabc.net is not reliable from
+# GitHub Actions runners. The normal image rebuild therefore reuses the already
+# published Pascal image as a stable compiler/runtime base and only replaces the
+# small Go HTTP runner binary.
+#
+# If the base image ever needs to be bootstrapped from PascalABC.NET again, use
+# Dockerfile.bootstrap manually. Do not make the regular CI path depend on
+# pascalabc.net DNS/download availability.
+ARG PASCAL_IMAGE_BASE=ghcr.io/pivasya/taskforge/image-pascal-runner:develop
+FROM ${PASCAL_IMAGE_BASE}
 
 WORKDIR /app
 COPY --from=build /out/image-runner /app/image-runner
-ENV HOME=/tmp
-ENV IMAGE_RUNNER_KIND=pascal PORT=8000
+
+ENV MONO_REGISTRY_PATH=/tmp/mono-registry \
+    PABCNETC=/opt/pabcnetc/pabcnetc.exe \
+    HOME=/tmp \
+    IMAGE_RUNNER_KIND=pascal \
+    PORT=8000
+
 EXPOSE 8000
 ARG TASKFORGE_DEBUG_LOGS=0
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
 USER 65534:65534
-ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-pascal-runner\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=image-pascal-runner\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; exec /app/image-runner"]
+ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-pascal-runner\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=image-pascal-runner\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; test -f \"${PABCNETC:-/opt/pabcnetc/pabcnetc.exe}\" || { echo \"PascalABC.NET compiler was not found at ${PABCNETC:-/opt/pabcnetc/pabcnetc.exe}\" >&2; exit 127; }; exec /app/image-runner"]
