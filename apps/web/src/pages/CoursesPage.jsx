@@ -129,10 +129,7 @@ function CourseCard({
       >
         <div className="flex h-full flex-col justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0 text-lg font-semibold leading-7 truncate">{course.title}</div>
-              <div className="shrink-0 rounded-full border border-[rgba(var(--border)/0.75)] px-3 py-1 text-xs text-neutral-500">курс</div>
-            </div>
+            <div className="min-w-0 text-lg font-semibold leading-7 truncate">{course.title}</div>
 
             {course.description ? (
               <p className="text-sm text-neutral-500 mt-2 line-clamp-3">{course.description}</p>

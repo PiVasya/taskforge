@@ -29,6 +29,7 @@ function persistUiSettingsFromBackend(s) {
     fxMode: s.fxMode || prev?.fxMode || localStorage.getItem('fxMode') || 'random',
     fxVariant: String(s.fxVariant ?? prev?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'),
     codeSolveLayout: s.codeSolveLayout || prev?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split',
+    codeEditorStyle: s.codeEditorStyle === 'mono' ? 'mono' : 'color',
     showSidebarToggle:
       typeof s.showSidebarToggle === 'boolean'
         ? s.showSidebarToggle
@@ -41,6 +42,7 @@ function persistUiSettingsFromBackend(s) {
   localStorage.setItem('fxMode', merged.fxMode);
   localStorage.setItem('fxVariant', merged.fxVariant);
   localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
+  localStorage.setItem('codeEditorStyle', merged.codeEditorStyle);
   localStorage.setItem('showSidebarToggle', merged.showSidebarToggle ? '1' : '0');
   localStorage.setItem(UI_LS_KEY, JSON.stringify(merged));
 

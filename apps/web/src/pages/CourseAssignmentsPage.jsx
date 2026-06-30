@@ -15,7 +15,7 @@ import {
   exportAssignmentsToJson,
   updateAssignmentSort,
 } from "../api/assignments";
-import { Plus, Layers, CheckCircle2, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle } from "lucide-react";
+import { Plus, Layers, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle } from "lucide-react";
 import IfEditor from "../components/IfEditor";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -1675,11 +1675,6 @@ export default function CourseAssignmentsPage() {
             );
             const CardMain = (
               <div className="assignment-card-main min-w-0">
-                <div className="assignment-card-heading">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant="outline">курс</Badge>
-                  </div>
-                </div>
                 <div className="assignment-card-title-wrap">
                   <div className="assignment-card-title" title={title}>{title}</div>
                 </div>
@@ -1794,8 +1789,7 @@ export default function CourseAssignmentsPage() {
           const hasAssignmentMeta = Boolean(
             a.isAiDraft ||
             a.isHidden ||
-            (a.lifecycleStatus && a.lifecycleStatus !== 'published') ||
-            solved
+            (a.lifecycleStatus && a.lifecycleStatus !== 'published')
           );
 
           const ViewWrap = ({ children }) => (
@@ -1811,12 +1805,6 @@ export default function CourseAssignmentsPage() {
                     {a.isAiDraft && <Badge variant="secondary">AI-черновик</Badge>}
                     {a.isHidden && <Badge variant="outline">скрыто</Badge>}
                     {a.lifecycleStatus && a.lifecycleStatus !== 'published' && <Badge variant="outline">{a.lifecycleStatus}</Badge>}
-                    {solved && (
-                      <span className="assignment-card-status">
-                        <CheckCircle2 size={14} />
-                        Решено
-                      </span>
-                    )}
                   </div>
                 </div>
               )}
