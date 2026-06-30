@@ -4,7 +4,9 @@
   "private": true,
   "proxy": "http://localhost:8080",
   "scripts": {
+    "prestart": "node scripts/copy-monaco.js",
     "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
+    "prebuild": "node scripts/copy-monaco.js",
     "build": "react-scripts build",
     "test": "react-scripts test --env=jsdom",
     "eject": "react-scripts eject"

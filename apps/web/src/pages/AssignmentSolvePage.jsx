@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Layout from '../components/Layout';
 import QuotaPill from '../components/QuotaPill';
-import { Card, Button, Select, Textarea, Badge } from '../components/ui';
+import { Card, Button, Select, Badge } from '../components/ui';
 import IfEditor from '../components/IfEditor';
 import CodeEditor from '../components/CodeEditor';
 import TaskTestSolve from './TaskTestSolve';
@@ -638,7 +638,6 @@ export default function AssignmentSolvePage() {
 
   const [language, setLanguage] = useState('cpp');
   const [code, setCode] = useState('');
-  const [plainMode, setPlainMode] = useState(false);
 
   
   const [codeSolveLayout, setCodeSolveLayout] = useState(
@@ -913,11 +912,11 @@ export default function AssignmentSolvePage() {
         codeDelta: delta,
         codeHash: hashActivityText(code),
         codeSample: Math.abs(delta) >= 500 ? clampActivityText(code) : undefined,
-        payload: { layout: codeSolveLayout, plainMode },
+        payload: { layout: codeSolveLayout },
       });
       lastCodeActivityRef.current = { initialized: true, length: code.length, at: now };
     }
-  }, [a?.id, code, codeSolveLayout, plainMode, queueActivity]);
+  }, [a?.id, code, codeSolveLayout, queueActivity]);
 
   useEffect(() => {
     if (!a?.id) return;
@@ -2032,18 +2031,6 @@ export default function AssignmentSolvePage() {
                     </div>
                   )}
                 </div>
-
-                <div>
-                  <label className="label">Режим ввода</label>
-                  <Select
-                    value={plainMode ? 'plain' : 'editor'}
-                    onChange={(e) => setPlainMode(e.target.value === 'plain')}
-                  >
-                    <option value="editor">Редактор кода</option>
-                    <option value="plain">Простой текст</option>
-                  </Select>
-                </div>
-
                 <div>
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <label className="label mb-0">Ваш код</label>
@@ -2059,17 +2046,13 @@ export default function AssignmentSolvePage() {
                       </Button>
                     ) : null}
                   </div>
-                  {plainMode ? (
-                    <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={16} />
-                  ) : (
-                    <CodeEditor
-                      key={`code-editor-${assignmentId}-${hydratedAssignmentId}-${language}`}
-                      language={language}
-                      value={code}
-                      onChange={setCode}
-                      height={380}
-                    />
-                  )}
+                  <CodeEditor
+                    key={`code-editor-${assignmentId}-${hydratedAssignmentId}-${language}`}
+                    language={language}
+                    value={code}
+                    onChange={setCode}
+                    height={380}
+                  />
                 </div>
 
                 {result && (
@@ -2108,7 +2091,7 @@ export default function AssignmentSolvePage() {
         <div className="space-y-6">
           <Card>
             <div className="grid gap-3">
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3">
                 <div>
                   <label className="label">Язык</label>
                   <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -2121,17 +2104,6 @@ export default function AssignmentSolvePage() {
                       Языки ограничены курсом: {langsForSelect.map(x => x.label).join(', ')}
                     </div>
                   )}
-                </div>
-
-                <div>
-                  <label className="label">Режим ввода</label>
-                  <Select
-                    value={plainMode ? 'plain' : 'editor'}
-                    onChange={(e) => setPlainMode(e.target.value === 'plain')}
-                  >
-                    <option value="editor">Редактор кода</option>
-                    <option value="plain">Простой текст</option>
-                  </Select>
                 </div>
               </div>
 
@@ -2189,17 +2161,13 @@ export default function AssignmentSolvePage() {
                     </Button>
                   ) : null}
                 </div>
-                {plainMode ? (
-                  <Textarea value={code} onChange={(e) => setCode(e.target.value)} rows={18} />
-                ) : (
-                  <CodeEditor
-                    key={`code-editor-wide-${assignmentId}-${hydratedAssignmentId}-${language}`}
-                    language={language}
-                    value={code}
-                    onChange={setCode}
-                    height={460}
-                  />
-                )}
+                <CodeEditor
+                  key={`code-editor-wide-${assignmentId}-${hydratedAssignmentId}-${language}`}
+                  language={language}
+                  value={code}
+                  onChange={setCode}
+                  height={460}
+                />
               </div>
 
               {error && <div className="text-sm text-red-600">{error}</div>}

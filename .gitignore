@@ -669,3 +669,5 @@ temp/
 
 # Local dev build helper logs
 deploy/dev/build-logs/
+# Generated local Monaco Editor files
+apps/web/public/monaco/
