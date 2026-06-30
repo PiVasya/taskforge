@@ -2697,3 +2697,119 @@ html.dark .bg-fx__blob {
 ) {
   --tw-gradient-to: rgb(var(--accent-700)) var(--tw-gradient-to-position) !important;
 }
+
+.taskforge-code-editor {
+  --code-editor-bg: rgb(var(--editor-bg));
+  background: var(--code-editor-bg);
+  color: rgb(var(--text));
+}
+
+.taskforge-code-editor__body {
+  display: flex;
+  width: 100%;
+  overflow: auto;
+  background: var(--code-editor-bg);
+}
+
+.taskforge-code-editor__lines {
+  flex: 0 0 auto;
+  min-width: 3.25rem;
+  padding: 8px 0.75rem 8px 0.5rem;
+  border-right: 1px solid rgba(var(--border) / 0.55);
+  background: color-mix(in srgb, rgb(var(--editor-bg)) 92%, rgb(var(--text)) 8%);
+  color: rgba(var(--text-muted) / 0.72);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: right;
+  user-select: none;
+}
+
+.taskforge-code-editor__editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: rgb(var(--text));
+  background: transparent;
+}
+
+.taskforge-code-editor__editor textarea,
+.taskforge-code-editor__editor pre {
+  outline: none !important;
+  color: rgb(var(--text)) !important;
+  background: transparent !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  tab-size: 2;
+}
+
+.taskforge-code-editor__editor textarea {
+  caret-color: rgb(var(--accent));
+  border: 0 !important;
+  box-shadow: none !important;
+  resize: none !important;
+}
+
+.taskforge-code-editor__editor textarea:focus {
+  box-shadow: none !important;
+}
+
+.taskforge-code-editor__editor pre {
+  pointer-events: none;
+}
+
+.taskforge-code-editor--mono .token {
+  color: rgb(var(--text)) !important;
+  font-style: normal !important;
+  font-weight: inherit !important;
+}
+
+.taskforge-code-editor .token.comment,
+.taskforge-code-editor .token.prolog,
+.taskforge-code-editor .token.doctype,
+.taskforge-code-editor .token.cdata {
+  color: rgba(var(--text-muted) / 0.92);
+}
+
+.taskforge-code-editor .token.punctuation,
+.taskforge-code-editor .token.operator {
+  color: rgba(var(--text) / 0.82);
+}
+
+.taskforge-code-editor .token.property,
+.taskforge-code-editor .token.tag,
+.taskforge-code-editor .token.boolean,
+.taskforge-code-editor .token.number,
+.taskforge-code-editor .token.constant,
+.taskforge-code-editor .token.symbol,
+.taskforge-code-editor .token.deleted {
+  color: color-mix(in srgb, rgb(var(--accent2)) 82%, rgb(var(--text)) 18%);
+}
+
+.taskforge-code-editor .token.selector,
+.taskforge-code-editor .token.attr-name,
+.taskforge-code-editor .token.string,
+.taskforge-code-editor .token.char,
+.taskforge-code-editor .token.builtin,
+.taskforge-code-editor .token.inserted {
+  color: color-mix(in srgb, rgb(var(--accent3)) 78%, rgb(var(--text)) 22%);
+}
+
+.taskforge-code-editor .token.atrule,
+.taskforge-code-editor .token.attr-value,
+.taskforge-code-editor .token.keyword {
+  color: rgb(var(--accent));
+  font-weight: 700;
+}
+
+.taskforge-code-editor .token.function,
+.taskforge-code-editor .token.class-name {
+  color: color-mix(in srgb, rgb(var(--accent)) 58%, rgb(var(--text)) 42%);
+  font-weight: 600;
+}
+
+.taskforge-code-editor .token.regex,
+.taskforge-code-editor .token.important,
+.taskforge-code-editor .token.variable {
+  color: color-mix(in srgb, rgb(var(--accent2)) 64%, rgb(var(--text)) 36%);
+}
