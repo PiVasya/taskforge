@@ -220,8 +220,8 @@ internal static class AssignmentApiCommonService
         var settings = new JsonObject();
 
         foreach (var settingsName in isMath
-                     ? new[] { "settings", "mathSettings", "attemptSettings" }
-                     : new[] { "settings", "testSettings", "quizSettings", "attemptSettings" })
+                     ? new[] { "testSettings", "settings", "mathSettings", "attemptSettings" }
+                     : new[] { "testSettings", "settings", "quizSettings", "attemptSettings" })
         {
             if (TryGetPropertyLoose(source, settingsName, out var nested) && nested.ValueKind == JsonValueKind.Object)
             {

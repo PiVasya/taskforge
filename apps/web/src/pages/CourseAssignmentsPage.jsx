@@ -209,9 +209,20 @@ function makeImportExamplePayload(assignments, authoringNotes = []) {
       "Каждый элемент массива станет отдельным заданием курса.",
       "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового.",
       "Описание можно передавать plain text или HTML; потом его можно отредактировать в визуальном редакторе.",
-      "Для test/math все настройки попыток и случайного порядка лежат в tests.settings и сохраняются при export/import round-trip.",
+      "В новых примерах и экспорте нет дублей: у каждого типа задания свои понятные поля.",
+      "Для code-test/image-test тесты редактируются через testCases.",
+      "Для test настройки редактируются через testSettings, вопросы — через questions.",
+      "Для math настройки редактируются через testSettings, блоки — через blocks.",
+      "Редактируй именно эти структурные поля, analyticsSettings и остальные обычные поля задания.",
       ...authoringNotes,
     ],
+    editableFields: {
+      common: ["id", "type", "title", "description", "language", "allowedLanguages", "tags", "difficulty", "rating", "sort", "starterCode", "isVisible", "analyticsSettings"],
+      codeTest: ["testCases", "codeForbiddenCalls", "codeRequiredCalls"],
+      imageTest: ["testCases", "imageTestReferenceKey", "imageTestSimilarityThreshold", "codeForbiddenCalls", "codeRequiredCalls"],
+      test: ["testSettings", "questions"],
+      math: ["testSettings", "blocks"],
+    },
     assignments,
   };
 }
@@ -227,7 +238,7 @@ const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
       difficulty: 1,
       rating: 1,
       sort: 0,
-      tags: ["ОАИП", "код", "ввод-вывод", "арифметика"],
+      tags: "ОАИП, код, ввод-вывод, арифметика",
       starterCode: "#include <iostream>\nusing namespace std;\n\nint main()\n{\n    // Ваш код здесь\n\n    return 0;\n}\n",
       codeForbiddenCalls: ["system", "exec", "fork"],
       codeRequiredCalls: ["cin", "cout"],
@@ -237,7 +248,33 @@ const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
         { input: "1000000000 1000000000", expectedOutput: "2000000000", isHidden: true },
       ],
       isVisible: true,
-      isHidden: false,
+      analyticsSettings: {
+        mode: "basic",
+        trackOpen: true,
+        trackAttempts: true,
+        trackTime: true,
+        trackLanguage: true,
+        trackErrors: true,
+        trackEditorChanges: false,
+        trackClipboard: false,
+        trackFocus: false,
+        trackVisibility: false,
+        trackFullscreen: false,
+        trackCodeSnapshots: false,
+        trackRiskScore: false,
+        trackLiveActivity: false,
+        trackSimilarity: false,
+        storeFullCode: false,
+        storePasteText: false,
+        storeTextSamples: true,
+        pasteSampleLimit: 500,
+        codeSampleLimit: 1000,
+        codeSnapshotIntervalSeconds: 45,
+        eventBatchIntervalSeconds: 10,
+        retentionDays: 30,
+        maxFullCodeLength: 80000,
+        maxEventsPerBatch: 120,
+      },
     },
   ],
   [
@@ -246,7 +283,7 @@ const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
     "allowedLanguages задаёт языки, доступные ученику в редакторе.",
     "starterCode меняется под выбранный язык. Для Python это может быть '# Ваш код здесь\n'.",
     "codeRequiredCalls и codeForbiddenCalls опциональны: они нужны только если надо проверить наличие/запрет конкретных вызовов.",
-    "testCases можно также назвать tests, но для code-test понятнее использовать testCases.",
+    "В новом JSON для code-test используется только testCases.",
     "isHidden=true скрывает тест от ученика.",
   ],
 );
@@ -260,17 +297,16 @@ const TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
       difficulty: 1,
       rating: 3,
       sort: 0,
-      tags: ["теория", "json", "тест"],
-      tests: {
-        settings: {
-          maxAttempts: 2,
-          passPercent: 70,
-          shuffleQuestions: true,
-          shuffleAnswers: true,
-          allowReview: true,
-          attemptTimeLimitsSeconds: [null, 600],
-        },
-        questions: [
+      tags: "теория, json, тест",
+      testSettings: {
+        maxAttempts: 2,
+        passPercent: 70,
+        shuffleQuestions: true,
+        shuffleAnswers: true,
+        allowReview: true,
+        attemptTimeLimitsSeconds: [null, 600],
+      },
+      questions: [
           {
             id: ZERO_GUID,
             order: 0,
@@ -314,14 +350,12 @@ const TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
             caseSensitive: false,
             trim: true,
           },
-        ],
-      },
+      ],
       isVisible: true,
-      isHidden: false,
     },
   ],
   [
-    "test хранит вопросы в tests.questions.",
+    "test хранит настройки в testSettings, а вопросы в questions.",
     "type вопроса: single-choice, multi-choice или text.",
     "Для text-вопроса варианты не нужны: правильные ответы лежат в acceptedAnswers.",
   ],
@@ -336,16 +370,15 @@ const MATH_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
       difficulty: 2,
       rating: 4,
       sort: 0,
-      tags: ["математика", "уравнения", "соответствия"],
-      tests: {
-        settings: {
-          maxAttempts: 2,
-          passPercent: 75,
-          shuffleBlocks: false,
-          allowReview: true,
-          attemptTimeLimitsSeconds: [null],
-        },
-        blocks: [
+      tags: "математика, уравнения, соответствия",
+      testSettings: {
+        maxAttempts: 2,
+        passPercent: 75,
+        shuffleBlocks: false,
+        allowReview: true,
+        attemptTimeLimitsSeconds: [null],
+      },
+      blocks: [
           {
             id: ZERO_GUID,
             order: 0,
@@ -415,14 +448,12 @@ const MATH_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
               { leftKey: "l3", rightKey: "r3" },
             ],
           },
-        ],
-      },
+      ],
       isVisible: true,
-      isHidden: false,
     },
   ],
   [
-    "math хранит блоки в tests.blocks.",
+    "math хранит настройки в testSettings, а блоки в blocks.",
     "kind может быть info, number, text, single-choice, multi-choice, order или match.",
     "Для match используются matchLeftItems, matchRightItems и matchPairs.",
   ],
@@ -439,14 +470,13 @@ const IMAGE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
       difficulty: 2,
       rating: 5,
       sort: 0,
-      tags: ["графика", "image-test", "turtle"],
+      tags: "графика, image-test, turtle",
       starterCode: "import turtle\n\nt = turtle.Turtle()\nt.color('red')\nt.goto(100, -100)\nturtle.done()\n",
       imageTestSimilarityThreshold: 90,
       testCases: [
         {
           input: "",
           expectedOutput: "",
-          threshold: 90,
           isHidden: false,
           expectedImageBase64: "",
           expectedImageContentType: "image/png",
@@ -455,7 +485,6 @@ const IMAGE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
         },
       ],
       isVisible: true,
-      isHidden: false,
     },
   ],
   [
@@ -545,27 +574,23 @@ function buildDefaultAssignmentPayload(type, sort) {
       language: "python",
       allowedLanguages: ["python", "pascal", "cpp"],
       imageTestSimilarityThreshold: 90,
-      testCases: [{ input: "", expectedOutput: "", threshold: 90, isHidden: false }],
+      testCases: [{ input: "", expectedOutput: "", isHidden: false }],
     };
   }
 
   if (normalized === "test") {
     return {
       ...base,
-      tests: {
-        settings: { maxAttempts: 1, passPercent: 60, shuffleQuestions: true, shuffleAnswers: true, allowReview: true, attemptTimeLimitsSeconds: [] },
-        questions: [],
-      },
+      testSettings: { maxAttempts: 1, passPercent: 60, shuffleQuestions: true, shuffleAnswers: true, allowReview: true, attemptTimeLimitsSeconds: [] },
+      questions: [],
     };
   }
 
   if (normalized === "math") {
     return {
       ...base,
-      tests: {
-        settings: { maxAttempts: 1, passPercent: 60, shuffleBlocks: false, allowReview: true, attemptTimeLimitsSeconds: [] },
-        blocks: [],
-      },
+      testSettings: { maxAttempts: 1, passPercent: 60, shuffleBlocks: false, allowReview: true, attemptTimeLimitsSeconds: [] },
+      blocks: [],
     };
   }
 
@@ -636,6 +661,15 @@ function shortImportValue(value) {
   return text.length > 420 ? `${text.slice(0, 420)}…` : text;
 }
 
+function readImportVisibility(x) {
+  if (!x || typeof x !== "object") return undefined;
+  if (x.isVisible !== undefined) return x.isVisible;
+  if (x.visible !== undefined) return x.visible;
+  if (x.isHidden !== undefined) return !x.isHidden;
+  if (x.hidden !== undefined) return !x.hidden;
+  return undefined;
+}
+
 const IMPORT_DIFF_FIELDS = [
   { key: "title", label: "Название", read: (x) => x?.title ?? x?.assignmentTitle },
   { key: "type", label: "Тип", read: (x) => x?.type },
@@ -647,16 +681,16 @@ const IMPORT_DIFF_FIELDS = [
   { key: "rating", label: "Рейтинг", read: (x) => x?.rating },
   { key: "sort", label: "Порядок", read: (x) => x?.sort },
   { key: "starterCode", label: "Стартовый код", read: (x) => x?.starterCode ?? x?.templateCode },
-  { key: "tests", label: "Тесты / вопросы / блоки", read: (x) => x?.testCases ?? x?.tests ?? x?.testSpec ?? x?.mathSpec ?? x?.testsJson },
-  { key: "settings", label: "Настройки теста", read: (x) => x?.settings ?? x?.testSettings ?? x?.mathSettings ?? x?.tests?.settings ?? x?.testSpec?.settings ?? x?.mathSpec?.settings },
-  { key: "questions", label: "Вопросы теста", read: (x) => x?.questions ?? x?.tests?.questions ?? x?.testSpec?.questions },
-  { key: "blocks", label: "Math-блоки", read: (x) => x?.blocks ?? x?.tests?.blocks ?? x?.mathSpec?.blocks },
+  { key: "testCases", label: "Тест-кейсы кода/картинки", read: (x) => ["code-test", "image-test"].includes(x?.type) ? (x?.testCases ?? x?.cases ?? x?.tests) : undefined },
+  { key: "testSettings", label: "Настройки попыток", read: (x) => ["test", "math"].includes(x?.type) ? (x?.testSettings ?? x?.settings ?? x?.mathSettings ?? x?.quizSettings ?? x?.tests?.settings ?? x?.testSpec?.settings ?? x?.mathSpec?.settings) : undefined },
+  { key: "questions", label: "Вопросы теста", read: (x) => x?.type === "test" ? (x?.questions ?? x?.tests?.questions ?? x?.testSpec?.questions) : undefined },
+  { key: "blocks", label: "Math-блоки", read: (x) => x?.type === "math" ? (x?.blocks ?? x?.tests?.blocks ?? x?.mathSpec?.blocks) : undefined },
   { key: "codeRequiredCalls", label: "Обязательные вызовы", read: (x) => x?.codeRequiredCalls },
   { key: "codeForbiddenCalls", label: "Запрещённые вызовы", read: (x) => x?.codeForbiddenCalls },
-  { key: "isVisible", label: "Видимость", read: (x) => x?.isVisible },
-  { key: "isHidden", label: "Скрыто", read: (x) => x?.isHidden },
+  { key: "isVisible", label: "Видимость", read: readImportVisibility },
   { key: "imageTestReferenceKey", label: "Эталон картинки", read: (x) => x?.imageTestReferenceKey },
   { key: "imageTestSimilarityThreshold", label: "Порог картинки", read: (x) => x?.imageTestSimilarityThreshold },
+  { key: "analyticsSettings", label: "Аналитика", read: (x) => x?.analyticsSettings ?? x?.assignmentAnalyticsSettings ?? x?.analytics },
 ];
 
 function buildJsonImportDiff(parsed, currentExport) {
@@ -1631,7 +1665,7 @@ export default function CourseAssignmentsPage() {
 
                 <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div className="text-xs leading-5 text-neutral-500">
-                    Поддерживаемые поля: <code>id</code>, <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>/<code>templateCode</code>, <code>testCases</code>, <code>tests</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>difficulty</code>, <code>rating</code>, <code>sort</code>, <code>tags</code>.
+                    Поддерживаемые поля: <code>id</code>, <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>, <code>testCases</code>, <code>testSettings</code>, <code>questions</code>, <code>blocks</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>imageTestReferenceKey</code>, <code>imageTestSimilarityThreshold</code>, <code>analyticsSettings</code>, <code>difficulty</code>, <code>rating</code>, <code>sort</code>, <code>tags</code>, <code>isVisible</code>.
                   </div>
                   <Button onClick={handlePrepareJsonImportDiff} disabled={jsonImportBusy || !!createBusyType}>
                     <GitCompare size={16} /> {jsonImportBusy ? "Готовлю дифф…" : "Показать дифф"}

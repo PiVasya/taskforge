@@ -39,42 +39,62 @@ internal static class AssignmentApiSerializationService
         }
     }
 
-    internal static object ToImportDto(Assignment x)
+    internal static JsonObject ToImportDto(Assignment x)
     {
         var type = NormalizeAssignmentType(x.Type);
         var testsPayload = ExportTestsPayload(x);
-        var testsJson = ExportTestsJson(x, testsPayload);
+        var testsJson = x.TestsJson;
+        var codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson);
+        var codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson);
+        var allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language);
+        var analyticsSettings = ParseJsonNode(x.AnalyticsSettingsJson);
 
-        return new
+        var obj = new JsonObject
         {
-            id = x.Id,
-            courseId = x.CourseId,
-            type = x.Type,
-            title = x.Title,
-            description = x.Description,
-            language = x.Language,
-            allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
-            tags = x.Tags ?? string.Empty,
-            difficulty = x.Difficulty,
-            rating = x.Rating,
-            sort = x.Sort,
-            starterCode = x.StarterCode,
-            tests = testsPayload,
-            testCases = type is "code-test" or "image-test" ? testsPayload : null,
-            testSpec = type == "test" ? testsPayload : null,
-            mathSpec = type == "math" ? testsPayload : null,
-            settings = ExportInteractiveSettingsPayload(x, testsPayload),
-            questions = type == "test" ? JsonPropArray(testsPayload, "questions") : Array.Empty<object>(),
-            blocks = type == "math" ? JsonPropArray(testsPayload, "blocks") : Array.Empty<object>(),
-            testsJson,
-            codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson),
-            codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson),
-            isVisible = x.IsVisible,
-            isHidden = !x.IsVisible,
-            imageTestReferenceKey = JsonString(testsJson, "imageTestReferenceKey"),
-            imageTestSimilarityThreshold = JsonInt(testsJson, "imageTestSimilarityThreshold", 90),
-            analyticsSettings = ParseJson(x.AnalyticsSettingsJson)
+            ["id"] = x.Id.ToString(),
+            ["type"] = type,
+            ["title"] = x.Title,
+            ["description"] = x.Description ?? string.Empty,
+            ["language"] = x.Language,
+            ["allowedLanguages"] = JsonSerializer.SerializeToNode(allowedLanguages, JsonOptions()),
+            ["tags"] = x.Tags ?? string.Empty,
+            ["difficulty"] = x.Difficulty,
+            ["rating"] = x.Rating,
+            ["sort"] = x.Sort,
+            ["starterCode"] = x.StarterCode ?? string.Empty,
+            ["isVisible"] = x.IsVisible
         };
+
+        if (type is "code-test" or "image-test")
+        {
+            var imageThreshold = type == "image-test" ? JsonInt(testsJson, "imageTestSimilarityThreshold", 90) : (int?)null;
+            obj["testCases"] = ExportTestCasesNode(x.TestsJson, imageThreshold);
+            obj["codeForbiddenCalls"] = JsonSerializer.SerializeToNode(codeForbiddenCalls, JsonOptions());
+            obj["codeRequiredCalls"] = JsonSerializer.SerializeToNode(codeRequiredCalls, JsonOptions());
+        }
+        else if (type == "test")
+        {
+            var spec = CloneJsonNode(testsPayload) as JsonObject ?? new JsonObject();
+            obj["testSettings"] = CloneJsonNode(spec["settings"]) ?? new JsonObject();
+            obj["questions"] = CloneJsonNode(spec["questions"]) ?? new JsonArray();
+        }
+        else if (type == "math")
+        {
+            var spec = CloneJsonNode(testsPayload) as JsonObject ?? new JsonObject();
+            obj["testSettings"] = CloneJsonNode(spec["settings"]) ?? new JsonObject();
+            obj["blocks"] = CloneJsonNode(spec["blocks"]) ?? new JsonArray();
+        }
+
+        if (type == "image-test")
+        {
+            var referenceKey = JsonString(testsJson, "imageTestReferenceKey");
+            if (!string.IsNullOrWhiteSpace(referenceKey)) obj["imageTestReferenceKey"] = referenceKey;
+            obj["imageTestSimilarityThreshold"] = JsonInt(testsJson, "imageTestSimilarityThreshold", 90);
+        }
+
+        if (analyticsSettings != null) obj["analyticsSettings"] = analyticsSettings;
+
+        return obj;
     }
 
     internal static object? ExportTestsPayload(Assignment x)
@@ -86,6 +106,64 @@ internal static class AssignmentApiSerializationService
             "math" => MathSpecToJsonObject(ReadMathSpec(x)),
             _ => ParseJson(x.TestsJson)
         };
+    }
+
+    internal static JsonNode ExportTestCasesNode(string? json, int? defaultImageThreshold = null)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new JsonArray();
+        try
+        {
+            var parsed = JsonNode.Parse(json);
+            if (parsed is JsonArray arr) return NormalizeExportTestCasesArray(arr, defaultImageThreshold);
+            if (parsed is JsonObject obj)
+            {
+                foreach (var name in new[] { "testCases", "cases", "tests" })
+                {
+                    if (obj[name] is JsonArray nested) return NormalizeExportTestCasesArray(nested, defaultImageThreshold);
+                }
+
+                var combined = new JsonArray();
+                if (obj["publicTests"] is JsonArray publicTests)
+                {
+                    foreach (var item in publicTests) combined.Add(JsonNode.Parse(item?.ToJsonString(JsonOptions()) ?? "null"));
+                }
+                if (obj["hiddenTests"] is JsonArray hiddenTests)
+                {
+                    foreach (var item in hiddenTests)
+                    {
+                        var clone = JsonNode.Parse(item?.ToJsonString(JsonOptions()) ?? "null");
+                        if (clone is JsonObject hiddenObj) hiddenObj["isHidden"] = true;
+                        combined.Add(clone);
+                    }
+                }
+                return NormalizeExportTestCasesArray(combined, defaultImageThreshold);
+            }
+        }
+        catch { }
+        return new JsonArray();
+    }
+
+    internal static JsonArray NormalizeExportTestCasesArray(JsonArray source, int? defaultImageThreshold = null)
+    {
+        var result = new JsonArray();
+        foreach (var item in source)
+        {
+            var clone = JsonNode.Parse(item?.ToJsonString(JsonOptions()) ?? "null");
+            if (defaultImageThreshold.HasValue && clone is JsonObject obj)
+            {
+                RemoveThresholdIfDefault(obj, "threshold", defaultImageThreshold.Value);
+                RemoveThresholdIfDefault(obj, "thresholdPercent", defaultImageThreshold.Value);
+                RemoveThresholdIfDefault(obj, "imageTestSimilarityThreshold", defaultImageThreshold.Value);
+            }
+            result.Add(clone);
+        }
+        return result;
+    }
+
+    internal static void RemoveThresholdIfDefault(JsonObject obj, string name, int defaultValue)
+    {
+        if (obj[name] == null) return;
+        if (int.TryParse(obj[name]!.ToString(), out var value) && value == defaultValue) obj.Remove(name);
     }
 
     internal static string? ExportTestsJson(Assignment x, object? testsPayload)
@@ -138,6 +216,61 @@ internal static class AssignmentApiSerializationService
         };
     }
 
+    internal static bool HasImportShapeFields(JsonElement source)
+    {
+        if (source.ValueKind != JsonValueKind.Object) return false;
+        foreach (var name in new[] { "testCases", "questions", "blocks", "testSettings", "imageTestReferenceKey", "imageTestSimilarityThreshold", "tests", "testSpec", "mathSpec" })
+        {
+            if (TryGetPropertyLoose(source, name, out _)) return true;
+        }
+        return false;
+    }
+
+    internal static string InferAssignmentTypeFromJson(JsonElement source, string? explicitType)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitType)) return NormalizeAssignmentType(explicitType);
+        if (source.ValueKind != JsonValueKind.Object) return "code-test";
+
+        if (TryGetPropertyLoose(source, "blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array) return "math";
+        if (TryGetPropertyLoose(source, "mathSettings", out var mathSettings) && mathSettings.ValueKind == JsonValueKind.Object) return "math";
+        if (TryGetPropertyLoose(source, "mathSpec", out var mathSpec) && mathSpec.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return "math";
+        if (TryGetPropertyLoose(source, "tests", out var nestedTestsForMath) && nestedTestsForMath.ValueKind == JsonValueKind.Object && TryGetPropertyLoose(nestedTestsForMath, "blocks", out var nestedBlocks) && nestedBlocks.ValueKind == JsonValueKind.Array) return "math";
+
+        if (TryGetPropertyLoose(source, "questions", out var questions) && questions.ValueKind == JsonValueKind.Array) return "test";
+        if (TryGetPropertyLoose(source, "testSettings", out var testSettings) && testSettings.ValueKind == JsonValueKind.Object) return "test";
+        if (TryGetPropertyLoose(source, "quizSettings", out var quizSettings) && quizSettings.ValueKind == JsonValueKind.Object) return "test";
+        if (TryGetPropertyLoose(source, "testSpec", out var testSpec) && testSpec.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return "test";
+        if (TryGetPropertyLoose(source, "tests", out var nestedTestsForTest) && nestedTestsForTest.ValueKind == JsonValueKind.Object && TryGetPropertyLoose(nestedTestsForTest, "questions", out var nestedQuestions) && nestedQuestions.ValueKind == JsonValueKind.Array) return "test";
+
+        if (TryGetPropertyLoose(source, "imageTestReferenceKey", out _) || TryGetPropertyLoose(source, "imageTestSimilarityThreshold", out _)) return "image-test";
+        if (TryGetPropertyLoose(source, "testCases", out var testCases) && ContainsImageExpectedFields(testCases)) return "image-test";
+
+        return "code-test";
+    }
+
+    internal static bool ContainsImageExpectedFields(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in new[] { "expectedImageKey", "expectedImageBase64", "expectedImageUrl", "referenceKey", "referenceBase64", "imageKey", "imageBase64" })
+            {
+                if (TryGetPropertyLoose(element, name, out _)) return true;
+            }
+            foreach (var name in new[] { "testCases", "cases", "tests" })
+            {
+                if (TryGetPropertyLoose(element, name, out var nested) && ContainsImageExpectedFields(nested)) return true;
+            }
+        }
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (ContainsImageExpectedFields(item)) return true;
+            }
+        }
+        return false;
+    }
+
     internal static string? NormalizeSpecJsonForStorage(string? testsJson, string type)
     {
         if (string.IsNullOrWhiteSpace(testsJson)) return testsJson;
@@ -153,6 +286,83 @@ internal static class AssignmentApiSerializationService
         {
             return testsJson;
         }
+    }
+
+    internal static string? MergeInteractiveSpecJsonForStorage(string? existingJson, string? incomingJson, string type)
+    {
+        if (type != "test" && type != "math") return NormalizeSpecJsonForStorage(incomingJson, type);
+        if (string.IsNullOrWhiteSpace(incomingJson)) return existingJson;
+
+        try
+        {
+            var incoming = JsonNode.Parse(incomingJson) as JsonObject;
+            if (incoming == null) return NormalizeSpecJsonForStorage(incomingJson, type);
+
+            JsonObject result;
+            try
+            {
+                result = JsonNode.Parse(string.IsNullOrWhiteSpace(existingJson) ? "{}" : existingJson!) as JsonObject ?? new JsonObject();
+            }
+            catch
+            {
+                result = new JsonObject();
+            }
+
+            var arrayName = type == "math" ? "blocks" : "questions";
+            if (incoming["settings"] is JsonObject settings) result["settings"] = settings.DeepClone();
+            if (incoming[arrayName] is JsonArray arr) result[arrayName] = arr.DeepClone();
+            NormalizeIds(result, arrayName);
+            return result.ToJsonString(JsonOptions());
+        }
+        catch
+        {
+            return NormalizeSpecJsonForStorage(incomingJson, type);
+        }
+    }
+
+    internal static string[] ArrayAliasesForSpec(string arrayName) => arrayName switch
+    {
+        "testCases" => ["testCases", "cases", "tests", "publicTests", "hiddenTests"],
+        "questions" => ["questions"],
+        "blocks" => ["blocks"],
+        _ => [arrayName]
+    };
+
+    internal static bool HasJsonArray(string? json, string arrayName)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            var node = JsonNode.Parse(json);
+            if (node is JsonArray arr) return arr.Count > 0;
+            if (node is JsonObject obj)
+            {
+                foreach (var name in ArrayAliasesForSpec(arrayName))
+                {
+                    if (obj[name] is JsonArray nested && nested.Count > 0) return true;
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    internal static bool RequestHasArrayPayload(AssignmentRequest request, string arrayName)
+    {
+        foreach (var element in new[] { request.Tests, request.TestCases })
+        {
+            if (!element.HasValue) continue;
+            var e = element.Value;
+            if (e.ValueKind == JsonValueKind.Array && e.GetArrayLength() > 0) return true;
+            if (e.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var name in ArrayAliasesForSpec(arrayName))
+                {
+                    if (TryGetPropertyLoose(e, name, out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0) return true;
+                }
+            }
+        }
+        return HasJsonArray(request.TestsJson, arrayName);
     }
 
     internal static IEnumerable<JsonElement> ExtractAssignmentImportItems(JsonElement root)
@@ -196,8 +406,17 @@ internal static class AssignmentApiSerializationService
             throw new InvalidOperationException("ожидался JSON-объект");
         }
 
-        var type = FirstString(source, "type", "kind", "assignmentType");
-        var tests = PickTestsElement(source, NormalizeAssignmentType(type));
+        var explicitType = FirstString(source, "type", "kind", "assignmentType");
+        var inferredType = InferAssignmentTypeFromJson(source, explicitType);
+        var type = !string.IsNullOrWhiteSpace(explicitType) ? explicitType : (HasImportShapeFields(source) ? inferredType : null);
+        var normalizedType = NormalizeAssignmentType(type ?? inferredType);
+        var tests = PickTestsElement(source, normalizedType);
+        // В новом JSON нет дублей. Источник правды один:
+        // code-test/image-test -> testCases; test -> testSettings + questions; math -> testSettings + blocks.
+        // Старый testsJson остаётся только как совместимый fallback, если новых структурных полей вообще нет.
+        var testsJson = tests.HasValue ? null : FirstString(source, "testsJson");
+        var testsForRequest = normalizedType is "test" or "math" ? tests : null;
+        var testCasesForRequest = normalizedType is "code-test" or "image-test" ? tests : null;
 
         return new AssignmentRequest(
             FirstGuid(source, "id", "assignmentId"),
@@ -210,9 +429,9 @@ internal static class AssignmentApiSerializationService
             FirstInt(source, "difficulty", "level"),
             FirstInt(source, "rating", "score", "points"),
             FirstString(source, "starterCode", "templateCode", "initialCode"),
-            FirstString(source, "testsJson"),
-            tests,
-            tests,
+            testsJson,
+            testsForRequest,
+            testCasesForRequest,
             FirstStringList(source, "codeForbiddenCalls", "forbiddenCalls", "forbidden"),
             FirstStringList(source, "codeRequiredCalls", "requiredCalls", "required"),
             FirstBool(source, "isVisible", "visible"),
@@ -236,9 +455,10 @@ internal static class AssignmentApiSerializationService
         if (request.Difficulty.HasValue && (request.Difficulty.Value < 1 || request.Difficulty.Value > 3)) yield return "difficulty должен быть 1, 2 или 3.";
         if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
         if (request.Sort.HasValue && request.Sort.Value < 0) yield return "sort не может быть отрицательным.";
-        var mustValidateSpec = !isPatch || hasExplicitType;
-        if (mustValidateSpec && (type == "code-test" || type == "image-test") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для code-test/image-test желательно указать testCases/tests.";
-        if (mustValidateSpec && (type == "test" || type == "math") && string.IsNullOrWhiteSpace(request.TestsJson) && !request.Tests.HasValue && !request.TestCases.HasValue) yield return "для test/math нужно указать spec/questions/blocks.";
+        var mustValidateSpec = !isPatch;
+        if (mustValidateSpec && (type == "code-test" || type == "image-test") && !RequestHasArrayPayload(request, "testCases")) yield return "для code-test/image-test нужно указать непустой testCases.";
+        if (mustValidateSpec && type == "test" && !RequestHasArrayPayload(request, "questions")) yield return "для test нужно указать непустой questions, настройки — в testSettings.";
+        if (mustValidateSpec && type == "math" && !RequestHasArrayPayload(request, "blocks")) yield return "для math нужно указать непустой blocks, настройки — в testSettings.";
     }
 
     internal static string? NormalizeLanguage(string? value)
@@ -296,6 +516,19 @@ internal static class AssignmentApiSerializationService
     internal static string? RawJson(JsonElement? value) => value.HasValue ? value.Value.GetRawText() : null;
 
     internal static object? ParseJson(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return json; } }
+
+    internal static JsonNode? ParseJsonNode(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonNode.Parse(json); } catch { return null; } }
+
+    internal static JsonNode? CloneJsonNode(object? value)
+    {
+        if (value == null) return null;
+        return value switch
+        {
+            JsonNode node => JsonNode.Parse(node.ToJsonString(JsonOptions())),
+            JsonElement element => JsonNode.Parse(element.GetRawText()),
+            _ => JsonSerializer.SerializeToNode(value, JsonOptions())
+        };
+    }
 
     internal static JsonElement? ParseJsonElement(string? json) { if (string.IsNullOrWhiteSpace(json)) return null; try { return JsonSerializer.Deserialize<JsonElement>(json); } catch { return null; } }
 

@@ -151,31 +151,41 @@ internal static class AssignmentApiTestingService
     {
         if (type == "test")
         {
-            foreach (var name in new[] { "testSpec", "taskTest", "quiz", "tests", "testCases", "spec" })
-            {
-                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
-            }
-            if (TryGetPropertyLoose(source, "questions", out var questions) && questions.ValueKind == JsonValueKind.Array)
+            if ((TryGetPropertyLoose(source, "questions", out var questions) && questions.ValueKind == JsonValueKind.Array) ||
+                (TryGetPropertyLoose(source, "testSettings", out var testSettings) && testSettings.ValueKind == JsonValueKind.Object) ||
+                (TryGetPropertyLoose(source, "quizSettings", out var quizSettings) && quizSettings.ValueKind == JsonValueKind.Object) ||
+                TryGetPropertyLoose(source, "maxAttempts", out _) ||
+                TryGetPropertyLoose(source, "passPercent", out _))
             {
                 return WrapInteractiveSpec(source, "questions", isMath: false);
+            }
+
+            foreach (var name in new[] { "testSpec", "taskTest", "quiz", "tests", "spec", "testCases" })
+            {
+                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
             }
         }
 
         if (type == "math")
         {
-            foreach (var name in new[] { "mathSpec", "mathTask", "math", "tests", "testCases", "spec" })
-            {
-                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
-            }
-            if (TryGetPropertyLoose(source, "blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
+            if ((TryGetPropertyLoose(source, "blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array) ||
+                (TryGetPropertyLoose(source, "testSettings", out var testSettings) && testSettings.ValueKind == JsonValueKind.Object) ||
+                (TryGetPropertyLoose(source, "mathSettings", out var mathSettings) && mathSettings.ValueKind == JsonValueKind.Object) ||
+                TryGetPropertyLoose(source, "maxAttempts", out _) ||
+                TryGetPropertyLoose(source, "passPercent", out _))
             {
                 return WrapInteractiveSpec(source, "blocks", isMath: true);
+            }
+
+            foreach (var name in new[] { "mathSpec", "mathTask", "math", "tests", "spec", "testCases" })
+            {
+                if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return v.Clone();
             }
         }
 
         if (type == "image-test")
         {
-            foreach (var name in new[] { "imageSpec", "imageTest", "tests", "testCases", "cases", "publicTests", "hiddenTests" })
+            foreach (var name in new[] { "testCases", "cases", "publicTests", "hiddenTests", "imageSpec", "imageTest", "tests" })
             {
                 if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
                 {
@@ -184,7 +194,7 @@ internal static class AssignmentApiTestingService
             }
         }
 
-        foreach (var name in new[] { "tests", "testCases", "cases", "publicTests", "hiddenTests" })
+        foreach (var name in new[] { "testCases", "cases", "publicTests", "hiddenTests", "tests" })
         {
             if (TryGetPropertyLoose(source, name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
             {

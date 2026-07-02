@@ -130,8 +130,20 @@ internal static partial class AssignmentApiEndpoints
                 roundTrip = true,
                 notes = new[]
                 {
-                    "Для type=test экспорт содержит полный tests.settings/questions, включая shuffleQuestions, shuffleAnswers, allowReview и таймеры.",
-                    "Для type=math экспорт содержит полный tests.settings/blocks, включая shuffleBlocks, allowReview и таймеры."
+                    "Экспорт рассчитан на ручное редактирование и повторный импорт: меняешь поля в assignments и импортируешь обратно.",
+                    "Если id совпадает с заданием текущего курса, импорт обновит его. Если id нет или он занят в другом курсе, будет создано новое задание.",
+                    "В новом экспорте нет дублей: для каждого типа есть только понятные поля редактирования.",
+                    "Для type=code-test и type=image-test редактируй testCases.",
+                    "Для type=test редактируй testSettings и questions.",
+                    "Для type=math редактируй testSettings и blocks."
+                },
+                editableFields = new
+                {
+                    common = new[] { "id", "type", "title", "description", "language", "allowedLanguages", "tags", "difficulty", "rating", "sort", "starterCode", "isVisible", "analyticsSettings" },
+                    codeTest = new[] { "testCases", "codeForbiddenCalls", "codeRequiredCalls" },
+                    imageTest = new[] { "testCases", "imageTestReferenceKey", "imageTestSimilarityThreshold", "codeForbiddenCalls", "codeRequiredCalls" },
+                    test = new[] { "testSettings.maxAttempts", "testSettings.passPercent", "testSettings.shuffleQuestions", "testSettings.shuffleAnswers", "testSettings.allowReview", "testSettings.attemptTimeLimitsSeconds", "questions" },
+                    math = new[] { "testSettings.maxAttempts", "testSettings.passPercent", "testSettings.shuffleBlocks", "testSettings.allowReview", "testSettings.attemptTimeLimitsSeconds", "blocks" }
                 },
                 assignments = rows.Select(ToImportDto).ToList()
             }, JsonOptions());

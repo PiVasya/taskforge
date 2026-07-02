@@ -122,12 +122,15 @@ internal static class AssignmentApiMappingService
             var hasRealSpec = HasMeaningfulJsonText(request.TestsJson) || HasMeaningfulJsonElement(request.Tests) || HasMeaningfulJsonElement(request.TestCases);
             if (hasRealSpec || request.ImageTestReferenceKey != null || request.ImageTestSimilarityThreshold.HasValue)
             {
-                assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases) : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+                assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
             }
         }
         else if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue)
         {
-            assignment.TestsJson = NormalizeSpecJsonForStorage(request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases), nextType);
+            var incomingTestsJson = RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson;
+            assignment.TestsJson = nextType is "test" or "math"
+                ? MergeInteractiveSpecJsonForStorage(assignment.TestsJson, incomingTestsJson, nextType)
+                : NormalizeSpecJsonForStorage(incomingTestsJson, nextType);
         }
 
         if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
@@ -141,7 +144,7 @@ internal static class AssignmentApiMappingService
     internal static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, AssignmentRequest request, int sort, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
         var type = NormalizeAssignmentType(request.Type);
-        var testsJson = request.TestsJson ?? RawJson(request.Tests) ?? RawJson(request.TestCases);
+        var testsJson = RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson;
         testsJson = NormalizeSpecJsonForStorage(testsJson, type);
         var assignment = new Assignment
         {
