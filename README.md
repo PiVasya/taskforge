@@ -1,3 +1,5 @@
+> Перед правками ИИ должен открыть [`00_AI_READ_THIS_FIRST.md`](./00_AI_READ_THIS_FIRST.md).
+
 # TaskForge
 
 Dev-baseline:

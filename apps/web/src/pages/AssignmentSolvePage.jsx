@@ -84,6 +84,11 @@ function parseAllowedLanguages(raw) {
 }
 
 const PENDING_SOLUTION_STATUSES = new Set(['preparing', 'queued', 'running', 'pending']);
+const ASSIGNMENT_MIN_REVEAL_MS = 2300;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isPendingSolution(value) {
   const status = String(value?.status || value?.verdict || '').trim().toLowerCase();
@@ -502,7 +507,7 @@ function SolveSkeletonLines({ lines = 4, className = '' }) {
       {Array.from({ length: lines }).map((_, index) => (
         <div
           key={index}
-          className="solve-skeleton-line"
+          className="solve-skeleton-line tf-skeleton"
           style={{ width: `${Math.max(34, 92 - index * 11)}%` }}
         />
       ))}
@@ -528,15 +533,15 @@ function AssignmentFirstLoadSkeleton() {
         <div className="flex items-center justify-between mb-6">
           <div className="solve-skeleton-pill w-36" />
           <div className="flex items-center gap-2">
-            <div className="solve-skeleton-pill w-32" />
-            <div className="solve-skeleton-pill w-28" />
+            <div className="solve-skeleton-pill tf-skeleton w-32" />
+            <div className="solve-skeleton-pill tf-skeleton w-28" />
           </div>
         </div>
         <div className="grid lg:grid-cols-3 gap-6">
-          <Card className="lg:col-span-2 min-h-[420px]">
+          <Card className="lg:col-span-2 min-h-[420px] tf-skeleton-card">
             <SolveSkeletonLines lines={8} />
           </Card>
-          <Card className="min-h-[420px]">
+          <Card className="min-h-[420px] tf-skeleton-card">
             <SolveSkeletonLines lines={7} />
           </Card>
         </div>
@@ -562,7 +567,7 @@ function SolveActionDockSkeleton() {
         }}
       >
         <Button variant="outline" disabled>Следующее задание</Button>
-        <Button disabled>Загрузка…</Button>
+        <Button disabled>Загрузка задания</Button>
       </div>
     </div>
   );
@@ -1022,6 +1027,7 @@ export default function AssignmentSolvePage() {
     };
 
     (async () => {
+      const revealDelay = wait(ASSIGNMENT_MIN_REVEAL_MS);
       const firstLoad = !currentAssignmentIdRef.current;
       setLoading(firstLoad);
       setAssignmentSwitching(true);
@@ -1079,7 +1085,6 @@ export default function AssignmentSolvePage() {
         });
         setHydratedAssignmentId(String(shell?.id || assignmentId));
         setPartLoading((prev) => ({ ...prev, shell: false }));
-        setLoading(false);
 
         const statementPromise = getAssignmentStatement(assignmentId)
           .then((part) => {
@@ -1100,7 +1105,8 @@ export default function AssignmentSolvePage() {
               });
             } catch {}
           })
-          .finally(() => {
+          .finally(async () => {
+            await revealDelay;
             if (alive) setPartLoading((prev) => ({ ...prev, statement: false }));
           });
 
@@ -1123,11 +1129,12 @@ export default function AssignmentSolvePage() {
               });
             } catch {}
           })
-          .finally(() => {
+          .finally(async () => {
+            await revealDelay;
             if (alive) setPartLoading((prev) => ({ ...prev, tests: false }));
           });
 
-        await Promise.allSettled([statementPromise, testsPromise]);
+        await Promise.allSettled([statementPromise, testsPromise, revealDelay]);
       } catch (e) {
         const msg = getApiErrorMessage(e, 'Не удалось загрузить задание');
         if (alive) {
@@ -1136,6 +1143,7 @@ export default function AssignmentSolvePage() {
           if (!currentAssignmentIdRef.current) setA(null);
         }
       } finally {
+        await revealDelay;
         if (alive) {
           setLoading(false);
           setAssignmentSwitching(false);
@@ -1308,7 +1316,8 @@ export default function AssignmentSolvePage() {
       try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: nextResult })); } catch {}
       setTimeout(() => {
         try {
-          document.getElementById('solution-check-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const target = document.getElementById('solution-tests-result') || document.getElementById('solution-check-result');
+          target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch {}
       }, 0);
 
@@ -1469,7 +1478,7 @@ export default function AssignmentSolvePage() {
             </div>
           ) : null}
 
-          <div className="space-y-3">
+          <div id="solution-tests-result" className="space-y-3 scroll-mt-24">
             <div className="font-semibold">Результаты тестов</div>
             {cases.length > 0 ? cases.map((c, i) => {
               const passed = isCasePassed(c);
@@ -1577,7 +1586,7 @@ export default function AssignmentSolvePage() {
     return (
       <div className="solve-load-hint mb-4">
         <span className="solve-load-dot" />
-        <span>Задание загружается по частям: сначала каркас, затем условие и тесты.</span>
+        <span>Загрузка задания</span>
       </div>
     );
   };
@@ -1805,6 +1814,9 @@ export default function AssignmentSolvePage() {
         if (hasImageResultPayload(resp) && normalized.actualUrl) {
           setImgCompare(normalized);
           try { localStorage.setItem(`image-results:${assignmentId}`, JSON.stringify(normalized)); } catch {}
+          setTimeout(() => {
+            try { document.getElementById('image-test-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
+          }, 0);
 
           if (normalized.passed) {
             notify.success(`Задание выполнено! Схожесть: ${Math.round(normalized.similarityPercent ?? 0)}%`);
@@ -1976,7 +1988,7 @@ export default function AssignmentSolvePage() {
 
                 
                 {imgCompare && (
-                  <Card className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5">
+                  <Card id="image-test-result" className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5 scroll-mt-24">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="font-semibold">Результат</h3>
                       <div className="flex items-center gap-2">

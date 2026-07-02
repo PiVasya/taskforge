@@ -411,9 +411,6 @@ internal static class AssignmentApiSerializationService
         var type = !string.IsNullOrWhiteSpace(explicitType) ? explicitType : (HasImportShapeFields(source) ? inferredType : null);
         var normalizedType = NormalizeAssignmentType(type ?? inferredType);
         var tests = PickTestsElement(source, normalizedType);
-        // В новом JSON нет дублей. Источник правды один:
-        // code-test/image-test -> testCases; test -> testSettings + questions; math -> testSettings + blocks.
-        // Старый testsJson остаётся только как совместимый fallback, если новых структурных полей вообще нет.
         var testsJson = tests.HasValue ? null : FirstString(source, "testsJson");
         var testsForRequest = normalizedType is "test" or "math" ? tests : null;
         var testCasesForRequest = normalizedType is "code-test" or "image-test" ? tests : null;

@@ -172,379 +172,218 @@ function makeAssignmentContentItem(assignment, index = 0) {
 }
 
 const CREATE_OPTIONS = [
-  {
-    type: "code-test",
-    title: "Code-test",
-    subtitle: "Задача с запуском кода и stdin/stdout тестами",
-    hint: "Алгоритмы, строки, массивы, структуры данных.",
-  },
-  {
-    type: "test",
-    title: "Тест",
-    subtitle: "Вопросы A/B/C/D, несколько вариантов, текстовые ответы",
-    hint: "Теория, быстрые проверки, ЦТ-подобные вопросы.",
-  },
-  {
-    type: "image-test",
-    title: "Image-test",
-    subtitle: "Код рисует картинку, система сравнивает результат с эталоном",
-    hint: "Turtle, GraphABC, matplotlib, простая графика.",
-  },
-  {
-    type: "math",
-    title: "Math",
-    subtitle: "Блоки с числами, формулами, порядком и сопоставлением",
-    hint: "Пошаговые задания, формулы, соответствия.",
-  },
+  { type: "code-test", title: "Code-test" },
+  { type: "test", title: "Test" },
+  { type: "image-test", title: "Image-test" },
+  { type: "math", title: "Math" },
 ];
 
 const ZERO_GUID = "00000000-0000-0000-0000-000000000000";
 
-function makeImportExamplePayload(assignments, authoringNotes = []) {
+function makeImportExamplePayload(assignments) {
   return {
     schemaVersion: 2,
     format: "taskforge-course-assignment-import",
-    authoringNotes: [
-      "Корневой объект может содержать assignments/items/tasks или быть обычным массивом заданий.",
-      "Каждый элемент массива станет отдельным заданием курса.",
-      "Если передать id существующего задания из этого курса, импорт обновит это задание вместо создания нового.",
-      "Описание можно передавать plain text или HTML; потом его можно отредактировать в визуальном редакторе.",
-      "В новых примерах и экспорте нет дублей: у каждого типа задания свои понятные поля.",
-      "Для code-test/image-test тесты редактируются через testCases.",
-      "Для test настройки редактируются через testSettings, вопросы — через questions.",
-      "Для math настройки редактируются через testSettings, блоки — через blocks.",
-      "Редактируй именно эти структурные поля, analyticsSettings и остальные обычные поля задания.",
-      ...authoringNotes,
-    ],
-    editableFields: {
-      common: ["id", "type", "title", "description", "language", "allowedLanguages", "tags", "difficulty", "rating", "sort", "starterCode", "isVisible", "analyticsSettings"],
-      codeTest: ["testCases", "codeForbiddenCalls", "codeRequiredCalls"],
-      imageTest: ["testCases", "imageTestReferenceKey", "imageTestSimilarityThreshold", "codeForbiddenCalls", "codeRequiredCalls"],
-      test: ["testSettings", "questions"],
-      math: ["testSettings", "blocks"],
-    },
     assignments,
   };
 }
 
-const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
-  [
-    {
-      type: "code-test",
-      title: "Сумма двух чисел",
-      description: "Напишите программу, которая считывает два целых числа и выводит их сумму. Ввод: два числа через пробел. Вывод: одно число.",
-      language: "cpp",
-      allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "java"],
-      difficulty: 1,
-      rating: 1,
-      sort: 0,
-      tags: "ОАИП, код, ввод-вывод, арифметика",
-      starterCode: "#include <iostream>\nusing namespace std;\n\nint main()\n{\n    // Ваш код здесь\n\n    return 0;\n}\n",
-      codeForbiddenCalls: ["system", "exec", "fork"],
-      codeRequiredCalls: ["cin", "cout"],
-      testCases: [
-        { input: "2 4", expectedOutput: "6", isHidden: false },
-        { input: "-5 12", expectedOutput: "7", isHidden: false },
-        { input: "1000000000 1000000000", expectedOutput: "2000000000", isHidden: true },
-      ],
-      isVisible: true,
-      analyticsSettings: {
-        mode: "basic",
-        trackOpen: true,
-        trackAttempts: true,
-        trackTime: true,
-        trackLanguage: true,
-        trackErrors: true,
-        trackEditorChanges: false,
-        trackClipboard: false,
-        trackFocus: false,
-        trackVisibility: false,
-        trackFullscreen: false,
-        trackCodeSnapshots: false,
-        trackRiskScore: false,
-        trackLiveActivity: false,
-        trackSimilarity: false,
-        storeFullCode: false,
-        storePasteText: false,
-        storeTextSamples: true,
-        pasteSampleLimit: 500,
-        codeSampleLimit: 1000,
-        codeSnapshotIntervalSeconds: 45,
-        eventBatchIntervalSeconds: 10,
-        retentionDays: 30,
-        maxFullCodeLength: 80000,
-        maxEventsPerBatch: 120,
+const CODE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload([
+  {
+    type: "code-test",
+    title: "Сумма двух чисел",
+    description: "Считайте два целых числа и выведите их сумму.",
+    language: "cpp",
+    allowedLanguages: ["cpp", "python"],
+    starterCode: "#include <iostream>\nusing namespace std;\n\nint main()\n{\n    // Ваш код здесь\n\n    return 0;\n}\n",
+    testCases: [
+      { input: "2 4", expectedOutput: "6", isHidden: false },
+      { input: "-5 12", expectedOutput: "7", isHidden: false },
+      { input: "100 250", expectedOutput: "350", isHidden: true },
+    ],
+    codeRequiredCalls: ["cin", "cout"],
+    codeForbiddenCalls: ["system", "exec", "fork"],
+    difficulty: 1,
+    rating: 1,
+    sort: 0,
+    tags: "ОАИП, код",
+    isVisible: true,
+  },
+]);
+
+const TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload([
+  {
+    type: "test",
+    title: "Мини-тест",
+    description: "Ответьте на вопросы.",
+    testSettings: {
+      maxAttempts: 2,
+      passPercent: 70,
+      shuffleQuestions: true,
+      shuffleAnswers: true,
+      allowReview: true,
+      attemptTimeLimitsSeconds: [],
+    },
+    questions: [
+      {
+        id: ZERO_GUID,
+        order: 0,
+        type: "single-choice",
+        prompt: "Какой тип JSON хранит true/false?",
+        options: [
+          { key: "a", text: "string" },
+          { key: "b", text: "boolean" },
+          { key: "c", text: "array" },
+        ],
+        correctOptionKeys: ["b"],
+        acceptedAnswers: [],
+        caseSensitive: false,
+        trim: true,
       },
-    },
-  ],
-  [
-    "code-test — один тип задания для любых языков программирования.",
-    "Язык меняется полем language: cpp, python, csharp, javascript, pascal или java.",
-    "allowedLanguages задаёт языки, доступные ученику в редакторе.",
-    "starterCode меняется под выбранный язык. Для Python это может быть '# Ваш код здесь\n'.",
-    "codeRequiredCalls и codeForbiddenCalls опциональны: они нужны только если надо проверить наличие/запрет конкретных вызовов.",
-    "В новом JSON для code-test используется только testCases.",
-    "isHidden=true скрывает тест от ученика.",
-  ],
-);
-
-const TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
-  [
-    {
-      type: "test",
-      title: "Мини-тест по JSON",
-      description: "Ответьте на вопросы. Есть один выбор, несколько вариантов и краткий текстовый ответ.",
-      difficulty: 1,
-      rating: 3,
-      sort: 0,
-      tags: "теория, json, тест",
-      testSettings: {
-        maxAttempts: 2,
-        passPercent: 70,
-        shuffleQuestions: true,
-        shuffleAnswers: true,
-        allowReview: true,
-        attemptTimeLimitsSeconds: [null, 600],
+      {
+        id: ZERO_GUID,
+        order: 1,
+        type: "text",
+        prompt: "Расширение JSON без точки.",
+        options: [],
+        correctOptionKeys: [],
+        acceptedAnswers: ["json"],
+        caseSensitive: false,
+        trim: true,
       },
-      questions: [
-          {
-            id: ZERO_GUID,
-            order: 0,
-            type: "single-choice",
-            prompt: "Какой тип данных JSON используется для true/false?",
-            options: [
-              { key: "a", text: "string" },
-              { key: "b", text: "boolean" },
-              { key: "c", text: "array" },
-              { key: "d", text: "number" },
-            ],
-            correctOptionKeys: ["b"],
-            acceptedAnswers: [],
-            caseSensitive: false,
-            trim: true,
-          },
-          {
-            id: ZERO_GUID,
-            order: 1,
-            type: "multi-choice",
-            prompt: "Какие структуры верхнего уровня допустимы в JSON?",
-            options: [
-              { key: "a", text: "object" },
-              { key: "b", text: "array" },
-              { key: "c", text: "function" },
-              { key: "d", text: "class" },
-            ],
-            correctOptionKeys: ["a", "b"],
-            acceptedAnswers: [],
-            caseSensitive: false,
-            trim: true,
-          },
-          {
-            id: ZERO_GUID,
-            order: 2,
-            type: "text",
-            prompt: "Напишите расширение файла JSON без точки.",
-            options: [],
-            correctOptionKeys: [],
-            acceptedAnswers: ["json", "JSON"],
-            caseSensitive: false,
-            trim: true,
-          },
-      ],
-      isVisible: true,
-    },
-  ],
-  [
-    "test хранит настройки в testSettings, а вопросы в questions.",
-    "type вопроса: single-choice, multi-choice или text.",
-    "Для text-вопроса варианты не нужны: правильные ответы лежат в acceptedAnswers.",
-  ],
-);
+    ],
+    difficulty: 1,
+    rating: 1,
+    sort: 0,
+    tags: "теория, тест",
+    isVisible: true,
+  },
+]);
 
-const MATH_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
-  [
-    {
-      type: "math",
-      title: "Линейное уравнение и соответствия",
-      description: "Решите несколько коротких математических блоков.",
-      difficulty: 2,
-      rating: 4,
-      sort: 0,
-      tags: "математика, уравнения, соответствия",
-      testSettings: {
-        maxAttempts: 2,
-        passPercent: 75,
-        shuffleBlocks: false,
-        allowReview: true,
-        attemptTimeLimitsSeconds: [null],
+const MATH_ASSIGNMENT_EXAMPLE = makeImportExamplePayload([
+  {
+    type: "math",
+    title: "Линейное уравнение",
+    description: "Найдите x.",
+    testSettings: {
+      maxAttempts: 2,
+      passPercent: 75,
+      shuffleBlocks: false,
+      allowReview: true,
+      attemptTimeLimitsSeconds: [],
+    },
+    blocks: [
+      {
+        id: ZERO_GUID,
+        order: 0,
+        kind: "info",
+        prompt: "2x + 6 = 14",
+        score: 0,
+        isRequired: true,
+        options: [],
+        correctOptionKeys: [],
+        acceptedAnswers: [],
+        caseSensitive: false,
+        trim: true,
+        numericTolerance: 0,
+        orderItems: [],
+        matchLeftItems: [],
+        matchRightItems: [],
+        matchPairs: [],
       },
-      blocks: [
-          {
-            id: ZERO_GUID,
-            order: 0,
-            kind: "info",
-            prompt: "Дано уравнение 2x + 6 = 14. Найдите x.",
-            promptContentJson: "",
-            score: 0,
-            isRequired: true,
-            options: [],
-            correctOptionKeys: [],
-            acceptedAnswers: [],
-            caseSensitive: false,
-            trim: true,
-            numericTolerance: 0,
-            orderItems: [],
-            matchLeftItems: [],
-            matchRightItems: [],
-            matchPairs: [],
-          },
-          {
-            id: ZERO_GUID,
-            order: 1,
-            kind: "number",
-            prompt: "Введите значение x.",
-            promptContentJson: "",
-            score: 2,
-            isRequired: true,
-            options: [],
-            correctOptionKeys: [],
-            acceptedAnswers: ["4"],
-            caseSensitive: false,
-            trim: true,
-            numericTolerance: 0,
-            orderItems: [],
-            matchLeftItems: [],
-            matchRightItems: [],
-            matchPairs: [],
-          },
-          {
-            id: ZERO_GUID,
-            order: 2,
-            kind: "match",
-            prompt: "Сопоставьте выражение и значение.",
-            promptContentJson: "",
-            score: 3,
-            isRequired: true,
-            options: [],
-            correctOptionKeys: [],
-            acceptedAnswers: [],
-            caseSensitive: false,
-            trim: true,
-            numericTolerance: 0,
-            orderItems: [],
-            matchLeftItems: [
-              { key: "l1", text: "2 + 3" },
-              { key: "l2", text: "3 * 4" },
-              { key: "l3", text: "10 - 7" },
-            ],
-            matchRightItems: [
-              { key: "r1", text: "5" },
-              { key: "r2", text: "12" },
-              { key: "r3", text: "3" },
-            ],
-            matchPairs: [
-              { leftKey: "l1", rightKey: "r1" },
-              { leftKey: "l2", rightKey: "r2" },
-              { leftKey: "l3", rightKey: "r3" },
-            ],
-          },
-      ],
-      isVisible: true,
-    },
-  ],
-  [
-    "math хранит настройки в testSettings, а блоки в blocks.",
-    "kind может быть info, number, text, single-choice, multi-choice, order или match.",
-    "Для match используются matchLeftItems, matchRightItems и matchPairs.",
-  ],
-);
+      {
+        id: ZERO_GUID,
+        order: 1,
+        kind: "number",
+        prompt: "x =",
+        score: 2,
+        isRequired: true,
+        options: [],
+        correctOptionKeys: [],
+        acceptedAnswers: ["4"],
+        caseSensitive: false,
+        trim: true,
+        numericTolerance: 0,
+        orderItems: [],
+        matchLeftItems: [],
+        matchRightItems: [],
+        matchPairs: [],
+      },
+    ],
+    difficulty: 1,
+    rating: 1,
+    sort: 0,
+    tags: "математика",
+    isVisible: true,
+  },
+]);
 
-const IMAGE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
-  [
-    {
-      type: "image-test",
-      title: "Нарисовать диагональ",
-      description: "Программа должна построить изображение 200x200 и провести диагональ из левого верхнего угла в правый нижний. После импорта можно загрузить эталон в редакторе задания.",
-      language: "python",
-      allowedLanguages: ["python", "pascal", "cpp"],
-      difficulty: 2,
-      rating: 5,
-      sort: 0,
-      tags: "графика, image-test, turtle",
-      starterCode: "import turtle\n\nt = turtle.Turtle()\nt.color('red')\nt.goto(100, -100)\nturtle.done()\n",
-      imageTestSimilarityThreshold: 90,
-      testCases: [
-        {
-          input: "",
-          expectedOutput: "",
-          isHidden: false,
-          expectedImageBase64: "",
-          expectedImageContentType: "image/png",
-          expectedImageFileName: "diagonal-reference.png",
-          authoringHint: "Замените expectedImageBase64 на data:image/png;base64,... или загрузите эталон в редакторе после импорта.",
-        },
-      ],
-      isVisible: true,
-    },
-  ],
-  [
-    "image-test использует те же testCases, но дополнительно нужен эталон изображения.",
-    "expectedImageBase64 можно оставить пустым и загрузить эталон через редактор после импорта.",
-  ],
-);
+const IMAGE_TEST_ASSIGNMENT_EXAMPLE = makeImportExamplePayload([
+  {
+    type: "image-test",
+    title: "Диагональ",
+    description: "Нарисуйте диагональ на изображении 200x200.",
+    language: "python",
+    allowedLanguages: ["python"],
+    starterCode: "import turtle\n\nt = turtle.Turtle()\nt.goto(100, -100)\nturtle.done()\n",
+    imageTestSimilarityThreshold: 90,
+    testCases: [
+      {
+        input: "",
+        expectedOutput: "",
+        isHidden: false,
+        expectedImageBase64: "",
+        expectedImageContentType: "image/png",
+        expectedImageFileName: "reference.png",
+      },
+    ],
+    difficulty: 1,
+    rating: 1,
+    sort: 0,
+    tags: "графика",
+    isVisible: true,
+  },
+]);
 
-const MIXED_ASSIGNMENT_EXAMPLE = makeImportExamplePayload(
-  [
-    CODE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
-    TEST_ASSIGNMENT_EXAMPLE.assignments[0],
-    MATH_ASSIGNMENT_EXAMPLE.assignments[0],
-    IMAGE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
-  ],
-  [
-    "Это смешанный пример: сразу code-test, test, math и image-test в одном файле.",
-    "Можно удалить лишние элементы из assignments и оставить только нужные задания.",
-  ],
-);
+const MIXED_ASSIGNMENT_EXAMPLE = makeImportExamplePayload([
+  CODE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+  TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+  MATH_ASSIGNMENT_EXAMPLE.assignments[0],
+  IMAGE_TEST_ASSIGNMENT_EXAMPLE.assignments[0],
+]);
 
 const JSON_IMPORT_EXAMPLES = [
-  {
-    key: "code-test",
-    title: "Код-тест",
-    type: "code-test",
-    description: "Один пример для любого языка: меняются language, allowedLanguages, starterCode и testCases.",
-    payload: CODE_TEST_ASSIGNMENT_EXAMPLE,
-  },
-  {
-    key: "test",
-    title: "Тест",
-    type: "test",
-    description: "single-choice, multi-choice и текстовый ответ внутри одного теста.",
-    payload: TEST_ASSIGNMENT_EXAMPLE,
-  },
-  {
-    key: "math",
-    title: "Math",
-    type: "math",
-    description: "Информационный блок, числовой ответ и сопоставление.",
-    payload: MATH_ASSIGNMENT_EXAMPLE,
-  },
-  {
-    key: "image-test",
-    title: "Image-test",
-    type: "image-test",
-    description: "Графическая задача с порогом похожести и местом для эталона.",
-    payload: IMAGE_TEST_ASSIGNMENT_EXAMPLE,
-  },
-  {
-    key: "mixed",
-    title: "Смешанный файл",
-    type: "mixed",
-    description: "Все основные виды заданий сразу, как большой пример для нейронки.",
-    payload: MIXED_ASSIGNMENT_EXAMPLE,
-  },
+  { key: "code-test", title: "Code-test", type: "code-test", payload: CODE_TEST_ASSIGNMENT_EXAMPLE },
+  { key: "test", title: "Test", type: "test", payload: TEST_ASSIGNMENT_EXAMPLE },
+  { key: "math", title: "Math", type: "math", payload: MATH_ASSIGNMENT_EXAMPLE },
+  { key: "image-test", title: "Image-test", type: "image-test", payload: IMAGE_TEST_ASSIGNMENT_EXAMPLE },
+  { key: "mixed", title: "Смешанный", type: "mixed", payload: MIXED_ASSIGNMENT_EXAMPLE },
 ];
 
-const JSON_IMPORT_EXAMPLE = JSON.stringify(MIXED_ASSIGNMENT_EXAMPLE, null, 2);
+const JSON_IMPORT_DOC_FIELDS = [
+  "id",
+  "type",
+  "title",
+  "description",
+  "language",
+  "allowedLanguages",
+  "starterCode",
+  "testCases",
+  "testSettings",
+  "questions",
+  "blocks",
+  "codeForbiddenCalls",
+  "codeRequiredCalls",
+  "imageTestReferenceKey",
+  "imageTestSimilarityThreshold",
+  "analyticsSettings",
+  "difficulty",
+  "rating",
+  "sort",
+  "tags",
+  "isVisible",
+];
+
 
 function buildDefaultAssignmentPayload(type, sort) {
   const normalized = type || "code-test";
@@ -753,11 +592,13 @@ export default function CourseAssignmentsPage() {
 
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createMode, setCreateMode] = useState("choice");
+  const [jsonDocsOpen, setJsonDocsOpen] = useState(false);
   const [createBusyType, setCreateBusyType] = useState("");
-  const [jsonImportText, setJsonImportText] = useState(JSON_IMPORT_EXAMPLE);
+  const [jsonImportText, setJsonImportText] = useState("");
   const [jsonImportBusy, setJsonImportBusy] = useState(false);
   const [jsonExportBusy, setJsonExportBusy] = useState(false);
-  const [jsonImportPreview, setJsonImportPreview] = useState("пример: 5 заданий");
+  const [jsonImportPreview, setJsonImportPreview] = useState("пусто");
   const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
@@ -1144,6 +985,7 @@ export default function CourseAssignmentsPage() {
       const res = await createAssignment(courseId, payload);
       const id = res && res.id;
       setCreateDialogOpen(false);
+      setCreateMode("choice");
       notify.success("Задание создано");
       if (id) nav(`/assignment/${id}/edit`);
     } catch (e) {
@@ -1174,6 +1016,7 @@ export default function CourseAssignmentsPage() {
       });
       const id = res && res.id;
       setCreateDialogOpen(false);
+      setCreateMode("choice");
       notify.success("Вложенный курс создан");
       if (id) nav(`/courses/${id}/edit`);
     } catch (e) {
@@ -1185,11 +1028,15 @@ export default function CourseAssignmentsPage() {
 
   const handleJsonImportTextChange = (value) => {
     setJsonImportText(value);
+    if (!String(value || "").trim()) {
+      setJsonImportPreview("пусто");
+      return;
+    }
     try {
       const parsed = JSON.parse(value);
       setJsonImportPreview(summarizeImportPayload(parsed));
     } catch {
-      setJsonImportPreview("JSON пока не читается");
+      setJsonImportPreview("JSON не читается");
     }
   };
 
@@ -1230,6 +1077,7 @@ export default function CourseAssignmentsPage() {
       setJsonImportDiff(null);
       setJsonImportParsed(null);
       setCreateDialogOpen(false);
+      setCreateMode("choice");
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
       notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
@@ -1245,6 +1093,11 @@ export default function CourseAssignmentsPage() {
 
   const handlePrepareJsonImportDiff = async () => {
     if (!ensureCanManageAssignments("импортировать JSON")) return;
+    if (!String(jsonImportText || "").trim()) {
+      notify.warn("Вставьте JSON для импорта");
+      return;
+    }
+
     let parsed;
     try {
       parsed = JSON.parse(jsonImportText);
@@ -1362,7 +1215,7 @@ export default function CourseAssignmentsPage() {
                 <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
                   <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)}>
+                <Button className="w-full sm:w-auto" onClick={() => { setCreateMode("choice"); setJsonDocsOpen(false); setCreateDialogOpen(true); }}>
                   <Plus size={16} /> Создать
                 </Button>
               </>
@@ -1409,9 +1262,6 @@ export default function CourseAssignmentsPage() {
                   <div className="flex items-center gap-2 text-xl font-semibold">
                     <GitCompare size={20} /> Дифф JSON-импорта
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-neutral-500">
-                    Проверь, что будет создано или обновлено. Изменения применятся только после кнопки «Применить».
-                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
@@ -1449,8 +1299,8 @@ export default function CourseAssignmentsPage() {
                   <div className="flex items-start gap-2">
                     <AlertTriangle size={18} className="mt-0.5 shrink-0" />
                     <div>
-                      {jsonImportDiff.withoutIdCount > 0 ? <div>Заданий без <code>id</code>: {jsonImportDiff.withoutIdCount}. Они будут созданы как новые, а не заменят существующие.</div> : null}
-                      {jsonImportDiff.duplicateTitleCount > 0 ? <div>Есть новые задания с названием, которое уже встречается в курсе. Это может создать дубли, если нейронка не сохранила <code>id</code>.</div> : null}
+                      {jsonImportDiff.withoutIdCount > 0 ? <div>Без <code>id</code>: {jsonImportDiff.withoutIdCount}</div> : null}
+                      {jsonImportDiff.duplicateTitleCount > 0 ? <div>Возможные дубли по названию: {jsonImportDiff.duplicateTitleCount}</div> : null}
                     </div>
                   </div>
                 </div>
@@ -1476,7 +1326,7 @@ export default function CourseAssignmentsPage() {
 
                     {row.action === "create" ? (
                       <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                        Новое задание. Полный текст будет взят из JSON.
+                        Будет создано.
                       </div>
                     ) : row.changes.length ? (
                       <div className="mt-3 space-y-2">
@@ -1498,7 +1348,7 @@ export default function CourseAssignmentsPage() {
                       </div>
                     ) : (
                       <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                        Задание найдено по id, но в поддерживаемых полях изменений не обнаружено.
+                        Изменений нет.
                       </div>
                     )}
                   </div>
@@ -1510,81 +1360,100 @@ export default function CourseAssignmentsPage() {
       )}
 
       {createDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-3 py-6 sm:px-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy && !createBusyType) setCreateDialogOpen(false); }}>
-          <Card className="w-full max-w-6xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
-            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
+        <div
+          className="tf-modal-backdrop fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-3 py-6 sm:px-6"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !jsonImportBusy && !createBusyType) setCreateDialogOpen(false);
+          }}
+        >
+          <Card className="tf-modal-panel w-full max-w-5xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
+            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                {createMode !== "choice" ? (
+                  <Button variant="outline" onClick={() => setCreateMode("choice")} disabled={jsonImportBusy || !!createBusyType}>
+                    ← Назад
+                  </Button>
+                ) : null}
                 <div className="flex items-center gap-2 text-xl font-semibold">
-                  <Sparkles size={20} /> Что создаём?
+                  <Sparkles size={20} />
+                  {createMode === "json" ? "JSON-импорт" : createMode === "manual" ? "Новое задание" : "Создать"}
                 </div>
-                <p className="mt-1 text-sm leading-6 text-neutral-500">
-                  Создай черновик вручную или импортируй JSON. Если в JSON есть id уже существующего задания этого курса, оно будет обновлено данными из файла.
-                </p>
               </div>
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={jsonImportBusy || !!createBusyType} title="Закрыть">
                 <X size={16} /> Закрыть
               </Button>
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.35fr]">
-              <div className="space-y-3">
+            {createMode === "choice" ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <button
+                  type="button"
+                  disabled={!!createBusyType || jsonImportBusy}
+                  onClick={() => { setCreateMode("json"); setJsonDocsOpen(false); }}
+                  className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <FileJson size={22} />
+                  <div className="mt-4 text-lg font-semibold">JSON</div>
+                  <Badge variant="outline" className="mt-3">import</Badge>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!!createBusyType || jsonImportBusy}
+                  onClick={() => setCreateMode("manual")}
+                  className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Plus size={22} />
+                  <div className="mt-4 text-lg font-semibold">Вручную</div>
+                  <Badge variant="outline" className="mt-3">draft</Badge>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!!createBusyType || jsonImportBusy}
+                  onClick={handleCreateChildCourse}
+                  className="tf-choice-card rounded-2xl border border-[rgba(var(--accent)/0.45)] bg-[rgb(var(--accent))]/10 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Layers size={22} />
+                  <div className="mt-4 text-lg font-semibold">Вложенный курс</div>
+                  <Badge variant="outline" className="mt-3">{createBusyType === "course" ? "создаю" : "course"}</Badge>
+                </button>
+              </div>
+            ) : null}
+
+            {createMode === "manual" ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {CREATE_OPTIONS.map((o) => (
                   <button
                     key={o.type}
                     type="button"
                     disabled={!!createBusyType || jsonImportBusy}
                     onClick={() => handleCreateType(o.type)}
-                    className="w-full rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/35 p-4 text-left transition hover:-translate-y-0.5 hover:border-[rgb(var(--primary))]/70 hover:bg-[rgb(var(--primary))]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold">{o.title}</div>
-                      <Badge variant="outline">{o.type}</Badge>
+                      <div className="text-lg font-semibold">{o.title}</div>
+                      <Badge variant="outline">{createBusyType === o.type ? "создаю" : o.type}</Badge>
                     </div>
-                    <div className="mt-1 text-sm leading-5 text-neutral-500">{o.subtitle}</div>
-                    <div className="mt-2 text-xs text-neutral-400">{createBusyType === o.type ? "Создаю…" : o.hint}</div>
                   </button>
                 ))}
-
-                <button
-                  type="button"
-                  disabled={!!createBusyType || jsonImportBusy}
-                  onClick={handleCreateChildCourse}
-                  className="w-full rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--accent))]/10 p-4 text-left transition hover:-translate-y-0.5 hover:border-[rgb(var(--accent))]/70 hover:bg-[rgb(var(--accent))]/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold">Вложенный курс</div>
-                    <Badge variant="outline">course</Badge>
-                  </div>
-                  <div className="mt-1 text-sm leading-5 text-neutral-500">Курс внутри текущего курса, в общем порядке вместе с заданиями.</div>
-                  <div className="mt-2 text-xs text-neutral-400">{createBusyType === "course" ? "Создаю…" : "Можно сделать курс → курс → курс"}</div>
-                </button>
-
-                <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.9)] p-4 text-sm leading-6 text-neutral-500">
-                  <div className="flex items-center gap-2 font-semibold text-[rgb(var(--fg))]">
-                    <FileJson size={16} /> Из JSON
-                  </div>
-                  <p className="mt-1">
-                    Вставь JSON или загрузи файл. Новые задания создаются, а задания с совпавшим <code>id</code> обновляются.
-                  </p>
-                </div>
               </div>
+            ) : null}
 
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/25 p-4">
-                <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 font-semibold">
-                      <FileJson size={18} /> JSON-экспорт и импорт
-                    </div>
-                    <div className="mt-1 text-xs text-neutral-500">
-                      Сейчас в поле: {jsonImportPreview}. Экспорт содержит id, поэтому повторный импорт может обновлять существующие задания.
-                    </div>
+            {createMode === "json" ? (
+              <div className="mt-5">
+                <div className="flex flex-col gap-3 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FileJson size={18} />
+                    <span className="font-semibold">JSON</span>
+                    <Badge variant="outline">{jsonImportPreview}</Badge>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={handleExportJson} disabled={jsonExportBusy || jsonImportBusy}>
-                      <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт"}
+                      <Download size={16} /> {jsonExportBusy ? "Экспорт…" : "Экспорт"}
                     </Button>
                     <label className="btn-outline cursor-pointer">
-                      <Upload size={16} /> Загрузить .json
+                      <Upload size={16} /> Файл
                       <input
                         type="file"
                         accept="application/json,.json"
@@ -1617,62 +1486,73 @@ export default function CourseAssignmentsPage() {
                     >
                       Форматировать
                     </Button>
-                    <Button variant="outline" onClick={() => handleJsonImportTextChange(JSON_IMPORT_EXAMPLE)}>
-                      Смешанный пример
+                    <Button variant="outline" onClick={() => setJsonDocsOpen((v) => !v)}>
+                      <FileJson size={16} /> Справка
                     </Button>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-dashed border-[rgba(var(--border)/0.85)] bg-[rgb(var(--card))]/70 p-3">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold">Готовые примеры под каждый вид задания</div>
-                      <div className="text-xs leading-5 text-neutral-500">
-                        Кнопка «Копировать» сразу кладёт нужный шаблон в буфер обмена. Кнопка «В редактор» вставляет его в поле импорта ниже.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {JSON_IMPORT_EXAMPLES.map((example) => (
-                      <div key={example.key} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/25 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold">{example.title}</div>
-                            <div className="mt-1 text-xs leading-5 text-neutral-500">{example.description}</div>
-                          </div>
-                          <Badge variant="outline" className="shrink-0">{example.type}</Badge>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button variant="outline" onClick={() => handleCopyJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
-                            <Copy size={14} /> Копировать
-                          </Button>
-                          <Button variant="outline" onClick={() => handleUseJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
-                            В редактор
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 <Textarea
-                  rows={26}
+                  rows={28}
                   value={jsonImportText}
                   onChange={(e) => handleJsonImportTextChange(e.target.value)}
                   spellCheck={false}
-                  className="mt-4 min-h-[520px] font-mono text-xs leading-5"
+                  placeholder="Вставь JSON сюда"
+                  className="mt-4 min-h-[560px] font-mono text-xs leading-5"
                 />
 
+                {jsonDocsOpen ? (
+                  <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/20 p-4">
+                    <div className="grid gap-4 lg:grid-cols-[0.95fr_1.25fr]">
+                      <div>
+                        <div className="mb-3 flex items-center gap-2 font-semibold">
+                          <FileJson size={16} /> Поля
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {JSON_IMPORT_DOC_FIELDS.map((field) => (
+                            <code key={field} className="rounded-lg border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))]/70 px-2 py-1 text-xs">
+                              {field}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-3 flex items-center gap-2 font-semibold">
+                          <FileJson size={16} /> Примеры
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {JSON_IMPORT_EXAMPLES.map((example) => (
+                            <div key={example.key} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))]/60 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold">{example.title}</div>
+                                <Badge variant="outline">{example.type}</Badge>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button variant="outline" onClick={() => handleCopyJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
+                                  <Copy size={14} /> Копировать
+                                </Button>
+                                <Button variant="outline" onClick={() => handleUseJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
+                                  В поле
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="text-xs leading-5 text-neutral-500">
-                    Поддерживаемые поля: <code>id</code>, <code>title</code>, <code>description</code>, <code>type</code>, <code>language</code>, <code>allowedLanguages</code>, <code>starterCode</code>, <code>testCases</code>, <code>testSettings</code>, <code>questions</code>, <code>blocks</code>, <code>codeForbiddenCalls</code>, <code>codeRequiredCalls</code>, <code>imageTestReferenceKey</code>, <code>imageTestSimilarityThreshold</code>, <code>analyticsSettings</code>, <code>difficulty</code>, <code>rating</code>, <code>sort</code>, <code>tags</code>, <code>isVisible</code>.
+                  <div className="text-xs text-neutral-500">
+                    Импорт создаёт новые задания или обновляет существующие по <code>id</code>.
                   </div>
                   <Button onClick={handlePrepareJsonImportDiff} disabled={jsonImportBusy || !!createBusyType}>
-                    <GitCompare size={16} /> {jsonImportBusy ? "Готовлю дифф…" : "Показать дифф"}
+                    <GitCompare size={16} /> {jsonImportBusy ? "Дифф…" : "Показать дифф"}
                   </Button>
                 </div>
               </div>
-            </div>
+            ) : null}
           </Card>
         </div>
       )}
