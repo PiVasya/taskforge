@@ -502,30 +502,6 @@ function InputTextPreview({ value }) {
 }
 
 
-function extractStatementTextNode(node) {
-  if (!node) return '';
-  if (typeof node === 'string') return node;
-  if (typeof node?.text === 'string') return node.text;
-  if (!Array.isArray(node?.content)) return '';
-
-  const text = node.content.map(extractStatementTextNode).filter(Boolean).join('');
-  const blockTypes = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'listItem']);
-  if (blockTypes.has(node.type) && text) return `${text}\n`;
-  return text;
-}
-
-function statementToPlainText(value) {
-  const raw = String(value ?? '');
-  if (!raw.trim()) return '';
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && parsed.type === 'doc') {
-      return extractStatementTextNode(parsed).replace(/\n{3,}/g, '\n\n').trim();
-    }
-  } catch {}
-  return raw.trim();
-}
-
 function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -588,7 +564,7 @@ function TypewriterText({ as: Tag = 'span', text, className = '', playKey = '', 
   );
 }
 
-function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb-1' }) {
+function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb-1', onDone }) {
   const value = String(text ?? '');
   return (
     <TypewriterText
@@ -597,37 +573,51 @@ function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb
       playKey={`${playKey}:title:${value}`}
       durationMs={clampNumber(value.length * 18, 180, 620)}
       className={className}
+      onDone={onDone}
     />
   );
 }
 
-function AnimatedStatementViewer({ value, playKey }) {
-  const plain = useMemo(() => statementToPlainText(value), [value]);
-  const [done, setDone] = useState(false);
+function AnimatedStatementViewer({ value, playKey, active = true, onDone }) {
+  const [visible, setVisible] = useState(false);
+  const doneRef = React.useRef(onDone);
 
   useEffect(() => {
-    setDone(false);
-  }, [playKey, plain]);
+    doneRef.current = onDone;
+  }, [onDone]);
 
-  if (!plain) return <StatementViewer value={value} />;
+  useEffect(() => {
+    if (!active) return undefined;
+    const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    let frame = 0;
+    let timer = 0;
+
+    setVisible(false);
+
+    if (reduced) {
+      setVisible(true);
+      doneRef.current?.();
+      return undefined;
+    }
+
+    frame = window.requestAnimationFrame(() => {
+      setVisible(true);
+    });
+    timer = window.setTimeout(() => {
+      doneRef.current?.();
+    }, 520);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [active, playKey, value]);
+
+  if (!active) return null;
 
   return (
-    <div className="animated-statement">
-      {!done ? (
-        <TypewriterText
-          as="div"
-          text={plain}
-          playKey={`${playKey}:statement:${plain.length}`}
-          durationMs={clampNumber(plain.length * 2.2, 420, 1250)}
-          startDelay={80}
-          className="animated-statement-type"
-          onDone={() => setDone(true)}
-        />
-      ) : (
-        <div className="animated-statement-rich">
-          <StatementViewer value={value} />
-        </div>
-      )}
+    <div className={`animated-statement ${visible ? 'animated-statement--visible' : ''}`}>
+      <StatementViewer value={value} />
     </div>
   );
 }
@@ -842,6 +832,7 @@ export default function AssignmentSolvePage() {
   const [loading, setLoading] = useState(true);
   const [assignmentSwitching, setAssignmentSwitching] = useState(false);
   const [partLoading, setPartLoading] = useState({ shell: true, statement: true, tests: true });
+  const [introReveal, setIntroReveal] = useState({ title: false, statement: false });
 
   
   const [nextA, setNextA] = useState(null); 
@@ -1208,6 +1199,7 @@ export default function AssignmentSolvePage() {
 
         setLanguage(nextLang);
         setCode(nextCode);
+        setIntroReveal({ title: false, statement: false });
         setA({
           ...shell,
           description: typeof shell?.description === 'string' ? shell.description : '',
@@ -1747,6 +1739,12 @@ export default function AssignmentSolvePage() {
     );
   };
 
+  const revealPlayKey = String(a?.id || assignmentId || '');
+  const statementCanReveal = Boolean(a && introReveal.title && !partLoading.statement);
+  const testsCanReveal = Boolean(statementCanReveal && introReveal.statement && !partLoading.tests);
+  const markTitleRevealDone = () => setIntroReveal((prev) => (prev.title ? prev : { ...prev, title: true }));
+  const markStatementRevealDone = () => setIntroReveal((prev) => (prev.statement ? prev : { ...prev, statement: true }));
+
   if (loading && !a) {
     return <AssignmentFirstLoadSkeleton />;
   }
@@ -2011,8 +2009,8 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
-                {a.tags && (
+                <AnimatedHeading text={a.title} playKey={revealPlayKey} onDone={markTitleRevealDone} />
+                {introReveal.title && a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
                       .split(',')
@@ -2022,7 +2020,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+                {!statementCanReveal ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={`${revealPlayKey}:statement`} active={statementCanReveal} onDone={markStatementRevealDone} />}
               </SolvePart>
             </Card>
 
@@ -2031,7 +2029,7 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">Эталон</div>
               </div>
 
-              {partLoading.tests ? (
+              {!testsCanReveal ? (
                 <SolveSkeletonLines lines={4} />
               ) : expectedUrl ? (
                 <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
@@ -2284,8 +2282,8 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
-                {a.tags && (
+                <AnimatedHeading text={a.title} playKey={revealPlayKey} onDone={markTitleRevealDone} />
+                {introReveal.title && a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
                       .split(',')
@@ -2295,7 +2293,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+                {!statementCanReveal ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={`${revealPlayKey}:statement`} active={statementCanReveal} onDone={markStatementRevealDone} />}
               </SolvePart>
             </Card>
 
@@ -2304,16 +2302,16 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">{assignmentTestsTitle}</div>
               </div>
 
-              {partLoading.tests ? (
+              {!testsCanReveal ? (
                 <SolveSkeletonLines lines={6} />
               ) : visibleTests.length === 0 ? (
                 <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
               ) : (
-                <div className="space-y-3">
+                <div key={`tests-${revealPlayKey}`} className="space-y-3">
                   {visibleTests.map((t, i) => {
                     const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                     return (
-                      <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
+                      <div key={`${revealPlayKey}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 14) * 110}ms` }}>
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <div className="text-xs text-neutral-500">Ввод</div>
                           {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
@@ -2433,7 +2431,7 @@ export default function AssignmentSolvePage() {
 
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <TypewriterText as="div" text={a.title} playKey={`${a.id || assignmentId}:compact-title`} durationMs={clampNumber(String(a.title || '').length * 14, 160, 480)} className="font-semibold text-lg" />
+                  <TypewriterText as="div" text={a.title} playKey={`${revealPlayKey}:compact-title`} durationMs={clampNumber(String(a.title || '').length * 14, 160, 480)} className="font-semibold text-lg" onDone={markTitleRevealDone} />
                   {result && (
                     <div className="flex items-center gap-2 text-sm">
                       {result.__allPassed ? (
@@ -2460,7 +2458,7 @@ export default function AssignmentSolvePage() {
                   </div>
                 )}
 
-                {a.tags && (
+                {introReveal.title && a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
                       .split(',')
@@ -2501,7 +2499,7 @@ export default function AssignmentSolvePage() {
 
           <Card className="assignment-reveal">
             <SolvePart loading={partLoading.statement} delay={90} minHeight={partLoading.statement ? 160 : undefined}>
-              {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+              {!statementCanReveal ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={`${revealPlayKey}:statement`} active={statementCanReveal} onDone={markStatementRevealDone} />}
             </SolvePart>
           </Card>
 
@@ -2510,16 +2508,16 @@ export default function AssignmentSolvePage() {
               <div className="font-medium">{assignmentTestsTitle}</div>
             </div>
 
-            {partLoading.tests ? (
+            {!testsCanReveal ? (
               <SolveSkeletonLines lines={6} />
             ) : visibleTests.length === 0 ? (
               <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
             ) : (
-              <div className="space-y-3">
+              <div key={`tests-${revealPlayKey}`} className="space-y-3">
                 {visibleTests.map((t, i) => {
                   const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                   return (
-                    <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
+                    <div key={`${revealPlayKey}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 14) * 110}ms` }}>
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="text-xs text-neutral-500">Ввод</div>
                         {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
