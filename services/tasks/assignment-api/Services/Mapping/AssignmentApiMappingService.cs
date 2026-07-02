@@ -90,6 +90,75 @@ internal static class AssignmentApiMappingService
         };
     }
 
+    internal static object ToSolveShellDto(Assignment x, bool includeSensitive = false, bool isSolved = false)
+    {
+        return new
+        {
+            x.Id,
+            x.CourseId,
+            x.Title,
+            x.Type,
+            x.Language,
+            allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
+            x.StarterCode,
+            tags = x.Tags ?? string.Empty,
+            difficulty = x.Difficulty,
+            rating = x.Rating,
+            isHidden = !x.IsVisible,
+            isAiDraft = false,
+            lifecycleStatus = x.IsVisible ? "published" : "draft",
+            codeForbiddenCalls = includeSensitive ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
+            codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
+            analyticsSettings = includeSensitive ? ParseJson(x.AnalyticsSettingsJson) ?? AssignmentAnalyticsSettingsService.ToPublicDto(AssignmentAnalyticsSettingsService.Default()) : null,
+            x.IsVisible,
+            x.Sort,
+            canEdit = includeSensitive,
+            isSolved,
+            solvedByCurrentUser = isSolved,
+            progressStatus = isSolved ? "solved" : "not-started",
+            parts = new
+            {
+                statementUrl = $"/api/assignments/{x.Id:D}/statement",
+                testsUrl = $"/api/assignments/{x.Id:D}/tests"
+            },
+            x.CreatedAt,
+            x.UpdatedAt
+        };
+    }
+
+    internal static object ToSolveStatementDto(Assignment x, bool includeSensitive = false)
+    {
+        return new
+        {
+            x.Id,
+            x.CourseId,
+            x.Title,
+            x.Description,
+            tags = x.Tags ?? string.Empty,
+            difficulty = x.Difficulty,
+            rating = x.Rating,
+            canEdit = includeSensitive,
+            x.UpdatedAt
+        };
+    }
+
+    internal static object ToSolveTestsDto(Assignment x, bool includeSensitive = false)
+    {
+        var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
+        return new
+        {
+            x.Id,
+            x.Type,
+            tests,
+            testCases = tests,
+            testsJson = includeSensitive ? x.TestsJson : null,
+            imageTestReferenceKey = includeSensitive ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
+            imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
+            canEdit = includeSensitive,
+            x.UpdatedAt
+        };
+    }
+
     internal static AssignmentSummaryDto ToAssignmentSummaryDto(Assignment x) => new(
         x.Id,
         x.Id,

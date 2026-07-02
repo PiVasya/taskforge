@@ -12,7 +12,7 @@ import MathTaskSolve from './MathTaskSolve';
 import StatementViewer from '../components/tiptap/StatementViewer';
 
 import { useNotify } from '../components/notify/NotifyProvider';
-import { getAssignment, getAssignmentsByCourse } from '../api/assignments';
+import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution, getMySolutionDetails } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
 import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
@@ -496,6 +496,78 @@ function InputTextPreview({ value }) {
   return <pre className="whitespace-pre-wrap text-sm">{text}</pre>;
 }
 
+function SolveSkeletonLines({ lines = 4, className = '' }) {
+  return (
+    <div className={`solve-skeleton-lines ${className}`} aria-hidden="true">
+      {Array.from({ length: lines }).map((_, index) => (
+        <div
+          key={index}
+          className="solve-skeleton-line"
+          style={{ width: `${Math.max(34, 92 - index * 11)}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SolvePart({ loading = false, delay = 0, minHeight, className = '', children }) {
+  return (
+    <div
+      className={`solve-part ${loading ? 'solve-part--loading' : 'solve-part--ready'} ${className}`}
+      style={{ '--solve-part-delay': `${delay}ms`, minHeight }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function AssignmentFirstLoadSkeleton() {
+  return (
+    <Layout>
+      <div className="solve-page-shell solve-page-shell--loading">
+        <div className="flex items-center justify-between mb-6">
+          <div className="solve-skeleton-pill w-36" />
+          <div className="flex items-center gap-2">
+            <div className="solve-skeleton-pill w-32" />
+            <div className="solve-skeleton-pill w-28" />
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2 min-h-[420px]">
+            <SolveSkeletonLines lines={8} />
+          </Card>
+          <Card className="min-h-[420px]">
+            <SolveSkeletonLines lines={7} />
+          </Card>
+        </div>
+      </div>
+      <SolveActionDockSkeleton />
+    </Layout>
+  );
+}
+
+function SolveActionDockSkeleton() {
+  return (
+    <div
+      className="fixed right-6 z-50"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
+    >
+      <div
+        className="flex flex-col gap-2 rounded-2xl p-2 border shadow-lg min-w-48"
+        style={{
+          background: 'rgba(var(--card) / 0.60)',
+          borderColor: 'rgba(var(--border) / 0.70)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+        }}
+      >
+        <Button variant="outline" disabled>Следующее задание</Button>
+        <Button disabled>Загрузка…</Button>
+      </div>
+    </div>
+  );
+}
+
 function displayRunnerText(value) {
   return sanitizeRunnerText(value);
 }
@@ -632,6 +704,8 @@ export default function AssignmentSolvePage() {
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [assignmentSwitching, setAssignmentSwitching] = useState(false);
+  const [partLoading, setPartLoading] = useState({ shell: true, statement: true, tests: true });
 
   
   const [nextA, setNextA] = useState(null); 
@@ -659,6 +733,7 @@ export default function AssignmentSolvePage() {
   const activityStatsRef = React.useRef({ startedAt: Date.now(), hiddenAt: 0, blurAt: 0, hiddenDurationMs: 0, blurDurationMs: 0 });
   const activitySeqRef = React.useRef(0);
   const latestActivityRef = React.useRef({ code: '', language: 'cpp', type: 'code-test' });
+  const currentAssignmentIdRef = React.useRef('');
 
   
   const [imgBusy, setImgBusy] = useState(false);
@@ -699,6 +774,10 @@ export default function AssignmentSolvePage() {
   useEffect(() => {
     latestActivityRef.current = { code, language, type: a?.type || 'code-test' };
   }, [code, language, a?.type]);
+
+  useEffect(() => {
+    currentAssignmentIdRef.current = a?.id ? String(a.id) : '';
+  }, [a?.id]);
 
   const flushActivity = React.useCallback((useBeacon = false) => {
     const events = activityQueueRef.current.splice(0, activityQueueRef.current.length);
@@ -933,38 +1012,49 @@ export default function AssignmentSolvePage() {
 
   useEffect(() => {
     let alive = true;
+    const mergeAssignmentPart = (part) => {
+      if (!alive || !part) return;
+      setA((prev) => {
+        if (!prev || !sameAssignmentId(prev.id, assignmentId)) return prev;
+        if (!sameAssignmentId(part.id, assignmentId)) return prev;
+        return { ...prev, ...part };
+      });
+    };
+
     (async () => {
-      setLoading(true);
+      const firstLoad = !currentAssignmentIdRef.current;
+      setLoading(firstLoad);
+      setAssignmentSwitching(true);
+      setPartLoading({ shell: true, statement: true, tests: true });
       setError('');
-      setA(null);
-      setNextA(null);
       setHydratedAssignmentId('');
-      setCode('');
       setResult(null);
       setCheckedDraftKey('');
       setSubmitPhase('idle');
       setImgError('');
       setImgCompare(null);
       setImageInput('');
+
       try {
-        const data = await getAssignment(assignmentId);
+        let shell = null;
+        try {
+          shell = await getAssignmentSolveShell(assignmentId);
+        } catch {
+          shell = await getAssignment(assignmentId);
+        }
         if (!alive) return;
 
-        const defaultLangFromApi = normalizeLang(data?.language || data?.defaultLanguage) || 'cpp';
-
-        
+        const defaultLangFromApi = normalizeLang(shell?.language || shell?.defaultLanguage) || 'cpp';
         const parsedAllowed = parseAllowedLanguages(
-          data?.allowedLanguages ??
-          data?.courseAllowedLanguages ??
-          data?.course?.allowedLanguages
+          shell?.allowedLanguages ??
+          shell?.courseAllowedLanguages ??
+          shell?.course?.allowedLanguages
         );
-        
-        const effectiveAllowed = (String(data?.type || '').trim() === 'image-test')
+        const effectiveAllowed = (String(shell?.type || '').trim() === 'image-test')
           ? (parsedAllowed.length > 0 ? parsedAllowed : ['pascal','cpp'])
           : parsedAllowed;
 
         let nextLang = defaultLangFromApi;
-
         if (effectiveAllowed.length > 0 && !effectiveAllowed.includes(nextLang)) {
           nextLang = effectiveAllowed[0];
         }
@@ -977,24 +1067,84 @@ export default function AssignmentSolvePage() {
 
         const nextCode = typeof draft?.code === 'string'
           ? draft.code
-          : (typeof data?.starterCode === 'string' ? data.starterCode : '');
+          : (typeof shell?.starterCode === 'string' ? shell.starterCode : '');
 
         setLanguage(nextLang);
         setCode(nextCode);
-        setA(data);
-        setHydratedAssignmentId(String(data?.id || assignmentId));
+        setA({
+          ...shell,
+          description: typeof shell?.description === 'string' ? shell.description : '',
+          tests: shell?.tests ?? shell?.testCases ?? [],
+          testCases: shell?.testCases ?? shell?.tests ?? [],
+        });
+        setHydratedAssignmentId(String(shell?.id || assignmentId));
+        setPartLoading((prev) => ({ ...prev, shell: false }));
+        setLoading(false);
+
+        const statementPromise = getAssignmentStatement(assignmentId)
+          .then((part) => {
+            if (!alive) return;
+            mergeAssignmentPart(part);
+          })
+          .catch(async () => {
+            if (!alive) return;
+            try {
+              const full = await getAssignment(assignmentId);
+              mergeAssignmentPart({
+                id: full?.id || assignmentId,
+                title: full?.title,
+                description: full?.description,
+                tags: full?.tags,
+                difficulty: full?.difficulty,
+                rating: full?.rating,
+              });
+            } catch {}
+          })
+          .finally(() => {
+            if (alive) setPartLoading((prev) => ({ ...prev, statement: false }));
+          });
+
+        const testsPromise = getAssignmentTests(assignmentId)
+          .then((part) => {
+            if (!alive) return;
+            mergeAssignmentPart(part);
+          })
+          .catch(async () => {
+            if (!alive) return;
+            try {
+              const full = await getAssignment(assignmentId);
+              mergeAssignmentPart({
+                id: full?.id || assignmentId,
+                tests: full?.tests,
+                testCases: full?.testCases ?? full?.tests,
+                testsJson: full?.testsJson,
+                imageTestReferenceKey: full?.imageTestReferenceKey,
+                imageTestSimilarityThreshold: full?.imageTestSimilarityThreshold,
+              });
+            } catch {}
+          })
+          .finally(() => {
+            if (alive) setPartLoading((prev) => ({ ...prev, tests: false }));
+          });
+
+        await Promise.allSettled([statementPromise, testsPromise]);
       } catch (e) {
         const msg = getApiErrorMessage(e, 'Не удалось загрузить задание');
         if (alive) {
           setError(msg);
           notify.error(msg);
+          if (!currentAssignmentIdRef.current) setA(null);
         }
       } finally {
-        if (alive) setLoading(false);
+        if (alive) {
+          setLoading(false);
+          setAssignmentSwitching(false);
+          setPartLoading((prev) => ({ ...prev, shell: false, statement: false, tests: false }));
+        }
       }
     })();
     return () => { alive = false; };
-  }, [assignmentId]);
+  }, [assignmentId, notify]);
 
   
   useEffect(() => {
@@ -1422,6 +1572,16 @@ export default function AssignmentSolvePage() {
     return () => { alive = false; };
   }, [assignmentId, isAdmin]);
 
+  const renderAssignmentLoadHint = () => {
+    if (!assignmentSwitching && !partLoading.statement && !partLoading.tests) return null;
+    return (
+      <div className="solve-load-hint mb-4">
+        <span className="solve-load-dot" />
+        <span>Задание загружается по частям: сначала каркас, затем условие и тесты.</span>
+      </div>
+    );
+  };
+
   const renderAdminQuickInsights = () => {
     if (!isAdmin || !adminInsights) return null;
     const totalAttempts = (adminInsights.codeAttempts || 0) + (adminInsights.testAttempts || 0) + (adminInsights.imageAttempts || 0);
@@ -1447,12 +1607,8 @@ export default function AssignmentSolvePage() {
     );
   };
 
-  if (loading) {
-    return (
-      <Layout>
-        <div className="text-neutral-500">Загрузка…</div>
-      </Layout>
-    );
+  if (loading && !a) {
+    return <AssignmentFirstLoadSkeleton />;
   }
   if (!a) {
     return (
@@ -1493,7 +1649,14 @@ export default function AssignmentSolvePage() {
         </div>
 
         {renderAdminQuickInsights()}
-        <TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+        {renderAssignmentLoadHint()}
+        {partLoading.tests ? (
+          <Card className="min-h-[360px] assignment-reveal">
+            <SolveSkeletonLines lines={8} />
+          </Card>
+        ) : (
+          <TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+        )}
       </Layout>
     );
   }
@@ -1529,7 +1692,14 @@ export default function AssignmentSolvePage() {
         </div>
 
         {renderAdminQuickInsights()}
-        <MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+        {renderAssignmentLoadHint()}
+        {partLoading.tests ? (
+          <Card className="min-h-[360px] assignment-reveal">
+            <SolveSkeletonLines lines={8} />
+          </Card>
+        ) : (
+          <MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+        )}
       </Layout>
     );
   }
@@ -1691,23 +1861,26 @@ export default function AssignmentSolvePage() {
         </div>
 
         {renderAdminQuickInsights()}
+        {renderAssignmentLoadHint()}
 
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
-            <Card>
-              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-              {a.tags && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {a.tags
-                    .split(',')
-                    .filter(Boolean)
-                    .map((t) => (
-                      <Badge key={t.trim()}>{t.trim()}</Badge>
-                    ))}
-                </div>
-              )}
-              <StatementViewer value={a.description} />
+            <Card className="assignment-reveal">
+              <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
+                <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+                {a.tags && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {a.tags
+                      .split(',')
+                      .filter(Boolean)
+                      .map((t) => (
+                        <Badge key={t.trim()}>{t.trim()}</Badge>
+                      ))}
+                  </div>
+                )}
+                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+              </SolvePart>
             </Card>
 
             <Card>
@@ -1715,7 +1888,9 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">Эталон</div>
               </div>
 
-              {expectedUrl ? (
+              {partLoading.tests ? (
+                <SolveSkeletonLines lines={4} />
+              ) : expectedUrl ? (
                 <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
                   <img
                     src={expectedUrl}
@@ -1884,28 +2059,29 @@ export default function AssignmentSolvePage() {
               WebkitBackdropFilter: 'blur(14px)',
             }}
           >
-            {nextA?.id && (
+            {(nextA?.id || assignmentSwitching) && (
               <Button
                 className="w-full"
                 variant="outline"
                 onClick={goNextAssignment}
+                disabled={assignmentSwitching || !nextA?.id}
                 title={nextA?.title || 'Следующее задание'}
               >
-                Следующее задание
+                {assignmentSwitching ? 'Загружается…' : 'Следующее задание'}
               </Button>
             )}
             <Button
               className="w-full"
               variant="outline"
               onClick={onTrialImageTest}
-              disabled={imgBusy || !code.trim()}
+              disabled={assignmentSwitching || imgBusy || !code.trim()}
             >
               {imgBusy ? 'Генерация картинки...' : 'Пробник'}
             </Button>
             <Button
               className="w-full"
               onClick={onSubmitImageTest}
-              disabled={imgBusy || !code.trim() || (!expectedUrl && !hasConfiguredImageCases)}
+              disabled={assignmentSwitching || imgBusy || !code.trim() || partLoading.tests || (!expectedUrl && !hasConfiguredImageCases)}
             >
               {imgBusy ? 'Отправка...' : 'Отправить (сравнение)'}
             </Button>
@@ -1956,25 +2132,28 @@ export default function AssignmentSolvePage() {
       </div>
 
       {renderAdminQuickInsights()}
+      {renderAssignmentLoadHint()}
 
       
       {codeSolveLayout !== 'editorTop' ? (
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
-            <Card>
-              <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
-              {a.tags && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {a.tags
-                    .split(',')
-                    .filter(Boolean)
-                    .map((t) => (
-                      <Badge key={t.trim()}>{t.trim()}</Badge>
-                    ))}
-                </div>
-              )}
-              <StatementViewer value={a.description} />
+            <Card className="assignment-reveal">
+              <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
+                <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+                {a.tags && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {a.tags
+                      .split(',')
+                      .filter(Boolean)
+                      .map((t) => (
+                        <Badge key={t.trim()}>{t.trim()}</Badge>
+                      ))}
+                  </div>
+                )}
+                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+              </SolvePart>
             </Card>
 
             <Card>
@@ -1982,7 +2161,9 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">{assignmentTestsTitle}</div>
               </div>
 
-              {visibleTests.length === 0 ? (
+              {partLoading.tests ? (
+                <SolveSkeletonLines lines={6} />
+              ) : visibleTests.length === 0 ? (
                 <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
               ) : (
                 <div className="space-y-3">
@@ -2175,8 +2356,10 @@ export default function AssignmentSolvePage() {
             </div>
           </Card>
 
-          <Card>
-            <StatementViewer value={a.description} />
+          <Card className="assignment-reveal">
+            <SolvePart loading={partLoading.statement} delay={90} minHeight={partLoading.statement ? 160 : undefined}>
+              {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+            </SolvePart>
           </Card>
 
           <Card>
@@ -2184,7 +2367,9 @@ export default function AssignmentSolvePage() {
               <div className="font-medium">{assignmentTestsTitle}</div>
             </div>
 
-            {visibleTests.length === 0 ? (
+            {partLoading.tests ? (
+              <SolveSkeletonLines lines={6} />
+            ) : visibleTests.length === 0 ? (
               <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
             ) : (
               <div className="space-y-3">
@@ -2229,9 +2414,14 @@ export default function AssignmentSolvePage() {
             WebkitBackdropFilter: 'blur(14px)',
           }}
         >
-          {nextA?.id && (
-            <Button variant="outline" onClick={goNextAssignment} title={nextA?.title || 'Следующее задание'}>
-              Следующее задание
+          {(nextA?.id || assignmentSwitching) && (
+            <Button
+              variant="outline"
+              onClick={goNextAssignment}
+              disabled={assignmentSwitching || !nextA?.id}
+              title={nextA?.title || 'Следующее задание'}
+            >
+              {assignmentSwitching ? 'Загружается…' : 'Следующее задание'}
             </Button>
           )}
           {submitStatusText ? (
@@ -2239,7 +2429,7 @@ export default function AssignmentSolvePage() {
               {submitStatusText}
             </div>
           ) : null}
-          <Button onClick={onSubmit} disabled={submitting || !code.trim()}>
+          <Button onClick={onSubmit} disabled={assignmentSwitching || submitting || !code.trim()}>
             <Play size={16} className="mr-1" />
             {submitButtonLabel}
           </Button>

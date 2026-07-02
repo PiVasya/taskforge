@@ -2697,3 +2697,107 @@ html.dark .bg-fx__blob {
 ) {
   --tw-gradient-to: rgb(var(--accent-700)) var(--tw-gradient-to-position) !important;
 }
+
+.solve-page-shell {
+  animation: solve-page-soft-in 180ms ease-out both;
+}
+
+.solve-page-shell--loading {
+  opacity: 0.9;
+}
+
+.assignment-reveal,
+.solve-part--ready {
+  animation: solve-part-reveal 240ms ease-out both;
+  animation-delay: var(--solve-part-delay, 0ms);
+}
+
+.solve-part--loading {
+  opacity: 0.74;
+}
+
+.solve-skeleton-lines {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.1rem 0;
+}
+
+.solve-skeleton-line,
+.solve-skeleton-pill {
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--text) / 0.07),
+    rgba(var(--accent) / 0.16),
+    rgba(var(--text) / 0.07)
+  );
+  background-size: 220% 100%;
+  animation: solve-skeleton-wave 1.15s ease-in-out infinite;
+}
+
+.solve-skeleton-line {
+  height: 0.85rem;
+}
+
+.solve-skeleton-pill {
+  height: 2.25rem;
+}
+
+@keyframes solve-page-soft-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes solve-part-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes solve-skeleton-wave {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+.solve-load-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid rgba(var(--border) / 0.55);
+  background: rgba(var(--card) / 0.58);
+  color: rgb(var(--text-muted));
+  border-radius: 999px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.8125rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: solve-part-reveal 180ms ease-out both;
+}
+
+.solve-load-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: rgb(var(--accent));
+  box-shadow: 0 0 0 0 rgba(var(--accent) / 0.35);
+  animation: solve-load-pulse 1.15s ease-out infinite;
+}
+
+@keyframes solve-load-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--accent) / 0.38); }
+  70% { box-shadow: 0 0 0 0.45rem rgba(var(--accent) / 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--accent) / 0); }
+}

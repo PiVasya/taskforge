@@ -258,6 +258,39 @@ internal static partial class AssignmentApiEndpoints
             });
         });
 
+        app.MapGet("/api/assignments/{assignmentId:guid}/solve-shell", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            var includeSensitive = IsEditor(http, cfg);
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            var solved = userId.HasValue
+                ? await LoadSolvedAssignmentIdsAsync(userId.Value, new[] { assignment.Id }, db, clients, cfg, ct)
+                : new HashSet<Guid>();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveShellDto(assignment, includeSensitive, solved.Contains(assignment.Id)));
+        });
+
+        app.MapGet("/api/assignments/{assignmentId:guid}/statement", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            var includeSensitive = IsEditor(http, cfg);
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveStatementDto(assignment, includeSensitive));
+        });
+
+        app.MapGet("/api/assignments/{assignmentId:guid}/tests", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            var includeSensitive = IsEditor(http, cfg);
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveTestsDto(assignment, includeSensitive));
+        });
+
         app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);

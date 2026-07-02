@@ -22,6 +22,21 @@ export async function getAssignment(assignmentId) {
   return res.data;
 }
 
+export async function getAssignmentSolveShell(assignmentId) {
+  const res = await api.get(`/api/assignments/${assignmentId}/solve-shell`);
+  return res.data;
+}
+
+export async function getAssignmentStatement(assignmentId) {
+  const res = await api.get(`/api/assignments/${assignmentId}/statement`);
+  return res.data;
+}
+
+export async function getAssignmentTests(assignmentId) {
+  const res = await api.get(`/api/assignments/${assignmentId}/tests`);
+  return res.data;
+}
+
 export async function getAssignmentForEdit(assignmentId) {
   const res = await api.get(`/api/assignments/${assignmentId}/edit`);
   return res.data;
