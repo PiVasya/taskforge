@@ -84,7 +84,7 @@ function parseAllowedLanguages(raw) {
 }
 
 const PENDING_SOLUTION_STATUSES = new Set(['preparing', 'queued', 'running', 'pending']);
-const ASSIGNMENT_MIN_REVEAL_MS = 2300;
+const ASSIGNMENT_MIN_REVEAL_MS = 500;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -499,6 +499,137 @@ function InputTextPreview({ value }) {
   }
 
   return <pre className="whitespace-pre-wrap text-sm">{text}</pre>;
+}
+
+
+function extractStatementTextNode(node) {
+  if (!node) return '';
+  if (typeof node === 'string') return node;
+  if (typeof node?.text === 'string') return node.text;
+  if (!Array.isArray(node?.content)) return '';
+
+  const text = node.content.map(extractStatementTextNode).filter(Boolean).join('');
+  const blockTypes = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'listItem']);
+  if (blockTypes.has(node.type) && text) return `${text}\n`;
+  return text;
+}
+
+function statementToPlainText(value) {
+  const raw = String(value ?? '');
+  if (!raw.trim()) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.type === 'doc') {
+      return extractStatementTextNode(parsed).replace(/\n{3,}/g, '\n\n').trim();
+    }
+  } catch {}
+  return raw.trim();
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function TypewriterText({ as: Tag = 'span', text, className = '', playKey = '', durationMs = 480, startDelay = 0, onDone }) {
+  const source = String(text ?? '');
+  const [visibleCount, setVisibleCount] = useState(0);
+  const doneRef = React.useRef(onDone);
+
+  useEffect(() => {
+    doneRef.current = onDone;
+  }, [onDone]);
+
+  useEffect(() => {
+    let frame = 0;
+    let timer = 0;
+    let startedAt = 0;
+    let closed = false;
+    const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    const duration = Math.max(80, Number(durationMs) || 480);
+
+    const finish = () => {
+      if (closed) return;
+      setVisibleCount(source.length);
+      doneRef.current?.();
+    };
+
+    setVisibleCount(reduced ? source.length : 0);
+    if (!source || reduced) {
+      doneRef.current?.();
+      return undefined;
+    }
+
+    const tick = (timestamp) => {
+      if (closed) return;
+      if (!startedAt) startedAt = timestamp;
+      const progress = Math.min(1, (timestamp - startedAt) / duration);
+      setVisibleCount(Math.min(source.length, Math.max(1, Math.ceil(source.length * progress))));
+      if (progress >= 1) finish();
+      else frame = window.requestAnimationFrame(tick);
+    };
+
+    timer = window.setTimeout(() => {
+      frame = window.requestAnimationFrame(tick);
+    }, Math.max(0, Number(startDelay) || 0));
+
+    return () => {
+      closed = true;
+      window.clearTimeout(timer);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [source, playKey, durationMs, startDelay]);
+
+  const done = visibleCount >= source.length;
+  return (
+    <Tag className={`typewriter-text ${done ? 'typewriter-text--done' : ''} ${className}`} aria-label={source}>
+      <span aria-hidden="true">{source.slice(0, visibleCount)}</span>
+      {!done && <span className="typewriter-cursor" aria-hidden="true" />}
+    </Tag>
+  );
+}
+
+function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb-1' }) {
+  const value = String(text ?? '');
+  return (
+    <TypewriterText
+      as="h1"
+      text={value}
+      playKey={`${playKey}:title:${value}`}
+      durationMs={clampNumber(value.length * 18, 180, 620)}
+      className={className}
+    />
+  );
+}
+
+function AnimatedStatementViewer({ value, playKey }) {
+  const plain = useMemo(() => statementToPlainText(value), [value]);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setDone(false);
+  }, [playKey, plain]);
+
+  if (!plain) return <StatementViewer value={value} />;
+
+  return (
+    <div className="animated-statement">
+      {!done ? (
+        <TypewriterText
+          as="div"
+          text={plain}
+          playKey={`${playKey}:statement:${plain.length}`}
+          durationMs={clampNumber(plain.length * 2.2, 420, 1250)}
+          startDelay={80}
+          className="animated-statement-type"
+          onDone={() => setDone(true)}
+        />
+      ) : (
+        <div className="animated-statement-rich">
+          <StatementViewer value={value} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SolveSkeletonLines({ lines = 4, className = '' }) {
@@ -1489,7 +1620,7 @@ export default function AssignmentSolvePage() {
               const errorText = c.compileStderr || c.stderr || c.error || '';
               const casePolicy = parsePolicyText(errorText);
               return (
-                <div key={i} className={`rounded-2xl border border-white/10 bg-black/10 p-3 ${isHiddenTestCase(c) ? 'border-amber-300/40 bg-amber-500/5' : ''}`}>
+                <div key={`${result?.id || result?.solutionId || checkedDraftKey || 'solution'}-case-${i}`} className={`solve-test-case-reveal rounded-2xl border border-white/10 bg-black/10 p-3 ${isHiddenTestCase(c) ? 'border-amber-300/40 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 75}ms` }}>
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-medium">Тест #{i + 1}</div>
@@ -1880,7 +2011,7 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
@@ -1891,7 +2022,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
               </SolvePart>
             </Card>
 
@@ -2153,7 +2284,7 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <h1 className="text-2xl font-semibold mb-1">{a.title}</h1>
+                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
@@ -2164,7 +2295,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
               </SolvePart>
             </Card>
 
@@ -2182,7 +2313,7 @@ export default function AssignmentSolvePage() {
                   {visibleTests.map((t, i) => {
                     const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                     return (
-                      <div key={i} className={`rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}>
+                      <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <div className="text-xs text-neutral-500">Ввод</div>
                           {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
@@ -2302,7 +2433,7 @@ export default function AssignmentSolvePage() {
 
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <div className="font-semibold text-lg">{a.title}</div>
+                  <TypewriterText as="div" text={a.title} playKey={`${a.id || assignmentId}:compact-title`} durationMs={clampNumber(String(a.title || '').length * 14, 160, 480)} className="font-semibold text-lg" />
                   {result && (
                     <div className="flex items-center gap-2 text-sm">
                       {result.__allPassed ? (
@@ -2370,7 +2501,7 @@ export default function AssignmentSolvePage() {
 
           <Card className="assignment-reveal">
             <SolvePart loading={partLoading.statement} delay={90} minHeight={partLoading.statement ? 160 : undefined}>
-              {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <StatementViewer value={a.description} />}
+              {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
             </SolvePart>
           </Card>
 
@@ -2388,7 +2519,7 @@ export default function AssignmentSolvePage() {
                 {visibleTests.map((t, i) => {
                   const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
                   return (
-                    <div key={i} className={`rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}>
+                    <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="text-xs text-neutral-500">Ввод</div>
                         {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}

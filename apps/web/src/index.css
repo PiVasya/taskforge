@@ -2698,6 +2698,62 @@ html.dark .bg-fx__blob {
   --tw-gradient-to: rgb(var(--accent-700)) var(--tw-gradient-to-position) !important;
 }
 
+
+.typewriter-text {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.typewriter-cursor {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1em;
+  margin-left: 0.08ch;
+  vertical-align: -0.12em;
+  border-radius: 999px;
+  background: rgb(var(--accent));
+  opacity: 0.85;
+  animation: typewriter-cursor-blink 520ms ease-in-out infinite alternate;
+}
+
+.typewriter-text--done .typewriter-cursor {
+  display: none;
+}
+
+.animated-statement-type {
+  color: rgb(var(--text));
+  line-height: 1.72;
+}
+
+.animated-statement-rich {
+  animation: solve-part-reveal 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.solve-test-case-reveal {
+  opacity: 0;
+  animation: solve-test-case-reveal 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--solve-test-delay, 0ms);
+}
+
+@keyframes typewriter-cursor-blink {
+  from { opacity: 0.2; transform: scaleY(0.72); }
+  to { opacity: 0.95; transform: scaleY(1); }
+}
+
+@keyframes solve-test-case-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
 .solve-page-shell {
   animation: solve-page-soft-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -2868,9 +2924,23 @@ html.dark .bg-fx__blob {
   .auto-fill-grid > *,
   .assignment-reveal,
   .solve-part--ready,
-  .solve-page-shell {
+  .solve-page-shell,
+  .animated-statement-rich,
+  .solve-test-case-reveal,
+  .typewriter-cursor {
     animation: none !important;
   }
+
+  .solve-test-case-reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  .typewriter-cursor {
+    display: none;
+  }
+
   .tf-choice-card:hover,
   .tf-choice-card:focus-visible {
     transform: none;

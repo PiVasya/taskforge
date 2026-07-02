@@ -509,6 +509,88 @@ function readImportVisibility(x) {
   return undefined;
 }
 
+function normalizeImportTypeValue(value) {
+  const s = String(value || "").trim().toLowerCase();
+  if (["code", "code_test", "code-test", "programming"].includes(s)) return "code-test";
+  if (["image", "image_test", "image-test", "graphics"].includes(s)) return "image-test";
+  if (["quiz", "test", "questions"].includes(s)) return "test";
+  if (["math", "math-test", "math_test"].includes(s)) return "math";
+  return s;
+}
+
+function inferImportTypeValue(item) {
+  if (!item || typeof item !== "object") return "code-test";
+  const explicit = normalizeImportTypeValue(item.type || item.kind || item.assignmentType);
+  if (explicit) return explicit;
+  if (Array.isArray(item.questions) || item.tests?.questions || item.testSpec?.questions) return "test";
+  if (Array.isArray(item.blocks) || item.tests?.blocks || item.mathSpec?.blocks) return "math";
+  if (item.imageTestReferenceKey !== undefined || item.imageTestSimilarityThreshold !== undefined || item.expectedImageKey !== undefined) return "image-test";
+  return "code-test";
+}
+
+function hasImportArrayPayload(item, names) {
+  if (!item || typeof item !== "object") return false;
+  for (const name of names) {
+    const value = item[name];
+    if (Array.isArray(value) && value.length > 0) return true;
+  }
+  if (item.tests && typeof item.tests === "object") {
+    for (const name of names) {
+      const value = item.tests[name];
+      if (Array.isArray(value) && value.length > 0) return true;
+    }
+  }
+  if (item.testSpec && typeof item.testSpec === "object") {
+    for (const name of names) {
+      const value = item.testSpec[name];
+      if (Array.isArray(value) && value.length > 0) return true;
+    }
+  }
+  if (item.mathSpec && typeof item.mathSpec === "object") {
+    for (const name of names) {
+      const value = item.mathSpec[name];
+      if (Array.isArray(value) && value.length > 0) return true;
+    }
+  }
+  return false;
+}
+
+function validateJsonImportItem(item, index, action) {
+  const issues = [];
+  const isCreate = action === "create";
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return [`#${index + 1}: ожидался объект задания.`];
+  }
+
+  const type = inferImportTypeValue(item);
+  const explicitType = item.type || item.kind || item.assignmentType;
+  const title = String(item.title || item.name || item.assignmentTitle || "").trim();
+  const supportedTypes = ["code-test", "image-test", "test", "math"];
+
+  if (explicitType && !supportedTypes.includes(type)) issues.push(`type должен быть code-test, image-test, test или math.`);
+  if (isCreate && !title) issues.push("title обязателен для нового задания.");
+  if (title.length > 200) issues.push("title не должен быть длиннее 200 символов.");
+
+  if (item.difficulty !== undefined) {
+    const difficulty = Number(item.difficulty);
+    if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 3) issues.push("difficulty должен быть 1, 2 или 3.");
+  }
+  if (item.rating !== undefined && Number(item.rating) < 0) issues.push("rating не может быть отрицательным.");
+  if (item.sort !== undefined && Number(item.sort) < 0) issues.push("sort не может быть отрицательным.");
+
+  if (isCreate && ["code-test", "image-test"].includes(type) && !hasImportArrayPayload(item, ["testCases", "cases", "tests"])) {
+    issues.push("для code-test/image-test нужно указать непустой testCases.");
+  }
+  if (isCreate && type === "test" && !hasImportArrayPayload(item, ["questions"])) {
+    issues.push("для test нужно указать непустой questions.");
+  }
+  if (isCreate && type === "math" && !hasImportArrayPayload(item, ["blocks"])) {
+    issues.push("для math нужно указать непустой blocks.");
+  }
+
+  return issues;
+}
+
 const IMPORT_DIFF_FIELDS = [
   { key: "title", label: "Название", read: (x) => x?.title ?? x?.assignmentTitle },
   { key: "type", label: "Тип", read: (x) => x?.type },
@@ -552,14 +634,19 @@ function buildJsonImportDiff(parsed, currentExport) {
         }).filter(Boolean)
       : [];
 
+    const action = existing ? (changes.length ? "update" : "unchanged") : "create";
+    const type = item?.type || existing?.type || inferImportTypeValue(item);
+    const issues = validateJsonImportItem(item, index, action);
+
     return {
       index,
       id,
       title,
-      type: item?.type || existing?.type || "assignment",
-      action: existing ? (changes.length ? "update" : "unchanged") : "create",
+      type,
+      action,
       duplicateTitle,
       changes,
+      issues,
     };
   });
 
@@ -570,6 +657,7 @@ function buildJsonImportDiff(parsed, currentExport) {
     unchangedCount: rows.filter((x) => x.action === "unchanged").length,
     withoutIdCount: rows.filter((x) => !x.id).length,
     duplicateTitleCount: rows.filter((x) => x.duplicateTitle).length,
+    validationErrorCount: rows.reduce((sum, row) => sum + row.issues.length, 0),
     rows,
   };
 }
@@ -1114,6 +1202,7 @@ export default function CourseAssignmentsPage() {
       setJsonImportDiff(diff);
       setJsonImportDiffOpen(true);
       if (diff.total === 0) notify.warn("В JSON не найдено заданий для импорта");
+      if (diff.validationErrorCount > 0) notify.warn(`В JSON есть ошибки: ${diff.validationErrorCount}`);
     } catch (e) {
       handleApiError(e, notify, "Не удалось подготовить дифф импорта");
     } finally {
@@ -1124,6 +1213,10 @@ export default function CourseAssignmentsPage() {
   const handleApplyPreparedJsonImport = async () => {
     if (!jsonImportParsed) {
       notify.error("Сначала подготовьте дифф импорта");
+      return;
+    }
+    if (jsonImportDiff?.validationErrorCount > 0) {
+      notify.error("Сначала исправьте ошибки JSON");
       return;
     }
     await applyJsonImport(jsonImportParsed);
@@ -1267,7 +1360,7 @@ export default function CourseAssignmentsPage() {
                   <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
                     <X size={16} /> Назад
                   </Button>
-                  <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0}>
+                  <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0 || jsonImportDiff.validationErrorCount > 0}>
                     <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Применить изменения"}
                   </Button>
                 </div>
@@ -1275,7 +1368,7 @@ export default function CourseAssignmentsPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-5">
                 <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
                   <div className="text-xs text-neutral-500">Всего</div>
                   <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.total}</div>
@@ -1292,16 +1385,26 @@ export default function CourseAssignmentsPage() {
                   <div className="text-xs text-neutral-500">Без изменений</div>
                   <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.unchangedCount}</div>
                 </div>
+                <div className={`rounded-2xl border p-3 ${jsonImportDiff.validationErrorCount > 0 ? "border-red-400/70 bg-red-500/10" : "border-[rgba(var(--border)/0.65)]"}`}>
+                  <div className="text-xs text-neutral-500">Ошибки</div>
+                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.validationErrorCount}</div>
+                </div>
               </div>
 
-              {(jsonImportDiff.withoutIdCount > 0 || jsonImportDiff.duplicateTitleCount > 0) && (
+              {jsonImportDiff.validationErrorCount > 0 && (
+                <div className="mt-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-900 dark:text-red-100">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                    <div>Исправь ошибки ниже. Импорт не будет применён, пока JSON не совпадает со схемой проекта.</div>
+                  </div>
+                </div>
+              )}
+
+              {jsonImportDiff.duplicateTitleCount > 0 && (
                 <div className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
                   <div className="flex items-start gap-2">
                     <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                    <div>
-                      {jsonImportDiff.withoutIdCount > 0 ? <div>Без <code>id</code>: {jsonImportDiff.withoutIdCount}</div> : null}
-                      {jsonImportDiff.duplicateTitleCount > 0 ? <div>Возможные дубли по названию: {jsonImportDiff.duplicateTitleCount}</div> : null}
-                    </div>
+                    <div>Возможные дубли по названию: {jsonImportDiff.duplicateTitleCount}</div>
                   </div>
                 </div>
               )}
@@ -1319,12 +1422,19 @@ export default function CourseAssignmentsPage() {
                           {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
                         </div>
                         <div className="mt-2 break-words font-semibold">{row.title}</div>
-                        <div className="mt-1 break-all text-xs text-neutral-500">id: {row.id || "нет id"}</div>
+                        <div className="mt-1 break-all text-xs text-neutral-500">{row.id ? `id: ${row.id}` : "Будет создано как новое задание"}</div>
                       </div>
                       <div className="text-xs text-neutral-500">#{row.index + 1}</div>
                     </div>
 
-                    {row.action === "create" ? (
+                    {row.issues.length > 0 ? (
+                      <div className="mt-3 rounded-xl border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-100">
+                        <div className="font-semibold">Ошибки JSON</div>
+                        <ul className="mt-1 list-disc space-y-1 pl-5">
+                          {row.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                        </ul>
+                      </div>
+                    ) : row.action === "create" ? (
                       <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
                         Будет создано.
                       </div>
