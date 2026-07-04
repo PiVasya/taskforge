@@ -2721,25 +2721,18 @@ html.dark .bg-fx__blob {
   display: none;
 }
 
-.animated-statement {
-  opacity: 0;
-  transform: translateY(10px) scale(0.992);
-  filter: blur(3px);
-  transition:
-    opacity 460ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 460ms cubic-bezier(0.22, 1, 0.36, 1);
+.animated-statement-type {
+  color: rgb(var(--text));
+  line-height: 1.72;
 }
 
-.animated-statement--visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
+.animated-statement-rich {
+  animation: solve-part-reveal 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .solve-test-case-reveal {
   opacity: 0;
-  animation: solve-test-case-reveal 440ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: solve-test-case-reveal 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   animation-delay: var(--solve-test-delay, 0ms);
 }
 
@@ -2932,13 +2925,12 @@ html.dark .bg-fx__blob {
   .assignment-reveal,
   .solve-part--ready,
   .solve-page-shell,
-  .animated-statement,
+  .animated-statement-rich,
   .solve-test-case-reveal,
   .typewriter-cursor {
     animation: none !important;
   }
 
-  .animated-statement,
   .solve-test-case-reveal {
     opacity: 1;
     transform: none;

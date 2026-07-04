@@ -17,6 +17,22 @@ import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
 import { getAdminAnalyticsOverview, getAdminAnalyticsUser, searchAdminAnalyticsUsers } from '../../api/adminAnalytics';
 import { handleApiError } from '../../utils/handleApiError';
+
+import {
+  ResponsiveContainer,
+  AreaChart as ReAreaChart,
+  Area,
+  BarChart as ReBarChart,
+  Bar,
+  PieChart as RePieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from 'recharts';
 import { useNotify } from '../../components/notify/NotifyProvider';
 
 const PERIODS = [7, 14, 30, 90, 180, 365];
@@ -160,36 +176,55 @@ function EmptyState() {
   return <div className="rounded-2xl border border-dashed border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.26)] px-4 py-10 text-center text-sm text-neutral-500 dark:text-neutral-300">Недостаточно данных за выбранный период.</div>;
 }
 
+const chartPalette = [
+  'rgb(var(--accent))',
+  'rgb(var(--accent2))',
+  'rgb(var(--accent3))',
+  'rgba(var(--accent),0.72)',
+  'rgba(var(--accent2),0.72)',
+  'rgba(var(--accent3),0.72)',
+];
+
+function chartValue(item) {
+  return Number(item?.value ?? item?.count ?? item?.requests ?? item?.attempts ?? 0);
+}
+
+function ChartTooltip({ active, payload, label, formatter = formatNumber }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--card)/0.96)] px-3 py-2 text-sm shadow-soft backdrop-blur">
+      <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-300">{label}</div>
+      {payload.map((entry) => (
+        <div key={entry.dataKey || entry.name} className="flex items-center justify-between gap-6">
+          <span className="text-neutral-500 dark:text-neutral-300">{entry.name}</span>
+          <span className="font-semibold">{formatter(entry.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartShell({ children, height = 250 }) {
+  return (
+    <div className="rounded-3xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.18)] p-3" style={{ height }}>
+      {children}
+    </div>
+  );
+}
+
 function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, valueFormatter = formatNumber }) {
   if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
-  const values = data.map((d) => Number(d.value ?? d.count ?? 0));
-  const max = Math.max(...values, 1);
-  const width = 100;
-  const padX = 4;
-  const padY = 8;
-  const innerW = width - padX * 2;
-  const innerH = 100 - padY * 2;
-  const pts = data.map((d, i) => {
-    const x = padX + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW);
-    const y = padY + innerH - (Number(d.value ?? d.count ?? 0) / max) * innerH;
-    return [x, y];
-  });
-  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ');
-  const area = `${path} L ${pts[pts.length - 1][0]} ${100 - padY} L ${pts[0][0]} ${100 - padY} Z`;
-  const last = data[data.length - 1];
-  const peak = Math.max(...values);
-  const dense = data.length > 90;
-  const veryDense = data.length > 180;
-  const showDots = data.length <= 18;
-  const strokeWidth = veryDense ? 0.14 : dense ? 0.22 : data.length > 30 ? 0.34 : 0.48;
-  const areaOpacity = veryDense ? 0.012 : dense ? 0.02 : 0.03;
+  const normalized = data.map((item) => ({ ...item, value: chartValue(item), label: item.label || item.date || '—' }));
+  const values = normalized.map((item) => item.value);
+  const last = normalized[normalized.length - 1];
+  const peak = Math.max(...values, 0);
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Последнее значение</div>
-          <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value ?? last?.count)}</div>
+          <div className="mt-1 text-xl font-semibold">{valueFormatter(last?.value)}</div>
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Пик</div>
@@ -197,124 +232,92 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.38)] px-4 py-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">Точек</div>
-          <div className="mt-1 text-xl font-semibold">{formatNumber(data.length)}</div>
+          <div className="mt-1 text-xl font-semibold">{formatNumber(normalized.length)}</div>
         </div>
       </div>
-      <div className="relative overflow-hidden rounded-3xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.2)]" style={{ height }}>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-          {[0.25, 0.5, 0.75].map((n) => (
-            <line key={n} x1="0" x2="100" y1={n * 100} y2={n * 100} stroke="rgba(var(--border),0.38)" strokeWidth="0.35" />
-          ))}
-          <path d={area} fill={color} opacity={areaOpacity} />
-          <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="miter" strokeLinecap="butt" vectorEffect="non-scaling-stroke" />
-          {showDots ? pts.map((p, i) => (
-            <circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 0.7 : 0.45} fill={color} opacity={i === pts.length - 1 ? 1 : 0.65} />
-          )) : null}
-        </svg>
-      </div>
-      <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-        <span>{data[0]?.label || data[0]?.date || '—'}</span>
-        <span>{data[Math.floor((data.length - 1) / 2)]?.label || data[Math.floor((data.length - 1) / 2)]?.date || '—'}</span>
-        <span>{data[data.length - 1]?.label || data[data.length - 1]?.date || '—'}</span>
-      </div>
+      <ChartShell height={height}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ReAreaChart data={normalized} margin={{ top: 14, right: 18, left: 0, bottom: 4 }}>
+            <CartesianGrid stroke="rgba(var(--border),0.26)" vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+            <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ stroke: color, strokeOpacity: 0.28 }} />
+            <Area type="monotone" dataKey="value" name="Значение" stroke={color} strokeWidth={2.2} fill={color} fillOpacity={0.14} dot={{ r: 2.5 }} activeDot={{ r: 5 }} isAnimationActive />
+          </ReAreaChart>
+        </ResponsiveContainer>
+      </ChartShell>
     </div>
   );
 }
 
-function BarChart({ data = [], color = 'rgb(var(--accent))', height = 260, valueFormatter = formatNumber }) {
+function BarChart({ data = [], color = 'rgb(var(--accent))', height = 300, valueFormatter = formatNumber }) {
   if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
-  const max = Math.max(...data.map((d) => Number(d.value || 0)), 1);
+  const normalized = data.map((item) => ({ ...item, label: item.label || item.name || '—', value: chartValue(item) }));
+  const looksTemporal = normalized.every((item) => /^\d{2}:\d{2}$/.test(item.label) || /^\d{2}\.\d{2}$/.test(item.label));
+  const layout = normalized.length >= 7 && normalized.length <= 15 && !looksTemporal ? 'vertical' : 'horizontal';
+  const computedHeight = layout === 'vertical' ? Math.max(height, normalized.length * 38 + 60) : height;
+
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3">
-        {data.map((item) => {
-          const width = `${Math.max(4, (Number(item.value || 0) / max) * 100)}%`;
-          return (
-            <div key={item.label} className="space-y-1">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <div className="truncate text-neutral-700 dark:text-neutral-200">{item.label}</div>
-                <div className="shrink-0 font-medium">{valueFormatter(item.value)}</div>
-              </div>
-              <div className="h-3 overflow-hidden rounded-full bg-[rgba(var(--border)/0.18)]">
-                <div className="h-full rounded-full" style={{ width, background: color }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <ChartShell height={computedHeight}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ReBarChart data={normalized} layout={layout} margin={{ top: 12, right: 20, left: layout === 'vertical' ? 18 : 0, bottom: 8 }}>
+          <CartesianGrid stroke="rgba(var(--border),0.24)" horizontal={layout !== 'vertical'} vertical={layout === 'vertical'} />
+          {layout === 'vertical' ? (
+            <>
+              <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+              <YAxis dataKey="label" type="category" width={130} tickLine={false} axisLine={false} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+            </>
+          ) : (
+            <>
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
+            </>
+          )}
+          <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ fill: 'rgba(var(--accent),0.08)' }} />
+          <Bar dataKey="value" name="Значение" fill={color} radius={layout === 'vertical' ? [0, 10, 10, 0] : [10, 10, 0, 0]} isAnimationActive />
+        </ReBarChart>
+      </ResponsiveContainer>
+    </ChartShell>
   );
 }
 
-function DonutChart({ data = [], size = 220 }) {
+function DonutChart({ data = [], size = 260 }) {
   if (!Array.isArray(data) || data.length === 0 || data.every((x) => !Number(x.value))) return <EmptyState />;
-  const total = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
-  const radius = 42;
-  const stroke = 14;
-  const circumference = 2 * Math.PI * radius;
-  const gap = data.length > 1 ? 4 : 0;
-  const palette = [
-    'rgb(var(--accent))',
-    'rgba(var(--accent),0.78)',
-    'rgb(var(--accent2))',
-    'rgb(var(--accent3))',
-    'rgba(var(--accent2),0.48)',
-  ];
-  let offset = 0;
+  const normalized = data.map((item) => ({ ...item, label: item.label || item.name || '—', value: chartValue(item) }));
+  const total = normalized.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="grid gap-6 md:grid-cols-[auto,1fr] md:items-center">
-      <div className="mx-auto" style={{ width: size, height: size }}>
-        <svg viewBox="0 0 120 120" className="h-full w-full">
-          <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(var(--border),0.22)" strokeWidth={stroke} />
-          <g transform="rotate(-90 60 60)">
-            {data.map((item, idx) => {
-              const value = Number(item.value || 0);
-              const segment = (value / total) * circumference;
-              const dash = Math.max(0, segment - gap);
-              const el = (
-                <circle
-                  key={item.label}
-                  cx="60"
-                  cy="60"
-                  r={radius}
-                  fill="none"
-                  stroke={palette[idx % palette.length]}
-                  strokeWidth={stroke}
-                  strokeDasharray={`${dash} ${circumference - dash}`}
-                  strokeDashoffset={-offset}
-                  strokeLinecap="butt"
-                />
-              );
-              offset += segment;
-              return el;
-            })}
-          </g>
-          <circle cx="60" cy="60" r="25.5" fill="rgb(var(--card))" />
-          <text x="60" y="56" textAnchor="middle" style={{ fill: 'currentColor', fontSize: '13px', fontWeight: 700 }}>
-            {formatNumber(total)}
-          </text>
-          <text x="60" y="68" textAnchor="middle" style={{ fill: 'rgb(var(--text-muted))', fontSize: '5px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            всего
-          </text>
-        </svg>
-      </div>
+    <div className="grid gap-5 md:grid-cols-[minmax(220px,0.8fr),1fr] md:items-center">
+      <ChartShell height={size}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RePieChart>
+            <Pie data={normalized} dataKey="value" nameKey="label" innerRadius="58%" outerRadius="82%" paddingAngle={2} isAnimationActive>
+              {normalized.map((item, idx) => <Cell key={item.label} fill={chartPalette[idx % chartPalette.length]} />)}
+            </Pie>
+            <Tooltip content={<ChartTooltip formatter={formatNumber} />} />
+            <Legend verticalAlign="bottom" iconType="circle" formatter={(value) => <span className="text-sm text-neutral-500 dark:text-neutral-300">{value}</span>} />
+            <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" className="fill-current text-2xl font-semibold">
+              {formatNumber(total)}
+            </text>
+            <text x="50%" y="58%" textAnchor="middle" dominantBaseline="middle" className="fill-[rgb(var(--text-muted))] text-[10px] uppercase tracking-[0.16em]">
+              всего
+            </text>
+          </RePieChart>
+        </ResponsiveContainer>
+      </ChartShell>
       <div className="space-y-3">
-        {data.map((item, idx) => {
-          const value = Number(item.value || 0);
-          return (
-            <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: palette[idx % palette.length] }} />
-                <span className="truncate">{item.label}</span>
-              </div>
-              <div className="shrink-0 text-right">
-                <div className="font-semibold">{formatNumber(value)}</div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">{formatPercent(total ? (value / total) * 100 : 0)}</div>
-              </div>
+        {normalized.map((item, idx) => (
+          <div key={item.label} className="flex items-center justify-between gap-4 rounded-2xl border border-[rgba(var(--border)/0.45)] bg-[rgba(var(--muted)/0.34)] px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: chartPalette[idx % chartPalette.length] }} />
+              <span className="truncate">{item.label}</span>
             </div>
-          );
-        })}
+            <div className="shrink-0 text-right">
+              <div className="font-semibold">{formatNumber(item.value)}</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{formatPercent(total ? (item.value / total) * 100 : 0)}</div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -561,9 +564,9 @@ export default function AdminAnalyticsPage() {
     },
     {
       icon: LifeBuoy,
-      label: 'Support-тикеты',
-      value: formatNumber(supportTotals.totalTickets),
-      hint: `Открыто: ${formatNumber(supportTotals.openTickets)} · средний первый ответ: ${formatMinutes(supportTotals.avgFirstResponseMinutes)}`,
+      label: 'Support',
+      value: formatNumber(supportTotals.userMessages || supportTotals.totalMessages || supportTotals.totalTickets),
+      hint: `Среднее время ответа: ${formatMinutes(supportTotals.avgResponseMinutes || supportTotals.avgFirstResponseMinutes)} · ответов админов: ${formatNumber(supportTotals.adminMessages)}`,
     },
   ], [usersTotals, apiTotals, assignmentTotals, supportTotals]);
 
@@ -615,7 +618,7 @@ export default function AdminAnalyticsPage() {
               <Card className="p-5">
                 <div className="text-base font-semibold">Сбор IP и приватность</div>
                 <div className="mt-2 text-sm text-neutral-500 dark:text-neutral-300">
-                  {data.privacy.note || 'Сырые IP не сохраняются.'} Подсеть: {data.privacy.ipPrefix || 'анонимно'}.
+                  {data.privacy.note || 'IP фиксируются по правилам пользовательского соглашения.'} Подсеть: {data.privacy.ipPrefix || '—'}.
                 </div>
               </Card>
             ) : null}
@@ -791,7 +794,7 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-3">
-              <ChartCard title="Ошибочные endpoint’ы" subtitle="Где реально были 4xx/5xx. Теперь сюда попадают ошибки из axios-перехватчика, а не только переходы по страницам.">
+              <ChartCard title="Ошибочные endpoint’ы" subtitle="Где реально были 4xx/5xx.">
                 <RankedTable
                   rows={data.api?.errorEndpoints || []}
                   columns={[
@@ -804,7 +807,7 @@ export default function AdminAnalyticsPage() {
               <ChartCard title="HTTP-статусы" subtitle="Распределение ответов backend за выбранный период.">
                 <DonutChart data={data.api?.statusCodes || []} />
               </ChartCard>
-              <ChartCard title="Сетевые источники" subtitle="IP сохраняются только анонимно: hash + подсеть /24 или /48. Сырых адресов здесь нет.">
+              <ChartCard title="Сетевые источники" subtitle="IP фиксируются по правилам соглашения; здесь сгруппированы сетевые источники.">
                 <RankedTable
                   rows={data.api?.ipPrefixes || []}
                   columns={[
@@ -817,7 +820,7 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-              <ChartCard title="Попытки по заданиям" subtitle="Сколько действий по code/test/image/math вообще было за период.">
+              <ChartCard title="Попытки по заданиям" subtitle="Сколько реальных отправленных попыток code/test/image/math было за период.">
                 <LineAreaChart data={data.assignments?.attemptsByDay || []} color="rgb(var(--accent))" />
               </ChartCard>
               <ChartCard title="Успешные попытки по дням" subtitle={`Общая успешность: ${formatPercent(assignmentTotals.successRate)} · средний score test/math: ${formatPercent(assignmentTotals.avgTestScore)}`}>
@@ -826,7 +829,7 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
-              <ChartCard title="Типы активностей в заданиях" subtitle="Каких попыток больше: code, image, test или math.">
+              <ChartCard title="Типы активностей в заданиях" subtitle="Распределение реальных отправленных попыток по типам.">
                 <DonutChart data={data.assignments?.types || []} />
               </ChartCard>
               <ChartCard title="Топ языков решений" subtitle="Какие языки реально используют чаще всего.">
@@ -860,16 +863,16 @@ export default function AdminAnalyticsPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-              <ChartCard title="Новые support-тикеты по дням" subtitle="Видно нагрузку на поддержку и всплески обращений.">
-                <LineAreaChart data={data.support?.ticketsByDay || []} color="rgb(var(--accent3))" />
+              <ChartCard title="Сообщения пользователей по дням" subtitle="Видно нагрузку на поддержку и всплески сообщений.">
+                <LineAreaChart data={data.support?.userMessagesByDay || data.support?.ticketsByDay || []} color="rgb(var(--accent3))" />
               </ChartCard>
-              <ChartCard title="Закрытые тикеты по дням" subtitle={`Средний первый ответ: ${formatMinutes(supportTotals.avgFirstResponseMinutes)} · среднее закрытие: ${formatMinutes(supportTotals.avgCloseMinutes)}`}>
-                <LineAreaChart data={data.support?.closedByDay || []} color="rgb(var(--accent2))" />
+              <ChartCard title="Ответы админов по дням" subtitle={`Средний первый ответ: ${formatMinutes(supportTotals.avgFirstResponseMinutes)} · среднее время ответа: ${formatMinutes(supportTotals.avgResponseMinutes)}`}>
+                <LineAreaChart data={data.support?.adminMessagesByDay || data.support?.closedByDay || []} color="rgb(var(--accent2))" />
               </ChartCard>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[0.9fr,1.1fr]">
-              <ChartCard title="Типы обращений" subtitle="Что люди приносят чаще: баги, вопросы, предложения и т.д.">
+              <ChartCard title="Типы обращений" subtitle="Распределение обращений по доступным категориям.">
                 <DonutChart data={data.support?.ticketTypes || []} />
               </ChartCard>
               <ChartCard title="Самые активные админы поддержки" subtitle="Кто чаще всего отвечает в support-системе.">

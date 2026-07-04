@@ -178,62 +178,71 @@ internal static partial class SupportApiEndpoints
             var to = toUtc ?? DateTimeOffset.UtcNow;
             var from = fromUtc ?? to.AddDays(-days);
 
-            var tickets = await db.Tickets.AsNoTracking()
+            var messages = await db.Messages.AsNoTracking()
                 .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .OrderBy(x => x.CreatedAt)
                 .ToListAsync(ct);
 
-            var ticketIds = tickets.Select(x => x.Id).ToArray();
-            var messages = ticketIds.Length == 0
-                ? new List<SupportMessage>()
-                : await db.Messages.AsNoTracking()
-                    .Where(x => ticketIds.Contains(x.TicketId))
-                    .OrderBy(x => x.CreatedAt)
-                    .ToListAsync(ct);
+            var ticketIds = messages.Select(x => x.TicketId).Distinct().ToArray();
+            var tickets = ticketIds.Length == 0
+                ? new List<SupportTicket>()
+                : await db.Tickets.AsNoTracking().Where(x => ticketIds.Contains(x.Id)).ToListAsync(ct);
 
-            var firstResponseMinutes = tickets.Select(t =>
-                messages.FirstOrDefault(m => m.TicketId == t.Id && string.Equals(m.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) && m.CreatedAt >= t.CreatedAt) is { } firstAdmin
-                    ? (double?)(firstAdmin.CreatedAt - t.CreatedAt).TotalMinutes
+            var adminMessages = messages.Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)).ToList();
+            var userMessages = messages.Where(x => !string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)).ToList();
+            var allByTicket = ticketIds.Length == 0
+                ? new List<SupportMessage>()
+                : await db.Messages.AsNoTracking().Where(x => ticketIds.Contains(x.TicketId) && x.CreatedAt <= to).OrderBy(x => x.CreatedAt).ToListAsync(ct);
+
+            var responseMinutes = userMessages.Select(m =>
+                allByTicket.FirstOrDefault(next => next.TicketId == m.TicketId
+                    && string.Equals(next.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)
+                    && next.CreatedAt > m.CreatedAt) is { } admin
+                    ? (double?)(admin.CreatedAt - m.CreatedAt).TotalMinutes
                     : null)
                 .Where(x => x.HasValue)
                 .Select(x => x!.Value)
                 .ToList();
 
-            var activeChats = tickets.Where(t => messages.Any(m => m.TicketId == t.Id)).ToList();
-            var adminIds = messages
-                .Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) && x.UserId.HasValue)
+            var firstResponseMinutes = tickets.Select(t =>
+            {
+                var firstUser = allByTicket.FirstOrDefault(m => m.TicketId == t.Id && !string.Equals(m.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase));
+                if (firstUser == null) return null;
+                var firstAdmin = allByTicket.FirstOrDefault(m => m.TicketId == t.Id && string.Equals(m.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) && m.CreatedAt > firstUser.CreatedAt);
+                return firstAdmin == null ? null : (double?)(firstAdmin.CreatedAt - firstUser.CreatedAt).TotalMinutes;
+            }).Where(x => x.HasValue).Select(x => x!.Value).ToList();
+
+            var adminIds = adminMessages
+                .Where(x => x.UserId.HasValue)
                 .Select(x => x.UserId!.Value)
                 .Distinct()
                 .ToArray();
             var users = await LoadUserSummariesAsync(adminIds, cfg, httpFactory, ct);
 
-            var byDay = messages.Where(x => !string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)).GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.Count());
-            var adminByDay = messages.Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)).GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.Count());
-            var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
-            var userMessagePoints = Enumerable.Range(0, days).Select(i =>
+            List<object> DayPoints(IEnumerable<SupportMessage> rows)
             {
-                var day = start.AddDays(i);
-                var count = byDay.GetValueOrDefault(day);
-                return new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = count, count };
-            }).ToList();
-            var adminMessagePoints = Enumerable.Range(0, days).Select(i =>
-            {
-                var day = start.AddDays(i);
-                var count = adminByDay.GetValueOrDefault(day);
-                return new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = count, count };
-            }).ToList();
+                var byDay = rows.GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.Count());
+                var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
+                return Enumerable.Range(0, days).Select(i =>
+                {
+                    var day = start.AddDays(i);
+                    var count = byDay.GetValueOrDefault(day);
+                    return (object)new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = count, count };
+                }).ToList();
+            }
 
-            var topAdmins = messages
-                .Where(x => string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase))
-                .GroupBy(x => x.UserId)
+            var topAdmins = adminMessages
+                .Where(x => x.UserId.HasValue)
+                .GroupBy(x => x.UserId!.Value)
                 .Select(g =>
                 {
-                    var user = g.Key.HasValue ? users.GetValueOrDefault(g.Key.Value) : null;
+                    var user = users.GetValueOrDefault(g.Key);
                     return new
                     {
                         userId = g.Key,
                         label = UserLabel(user),
                         email = user?.Email ?? user?.MaskedEmail,
-                        value = g.Count()
+                        value = g.Count(),
                     };
                 })
                 .OrderByDescending(x => x.value)
@@ -244,18 +253,20 @@ internal static partial class SupportApiEndpoints
             {
                 totals = new
                 {
-                    totalTickets = activeChats.Count,
-                    totalChats = activeChats.Count,
-                    openTickets = activeChats.Count,
-                    closedTickets = 0,
+                    totalChats = ticketIds.Length,
+                    totalTickets = ticketIds.Length,
+                    totalMessages = messages.Count,
+                    userMessages = userMessages.Count,
+                    adminMessages = adminMessages.Count,
+                    unansweredMessages = userMessages.Count - responseMinutes.Count,
                     avgFirstResponseMinutes = firstResponseMinutes.Count == 0 ? 0 : System.Math.Round(firstResponseMinutes.Average(), 1),
-                    avgCloseMinutes = 0,
+                    avgResponseMinutes = responseMinutes.Count == 0 ? 0 : System.Math.Round(responseMinutes.Average(), 1),
                 },
-                ticketsByDay = userMessagePoints,
-                closedByDay = adminMessagePoints,
-                userMessagesByDay = userMessagePoints,
-                adminMessagesByDay = adminMessagePoints,
-                ticketTypes = new[] { new { label = "Чаты", value = activeChats.Count } },
+                userMessagesByDay = DayPoints(userMessages),
+                adminMessagesByDay = DayPoints(adminMessages),
+                ticketsByDay = DayPoints(userMessages),
+                closedByDay = DayPoints(adminMessages),
+                ticketTypes = ticketIds.Length == 0 ? Array.Empty<object>() : new[] { new { label = "Чаты", value = ticketIds.Length } }.Cast<object>().ToArray(),
                 topAdmins,
             });
         });

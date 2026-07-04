@@ -37,10 +37,12 @@ internal static partial class ObservabilityApiEndpoints
             var prevActiveUserCount = prevViews.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().Count();
             var avgLatency = AvgDuration(apiViews);
             var prevAvgLatency = AvgDuration(prevApiViews);
-            var assignmentSuccessRate = Percent(successAssignmentViews.Count, System.Math.Max(1, assignmentViews.Count));
             var prevAssignmentViews = prevApiViews.Where(IsAssignmentActivity).ToList();
-            var prevSuccessRate = Percent(prevAssignmentViews.Count(IsSuccess), System.Math.Max(1, prevAssignmentViews.Count));
             var supportStats = await LoadSupportAnalyticsAsync(cfg, httpFactory, since, now, days, supportViews, ct);
+            var learningStats = await LoadLearningAnalyticsAsync(cfg, httpFactory, since, now, days, assignmentViews, ct);
+            var prevLearningStats = await LoadLearningAnalyticsAsync(cfg, httpFactory, prevSince, since, days, prevAssignmentViews, ct);
+            var assignmentSuccessRate = learningStats.Totals.SuccessRate;
+            var prevSuccessRate = prevLearningStats.Totals.SuccessRate;
 
             var userRows = views.Where(x => x.UserId.HasValue).GroupBy(x => x.UserId!.Value).Select(g =>
             {
@@ -141,9 +143,9 @@ internal static partial class ObservabilityApiEndpoints
                 privacy = new
                 {
                     ipMode = "anonymized",
-                    rawIpStored = false,
+                    rawIpStored = true,
                     ipPrefix = "IPv4 /24, IPv6 /48",
-                    note = "Сырые IP не сохраняются: хранится только хэш и укрупнённая подсеть."
+                    note = "IP фиксируются по правилам пользовательского соглашения; в этой аналитике они сгруппированы по подсетям."
                 },
                 users = new
                 {
@@ -167,16 +169,7 @@ internal static partial class ObservabilityApiEndpoints
                     errorEndpoints,
                     topUsers = userRows.OrderByDescending(x => x.requests).Take(25).ToList()
                 },
-                assignments = new
-                {
-                    totals = new { totalAttempts = assignmentViews.Count, successRate = assignmentSuccessRate, codeAttempts = assignmentViews.Count(x => Contains(x.Path, "/solutions") || Contains(x.Path, "/submissions") || Contains(x.Path, "/judge")), testAttempts = assignmentViews.Count(x => Contains(x.Path, "test")), imageAttempts = assignmentViews.Count(x => Contains(x.Path, "image")), mathAttempts = assignmentViews.Count(x => Contains(x.Path, "math")), avgTestScore = assignmentSuccessRate },
-                    attemptsByDay = DayPoints(assignmentViews, days, g => g.Count()),
-                    successByDay = DayPoints(successAssignmentViews, days, g => g.Count()),
-                    types = assignmentViews.GroupBy(x => AssignmentTypeFromPath(x.Path)).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
-                    languages = apiViews.Select(x => LanguageFromPath(x.Path)).Where(x => x != null).GroupBy(x => x!).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).Take(10).ToList(),
-                    topAssignments = assignmentRows,
-                    hardAssignments
-                },
+                assignments = learningStats,
                 support = supportStats,
                 executive = new
                 {
@@ -191,7 +184,7 @@ internal static partial class ObservabilityApiEndpoints
                     alerts = BuildAlerts(errorViews.Count, apiViews.Count, avgLatency, assignmentSuccessRate),
                     noisyUsers = userRows.OrderByDescending(x => x.requests).Take(5),
                     slowEndpoints,
-                    failingAssignments = hardAssignments.Take(5)
+                    failingAssignments = learningStats.HardAssignments.Take(5)
                 },
                 alerts = BuildAlerts(errorViews.Count, apiViews.Count, avgLatency, assignmentSuccessRate),
                 comparison = new { previousRequests = prevApiViews.Count, requestDelta = apiViews.Count - prevApiViews.Count }
@@ -256,13 +249,202 @@ internal static partial class ObservabilityApiEndpoints
         {
         }
 
+        var userMessages = fallbackViews.Where(x => string.Equals(x.Method, "POST", StringComparison.OrdinalIgnoreCase) && !Contains(x.Path, "/admin")).ToList();
+        var adminMessages = fallbackViews.Where(x => string.Equals(x.Method, "POST", StringComparison.OrdinalIgnoreCase) && Contains(x.Path, "/admin")).ToList();
         return new
         {
-            totals = new { totalTickets = fallbackViews.Count(x => string.Equals(x.Method, "POST", StringComparison.OrdinalIgnoreCase)), openTickets = 0, avgFirstResponseMinutes = 0, avgCloseMinutes = 0 },
-            ticketsByDay = DayPoints(fallbackViews.Where(x => string.Equals(x.Method, "POST", StringComparison.OrdinalIgnoreCase)), days, g => g.Count()),
-            closedByDay = DayPoints(fallbackViews.Where(x => Contains(x.Path, "closed") || Contains(x.Path, "resolved")), days, g => g.Count()),
-            ticketTypes = fallbackViews.GroupBy(x => Contains(x.Path, "admin") ? "Админка" : "Пользователь").Select(g => new { label = g.Key, value = g.Count() }).ToList(),
+            totals = new { totalTickets = userMessages.Count, totalChats = userMessages.Count, totalMessages = userMessages.Count + adminMessages.Count, userMessages = userMessages.Count, adminMessages = adminMessages.Count, avgFirstResponseMinutes = 0, avgResponseMinutes = 0 },
+            userMessagesByDay = DayPoints(userMessages, days, g => g.Count()),
+            adminMessagesByDay = DayPoints(adminMessages, days, g => g.Count()),
+            ticketsByDay = DayPoints(userMessages, days, g => g.Count()),
+            closedByDay = DayPoints(adminMessages, days, g => g.Count()),
+            ticketTypes = userMessages.Count == 0 ? Array.Empty<object>() : new[] { new { label = "Чаты", value = userMessages.Count } }.Cast<object>().ToArray(),
             topAdmins = Array.Empty<object>()
         };
     }
+
+    private static async Task<LearningAnalyticsSnapshot> LoadLearningAnalyticsAsync(IConfiguration cfg, IHttpClientFactory httpFactory, DateTimeOffset fromUtc, DateTimeOffset toUtc, int days, List<PageView> fallbackViews, CancellationToken ct)
+    {
+        var snapshots = new List<LearningAnalyticsSnapshot>();
+        var solutions = await LoadRemoteLearningAnalyticsAsync(cfg, httpFactory, "SolutionsApi", "http://solutions-api:8080", "/api/internal/solutions/analytics/summary", fromUtc, toUtc, days, ct);
+        var tasks = await LoadRemoteLearningAnalyticsAsync(cfg, httpFactory, "TasksApi", "http://tasks-api:8080", "/api/internal/assignments/analytics/summary", fromUtc, toUtc, days, ct);
+        if (solutions != null) snapshots.Add(solutions);
+        if (tasks != null) snapshots.Add(tasks);
+        return snapshots.Count == 0 ? EmptyLearningAnalytics(days) : MergeLearningAnalytics(snapshots, days);
+    }
+
+    private static async Task<LearningAnalyticsSnapshot?> LoadRemoteLearningAnalyticsAsync(IConfiguration cfg, IHttpClientFactory httpFactory, string serviceName, string fallbackUrl, string path, DateTimeOffset fromUtc, DateTimeOffset toUtc, int days, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"{ServiceUrl(cfg, serviceName, fallbackUrl)}{path}?fromUtc={Uri.EscapeDataString(fromUtc.ToString("O"))}&toUtc={Uri.EscapeDataString(toUtc.ToString("O"))}&days={days}";
+            var client = httpFactory.CreateClient();
+            using var msg = new HttpRequestMessage(HttpMethod.Get, url);
+            AddInternalKey(msg, cfg);
+            using var resp = await client.SendAsync(msg, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<LearningAnalyticsSnapshot>(JsonOptions(), ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static LearningAnalyticsSnapshot MergeLearningAnalytics(List<LearningAnalyticsSnapshot> snapshots, int days)
+    {
+        var totals = new LearningTotals
+        {
+            TotalAttempts = snapshots.Sum(x => x.Totals.TotalAttempts),
+            PassedAttempts = snapshots.Sum(x => x.Totals.PassedAttempts),
+            FailedAttempts = snapshots.Sum(x => x.Totals.FailedAttempts),
+            CodeAttempts = snapshots.Sum(x => x.Totals.CodeAttempts),
+            TestAttempts = snapshots.Sum(x => x.Totals.TestAttempts),
+            ImageAttempts = snapshots.Sum(x => x.Totals.ImageAttempts),
+            MathAttempts = snapshots.Sum(x => x.Totals.MathAttempts),
+        };
+        if (totals.FailedAttempts == 0 && totals.TotalAttempts > totals.PassedAttempts) totals.FailedAttempts = totals.TotalAttempts - totals.PassedAttempts;
+        totals.SuccessRate = totals.TotalAttempts <= 0 ? 0 : System.Math.Round(totals.PassedAttempts * 100.0 / totals.TotalAttempts, 1);
+        var scoredSnapshots = snapshots.Where(x => x.Totals.AvgTestScore > 0 && (x.Totals.TestAttempts + x.Totals.MathAttempts) > 0).ToList();
+        totals.AvgTestScore = scoredSnapshots.Count == 0 ? 0 : System.Math.Round(scoredSnapshots.Sum(x => x.Totals.AvgTestScore * (x.Totals.TestAttempts + x.Totals.MathAttempts)) / scoredSnapshots.Sum(x => x.Totals.TestAttempts + x.Totals.MathAttempts), 1);
+
+        var rows = snapshots.SelectMany(x => x.TopAssignments ?? new List<LearningAssignment>()).GroupBy(x => x.AssignmentId != Guid.Empty ? x.AssignmentId.ToString("N") : NormalizeSearch(x.Title)).Select(g =>
+        {
+            var first = g.First();
+            var attempts = g.Sum(x => x.Attempts);
+            var passed = g.Sum(x => x.Passed);
+            var failed = g.Sum(x => x.Failed);
+            if (failed == 0 && attempts > passed) failed = attempts - passed;
+            return new LearningAssignment
+            {
+                AssignmentId = first.AssignmentId,
+                Title = first.Title,
+                CourseId = first.CourseId,
+                CourseTitle = first.CourseTitle,
+                Type = first.Type,
+                Difficulty = first.Difficulty,
+                Rating = first.Rating,
+                Attempts = attempts,
+                Passed = passed,
+                Failed = failed,
+                UniqueUsers = g.Sum(x => x.UniqueUsers),
+                StuckUsers = g.Sum(x => x.StuckUsers),
+                SuccessRate = attempts <= 0 ? 0 : System.Math.Round(passed * 100.0 / attempts, 1),
+                Value = attempts,
+            };
+        }).ToList();
+
+        return new LearningAnalyticsSnapshot
+        {
+            Totals = totals,
+            AttemptsByDay = MergePoints(snapshots.SelectMany(x => x.AttemptsByDay ?? new List<LearningPoint>()), days),
+            SuccessByDay = MergePoints(snapshots.SelectMany(x => x.SuccessByDay ?? new List<LearningPoint>()), days),
+            FailureByDay = MergePoints(snapshots.SelectMany(x => x.FailureByDay ?? new List<LearningPoint>()), days),
+            Types = MergeItems(snapshots.SelectMany(x => x.Types ?? new List<LearningItem>())),
+            Languages = MergeItems(snapshots.SelectMany(x => x.Languages ?? new List<LearningItem>())).Take(12).ToList(),
+            TopAssignments = rows.OrderByDescending(x => x.Attempts).Take(20).ToList(),
+            HardAssignments = rows.Where(x => x.Attempts >= 2).OrderBy(x => x.SuccessRate).ThenByDescending(x => x.Failed).ThenByDescending(x => x.Attempts).Take(20).ToList(),
+        };
+    }
+
+    private static LearningAnalyticsSnapshot EmptyLearningAnalytics(int days) => new()
+    {
+        Totals = new LearningTotals(),
+        AttemptsByDay = EmptyLearningPoints(days),
+        SuccessByDay = EmptyLearningPoints(days),
+        FailureByDay = EmptyLearningPoints(days),
+    };
+
+    private static List<LearningPoint> EmptyLearningPoints(int days)
+    {
+        var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
+        return Enumerable.Range(0, days).Select(i =>
+        {
+            var day = start.AddDays(i);
+            return new LearningPoint { Label = day.ToString("dd.MM"), Date = day.ToString("yyyy-MM-dd"), Value = 0, Count = 0 };
+        }).ToList();
+    }
+
+    private static List<LearningPoint> MergePoints(IEnumerable<LearningPoint> points, int days)
+    {
+        var empty = EmptyLearningPoints(days).ToDictionary(x => x.Date, x => x);
+        foreach (var p in points)
+        {
+            var key = string.IsNullOrWhiteSpace(p.Date) ? p.Label : p.Date;
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (!empty.TryGetValue(key, out var row))
+            {
+                row = new LearningPoint { Label = p.Label ?? key, Date = key };
+                empty[key] = row;
+            }
+            row.Value += p.Value != 0 ? p.Value : p.Count;
+            row.Count = row.Value;
+        }
+        return empty.Values.OrderBy(x => x.Date).ToList();
+    }
+
+    private static List<LearningItem> MergeItems(IEnumerable<LearningItem> items) => items
+        .Where(x => !string.IsNullOrWhiteSpace(x.Label))
+        .GroupBy(x => x.Label.Trim())
+        .Select(g => new LearningItem { Label = g.Key, Value = g.Sum(x => x.Value) })
+        .OrderByDescending(x => x.Value)
+        .ToList();
+
+    public sealed class LearningAnalyticsSnapshot
+    {
+        public LearningTotals Totals { get; set; } = new();
+        public List<LearningPoint> AttemptsByDay { get; set; } = new();
+        public List<LearningPoint> SuccessByDay { get; set; } = new();
+        public List<LearningPoint> FailureByDay { get; set; } = new();
+        public List<LearningItem> Types { get; set; } = new();
+        public List<LearningItem> Languages { get; set; } = new();
+        public List<LearningAssignment> TopAssignments { get; set; } = new();
+        public List<LearningAssignment> HardAssignments { get; set; } = new();
+    }
+
+    public sealed class LearningTotals
+    {
+        public int TotalAttempts { get; set; }
+        public int PassedAttempts { get; set; }
+        public int FailedAttempts { get; set; }
+        public double SuccessRate { get; set; }
+        public int CodeAttempts { get; set; }
+        public int TestAttempts { get; set; }
+        public int ImageAttempts { get; set; }
+        public int MathAttempts { get; set; }
+        public double AvgTestScore { get; set; }
+    }
+
+    public sealed class LearningPoint
+    {
+        public string Label { get; set; } = string.Empty;
+        public string Date { get; set; } = string.Empty;
+        public double Value { get; set; }
+        public double Count { get; set; }
+    }
+
+    public sealed class LearningItem
+    {
+        public string Label { get; set; } = string.Empty;
+        public int Value { get; set; }
+    }
+
+    public sealed class LearningAssignment
+    {
+        public Guid AssignmentId { get; set; }
+        public Guid? CourseId { get; set; }
+        public string? CourseTitle { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public int Difficulty { get; set; }
+        public int Rating { get; set; }
+        public int Attempts { get; set; }
+        public int Passed { get; set; }
+        public int Failed { get; set; }
+        public int UniqueUsers { get; set; }
+        public int StuckUsers { get; set; }
+        public double SuccessRate { get; set; }
+        public int Value { get; set; }
+    }
+
 }

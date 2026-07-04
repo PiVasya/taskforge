@@ -122,8 +122,8 @@ internal static partial class SolutionsApiEndpoints
             var userIds = codeUserIds.Concat(imageUserIds).Distinct().ToArray();
             var successUserIds = acceptedCodeUserIds.Concat(passedImageUserIds).Distinct().ToArray();
             var languages = all
-                .Where(x => !string.IsNullOrWhiteSpace(x.language))
-                .GroupBy(x => x.language)
+                .Where(x => !string.IsNullOrWhiteSpace(x.Language))
+                .GroupBy(x => x.Language)
                 .Select(g => new { label = g.Key, value = g.Count() })
                 .OrderByDescending(x => x.value)
                 .ToArray();
@@ -140,6 +140,111 @@ internal static partial class SolutionsApiEndpoints
                 userIds,
                 languages,
                 recentAttempts = all
+            });
+        });
+
+        app.MapGet("/api/internal/solutions/analytics/summary", async (DateTimeOffset? fromUtc, DateTimeOffset? toUtc, int days, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        {
+            static bool IsAccepted(string? status) => string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
+            static double Percent(int num, int den) => den <= 0 ? 0 : System.Math.Round(num * 100.0 / den, 1);
+
+            days = System.Math.Clamp(days <= 0 ? 30 : days, 1, 365);
+            var to = toUtc ?? DateTimeOffset.UtcNow;
+            var from = fromUtc ?? to.AddDays(-days);
+
+            var codeRows = await db.Submissions.AsNoTracking()
+                .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .ToListAsync(ct);
+            var imageRows = await db.ImageSolutions.AsNoTracking()
+                .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .ToListAsync(ct);
+
+            var attempts = codeRows.Select(x => new SolutionAnalyticsAttemptRow
+                {
+                    AssignmentId = x.AssignmentId,
+                    UserId = x.UserId,
+                    Kind = "code",
+                    Language = x.Language,
+                    Passed = IsAccepted(x.Status),
+                    Score = x.Score,
+                    CreatedAt = x.CreatedAt,
+                })
+                .Concat(imageRows.Select(x => new SolutionAnalyticsAttemptRow
+                {
+                    AssignmentId = x.AssignmentId,
+                    UserId = x.UserId == Guid.Empty ? (Guid?)null : x.UserId,
+                    Kind = "image",
+                    Language = x.Language,
+                    Passed = x.Passed,
+                    Score = x.SimilarityPercent,
+                    CreatedAt = x.CreatedAt,
+                }))
+                .ToList();
+
+            var metadata = await LoadAssignmentMetadataAsync(attempts.Select(x => x.AssignmentId), cfg, httpFactory, ct);
+
+            List<object> DayPoints(IEnumerable<SolutionAnalyticsAttemptRow> rows, Func<IEnumerable<SolutionAnalyticsAttemptRow>, double> selector)
+            {
+                var byDay = rows.GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.AsEnumerable());
+                var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
+                return Enumerable.Range(0, days).Select(i =>
+                {
+                    var day = start.AddDays(i);
+                    var value = byDay.TryGetValue(day, out var vals) ? selector(vals) : 0;
+                    return (object)new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = System.Math.Round(value, 1), count = System.Math.Round(value, 1) };
+                }).ToList();
+            }
+
+            var assignmentRows = attempts.GroupBy(x => x.AssignmentId).Select(g =>
+            {
+                metadata.TryGetValue(g.Key, out var meta);
+                var total = g.Count();
+                var passed = g.Count(x => x.Passed);
+                var uniqueUsers = g.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().Count();
+                var successUsers = g.Where(x => x.Passed && x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().Count();
+                return new
+                {
+                    assignmentId = g.Key,
+                    title = meta?.Title ?? "Задание без названия",
+                    courseId = meta?.CourseId,
+                    courseTitle = meta?.CourseTitle,
+                    type = g.Any(x => x.Kind == "image") ? "image" : "code",
+                    difficulty = 0,
+                    rating = meta?.Rating ?? 0,
+                    attempts = total,
+                    passed,
+                    failed = total - passed,
+                    uniqueUsers,
+                    stuckUsers = System.Math.Max(0, uniqueUsers - successUsers),
+                    successRate = Percent(passed, total),
+                    value = total,
+                };
+            }).ToList();
+
+            var totalAttempts = attempts.Count;
+            var passedAttempts = attempts.Count(x => x.Passed);
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                totals = new
+                {
+                    totalAttempts,
+                    passedAttempts,
+                    failedAttempts = totalAttempts - passedAttempts,
+                    successRate = Percent(passedAttempts, totalAttempts),
+                    codeAttempts = attempts.Count(x => x.Kind == "code"),
+                    testAttempts = 0,
+                    imageAttempts = attempts.Count(x => x.Kind == "image"),
+                    mathAttempts = 0,
+                    avgTestScore = 0,
+                },
+                attemptsByDay = DayPoints(attempts, g => g.Count()),
+                successByDay = DayPoints(attempts.Where(x => x.Passed), g => g.Count()),
+                failureByDay = DayPoints(attempts.Where(x => !x.Passed), g => g.Count()),
+                types = attempts.GroupBy(x => x.Kind).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
+                languages = attempts.Where(x => !string.IsNullOrWhiteSpace(x.Language)).GroupBy(x => x.Language).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).Take(12).ToList(),
+                topAssignments = assignmentRows.OrderByDescending(x => x.attempts).Take(20).ToList(),
+                hardAssignments = assignmentRows.Where(x => x.attempts >= 2).OrderBy(x => x.successRate).ThenByDescending(x => x.failed).ThenByDescending(x => x.attempts).Take(20).ToList(),
             });
         });
 
@@ -239,4 +344,16 @@ internal static partial class SolutionsApiEndpoints
 
         return app;
     }
+
+    private sealed class SolutionAnalyticsAttemptRow
+    {
+        public Guid AssignmentId { get; set; }
+        public Guid? UserId { get; set; }
+        public string Kind { get; set; } = "code";
+        public string? Language { get; set; }
+        public bool Passed { get; set; }
+        public int Score { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+
 }

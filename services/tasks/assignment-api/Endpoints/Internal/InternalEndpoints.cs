@@ -104,6 +104,98 @@ internal static partial class AssignmentApiEndpoints
             });
         });
 
+        app.MapGet("/api/internal/assignments/analytics/summary", async (DateTimeOffset? fromUtc, DateTimeOffset? toUtc, int days, TasksDbContext db, CancellationToken ct) =>
+        {
+            static double Percent(int num, int den) => den <= 0 ? 0 : System.Math.Round(num * 100.0 / den, 1);
+
+            days = System.Math.Clamp(days <= 0 ? 30 : days, 1, 365);
+            var to = toUtc ?? DateTimeOffset.UtcNow;
+            var from = fromUtc ?? to.AddDays(-days);
+
+            var attempts = await db.Attempts.AsNoTracking()
+                .Where(x => x.SubmittedAt.HasValue && x.SubmittedAt.Value >= from && x.SubmittedAt.Value <= to)
+                .Join(db.Assignments.AsNoTracking(), attempt => attempt.TaskAssignmentId, assignment => assignment.Id, (attempt, assignment) => new AssignmentAttemptAnalyticsRow
+                {
+                    AssignmentId = attempt.TaskAssignmentId,
+                    CourseId = assignment.CourseId,
+                    UserId = attempt.UserId,
+                    Kind = attempt.Kind,
+                    Language = assignment.Language,
+                    Title = assignment.Title,
+                    Type = assignment.Type,
+                    Difficulty = assignment.Difficulty,
+                    Rating = assignment.Rating,
+                    Passed = attempt.Passed,
+                    ScorePercent = attempt.ScorePercent,
+                    CreatedAt = attempt.SubmittedAt ?? attempt.CreatedAt,
+                })
+                .ToListAsync(ct);
+
+            List<object> DayPoints(IEnumerable<AssignmentAttemptAnalyticsRow> rows, Func<IEnumerable<AssignmentAttemptAnalyticsRow>, double> selector)
+            {
+                var byDay = rows.GroupBy(x => x.CreatedAt.UtcDateTime.Date).ToDictionary(x => x.Key, x => x.AsEnumerable());
+                var start = DateTime.UtcNow.Date.AddDays(-(days - 1));
+                return Enumerable.Range(0, days).Select(i =>
+                {
+                    var day = start.AddDays(i);
+                    var value = byDay.TryGetValue(day, out var vals) ? selector(vals) : 0;
+                    return (object)new { label = day.ToString("dd.MM"), date = day.ToString("yyyy-MM-dd"), value = System.Math.Round(value, 1), count = System.Math.Round(value, 1) };
+                }).ToList();
+            }
+
+            var assignmentRows = attempts.GroupBy(x => x.AssignmentId).Select(g =>
+            {
+                var first = g.First();
+                var total = g.Count();
+                var passed = g.Count(x => x.Passed);
+                var uniqueUsers = g.Select(x => x.UserId).Distinct().Count();
+                var successUsers = g.Where(x => x.Passed).Select(x => x.UserId).Distinct().Count();
+                return new
+                {
+                    assignmentId = g.Key,
+                    title = string.IsNullOrWhiteSpace(first.Title) ? "Задание без названия" : first.Title,
+                    courseId = first.CourseId,
+                    type = first.Kind,
+                    difficulty = first.Difficulty,
+                    rating = first.Rating,
+                    attempts = total,
+                    passed,
+                    failed = total - passed,
+                    uniqueUsers,
+                    stuckUsers = System.Math.Max(0, uniqueUsers - successUsers),
+                    successRate = Percent(passed, total),
+                    value = total,
+                };
+            }).ToList();
+
+            var totalAttempts = attempts.Count;
+            var passedAttempts = attempts.Count(x => x.Passed);
+            var scoredAttempts = attempts.Where(x => x.Kind == "test" || x.Kind == "math").ToList();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                totals = new
+                {
+                    totalAttempts,
+                    passedAttempts,
+                    failedAttempts = totalAttempts - passedAttempts,
+                    successRate = Percent(passedAttempts, totalAttempts),
+                    codeAttempts = 0,
+                    testAttempts = attempts.Count(x => x.Kind == "test"),
+                    imageAttempts = 0,
+                    mathAttempts = attempts.Count(x => x.Kind == "math"),
+                    avgTestScore = scoredAttempts.Count == 0 ? 0 : System.Math.Round(scoredAttempts.Average(x => x.ScorePercent), 1),
+                },
+                attemptsByDay = DayPoints(attempts, g => g.Count()),
+                successByDay = DayPoints(attempts.Where(x => x.Passed), g => g.Count()),
+                failureByDay = DayPoints(attempts.Where(x => !x.Passed), g => g.Count()),
+                types = attempts.GroupBy(x => x.Kind).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).ToList(),
+                languages = attempts.Where(x => !string.IsNullOrWhiteSpace(x.Language)).GroupBy(x => x.Language).Select(g => new { label = g.Key, value = g.Count() }).OrderByDescending(x => x.value).Take(12).ToList(),
+                topAssignments = assignmentRows.OrderByDescending(x => x.attempts).Take(20).ToList(),
+                hardAssignments = assignmentRows.Where(x => x.attempts >= 2).OrderBy(x => x.successRate).ThenByDescending(x => x.failed).ThenByDescending(x => x.attempts).Take(20).ToList(),
+            });
+        });
+
         app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequest request, TasksDbContext db, CancellationToken ct) =>
         {
             var since = request.Days.HasValue && request.Days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-request.Days.Value) : (DateTimeOffset?)null;
@@ -131,4 +223,21 @@ internal static partial class AssignmentApiEndpoints
 
         return app;
     }
+
+    private sealed class AssignmentAttemptAnalyticsRow
+    {
+        public Guid AssignmentId { get; set; }
+        public Guid CourseId { get; set; }
+        public Guid UserId { get; set; }
+        public string Kind { get; set; } = "test";
+        public string Language { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public int Difficulty { get; set; }
+        public int Rating { get; set; }
+        public bool Passed { get; set; }
+        public int ScorePercent { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+
 }
