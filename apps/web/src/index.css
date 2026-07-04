@@ -2699,6 +2699,21 @@ html.dark .bg-fx__blob {
 }
 
 
+
+.tf-analytics-chart-safe .recharts-sector:focus,
+.tf-analytics-chart-safe .recharts-rectangle:focus,
+.tf-analytics-chart-safe .recharts-surface:focus {
+  outline: none;
+}
+
+.tf-analytics-chart-safe .recharts-tooltip-cursor {
+  fill: rgba(var(--accent) / 0.045);
+}
+
+.animated-statement--waiting {
+  min-height: 1.5rem;
+}
+
 .typewriter-text {
   display: block;
   white-space: pre-wrap;

@@ -502,29 +502,6 @@ function InputTextPreview({ value }) {
 }
 
 
-function extractStatementTextNode(node) {
-  if (!node) return '';
-  if (typeof node === 'string') return node;
-  if (typeof node?.text === 'string') return node.text;
-  if (!Array.isArray(node?.content)) return '';
-
-  const text = node.content.map(extractStatementTextNode).filter(Boolean).join('');
-  const blockTypes = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'listItem']);
-  if (blockTypes.has(node.type) && text) return `${text}\n`;
-  return text;
-}
-
-function statementToPlainText(value) {
-  const raw = String(value ?? '');
-  if (!raw.trim()) return '';
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && parsed.type === 'doc') {
-      return extractStatementTextNode(parsed).replace(/\n{3,}/g, '\n\n').trim();
-    }
-  } catch {}
-  return raw.trim();
-}
 
 function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -588,7 +565,7 @@ function TypewriterText({ as: Tag = 'span', text, className = '', playKey = '', 
   );
 }
 
-function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb-1' }) {
+function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb-1', onDone }) {
   const value = String(text ?? '');
   return (
     <TypewriterText
@@ -597,37 +574,34 @@ function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb
       playKey={`${playKey}:title:${value}`}
       durationMs={clampNumber(value.length * 18, 180, 620)}
       className={className}
+      onDone={onDone}
     />
   );
 }
 
-function AnimatedStatementViewer({ value, playKey }) {
-  const plain = useMemo(() => statementToPlainText(value), [value]);
-  const [done, setDone] = useState(false);
+function AnimatedStatementViewer({ value, playKey, active = true, onDone }) {
+  const doneRef = React.useRef(onDone);
 
   useEffect(() => {
-    setDone(false);
-  }, [playKey, plain]);
+    doneRef.current = onDone;
+  }, [onDone]);
 
-  if (!plain) return <StatementViewer value={value} />;
+  useEffect(() => {
+    if (!active) return undefined;
+    const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    const timer = window.setTimeout(() => {
+      doneRef.current?.();
+    }, reduced ? 0 : 620);
+    return () => window.clearTimeout(timer);
+  }, [active, playKey, value]);
+
+  if (!active) {
+    return <div className="animated-statement animated-statement--waiting" aria-hidden="true" />;
+  }
 
   return (
-    <div className="animated-statement">
-      {!done ? (
-        <TypewriterText
-          as="div"
-          text={plain}
-          playKey={`${playKey}:statement:${plain.length}`}
-          durationMs={clampNumber(plain.length * 2.2, 420, 1250)}
-          startDelay={80}
-          className="animated-statement-type"
-          onDone={() => setDone(true)}
-        />
-      ) : (
-        <div className="animated-statement-rich">
-          <StatementViewer value={value} />
-        </div>
-      )}
+    <div className="animated-statement animated-statement-rich">
+      <StatementViewer value={value} />
     </div>
   );
 }
@@ -842,6 +816,7 @@ export default function AssignmentSolvePage() {
   const [loading, setLoading] = useState(true);
   const [assignmentSwitching, setAssignmentSwitching] = useState(false);
   const [partLoading, setPartLoading] = useState({ shell: true, statement: true, tests: true });
+  const [revealFlow, setRevealFlow] = useState({ key: '', titleDone: false, statementDone: false });
 
   
   const [nextA, setNextA] = useState(null); 
@@ -1163,6 +1138,7 @@ export default function AssignmentSolvePage() {
       setLoading(firstLoad);
       setAssignmentSwitching(true);
       setPartLoading({ shell: true, statement: true, tests: true });
+      setRevealFlow({ key: String(assignmentId || ''), titleDone: false, statementDone: false });
       setError('');
       setHydratedAssignmentId('');
       setResult(null);
@@ -1712,8 +1688,42 @@ export default function AssignmentSolvePage() {
     return () => { alive = false; };
   }, [assignmentId, isAdmin]);
 
+  const revealKey = String(a?.id || assignmentId || '');
+  const sequenceStatementBeforeTests = !!a && a.type !== 'test' && a.type !== 'math';
+  const titleAnimationDone = !sequenceStatementBeforeTests || (revealFlow.key === revealKey && revealFlow.titleDone);
+  const statementAnimationDone = !sequenceStatementBeforeTests || (revealFlow.key === revealKey && revealFlow.statementDone);
+  const testsContentLoading = partLoading.tests || (sequenceStatementBeforeTests && !statementAnimationDone);
+
+  const completeTitleReveal = () => {
+    if (!sequenceStatementBeforeTests) return;
+    setRevealFlow((prev) => {
+      if (prev.key === revealKey && prev.titleDone) return prev;
+      return { key: revealKey, titleDone: true, statementDone: false };
+    });
+  };
+
+  const completeStatementReveal = () => {
+    if (!sequenceStatementBeforeTests) return;
+    setRevealFlow((prev) => {
+      if (prev.key === revealKey && prev.statementDone) return prev;
+      return { key: revealKey, titleDone: true, statementDone: true };
+    });
+  };
+
+  const renderAssignmentStatement = (minLines = 5) => {
+    if (partLoading.statement) return <SolveSkeletonLines lines={minLines} />;
+    return (
+      <AnimatedStatementViewer
+        value={a.description}
+        playKey={revealKey}
+        active={titleAnimationDone}
+        onDone={completeStatementReveal}
+      />
+    );
+  };
+
   const renderAssignmentLoadHint = () => {
-    if (!assignmentSwitching && !partLoading.statement && !partLoading.tests) return null;
+    if (!assignmentSwitching && !partLoading.statement && !testsContentLoading) return null;
     return (
       <div className="solve-load-hint mb-4">
         <span className="solve-load-dot" />
@@ -2011,7 +2021,7 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
+                <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
@@ -2022,7 +2032,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+                {renderAssignmentStatement(5)}
               </SolvePart>
             </Card>
 
@@ -2031,7 +2041,7 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">Эталон</div>
               </div>
 
-              {partLoading.tests ? (
+              {testsContentLoading ? (
                 <SolveSkeletonLines lines={4} />
               ) : expectedUrl ? (
                 <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
@@ -2284,7 +2294,7 @@ export default function AssignmentSolvePage() {
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
               <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
-                <AnimatedHeading text={a.title} playKey={a.id || assignmentId} />
+                <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {a.tags
@@ -2295,7 +2305,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+                {renderAssignmentStatement(5)}
               </SolvePart>
             </Card>
 
@@ -2304,7 +2314,7 @@ export default function AssignmentSolvePage() {
                 <div className="font-medium">{assignmentTestsTitle}</div>
               </div>
 
-              {partLoading.tests ? (
+              {testsContentLoading ? (
                 <SolveSkeletonLines lines={6} />
               ) : visibleTests.length === 0 ? (
                 <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
@@ -2433,7 +2443,7 @@ export default function AssignmentSolvePage() {
 
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <TypewriterText as="div" text={a.title} playKey={`${a.id || assignmentId}:compact-title`} durationMs={clampNumber(String(a.title || '').length * 14, 160, 480)} className="font-semibold text-lg" />
+                  <TypewriterText as="div" text={a.title} playKey={`${revealKey}:compact-title`} durationMs={clampNumber(String(a.title || '').length * 14, 160, 480)} className="font-semibold text-lg" onDone={completeTitleReveal} />
                   {result && (
                     <div className="flex items-center gap-2 text-sm">
                       {result.__allPassed ? (
@@ -2501,7 +2511,7 @@ export default function AssignmentSolvePage() {
 
           <Card className="assignment-reveal">
             <SolvePart loading={partLoading.statement} delay={90} minHeight={partLoading.statement ? 160 : undefined}>
-              {partLoading.statement ? <SolveSkeletonLines lines={5} /> : <AnimatedStatementViewer value={a.description} playKey={a.id || assignmentId} />}
+              {renderAssignmentStatement(5)}
             </SolvePart>
           </Card>
 
@@ -2510,7 +2520,7 @@ export default function AssignmentSolvePage() {
               <div className="font-medium">{assignmentTestsTitle}</div>
             </div>
 
-            {partLoading.tests ? (
+            {testsContentLoading ? (
               <SolveSkeletonLines lines={6} />
             ) : visibleTests.length === 0 ? (
               <div className="text-neutral-500">{emptyAssignmentTestsText}</div>

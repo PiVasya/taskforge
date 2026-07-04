@@ -31,7 +31,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
 } from 'recharts';
 import { useNotify } from '../../components/notify/NotifyProvider';
 
@@ -177,12 +176,13 @@ function EmptyState() {
 }
 
 const chartPalette = [
-  'rgb(var(--accent))',
-  'rgb(var(--accent2))',
-  'rgb(var(--accent3))',
-  'rgba(var(--accent),0.72)',
-  'rgba(var(--accent2),0.72)',
-  'rgba(var(--accent3),0.72)',
+  'rgba(var(--accent) / 0.96)',
+  'rgba(var(--accent2) / 0.88)',
+  'rgba(var(--accent3) / 0.92)',
+  'rgba(var(--accent) / 0.66)',
+  'rgba(var(--accent2) / 0.60)',
+  'rgba(var(--accent3) / 0.76)',
+  'rgba(var(--text-muted) / 0.72)',
 ];
 
 function chartValue(item) {
@@ -206,7 +206,7 @@ function ChartTooltip({ active, payload, label, formatter = formatNumber }) {
 
 function ChartShell({ children, height = 250 }) {
   return (
-    <div className="rounded-3xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.18)] p-3" style={{ height }}>
+    <div className="tf-analytics-chart-safe rounded-3xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--muted)/0.18)] p-3" style={{ height }}>
       {children}
     </div>
   );
@@ -238,10 +238,10 @@ function LineAreaChart({ data = [], color = 'rgb(var(--accent))', height = 250, 
       <ChartShell height={height}>
         <ResponsiveContainer width="100%" height="100%">
           <ReAreaChart data={normalized} margin={{ top: 14, right: 18, left: 0, bottom: 4 }}>
-            <CartesianGrid stroke="rgba(var(--border),0.26)" vertical={false} />
+            <CartesianGrid stroke="rgba(var(--border) / 0.26)" vertical={false} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
             <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
-            <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ stroke: color, strokeOpacity: 0.28 }} />
+            <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ stroke: color, strokeOpacity: 0.22 }} />
             <Area type="monotone" dataKey="value" name="Значение" stroke={color} strokeWidth={2.2} fill={color} fillOpacity={0.14} dot={{ r: 2.5 }} activeDot={{ r: 5 }} isAnimationActive />
           </ReAreaChart>
         </ResponsiveContainer>
@@ -261,7 +261,7 @@ function BarChart({ data = [], color = 'rgb(var(--accent))', height = 300, value
     <ChartShell height={computedHeight}>
       <ResponsiveContainer width="100%" height="100%">
         <ReBarChart data={normalized} layout={layout} margin={{ top: 12, right: 20, left: layout === 'vertical' ? 18 : 0, bottom: 8 }}>
-          <CartesianGrid stroke="rgba(var(--border),0.24)" horizontal={layout !== 'vertical'} vertical={layout === 'vertical'} />
+          <CartesianGrid stroke="rgba(var(--border) / 0.24)" horizontal={layout !== 'vertical'} vertical={layout === 'vertical'} />
           {layout === 'vertical' ? (
             <>
               <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
@@ -273,8 +273,8 @@ function BarChart({ data = [], color = 'rgb(var(--accent))', height = 300, value
               <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={valueFormatter} tick={{ fill: 'rgb(var(--text-muted))', fontSize: 12 }} />
             </>
           )}
-          <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ fill: 'rgba(var(--accent),0.08)' }} />
-          <Bar dataKey="value" name="Значение" fill={color} radius={layout === 'vertical' ? [0, 10, 10, 0] : [10, 10, 0, 0]} isAnimationActive />
+          <Tooltip content={<ChartTooltip formatter={valueFormatter} />} cursor={{ fill: 'rgba(var(--accent) / 0.045)' }} />
+          <Bar dataKey="value" name="Значение" fill={color} activeBar={false} radius={layout === 'vertical' ? [0, 10, 10, 0] : [10, 10, 0, 0]} isAnimationActive />
         </ReBarChart>
       </ResponsiveContainer>
     </ChartShell>
@@ -291,15 +291,14 @@ function DonutChart({ data = [], size = 260 }) {
       <ChartShell height={size}>
         <ResponsiveContainer width="100%" height="100%">
           <RePieChart>
-            <Pie data={normalized} dataKey="value" nameKey="label" innerRadius="58%" outerRadius="82%" paddingAngle={2} isAnimationActive>
+            <Pie data={normalized} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="82%" paddingAngle={2} activeShape={false} isAnimationActive>
               {normalized.map((item, idx) => <Cell key={item.label} fill={chartPalette[idx % chartPalette.length]} />)}
             </Pie>
             <Tooltip content={<ChartTooltip formatter={formatNumber} />} />
-            <Legend verticalAlign="bottom" iconType="circle" formatter={(value) => <span className="text-sm text-neutral-500 dark:text-neutral-300">{value}</span>} />
-            <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" className="fill-current text-2xl font-semibold">
+            <text x="50%" y="47%" textAnchor="middle" dominantBaseline="middle" fill="rgb(var(--text))" style={{ fontSize: 22, fontWeight: 700 }}>
               {formatNumber(total)}
             </text>
-            <text x="50%" y="58%" textAnchor="middle" dominantBaseline="middle" className="fill-[rgb(var(--text-muted))] text-[10px] uppercase tracking-[0.16em]">
+            <text x="50%" y="58%" textAnchor="middle" dominantBaseline="middle" fill="rgb(var(--text-muted))" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
               всего
             </text>
           </RePieChart>
