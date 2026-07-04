@@ -2,9 +2,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install -g npm@10.9.2 \
-    && npm ci --include=dev --no-audit --no-fund \
-    && test -x node_modules/.bin/react-scripts
+RUN npm ci --no-audit --no-fund
 
 COPY . .
 ARG REACT_APP_API_BASE=/api
