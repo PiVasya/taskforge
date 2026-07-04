@@ -122,8 +122,8 @@ internal static partial class SolutionsApiEndpoints
             var userIds = codeUserIds.Concat(imageUserIds).Distinct().ToArray();
             var successUserIds = acceptedCodeUserIds.Concat(passedImageUserIds).Distinct().ToArray();
             var languages = all
-                .Where(x => !string.IsNullOrWhiteSpace(x.Language))
-                .GroupBy(x => x.Language)
+                .Where(x => !string.IsNullOrWhiteSpace(x.language))
+                .GroupBy(x => x.language)
                 .Select(g => new { label = g.Key, value = g.Count() })
                 .OrderByDescending(x => x.value)
                 .ToArray();
