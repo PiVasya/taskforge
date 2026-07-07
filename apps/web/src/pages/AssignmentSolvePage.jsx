@@ -579,8 +579,9 @@ function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb
   );
 }
 
-function AnimatedStatementViewer({ value, playKey, active = true, onDone }) {
+function AnimatedStatementViewer({ value, playKey, active = true, reserveHeight, onDone }) {
   const doneRef = React.useRef(onDone);
+  const frameStyle = reserveHeight ? { '--solve-statement-min-height': `${reserveHeight}px` } : undefined;
 
   useEffect(() => {
     doneRef.current = onDone;
@@ -591,16 +592,20 @@ function AnimatedStatementViewer({ value, playKey, active = true, onDone }) {
     const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     const timer = window.setTimeout(() => {
       doneRef.current?.();
-    }, reduced ? 0 : 620);
+    }, reduced ? 0 : 560);
     return () => window.clearTimeout(timer);
   }, [active, playKey, value]);
 
   if (!active) {
-    return <div className="animated-statement animated-statement--waiting" aria-hidden="true" />;
+    return (
+      <div className="animated-statement animated-statement--waiting" style={frameStyle} aria-hidden="true">
+        <div className="animated-statement-wait-glow" />
+      </div>
+    );
   }
 
   return (
-    <div className="animated-statement animated-statement-rich">
+    <div className="animated-statement animated-statement-rich" style={frameStyle}>
       <StatementViewer value={value} />
     </div>
   );
@@ -627,6 +632,99 @@ function SolvePart({ loading = false, delay = 0, minHeight, className = '', chil
       style={{ '--solve-part-delay': `${delay}ms`, minHeight }}
     >
       {children}
+    </div>
+  );
+}
+
+
+function getPlainStatementEstimate(value) {
+  const source = String(value ?? '');
+  return source
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\r/g, '')
+    .trim();
+}
+
+function estimateStatementReserveHeight(value, compact = false) {
+  const text = getPlainStatementEstimate(value);
+  const newlineCount = (text.match(/\n/g) || []).length;
+  const charsPerLine = compact ? 42 : 82;
+  const estimatedLines = Math.max(4, newlineCount + Math.ceil(text.length / charsPerLine));
+  const base = compact ? 132 : 150;
+  const max = compact ? 620 : 700;
+  const min = compact ? 260 : 300;
+  return clampNumber(base + estimatedLines * 20, min, max);
+}
+
+function SolveStatementFrame({ loading = false, reserveHeight, lines = 5, children }) {
+  return (
+    <div
+      className={`solve-statement-frame ${loading ? 'solve-statement-frame--loading' : 'solve-statement-frame--ready'}`}
+      style={{ '--solve-statement-min-height': `${reserveHeight}px` }}
+    >
+      {loading ? (
+        <div className="solve-statement-frame-layer solve-statement-frame-layer--skeleton">
+          <SolveSkeletonLines lines={lines} />
+        </div>
+      ) : (
+        <div className="solve-statement-frame-layer solve-statement-frame-layer--content">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SolveActionDock({
+  nextTitle = 'Следующее задание',
+  nextDisabled = false,
+  onNext,
+  statusText = '',
+  primaryLabel = 'Отправить решение',
+  primaryIcon = null,
+  primaryDisabled = false,
+  onPrimary,
+  secondaryActions = [],
+}) {
+  const visibleStatus = String(statusText || '').trim();
+  return (
+    <div className="solve-action-dock">
+      <div className="solve-action-dock-panel">
+        <div className={`solve-action-status-slot ${visibleStatus ? 'solve-action-status-slot--visible' : 'solve-action-status-slot--empty'}`} aria-live="polite">
+          <div className="solve-action-status-text">{visibleStatus || 'Готово к отправке'}</div>
+        </div>
+        <Button
+          className="solve-action-button"
+          variant="outline"
+          onClick={onNext}
+          disabled={nextDisabled}
+          title={nextTitle || 'Следующее задание'}
+        >
+          Следующее задание
+        </Button>
+        {secondaryActions.map((action, index) => (
+          <Button
+            key={action.key || index}
+            className="solve-action-button"
+            variant={action.variant || 'outline'}
+            onClick={action.onClick}
+            disabled={action.disabled}
+            title={action.title || action.label}
+          >
+            {action.icon || null}
+            <span>{action.label}</span>
+          </Button>
+        ))}
+        <Button
+          className="solve-action-button solve-action-button--primary"
+          onClick={onPrimary}
+          disabled={primaryDisabled}
+        >
+          {primaryIcon}
+          <span>{primaryLabel}</span>
+        </Button>
+      </div>
     </div>
   );
 }
@@ -658,23 +756,12 @@ function AssignmentFirstLoadSkeleton() {
 
 function SolveActionDockSkeleton() {
   return (
-    <div
-      className="fixed right-6 z-50"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
-    >
-      <div
-        className="flex flex-col gap-2 rounded-2xl p-2 border shadow-lg min-w-48"
-        style={{
-          background: 'rgba(var(--card) / 0.60)',
-          borderColor: 'rgba(var(--border) / 0.70)',
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
-        }}
-      >
-        <Button variant="outline" disabled>Следующее задание</Button>
-        <Button disabled>Загрузка задания</Button>
-      </div>
-    </div>
+    <SolveActionDock
+      nextDisabled
+      primaryDisabled
+      statusText="Загружаю задание"
+      primaryLabel="Отправить решение"
+    />
   );
 }
 
@@ -1710,15 +1797,18 @@ export default function AssignmentSolvePage() {
     });
   };
 
-  const renderAssignmentStatement = (minLines = 5) => {
-    if (partLoading.statement) return <SolveSkeletonLines lines={minLines} />;
+  const renderAssignmentStatement = (minLines = 5, compact = false) => {
+    const reserveHeight = estimateStatementReserveHeight(a?.description, compact);
     return (
-      <AnimatedStatementViewer
-        value={a.description}
-        playKey={revealKey}
-        active={titleAnimationDone}
-        onDone={completeStatementReveal}
-      />
+      <SolveStatementFrame loading={partLoading.statement} lines={minLines} reserveHeight={reserveHeight}>
+        <AnimatedStatementViewer
+          value={a.description}
+          playKey={revealKey}
+          active={titleAnimationDone}
+          reserveHeight={reserveHeight}
+          onDone={completeStatementReveal}
+        />
+      </SolveStatementFrame>
     );
   };
 
@@ -1731,6 +1821,11 @@ export default function AssignmentSolvePage() {
       </div>
     );
   };
+
+  const mainStatementReserveHeight = estimateStatementReserveHeight(a?.description, false);
+  const sideStatementReserveHeight = estimateStatementReserveHeight(a?.description, true);
+  const statementCardReserveHeight = mainStatementReserveHeight + 96;
+  const sideStatementCardReserveHeight = sideStatementReserveHeight + 16;
 
   const renderAdminQuickInsights = () => {
     if (!isAdmin || !adminInsights) return null;
@@ -2020,7 +2115,7 @@ export default function AssignmentSolvePage() {
           
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
-              <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
+              <SolvePart loading={partLoading.statement} delay={60} minHeight={statementCardReserveHeight}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -2032,7 +2127,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {renderAssignmentStatement(5)}
+                {renderAssignmentStatement(5, false)}
               </SolvePart>
             </Card>
 
@@ -2199,47 +2294,23 @@ export default function AssignmentSolvePage() {
         </div>
 
         
-        <div
-          className="fixed right-6 z-50"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
-        >
-          <div
-            className="flex flex-col gap-2 rounded-2xl p-2 border shadow-lg w-56"
-            style={{
-              background: 'rgba(var(--card) / 0.60)',
-              borderColor: 'rgba(var(--border) / 0.70)',
-              backdropFilter: 'blur(14px)',
-              WebkitBackdropFilter: 'blur(14px)',
-            }}
-          >
-            {(nextA?.id || assignmentSwitching) && (
-              <Button
-                className="w-full"
-                variant="outline"
-                onClick={goNextAssignment}
-                disabled={assignmentSwitching || !nextA?.id}
-                title={nextA?.title || 'Следующее задание'}
-              >
-                {assignmentSwitching ? 'Загружается…' : 'Следующее задание'}
-              </Button>
-            )}
-            <Button
-              className="w-full"
-              variant="outline"
-              onClick={onTrialImageTest}
-              disabled={assignmentSwitching || imgBusy || !code.trim()}
-            >
-              {imgBusy ? 'Генерация картинки...' : 'Пробник'}
-            </Button>
-            <Button
-              className="w-full"
-              onClick={onSubmitImageTest}
-              disabled={assignmentSwitching || imgBusy || !code.trim() || partLoading.tests || (!expectedUrl && !hasConfiguredImageCases)}
-            >
-              {imgBusy ? 'Отправка...' : 'Отправить (сравнение)'}
-            </Button>
-          </div>
-        </div>
+        <SolveActionDock
+          nextTitle={nextA?.title || 'Следующее задание'}
+          nextDisabled={assignmentSwitching || !nextA?.id}
+          onNext={goNextAssignment}
+          statusText={assignmentSwitching ? 'Загружаю следующее задание' : imgBusy ? 'Идёт обработка изображения' : ''}
+          primaryLabel="Отправить решение"
+          primaryDisabled={assignmentSwitching || imgBusy || !code.trim() || partLoading.tests || (!expectedUrl && !hasConfiguredImageCases)}
+          onPrimary={onSubmitImageTest}
+          secondaryActions={[
+            {
+              key: 'trial-image',
+              label: 'Пробник',
+              onClick: onTrialImageTest,
+              disabled: assignmentSwitching || imgBusy || !code.trim(),
+            },
+          ]}
+        />
       </Layout>
     );
   }
@@ -2249,14 +2320,9 @@ export default function AssignmentSolvePage() {
   const visibleTests = canViewHiddenTests ? allAssignmentTests : allAssignmentTests.filter((t) => !isHiddenTestCase(t));
   const assignmentTestsTitle = canViewHiddenTests ? 'Тесты задания' : 'Публичные тесты';
   const emptyAssignmentTestsText = canViewHiddenTests ? 'У задания нет тестов.' : 'У задания нет публичных тестов.';
+  const hasNextAssignmentSlot = Boolean(nextA?.id);
 
   const submitStatusText = submitMessage;
-  const submitButtonLabel = ({
-    submitting: 'Отправка…',
-    queued: 'В очереди…',
-    running: 'Проверяется…',
-  })[submitPhase] || 'Отправить';
-
   return (
     <Layout>
       
@@ -2293,7 +2359,7 @@ export default function AssignmentSolvePage() {
           
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
-              <SolvePart loading={partLoading.statement} delay={60} minHeight={partLoading.statement ? 180 : undefined}>
+              <SolvePart loading={partLoading.statement} delay={60} minHeight={statementCardReserveHeight}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -2305,7 +2371,7 @@ export default function AssignmentSolvePage() {
                       ))}
                   </div>
                 )}
-                {renderAssignmentStatement(5)}
+                {renderAssignmentStatement(5, false)}
               </SolvePart>
             </Card>
 
@@ -2510,8 +2576,8 @@ export default function AssignmentSolvePage() {
           </Card>
 
           <Card className="assignment-reveal">
-            <SolvePart loading={partLoading.statement} delay={90} minHeight={partLoading.statement ? 160 : undefined}>
-              {renderAssignmentStatement(5)}
+            <SolvePart loading={partLoading.statement} delay={90} minHeight={sideStatementCardReserveHeight}>
+              {renderAssignmentStatement(5, true)}
             </SolvePart>
           </Card>
 
@@ -2554,40 +2620,16 @@ export default function AssignmentSolvePage() {
       )}
 
       
-      <div
-        className="fixed right-6 z-50"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 84px)' }}
-      >
-        <div
-          className="flex flex-col gap-2 rounded-2xl p-2 border shadow-lg"
-          style={{
-            background: 'rgba(var(--card) / 0.60)',
-            borderColor: 'rgba(var(--border) / 0.70)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-          }}
-        >
-          {(nextA?.id || assignmentSwitching) && (
-            <Button
-              variant="outline"
-              onClick={goNextAssignment}
-              disabled={assignmentSwitching || !nextA?.id}
-              title={nextA?.title || 'Следующее задание'}
-            >
-              {assignmentSwitching ? 'Загружается…' : 'Следующее задание'}
-            </Button>
-          )}
-          {submitStatusText ? (
-            <div className="max-w-56 rounded-xl px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300 bg-white/70 dark:bg-neutral-900/60">
-              {submitStatusText}
-            </div>
-          ) : null}
-          <Button onClick={onSubmit} disabled={assignmentSwitching || submitting || !code.trim()}>
-            <Play size={16} className="mr-1" />
-            {submitButtonLabel}
-          </Button>
-        </div>
-      </div>
+      <SolveActionDock
+        nextTitle={nextA?.title || 'Следующее задание'}
+        nextDisabled={assignmentSwitching || !hasNextAssignmentSlot}
+        onNext={goNextAssignment}
+        statusText={assignmentSwitching ? 'Загружаю следующее задание' : submitStatusText}
+        primaryLabel="Отправить решение"
+        primaryIcon={<Play size={16} className="mr-1" />}
+        primaryDisabled={assignmentSwitching || submitting || !code.trim()}
+        onPrimary={onSubmit}
+      />
     </Layout>
   );
 }
