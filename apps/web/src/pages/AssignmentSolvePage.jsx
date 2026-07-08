@@ -15,7 +15,6 @@ import { useNotify } from '../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../api/assignments';
 import { submitSolution, getMySolutionDetails } from '../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../api/imageTests';
-import { getAdminAssignmentInsights } from '../api/adminAssignmentInsights';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../api/assignmentActivity';
 import { extractApiErrorMessages } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
@@ -579,35 +578,98 @@ function AnimatedHeading({ text, playKey, className = 'text-2xl font-semibold mb
   );
 }
 
-function AnimatedStatementViewer({ value, playKey, active = true, reserveHeight, onDone }) {
+function SmoothHeightReveal({
+  active = true,
+  loading = false,
+  playKey = '',
+  collapsedHeight = 76,
+  skeletonLines = 3,
+  className = '',
+  children,
+  onDone,
+}) {
+  const contentRef = React.useRef(null);
   const doneRef = React.useRef(onDone);
-  const frameStyle = reserveHeight ? { '--solve-statement-min-height': `${reserveHeight}px` } : undefined;
+  const [height, setHeight] = useState(collapsedHeight);
+  const [ready, setReady] = useState(false);
+  const [durationMs, setDurationMs] = useState(420);
+  const shouldReveal = active && !loading;
 
   useEffect(() => {
     doneRef.current = onDone;
   }, [onDone]);
 
-  useEffect(() => {
-    if (!active) return undefined;
+  React.useLayoutEffect(() => {
+    let raf = 0;
+    let timer = 0;
+    let doneTimer = 0;
+    let observer = null;
     const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    const timer = window.setTimeout(() => {
-      doneRef.current?.();
-    }, reduced ? 0 : 560);
-    return () => window.clearTimeout(timer);
-  }, [active, playKey, value]);
 
-  if (!active) {
-    return (
-      <div className="animated-statement animated-statement--waiting" style={frameStyle} aria-hidden="true">
-        <div className="animated-statement-wait-glow" />
-      </div>
-    );
-  }
+    setReady(false);
+    setHeight(collapsedHeight);
+
+    if (!shouldReveal) {
+      return () => {};
+    }
+
+    const measure = () => {
+      const node = contentRef.current;
+      const nextHeight = Math.max(collapsedHeight, Math.ceil(node?.scrollHeight || collapsedHeight));
+      const nextDuration = reduced ? 0 : clampNumber(280 + nextHeight * 0.28, 360, 860);
+      setDurationMs(nextDuration);
+      setHeight(nextHeight);
+      return nextDuration;
+    };
+
+    timer = window.setTimeout(() => {
+      raf = window.requestAnimationFrame(() => {
+        const nextDuration = measure();
+        setReady(true);
+        doneTimer = window.setTimeout(() => doneRef.current?.(), nextDuration + 90);
+
+        if (typeof ResizeObserver !== 'undefined' && contentRef.current) {
+          observer = new ResizeObserver(() => measure());
+          observer.observe(contentRef.current);
+        }
+      });
+    }, reduced ? 0 : 35);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(doneTimer);
+      window.cancelAnimationFrame(raf);
+      if (observer) observer.disconnect();
+    };
+  }, [shouldReveal, collapsedHeight, playKey]);
 
   return (
-    <div className="animated-statement animated-statement-rich" style={frameStyle}>
-      <StatementViewer value={value} />
+    <div
+      className={`smooth-height-reveal ${shouldReveal ? 'smooth-height-reveal--content' : 'smooth-height-reveal--placeholder'} ${ready ? 'smooth-height-reveal--ready' : ''} ${className}`}
+      style={{ height: `${height}px`, '--solve-reveal-duration': `${durationMs}ms` }}
+    >
+      <div ref={contentRef} className="smooth-height-reveal-inner">
+        {shouldReveal ? children : <SolveSkeletonLines lines={skeletonLines} />}
+      </div>
     </div>
+  );
+}
+
+function AnimatedStatementViewer({ value, playKey, active = true, loading = false, collapsedHeight = 84, skeletonLines = 3, onDone }) {
+  return (
+    <SmoothHeightReveal
+      active={active}
+      loading={loading}
+      playKey={`statement:${playKey}:${String(value || '').length}`}
+      collapsedHeight={collapsedHeight}
+      skeletonLines={skeletonLines}
+      className="animated-statement-reveal"
+      onDone={onDone}
+    >
+      <div className="animated-statement-rich">
+        <StatementViewer value={value} />
+      </div>
+    </SmoothHeightReveal>
   );
 }
 
@@ -657,25 +719,6 @@ function estimateStatementReserveHeight(value, compact = false) {
   return clampNumber(base + estimatedLines * 20, min, max);
 }
 
-function SolveStatementFrame({ loading = false, reserveHeight, lines = 5, children }) {
-  return (
-    <div
-      className={`solve-statement-frame ${loading ? 'solve-statement-frame--loading' : 'solve-statement-frame--ready'}`}
-      style={{ '--solve-statement-min-height': `${reserveHeight}px` }}
-    >
-      {loading ? (
-        <div className="solve-statement-frame-layer solve-statement-frame-layer--skeleton">
-          <SolveSkeletonLines lines={lines} />
-        </div>
-      ) : (
-        <div className="solve-statement-frame-layer solve-statement-frame-layer--content">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SolveActionDock({
   nextTitle = 'Следующее задание',
   nextDisabled = false,
@@ -690,10 +733,12 @@ function SolveActionDock({
   const visibleStatus = String(statusText || '').trim();
   return (
     <div className="solve-action-dock">
-      <div className="solve-action-dock-panel">
-        <div className={`solve-action-status-slot ${visibleStatus ? 'solve-action-status-slot--visible' : 'solve-action-status-slot--empty'}`} aria-live="polite">
-          <div className="solve-action-status-text">{visibleStatus || 'Готово к отправке'}</div>
+      {visibleStatus && (
+        <div className="solve-action-floating-status" aria-live="polite">
+          {visibleStatus}
         </div>
+      )}
+      <div className="solve-action-dock-panel">
         <Button
           className="solve-action-button"
           variant="outline"
@@ -897,7 +942,6 @@ export default function AssignmentSolvePage() {
 
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
-  const [adminInsights, setAdminInsights] = useState(null);
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1761,19 +1805,6 @@ export default function AssignmentSolvePage() {
     );
   };
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!isAdmin || !assignmentId) return;
-      try {
-        const stats = await getAdminAssignmentInsights(assignmentId);
-        if (alive) setAdminInsights(stats);
-      } catch {
-        if (alive) setAdminInsights(null);
-      }
-    })();
-    return () => { alive = false; };
-  }, [assignmentId, isAdmin]);
 
   const revealKey = String(a?.id || assignmentId || '');
   const sequenceStatementBeforeTests = !!a && a.type !== 'test' && a.type !== 'math';
@@ -1797,60 +1828,20 @@ export default function AssignmentSolvePage() {
     });
   };
 
-  const renderAssignmentStatement = (minLines = 5, compact = false) => {
-    const reserveHeight = estimateStatementReserveHeight(a?.description, compact);
-    return (
-      <SolveStatementFrame loading={partLoading.statement} lines={minLines} reserveHeight={reserveHeight}>
-        <AnimatedStatementViewer
-          value={a.description}
-          playKey={revealKey}
-          active={titleAnimationDone}
-          reserveHeight={reserveHeight}
-          onDone={completeStatementReveal}
-        />
-      </SolveStatementFrame>
-    );
-  };
+  const renderAssignmentStatement = (minLines = 3, compact = false) => (
+    <AnimatedStatementViewer
+      value={a.description}
+      playKey={revealKey}
+      active={titleAnimationDone}
+      loading={partLoading.statement}
+      collapsedHeight={compact ? 72 : 84}
+      skeletonLines={Math.max(2, Math.min(minLines, 4))}
+      onDone={completeStatementReveal}
+    />
+  );
 
-  const renderAssignmentLoadHint = () => {
-    if (!assignmentSwitching && !partLoading.statement && !testsContentLoading) return null;
-    return (
-      <div className="solve-load-hint mb-4">
-        <span className="solve-load-dot" />
-        <span>Загрузка задания</span>
-      </div>
-    );
-  };
-
-  const mainStatementReserveHeight = estimateStatementReserveHeight(a?.description, false);
-  const sideStatementReserveHeight = estimateStatementReserveHeight(a?.description, true);
-  const statementCardReserveHeight = mainStatementReserveHeight + 96;
-  const sideStatementCardReserveHeight = sideStatementReserveHeight + 16;
-
-  const renderAdminQuickInsights = () => {
-    if (!isAdmin || !adminInsights) return null;
-    const totalAttempts = (adminInsights.codeAttempts || 0) + (adminInsights.testAttempts || 0) + (adminInsights.imageAttempts || 0);
-    const successRate = totalAttempts > 0 ? Math.round((adminInsights.successUsers || 0) / Math.max(adminInsights.uniqueUsers || 1, 1) * 100) : 0;
-    return (
-      <Card className="mb-6">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <div className="font-semibold">Быстрая статистика задания</div>
-            <div className="text-sm text-neutral-500 mt-1">Этот блок виден только администратору.</div>
-          </div>
-          <Link to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
-            <BarChart3 size={16} className="mr-2" /> Полная аналитика
-          </Link>
-        </div>
-        <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
-          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Пользователи</div><div className="text-2xl font-semibold mt-1">{adminInsights.uniqueUsers || 0}</div></div>
-          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Решили</div><div className="text-2xl font-semibold mt-1">{adminInsights.successUsers || 0}</div></div>
-          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Попытки</div><div className="text-2xl font-semibold mt-1">{totalAttempts}</div></div>
-          <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Успешность</div><div className="text-2xl font-semibold mt-1">{successRate}%</div></div>
-        </div>
-      </Card>
-    );
-  };
+  const renderAssignmentLoadHint = () => null;
+  const renderAdminQuickInsights = () => null;
 
   if (loading && !a) {
     return <AssignmentFirstLoadSkeleton />;
@@ -1893,14 +1884,12 @@ export default function AssignmentSolvePage() {
           </div>
         </div>
 
-        {renderAdminQuickInsights()}
-        {renderAssignmentLoadHint()}
         {partLoading.tests ? (
           <Card className="min-h-[360px] assignment-reveal">
             <SolveSkeletonLines lines={8} />
           </Card>
         ) : (
-          <TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+          <div className="user-flow-reveal"><TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} /></div>
         )}
       </Layout>
     );
@@ -1936,14 +1925,12 @@ export default function AssignmentSolvePage() {
           </div>
         </div>
 
-        {renderAdminQuickInsights()}
-        {renderAssignmentLoadHint()}
         {partLoading.tests ? (
           <Card className="min-h-[360px] assignment-reveal">
             <SolveSkeletonLines lines={8} />
           </Card>
         ) : (
-          <MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} />
+          <div className="user-flow-reveal"><MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} /></div>
         )}
       </Layout>
     );
@@ -2108,14 +2095,12 @@ export default function AssignmentSolvePage() {
           </div>
         </div>
 
-        {renderAdminQuickInsights()}
-        {renderAssignmentLoadHint()}
 
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
-              <SolvePart loading={partLoading.statement} delay={60} minHeight={statementCardReserveHeight}>
+              <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -2322,6 +2307,55 @@ export default function AssignmentSolvePage() {
   const emptyAssignmentTestsText = canViewHiddenTests ? 'У задания нет тестов.' : 'У задания нет публичных тестов.';
   const hasNextAssignmentSlot = Boolean(nextA?.id);
 
+  const renderCodeTestCase = (t, i) => {
+    const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
+    return (
+      <div
+        key={`${a.id || assignmentId}-test-${i}`}
+        className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}
+        style={{ '--solve-test-delay': `${Math.min(i, 18) * 78}ms` }}
+      >
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="text-xs text-neutral-500">Ввод</div>
+          {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
+        </div>
+        <InputTextPreview value={t.input ?? t.Input ?? ''} />
+
+        {(expectedText ?? '') !== '' && (
+          <>
+            <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
+            <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderTestsCard = () => (
+    <Card className="solve-tests-card solve-user-reveal-block">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-medium">{assignmentTestsTitle}</div>
+      </div>
+
+      <SmoothHeightReveal
+        active={!testsContentLoading}
+        loading={testsContentLoading}
+        playKey={`tests:${revealKey}:${visibleTests.length}:${partLoading.tests ? 'loading' : 'ready'}`}
+        collapsedHeight={72}
+        skeletonLines={4}
+        className="solve-tests-height-reveal"
+      >
+        {visibleTests.length === 0 ? (
+          <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
+        ) : (
+          <div className="solve-test-list space-y-3">
+            {visibleTests.map(renderCodeTestCase)}
+          </div>
+        )}
+      </SmoothHeightReveal>
+    </Card>
+  );
+
   const submitStatusText = submitMessage;
   return (
     <Layout>
@@ -2350,8 +2384,6 @@ export default function AssignmentSolvePage() {
         </div>
       </div>
 
-      {renderAdminQuickInsights()}
-      {renderAssignmentLoadHint()}
 
       
       {codeSolveLayout !== 'editorTop' ? (
@@ -2359,7 +2391,7 @@ export default function AssignmentSolvePage() {
           
           <div className="lg:col-span-2 space-y-5">
             <Card className="assignment-reveal">
-              <SolvePart loading={partLoading.statement} delay={60} minHeight={statementCardReserveHeight}>
+              <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -2374,40 +2406,7 @@ export default function AssignmentSolvePage() {
                 {renderAssignmentStatement(5, false)}
               </SolvePart>
             </Card>
-
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <div className="font-medium">{assignmentTestsTitle}</div>
-              </div>
-
-              {testsContentLoading ? (
-                <SolveSkeletonLines lines={6} />
-              ) : visibleTests.length === 0 ? (
-                <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
-              ) : (
-                <div className="space-y-3">
-                  {visibleTests.map((t, i) => {
-                    const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
-                    return (
-                      <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <div className="text-xs text-neutral-500">Ввод</div>
-                          {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
-                        </div>
-                        <InputTextPreview value={t.input ?? t.Input ?? ''} />
-
-                        {(expectedText ?? '') !== '' && (
-                          <>
-                            <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
-                            <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
+            {renderTestsCard()}
 
             {renderSolutionResultCard()}
           </div>
@@ -2576,44 +2575,11 @@ export default function AssignmentSolvePage() {
           </Card>
 
           <Card className="assignment-reveal">
-            <SolvePart loading={partLoading.statement} delay={90} minHeight={sideStatementCardReserveHeight}>
+            <SolvePart loading={partLoading.statement} delay={90}>
               {renderAssignmentStatement(5, true)}
             </SolvePart>
           </Card>
-
-          <Card>
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-medium">{assignmentTestsTitle}</div>
-            </div>
-
-            {testsContentLoading ? (
-              <SolveSkeletonLines lines={6} />
-            ) : visibleTests.length === 0 ? (
-              <div className="text-neutral-500">{emptyAssignmentTestsText}</div>
-            ) : (
-              <div className="space-y-3">
-                {visibleTests.map((t, i) => {
-                  const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
-                  return (
-                    <div key={`${a.id || assignmentId}-test-${i}`} className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 70}ms` }}>
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="text-xs text-neutral-500">Ввод</div>
-                        {isHiddenTestCase(t) && <Badge intent="warning">Скрытый тест</Badge>}
-                      </div>
-                      <InputTextPreview value={t.input ?? t.Input ?? ''} />
-
-                      {(expectedText ?? '') !== '' && (
-                        <>
-                          <div className="text-xs text-neutral-500 mt-2 mb-1">Ожидаемый вывод</div>
-                          <pre className="whitespace-pre-wrap text-sm">{expectedText}</pre>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
+            {renderTestsCard()}
 
           {renderSolutionResultCard()}
         </div>
