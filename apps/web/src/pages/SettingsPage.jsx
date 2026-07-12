@@ -1470,7 +1470,7 @@ export default function SettingsPage() {
           <div>
             <div className="font-semibold">Minecraft</div>
             <div className="text-sm text-neutral-500 dark:text-neutral-400">
-              Привязка ника к аккаунту TaskForge.
+              Привязка ника и Minecraft-баланс для игровых действий.
             </div>
           </div>
           {mcStatus ? (
@@ -1492,7 +1492,25 @@ export default function SettingsPage() {
               ) : null}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              Если у игрока не хватает рейтинга, сервер может выдавать дебафы.
+              Основной рейтинг не списывается. Для Minecraft хранится отдельная сумма трат и восстановлений.
+            </div>
+            <div className="grid sm:grid-cols-4 gap-2 text-xs">
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+                <div className="text-neutral-500 dark:text-neutral-400">Основной</div>
+                <div className="font-semibold text-sm">{mcStatus.baseRating ?? mcStatus.score ?? 0}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+                <div className="text-neutral-500 dark:text-neutral-400">MC баланс</div>
+                <div className="font-semibold text-sm">{mcStatus.minecraftBalance ?? mcStatus.balance ?? 0}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+                <div className="text-neutral-500 dark:text-neutral-400">Потрачено</div>
+                <div className="font-semibold text-sm">{mcStatus.minecraftSpent ?? mcStatus.penaltyTotal ?? 0}</div>
+              </div>
+              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+                <div className="text-neutral-500 dark:text-neutral-400">Возврат смерти</div>
+                <div className="font-semibold text-sm">{mcStatus.deathTeleportCost ?? 100}</div>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button

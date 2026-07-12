@@ -1,11 +1,9 @@
-using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using TaskForge.Minecraft.Api.Data;
-using TaskForge.Minecraft.Api.Domain;
-
 
 namespace TaskForge.Minecraft.Api.Hubs;
 
-public sealed class MinecraftChatHub : Hub { }
+public sealed class MinecraftChatHub : Hub
+{
+    public Task JoinChat() => Groups.AddToGroupAsync(Context.ConnectionId, "minecraft-chat");
+    public Task LeaveChat() => Groups.RemoveFromGroupAsync(Context.ConnectionId, "minecraft-chat");
+}

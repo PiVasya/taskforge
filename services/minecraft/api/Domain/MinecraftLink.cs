@@ -9,4 +9,6 @@ public sealed class MinecraftLink
     public string Code { get; set; } = string.Empty;
     public bool Confirmed { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? ConfirmedAtUtc { get; set; }
+    public DateTimeOffset? UnlinkedAtUtc { get; set; }
 }

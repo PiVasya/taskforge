@@ -5,6 +5,7 @@ Open this file before changing the project.
 ## Hard rules
 
 - Do not generate database migrations unless the user explicitly asks for migrations.
+- Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.
 - Do not put changelog text, update notes, "what was fixed", or authoring explanations into exported JSON, import examples, API responses, or user-visible UI.
 - Do not leave frontend text that explains internal implementation history to users.
 - Do not write comments like "made it nicer", "fixed here", "old update", "new format", or similar change-log notes in code.

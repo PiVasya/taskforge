@@ -47,6 +47,29 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(result);
         });
 
+
+        app.MapPost("/api/internal/feature-roles/users/{userId:guid}/roles", async (Guid userId, RoleAssignRequest request, IdentityDbContext db, CancellationToken ct) =>
+        {
+            var code = NormalizeRoleCode(request.Code);
+            if (string.IsNullOrWhiteSpace(code)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Role code is required." });
+            var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
+            if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "User not found." });
+            if (!await db.FeatureRoles.AnyAsync(x => x.Code == code, ct)) db.FeatureRoles.Add(new FeatureRole { Code = code, Title = code, IsActive = true });
+            if (!await db.UserFeatureRoles.AnyAsync(x => x.UserId == userId && x.Code == code, ct)) db.UserFeatureRoles.Add(new UserFeatureRole { UserId = userId, Code = code });
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { userId, code });
+        });
+
+        app.MapDelete("/api/internal/feature-roles/users/{userId:guid}/roles/{code}", async (Guid userId, string code, IdentityDbContext db, CancellationToken ct) =>
+        {
+            var normalized = NormalizeRoleCode(code);
+            if (string.IsNullOrWhiteSpace(normalized)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Role code is required." });
+            var rows = await db.UserFeatureRoles.Where(x => x.UserId == userId && x.Code == normalized).ToListAsync(ct);
+            if (rows.Count > 0) db.UserFeatureRoles.RemoveRange(rows);
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { userId, code = normalized, removed = rows.Count });
+        });
+
         return app;
     }
 }

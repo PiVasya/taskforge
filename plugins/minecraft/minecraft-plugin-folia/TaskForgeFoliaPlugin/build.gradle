@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'com.taskforge'
-version = '1.0.0'
+version = '1.2.0'
 
 // Folia 1.21.x runs on Java 21
 def targetJava = 21

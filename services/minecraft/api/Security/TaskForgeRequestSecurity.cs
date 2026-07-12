@@ -96,6 +96,14 @@ public static class TaskForgeRequestSecurity
         var safeMethod = HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
         var writeMethod = HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsPatch(method) || HttpMethods.IsDelete(method);
 
+        if (string.Equals(service, "minecraft", StringComparison.OrdinalIgnoreCase))
+        {
+            if (path.StartsWith("/api/integrations/minecraft/events/")) return Requirement.Public;
+            if (path.StartsWith("/api/integrations/minecraft/player-status")) return Requirement.Public;
+            if (path.StartsWith("/api/integrations/minecraft/death-teleport/")) return Requirement.Public;
+            if (path.StartsWith("/api/integrations/minecraft/chat/bridge/")) return Requirement.Public;
+        }
+
         if (path.StartsWith("/api/auth/login") || path.StartsWith("/api/auth/register") || path.StartsWith("/api/auth/refresh") || path.StartsWith("/api/auth/logout")) return Requirement.Public;
         if (path.StartsWith("/api/users/") && path.EndsWith("/public-profile")) return Requirement.Public;
         if (path == "/api/system-status") return Requirement.Public;

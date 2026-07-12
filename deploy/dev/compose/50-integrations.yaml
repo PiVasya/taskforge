@@ -103,6 +103,14 @@ services:
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
       Services__IdentityApi: http://identity-api:8080
+      Services__SolutionsApi: http://solutions-api:8080
+      Services__TasksApi: http://tasks-api:8080
+      MINECRAFT_WEBHOOK_BASE_URL: ${MINECRAFT_WEBHOOK_BASE_URL:-}
+      MINECRAFT_WEBHOOK_SEND_CODE_PATH: ${MINECRAFT_WEBHOOK_SEND_CODE_PATH:-/taskforge/link/send}
+      MINECRAFT_WEBHOOK_KEY: ${MINECRAFT_WEBHOOK_KEY:-}
+      MINECRAFT_HEALTH_URL: ${MINECRAFT_HEALTH_URL:-}
+      MINECRAFT_WEEKLY_PENALTY: ${MINECRAFT_WEEKLY_PENALTY:-70}
+      MINECRAFT_PLUGIN_KEY: ${MINECRAFT_PLUGIN_KEY:-}
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
       Database__EnsureCreated: ${ENSURE_CREATED:-false}
       Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}

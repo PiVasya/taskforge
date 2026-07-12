@@ -4,6 +4,7 @@ import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { deleteAdminUser, getAdminUser, updateAdminUser } from '../../api/adminUsers';
+import { getAdminMinecraftUserRating, restoreAdminMinecraftUserRating } from '../../api/adminMinecraftLinks';
 import { deleteUserSolutions, getAdminUserGroupIds, getUserImageSolutions, getUserSolutions, searchUsersOnce } from '../../api/admin';
 import { assignFeatureRole, getFeatureRoles, removeFeatureRole } from '../../api/featureRoles';
 import { addGroupMember, getAdminGroups, removeGroupMember } from '../../api/groups';
@@ -11,7 +12,7 @@ import { getUserMathAttempts } from '../../api/mathTaskAttempts';
 import { getUserTaskTestAttempts } from '../../api/taskTestAttempts';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { ArrowLeft, ExternalLink, RefreshCcw, Save, Shield, Trash2, UserCog } from 'lucide-react';
+import { ArrowLeft, ExternalLink, RefreshCcw, Save, Shield, Trash2, UserCog, Pickaxe } from 'lucide-react';
 
 const baseRoles = ['User', 'Editor', 'Admin'];
 
@@ -78,6 +79,10 @@ export default function AdminUserManagementPage() {
   const [imageSolutions, setImageSolutions] = useState([]);
   const [testAttempts, setTestAttempts] = useState([]);
   const [mathAttempts, setMathAttempts] = useState([]);
+  const [minecraftRating, setMinecraftRating] = useState(null);
+  const [mcRestoreAmount, setMcRestoreAmount] = useState('100');
+  const [mcRestoreReason, setMcRestoreReason] = useState('');
+  const [mcRestoring, setMcRestoring] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const roleSet = useMemo(() => new Set(form?.featureRoles || form?.roles || []), [form]);
@@ -85,7 +90,7 @@ export default function AdminUserManagementPage() {
   const load = async () => {
     try {
       setLoading(true);
-      const [userDto, ratingRows, allGroups, userGroups, allFeatureRoles, codeRows, imageRows, testRows, mathRows] = await Promise.all([
+      const [userDto, ratingRows, allGroups, userGroups, allFeatureRoles, codeRows, imageRows, testRows, mathRows, mcRatingDto] = await Promise.all([
         getAdminUser(userId),
         searchUsersOnce(userId, 1).catch(() => []),
         getAdminGroups().catch(() => []),
@@ -95,6 +100,7 @@ export default function AdminUserManagementPage() {
         getUserImageSolutions(userId, { take: 10 }).catch(() => []),
         getUserTaskTestAttempts(userId, { take: 10 }).catch(() => []),
         getUserMathAttempts(userId, { take: 10 }).catch(() => []),
+        getAdminMinecraftUserRating(userId).catch(() => null),
       ]);
 
       const ratingDto = Array.isArray(ratingRows) ? ratingRows.find((x) => String(x.userId || x.id).toLowerCase() === String(userId).toLowerCase()) : null;
@@ -118,6 +124,7 @@ export default function AdminUserManagementPage() {
       setImageSolutions(Array.isArray(imageRows) ? imageRows : []);
       setTestAttempts(Array.isArray(testRows) ? testRows : []);
       setMathAttempts(Array.isArray(mathRows) ? mathRows : []);
+      setMinecraftRating(mcRatingDto || null);
       setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить профиль пользователя');
@@ -192,6 +199,27 @@ export default function AdminUserManagementPage() {
     }
   };
 
+  const restoreMinecraftRating = async () => {
+    const amount = Math.floor(Number(mcRestoreAmount || 0));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify.error('Укажи сумму восстановления больше 0');
+      return;
+    }
+    try {
+      setMcRestoring(true);
+      await restoreAdminMinecraftUserRating(userId, { amount, reason: mcRestoreReason || null });
+      notify.success('Minecraft-баланс восстановлен');
+      setMcRestoreReason('');
+      const fresh = await getAdminMinecraftUserRating(userId).catch(() => null);
+      setMinecraftRating(fresh || null);
+    } catch (e) {
+      const parsed = handleApiError(e, notify, 'Не удалось восстановить Minecraft-баланс');
+      setPageError(parsed);
+    } finally {
+      setMcRestoring(false);
+    }
+  };
+
   const deleteCodeSolutions = async () => {
     const ok = await notify.confirm({
       title: 'Удалить code-решения?',
@@ -257,8 +285,9 @@ export default function AdminUserManagementPage() {
         {pageError ? <AppErrorPanel error={pageError} title="Не удалось выполнить действие" /> : null}
         {loading && <div className="text-neutral-500">Загрузка…</div>}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 sm:gap-4">
           <MetricCard label="Рейтинг" value={score} hint="По текущему rating решённых заданий" />
+          <MetricCard label="MC баланс" value={minecraftRating?.minecraftBalance ?? minecraftRating?.balance ?? 0} hint="Рейтинг с учётом Minecraft-трат" />
           <MetricCard label="Решено" value={solved} hint="Уникальные зачтённые задания" />
           <MetricCard label="Попыток" value={attemptsShown} hint="Все отправки пользователя, включая отклонённые" />
           <MetricCard label="Групп" value={groupIds.size} hint="Текущие учебные группы" />
@@ -300,6 +329,44 @@ export default function AdminUserManagementPage() {
             </div>
           </Card>
         </div>
+
+        <Card>
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div className="min-w-0">
+              <div className="font-semibold flex items-center gap-2"><Pickaxe size={18} /> Minecraft-баланс</div>
+              <div className="text-sm text-neutral-500 mt-1">Основной рейтинг не меняется. Minecraft хранит отдельные списания и восстановления относительно него.</div>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4 text-sm">
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Основной</div><div className="text-xl font-semibold">{minecraftRating?.baseRating ?? score}</div></div>
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Баланс MC</div><div className="text-xl font-semibold">{minecraftRating?.minecraftBalance ?? minecraftRating?.balance ?? 0}</div></div>
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Потрачено</div><div className="text-xl font-semibold">{minecraftRating?.minecraftSpent ?? 0}</div></div>
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Восстановлено</div><div className="text-xl font-semibold">{minecraftRating?.minecraftRestored ?? 0}</div></div>
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Возврат смерти</div><div className="text-xl font-semibold">{minecraftRating?.deathTeleportCost ?? 100}</div></div>
+              </div>
+            </div>
+            <div className="w-full lg:max-w-sm rounded-2xl border border-[rgb(var(--border))] p-3">
+              <div className="font-medium text-sm mb-3">Восстановить баланс</div>
+              <div className="space-y-2">
+                <Field label="Сумма"><Input value={mcRestoreAmount} onChange={(e) => setMcRestoreAmount(e.target.value)} inputMode="numeric" /></Field>
+                <Field label="Причина"><Input value={mcRestoreReason} onChange={(e) => setMcRestoreReason(e.target.value)} placeholder="Например: возврат после сбоя телепорта" /></Field>
+                <Button onClick={restoreMinecraftRating} disabled={mcRestoring}>{mcRestoring ? 'Сохранение…' : 'Восстановить'}</Button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="font-medium text-sm mb-2">Последние операции</div>
+            <div className="space-y-2 max-h-[280px] overflow-auto pr-1">
+              {(minecraftRating?.transactions || []).length ? minecraftRating.transactions.map((tx) => (
+                <div key={tx.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-2xl border border-[rgb(var(--border))] p-3 text-sm">
+                  <div>
+                    <div className="font-medium">{tx.reason || tx.kind}</div>
+                    <div className="text-xs text-neutral-500 mt-1">{tx.createdAtUtc ? new Date(tx.createdAtUtc).toLocaleString() : '—'} · {tx.kind}</div>
+                  </div>
+                  <Badge intent={Number(tx.delta || 0) >= 0 ? 'success' : 'danger'}>{Number(tx.delta || 0) >= 0 ? '+' : ''}{tx.delta}</Badge>
+                </div>
+              )) : <div className="text-sm text-neutral-500">Операций Minecraft-баланса пока нет.</div>}
+            </div>
+          </div>
+        </Card>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
           <Card>

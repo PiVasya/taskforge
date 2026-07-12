@@ -23,7 +23,7 @@ internal static partial class MinecraftApiEndpoints
 
         app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-minecraft-api", database = "taskforge_minecraft", status = "minecraft microservice active" }));
 
-        app.MapGet("/api/minecraft/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_minecraft", ownedEntities = new[] { "MinecraftLink", "MinecraftChatMessage" } }));
+        app.MapGet("/api/minecraft/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_minecraft", ownedEntities = new[] { "MinecraftLink", "MinecraftChatMessage", "MinecraftRatingTransaction" } }));
 
         return app;
     }

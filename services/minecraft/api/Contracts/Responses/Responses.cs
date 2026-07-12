@@ -1,11 +1,3 @@
-using System.Net.Http.Json;
-using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using TaskForge.Minecraft.Api.Data;
-using TaskForge.Minecraft.Api.Domain;
-
-
 namespace TaskForge.Minecraft.Api.Contracts;
 
 public sealed class UserSummaryDto
@@ -18,6 +10,9 @@ public sealed class UserSummaryDto
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? DisplayName { get; set; }
+    public string[]? Roles { get; set; }
+    public string[]? FeatureRoles { get; set; }
+
     public void Normalize()
     {
         if (UserId == Guid.Empty) UserId = Id;
@@ -25,4 +20,16 @@ public sealed class UserSummaryDto
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = Login;
         if (string.IsNullOrWhiteSpace(DisplayName)) DisplayName = MaskedEmail;
     }
+}
+
+public sealed class UserActivitySummaryDto
+{
+    public int SolvedAssignments { get; set; }
+    public int TotalAttempts { get; set; }
+    public int CodeSolutions { get; set; }
+    public int ImageSolutions { get; set; }
+    public int TestAttempts { get; set; }
+    public int MathAttempts { get; set; }
+    public int Score { get; set; }
+    public int Rating { get; set; }
 }

@@ -1,0 +1,5 @@
+dotnet-toolchain	127
+maven:plugins/minecraft/default-group-assigner	127
+maven:plugins/minecraft/world-loader-folia	127
+gradle:plugins/minecraft/minecraft-plugin-folia/CustomMobTweaksPlugin	127
+gradle:plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin	127

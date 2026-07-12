@@ -5,7 +5,7 @@ import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { AlertTriangle, Link2, RefreshCcw } from 'lucide-react';
+import { Link2, RefreshCcw } from 'lucide-react';
 
 export default function AdminMinecraftLinksPage() {
   const notify = useNotify();
@@ -32,8 +32,8 @@ export default function AdminMinecraftLinksPage() {
 
   const stats = useMemo(() => ({
     total: items.length,
-    totalPenalty: items.reduce((s, x) => s + Number(x.totalPenalty || 0), 0),
-    debuffed: items.filter((x) => Number(x.effectiveScore || 0) < 0).length,
+    totalSpent: items.reduce((s, x) => s + Number(x.minecraftSpent ?? x.totalPenalty ?? 0), 0),
+    totalRestored: items.reduce((s, x) => s + Number(x.minecraftRestored || 0), 0),
   }), [items]);
 
   return (
@@ -44,15 +44,15 @@ export default function AdminMinecraftLinksPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2"><Link2 size={22} /> Связи с Minecraft</h1>
-            <p className="text-sm text-neutral-500 mt-2">Кто привязан, сколько штрафов уже снято и какой эффективный рейтинг остаётся.</p>
+            <p className="text-sm text-neutral-500 mt-2">Кто привязан, сколько рейтинга потрачено и какой Minecraft-баланс доступен.</p>
           </div>
           <Button onClick={load}><RefreshCcw size={16} /> <span className="ml-1">Обновить</span></Button>
         </div>
 
         <div className="grid md:grid-cols-3 gap-4">
           <Card><div className="text-sm opacity-70">Привязанных</div><div className="text-3xl font-semibold mt-2">{stats.total}</div></Card>
-          <Card><div className="text-sm opacity-70">Списано рейтинга</div><div className="text-3xl font-semibold mt-2">{stats.totalPenalty}</div></Card>
-          <Card><div className="text-sm opacity-70">С отрицат. effective score</div><div className="text-3xl font-semibold mt-2">{stats.debuffed}</div></Card>
+          <Card><div className="text-sm opacity-70">Потрачено рейтинга</div><div className="text-3xl font-semibold mt-2">{stats.totalSpent}</div></Card>
+          <Card><div className="text-sm opacity-70">Восстановлено</div><div className="text-3xl font-semibold mt-2">{stats.totalRestored}</div></Card>
         </div>
 
         <Card>
@@ -80,18 +80,18 @@ export default function AdminMinecraftLinksPage() {
                 </div>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Total score</div><div className="text-2xl font-semibold mt-1">{x.totalScore ?? 0}</div></div>
-                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Effective score</div><div className="text-2xl font-semibold mt-1">{x.effectiveScore ?? 0}</div></div>
-                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Penalty total</div><div className="text-2xl font-semibold mt-1">{x.totalPenalty ?? 0}</div></div>
-                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Weekly joins</div><div className="text-2xl font-semibold mt-1">{x.weeklyJoinEvents ?? 0}</div></div>
+                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Основной рейтинг</div><div className="text-2xl font-semibold mt-1">{x.totalScore ?? 0}</div></div>
+                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Minecraft-баланс</div><div className="text-2xl font-semibold mt-1">{x.minecraftBalance ?? x.effectiveScore ?? 0}</div></div>
+                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Потрачено</div><div className="text-2xl font-semibold mt-1">{x.minecraftSpent ?? x.totalPenalty ?? 0}</div></div>
+                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Восстановлено</div><div className="text-2xl font-semibold mt-1">{x.minecraftRestored ?? 0}</div></div>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {(x.featureRoles || []).length ? x.featureRoles.map((r) => <Badge key={r} intent="outline">{r}</Badge>) : <Badge intent="secondary">Без доп. ролей</Badge>}
-                    {(x.effectiveScore ?? 0) < 0 ? <Badge intent="danger">Debuffed</Badge> : <Badge intent="success">OK</Badge>}
+                    <Badge intent="success">Активно</Badge>
                   </div>
-                  <div className="text-sm opacity-70">Последний штраф: {x.lastPenaltyAtUtc ? new Date(x.lastPenaltyAtUtc).toLocaleString() : 'ещё не было'}</div>
+                  <div className="text-sm opacity-70">Последняя трата: {x.lastPenaltyAtUtc ? new Date(x.lastPenaltyAtUtc).toLocaleString() : 'ещё не было'}</div>
                 </div>
               </div>
             </Card>

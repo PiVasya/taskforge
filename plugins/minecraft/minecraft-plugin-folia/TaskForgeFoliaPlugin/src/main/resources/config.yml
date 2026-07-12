@@ -1,57 +1,43 @@
-# HTTP server for TaskForge -> Minecraft calls
 http:
   host: 0.0.0.0
   port: 25566
   path: /taskforge/link/send
 
-# Shared secret (TaskForge sends it in header X-TaskForge-Key)
 security:
   taskforgeKey: "CHANGE_ME"
-  # Optional IP allowlist. If empty -> allow all.
   allowedIps: []
 
-# Minecraft plugin -> TaskForge (for weekly join + debuff status)
 taskforge:
-  # TaskForge base URL (without /api). Examples:
-  #   https://taskforge.example
-  #   http://127.0.0.1:8080
   apiBaseUrl: ""
-  # Shared secret for plugin -> TaskForge calls (sent as X-Minecraft-Key)
   pluginKey: ""
   timeoutSeconds: 4
 
-debuffs:
+deathTeleport:
   enabled: true
-  # Старое поле оставлено для совместимости конфигов.
-  durationSeconds: 600
-  # Если рейтинг уже отрицательный, дебаффы включаются сразу на текущем входе.
-  immediateForNegativeScore: true
-  # Локально перекидываем эффекты заново, чтобы они не слетали после молока/смерти/чужих чисток.
-  reapplyIntervalSeconds: 20
+  cost: 100
+  offerTtlSeconds: 300
+  messageDelayTicks: 20
+  recovery:
+    spectatorSeconds: 10
+    maxDistance: 24
+    safeSearchRadius: 8
+    fireResistanceSeconds: 60
+    resistanceSeconds: 10
+    regenerationSeconds: 10
+    slowFallingSeconds: 10
 
-# Исключения (не будет запросов в API и не будет дебаффов)
-# Удобно, чтобы "админы" / "донатеры" / тестовые аккаунты не попадали в систему наказаний.
 exemptions:
-  # Список ников (без учёта регистра)
   nicks: []
-  # Список UUID (строкой)
   uuids: []
 
 chat:
   enabled: true
-  # Не дёргать сайт, если на сервере вообще никого нет.
   pollOnlyWhenPlayersOnline: true
-  # Сделали опрос реже — это сильно режет лишний трафик.
   pollIntervalSeconds: 12
-
-  # Что вообще отправлять из Minecraft в TaskForge.
   forwardJoinQuit: true
   forwardPlayerMessages: true
   forwardAdvancements: true
-
-  # Рецепты и корневые advancement'ы обычно только засоряют ленту.
   includeRecipeAdvancements: false
   includeRootAdvancements: false
-
   sitePrefix: "§d[TaskForge]§r "
   minecraftPrefix: "[MC] "

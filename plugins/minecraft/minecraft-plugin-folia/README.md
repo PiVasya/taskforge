@@ -1,57 +1,62 @@
-# TaskForge × Minecraft (Folia) plugin
+# TaskForge Minecraft plugins
 
-Плагин для **Folia** (Paper/Folia API), который:
+В каталоге находятся два Folia-плагина:
 
-1) Принимает HTTP запрос от TaskForge и **отправляет игроку код привязки** в личные сообщения (игрок должен быть online).
-2) (Опционально) на `join` и `death` запрашивает у TaskForge статус игрока (`debuffed`) и **вешает/снимает** эффекты.
+- `TaskForgeFoliaPlugin` — привязка аккаунта, чат TaskForge, отдельный Minecraft-баланс и платный возврат после смерти.
+- `CustomMobTweaksPlugin` — настраиваемые усиления мобов.
 
-## Как подключить
+## Автоматическая сборка
 
-1. Собрать jar:
+Workflow `.github/workflows/minecraft-plugins-build.yml` собирает оба плагина при каждом push, pull request и ручном запуске.
+
+В завершённом GitHub Actions run появляется artifact:
+
+```text
+taskforge-minecraft-plugins-<commit-sha>
+```
+
+Внутри находятся:
+
+```text
+TaskForgeLink.jar
+CustomMobTweaks.jar
+SHA256SUMS.txt
+taskforge-minecraft-plugins.zip
+```
+
+При push тега эти же файлы прикрепляются к GitHub Release и доступны там отдельными загрузками.
+
+## Локальная сборка
+
+Нужны Java 21 и Gradle 8.10.2 или новее.
 
 ```bash
-cd minecraft-plugin-folia/TaskForgeFoliaPlugin
-./gradlew build
+cd plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin
+gradle --no-daemon clean build
+
+cd ../CustomMobTweaksPlugin
+gradle --no-daemon clean build
 ```
 
-Готовый jar будет в `build/libs/`.
+## Возврат на место смерти
 
-2. Положить jar в папку `plugins/` на Folia сервер.
+После респавна привязанный игрок видит свой отдельный Minecraft-баланс, стоимость возврата и кликабельные кнопки:
 
-3. Настроить `plugins/TaskForgeLink/config.yml`:
-
-- `http.host`, `http.port`, `http.path` — где слушать webhook от TaskForge.
-- `security.taskForgeKey` — общий секрет (TaskForge должен слать в `X-TaskForge-Key`).
-- `security.allowedIps` — whitelist IP (не обязательно).
-- `taskforge.apiBaseUrl` — URL TaskForge API (если хочешь включить дебафы).
-- `taskforge.minecraftKey` — ключ для заголовка `X-Minecraft-Key` (плагин->TaskForge).
-
-## Webhook (TaskForge -> plugin)
-
-`POST http://<server>:<port>/taskforge/link/send`
-
-Headers:
-- `X-TaskForge-Key: <секрет>`
-- `X-Request-Id: <uuid>`
-
-Body:
-```json
-{ "nick":"Player", "code":"ABCD-EFGH", "ttlSeconds":600, "siteName":"TaskForge" }
+```text
+[Вернуться за 100] [Отказаться]
 ```
 
-Ответ:
-- 200 `{ delivered:true, uuid:"..." }` если игрок online
-- 404 `{ delivered:false, reason:"offline" }` если игрок offline
+После подтверждения баланс проверяется повторно. Игрок переносится к точке смерти в режиме наблюдателя и получает десять секунд, чтобы выбрать позицию в пределах разрешённого радиуса. Обратный отсчёт показывается крупным заголовком на экране. Возврат можно отменить кликабельной кнопкой без списания рейтинга.
 
-## Debuff pull (plugin -> TaskForge)
+После окончания таймера плагин ищет пригодный для выхода блок рядом с выбранной игроком позицией. Проверяются опора под ногами, свободное пространство для тела, жидкости и опасные блоки. Сначала игрок в режиме наблюдателя фиксируется на найденной позиции, и только после успешного перемещения backend создаёт операцию списания.
 
-Плагин (если задан `taskforge.apiBaseUrl`) дергает:
+После подтверждения игрок возвращается в прежний игровой режим и получает:
 
-- `POST /api/integrations/minecraft/events/join` с `{ nick, uuid }` (списание недели 1 раз в неделю)
-- `GET /api/integrations/minecraft/player-status?nick=...&uuid=...` (проверка без списания)
+- огнестойкость на 60 секунд;
+- сильную защиту на 10 секунд;
+- регенерацию на 10 секунд;
+- медленное падение на 10 секунд.
 
-Ожидаемый ответ JSON:
-```json
-{ "debuffed": true }
-```
+Если безопасная позиция не найдена, TaskForge недоступен, баланс изменился или перемещение не удалось, игрок возвращается на точку респавна, а рейтинг не списывается.
 
+Параметры находятся в `deathTeleport.recovery` файла `config.yml`.
