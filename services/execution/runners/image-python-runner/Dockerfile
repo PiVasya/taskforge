@@ -17,7 +17,7 @@ COPY python_image_entry.py /opt/taskforge/python_image_entry.py
 ENV HOME=/tmp
 ENV IMAGE_RUNNER_KIND=python PORT=8000 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib PYTHONPYCACHEPREFIX=/tmp/pycache
 EXPOSE 8000
-ARG TASKFORGE_DEBUG_LOGS=0
+ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
 USER 65534:65534
 ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-python-runner\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=image-python-runner\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; exec /app/image-runner"]

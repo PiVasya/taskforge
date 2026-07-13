@@ -16,7 +16,7 @@ services:
       context: ../../..
       dockerfile: services/execution/api/Dockerfile
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -64,7 +64,7 @@ services:
       context: ../../..
       dockerfile: services/execution/worker/Dockerfile
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
       Services__ExecutionApi: http://execution-api:8080
@@ -155,7 +155,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -189,7 +189,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   java-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -212,7 +212,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   javascript-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -235,7 +235,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -258,7 +258,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -281,7 +281,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-cpp-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -304,7 +304,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -327,7 +327,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -350,7 +350,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
 networks:
   default: {}
   runner-net:

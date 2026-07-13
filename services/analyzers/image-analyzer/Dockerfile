@@ -44,7 +44,7 @@ RUN python scripts/download_models.py \
 
 EXPOSE 8080
 
-ARG TASKFORGE_DEBUG_LOGS=0
+ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
 USER 65534:65534
 CMD ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=image-analyzer\"; exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level debug; else echo \"[taskforge-debug] logs=off service=image-analyzer\"; exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info; fi"]

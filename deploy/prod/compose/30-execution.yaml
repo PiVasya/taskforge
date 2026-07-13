@@ -18,7 +18,7 @@ services:
       - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
@@ -71,7 +71,7 @@ services:
       - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -167,7 +167,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -203,7 +203,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   java-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -228,7 +228,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   javascript-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -253,7 +253,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -278,7 +278,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -303,7 +303,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-cpp-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -328,7 +328,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-pascal-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -353,7 +353,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-python-runner:
     security_opt: *id001
     cap_drop: *id002
@@ -378,7 +378,7 @@ services:
       retries: 12
       start_period: 30s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
 networks:
   default: {}
   runner-net:

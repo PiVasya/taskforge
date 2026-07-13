@@ -1,157 +1,77 @@
-# Development logging switch
+# Development logging policy
 
-Debug logging is now a **workflow build switch**, not a deploy `.env` switch.
+TaskForge is currently in active development. All project images and Compose services must run with detailed TaskForge diagnostics enabled unless the user explicitly asks to switch to quiet logging.
 
-The reason is simple: these probes are intentionally noisy and are baked into the image at build time. Production compose files should not decide whether a container is a debug container; GitHub Actions builds either the noisy image or the quiet image.
+## Mandatory current defaults
 
-## Current GitHub policy
-
-`.github/workflows/develop-build.yml` currently contains:
+Both Docker workflows contain:
 
 ```yaml
 env:
   TASKFORGE_BUILD_DEBUG_LOGS: "1"
 ```
 
-So the current `:develop` GHCR images are built with ultra development logs enabled.
-
-To build quiet images later, change that workflow value to:
-
-```yaml
-env:
-  TASKFORGE_BUILD_DEBUG_LOGS: "0"
-```
-
-and push. A workflow-file change forces a full rebuild because the value is baked into every image through Docker build args.
-
-Manual `workflow_dispatch` also has a `debug_logs` choice:
-
-```text
-1 = noisy debug images
-0 = quiet images
-```
-
-Manual runs rebuild all images by default unless you explicitly pass an `images` list.
-
-## How it gets into containers
-
-Every Dockerfile accepts:
+Every project Dockerfile also defaults to:
 
 ```dockerfile
-ARG TASKFORGE_DEBUG_LOGS=0
+ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
 ```
 
-The workflow passes:
+Development and production Compose templates currently pass:
 
 ```yaml
-build-args: |
-  TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
+TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
 ```
 
-Compose does **not** inject `TASKFORGE_DEBUG_LOGS` anymore. The running container uses the value baked into the image.
+The corresponding `.env.example` files contain:
 
-## What is logged when enabled
+```dotenv
+TASKFORGE_DEBUG_LOGS=1
+```
 
-The logs are intentionally very detailed.
+This means GitHub Actions builds noisy development images, local Docker builds are noisy by default, and Compose does not accidentally override the image with quiet logging.
 
-### Browser/front
+## Hard change rule
 
-The React API client logs each request and response to the browser console with the tag `TFDBG-FRONT`:
+Do not change any of these values to `0`, remove development probes, or quiet service log levels unless the user explicitly asks to change the logging policy. An optimization, cleanup, production deployment update, or unrelated refactor is not permission to disable logs.
 
-- request id;
-- method and URL;
-- params and request body, with obvious secrets redacted;
-- response status and duration;
-- extracted `id`, `displayName`, `fullName`, `firstName`, `lastName`, `email` values;
-- semantic warning when ids arrive but names do not.
+When the user eventually requests quiet images, update the workflow build switch, Dockerfile defaults, Compose defaults, environment templates, this document, and the project AI rules together so the policy remains consistent.
+
+Manual `workflow_dispatch` keeps a `debug_logs` choice:
+
+```text
+1 = development diagnostics enabled
+0 = quiet images, only when explicitly requested
+```
+
+Manual runs rebuild all images by default unless an explicit image list is supplied.
+
+## What is logged
 
 ### Gateway
 
-Nginx uses a debug access format with the prefix `TFDBG GATEWAY`:
-
-- `$request_id`;
-- host, method, URI and status;
-- request time;
-- upstream address, upstream status and upstream response time;
-- user-agent and referer.
-
-The gateway also forwards trace headers:
-
-```text
-X-Request-ID
-X-TaskForge-Gateway-Request-Id
-X-TaskForge-Gateway-Host
-```
+The gateway emits request and upstream timing details, trace identifiers, host, method, URI, status, user agent, and referer. It forwards TaskForge trace headers to backend services.
 
 ### ASP.NET APIs
 
-Every ASP.NET API has `TaskForgeDebugDiagnostics` middleware:
-
-- `TFDBG IN START` for inbound request metadata;
-- `TFDBG IN BODY` for request payload snippets;
-- `TFDBG IN DATA` for ids/names/emails/titles extracted from JSON;
-- `TFDBG IN END` for status, duration and resolved user after auth middleware has run;
-- `TFDBG IN RESPONSE` and `TFDBG IN RESPONSE-DATA` for response snippets and extracted business identifiers;
-- `TFDBG IN EXCEPTION` for exception paths.
-
-Outgoing `HttpClient` calls are wrapped too:
-
-- `TFDBG OUT START` logs caller service, target host, URL and request body;
-- `TFDBG OUT DATA` extracts ids/names/emails/titles from the outgoing payload;
-- `TFDBG OUT END` logs status, duration and response body;
-- `TFDBG OUT RESPONSE-DATA` extracts returned business values;
-- `TFDBG OUT SEMANTIC-MISMATCH` fires when a user-summary call asked identity for user ids but got no names, missing ids or placeholders.
-
-### User-name enrichment chain
-
-The services that enrich user ids through `identity-api` now emit explicit semantic probes:
-
-```text
-[TFDBG USERS ASK] service=solutions-api target=identity-api count=3 ids=...
-[TFDBG USERS SERVE] service=identity-api requested=3 returned=2 names=...
-[TFDBG USERS GOT] service=solutions-api target=identity-api requested=3 found=2 missing=1 names=...
-[TFDBG USERS WRONG] service=solutions-api target=identity-api message=asked_identity_for_real_user_names_but_mapping_is_incomplete_or_placeholder
-```
-
-This is the exact class of bug where one service asks for “Торопа Валерия”, but the UI eventually receives “Пользователь” or an id.
+`TaskForgeDebugDiagnostics` records inbound and outbound requests, response status and duration, relevant business identifiers, user-name enrichment chains, semantic mismatches, and exceptions. Obvious secrets are redacted.
 
 ### Runners and analyzers
 
-Go runners log:
+Runners record request boundaries, execution timing, and result summaries. The image analyzer records file metadata, thresholds, similarity values, and pass/fail results. The code analyzer keeps verbose rule-scan diagnostics while the switch is enabled.
 
-- `TFDBG RUNNER IN START` with trace id, method, path, query and request body snippet;
-- `TFDBG RUNNER IN END` with status, duration and response snippet.
+## Reading a trace
 
-The image analyzer logs:
-
-- request start/end;
-- file names and byte sizes;
-- threshold;
-- CLIP/pHash/combined similarity;
-- pass/fail result.
-
-The Rust code analyzer keeps its verbose rule scan logs only when `TASKFORGE_DEBUG_LOGS=1`.
-
-## How to read it
-
-Start from one request id or trace id and follow it through:
+Start with one request or trace id and follow it through the browser, gateway, API, downstream HTTP calls, workers, and analyzers. Useful prefixes include:
 
 ```text
-TFDBG-FRONT request:start id=front-...
-TFDBG GATEWAY request_id=...
-TFDBG IN START trace=...
-TFDBG OUT START trace=... caller=solutions-api target=identity-api
-TFDBG USERS ASK service=solutions-api target=identity-api
-TFDBG USERS SERVE service=identity-api
-TFDBG USERS GOT service=solutions-api
-TFDBG IN RESPONSE-DATA trace=...
-```
-
-For the current leaderboard/profile/name bugs, the most important lines are:
-
-```text
+TFDBG-FRONT
+TFDBG GATEWAY
+TFDBG IN START
+TFDBG OUT START
+TFDBG USERS ASK
+TFDBG USERS GOT
 TFDBG USERS WRONG
 TFDBG OUT SEMANTIC-MISMATCH
-TFDBG IN RESPONSE-DATA
 ```

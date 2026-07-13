@@ -6,7 +6,7 @@ services:
       - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
@@ -61,7 +61,7 @@ services:
       - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
       TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
@@ -119,7 +119,7 @@ services:
       retries: 12
       start_period: 20s
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
   image-analyzer:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-analyzer:${IMAGE_TAG:-develop}
     labels:
@@ -151,7 +151,7 @@ services:
       HUGGINGFACE_HUB_CACHE: /models/openclip
       HF_HUB_CACHE: /models/openclip
       HF_HUB_DISABLE_XET: '1'
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
     memswap_limit: ${IMAGE_ANALYZER_MEMSWAP_LIMIT:-8g}
     volumes:
       - ${TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR:?set TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR}:/models/openclip

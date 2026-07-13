@@ -166,13 +166,17 @@ scripts/prod/check-prod-config.sh
 ```
 ## Development logs
 
-Current `develop` images are built with ultra debug logs from the GitHub workflow switch:
+TaskForge is still in development, so Docker images and Compose services use detailed diagnostics by default:
 
 ```yaml
 TASKFORGE_BUILD_DEBUG_LOGS: "1"
 ```
 
-This is build-time only. Deploy `.env` files do not switch debug logs anymore. To build quiet images, change the workflow switch to `"0"` or run `workflow_dispatch` with `debug_logs=0`. Details: `docs/operations/development-logging.md`.
+```dotenv
+TASKFORGE_DEBUG_LOGS=1
+```
+
+Do not switch these values to `0` or remove the development probes unless the user explicitly requests a logging-policy change. Details: `docs/operations/development-logging.md`.
 
 
 ## Image-test v2 MinIO

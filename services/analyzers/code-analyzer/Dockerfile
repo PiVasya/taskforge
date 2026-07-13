@@ -32,6 +32,6 @@ USER appuser
 
 EXPOSE 8080
 
-ARG TASKFORGE_DEBUG_LOGS=0
+ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}
 ENTRYPOINT ["sh", "-c", "if [ \"${TASKFORGE_DEBUG_LOGS:-0}\" = \"1\" ]; then echo \"[taskforge-debug] logs=on service=code-analyzer\"; export TF_LOG_LEVEL=debug; export RUST_LOG=\"${RUST_LOG:-debug}\"; else echo \"[taskforge-debug] logs=off service=code-analyzer\"; export TF_LOG_LEVEL=info; export RUST_LOG=\"${RUST_LOG:-info}\"; fi; exec /app/taskforge-code-analyzer"]

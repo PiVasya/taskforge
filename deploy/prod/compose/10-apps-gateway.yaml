@@ -6,7 +6,7 @@ services:
       - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-0}
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       GATEWAY_MODE: ${GATEWAY_MODE:-auto}
       TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
       DOMAIN: ${DOMAIN:?set DOMAIN}
