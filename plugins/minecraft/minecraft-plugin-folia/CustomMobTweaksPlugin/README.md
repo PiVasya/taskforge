@@ -20,7 +20,7 @@ Folia-плагин с конфигурируемыми усилениями мо
 
 ## Сборка на Fedora
 ```bash
-sudo dnf install java-21-openjdk-devel unzip
+sudo dnf install java-25-openjdk-devel unzip
 sudo dnf install gradle --enablerepo=updates-testing
 ```
 
@@ -37,7 +37,7 @@ gradle build
 
 Готовый jar:
 ```bash
-build/libs/CustomMobTweaksPlugin-1.0.0.jar
+build/libs/CustomMobTweaksPlugin-1.1.0.jar
 ```
 
 ## Быстрая настройка

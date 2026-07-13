@@ -1,6 +1,5 @@
 package me.vasya.custommobtweaks;
 
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;

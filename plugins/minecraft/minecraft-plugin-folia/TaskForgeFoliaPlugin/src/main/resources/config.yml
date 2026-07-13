@@ -18,7 +18,9 @@ deathRecovery:
   spectatorSeconds: 5
   maxDistance: 12
   chestSearchRadius: 16
+  emergencyChestSearchRadius: 256
   safeSearchRadius: 8
+  coordinatesCost: 10
   chestCost: 50
   teleportCost: 100
   backendTimeoutMillis: 5000

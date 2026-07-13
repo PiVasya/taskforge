@@ -1,25 +1,25 @@
-WorldLoaderFolia (Folia-safe)
-============================
+WorldLoaderFolia 1.1.0
+======================
+
+Этот плагин больше не создаёт namespace-миры и не подменяет генераторы.
+На TaskForge источником правды является plugins/Worlds/worlds.dat.
+
+По умолчанию:
+- lobby-world: minecraft:overworld
+- survival-world: owp:overworld
+- allow-world-creation: false
+- autoload-survival-on-start: false
 
 Команды:
-- /loadworld <world>  — загрузить (или создать) мир по имени папки.
-- /tpsurv            — телепорт в мир survival (создаст/загрузит, если надо).
-- /tplobby           — телепорт обратно в мир world.
+- /loadworld <namespace:world> — проверить/получить уже загруженный мир;
+- /tpsurv — телепорт в настроенный survival-world;
+- /tplobby — телепорт в настроенный lobby-world.
 
-Права:
-- worldloader.load (default: op)
-- worldloader.tp   (default: op)
+Если Worlds установлен и мир не загружен, плагин не вызывает Bukkit.createWorld.
+Сначала исправь/загрузи запись в plugins/Worlds/worlds.dat.
 
-Сборка:
-1) Установи Java 21 и Maven.
-2) В папке проекта:
-   mvn -q package
-3) Готовый файл будет:
-   target/WorldLoaderFolia.jar  (или WorldLoaderFolia.jar рядом с target, зависит от Maven)
+Сборка: Java 25 + Maven
+  mvn -B -ntp clean package
 
-Установка:
-- Положи WorldLoaderFolia.jar в plugins/
-- Перезапусти сервер
-
-Настройка:
-plugins/WorldLoaderFolia/config.yml
+JAR:
+  target/WorldLoaderFolia.jar

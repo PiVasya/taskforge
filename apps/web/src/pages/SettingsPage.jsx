@@ -1508,8 +1508,8 @@ export default function SettingsPage() {
                 <div className="font-semibold text-sm">{mcStatus.minecraftSpent ?? 0}</div>
               </div>
               <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">Сундук / возврат</div>
-                <div className="font-semibold text-sm">{mcStatus.deathChestCost ?? 50} / {mcStatus.deathTeleportCost ?? 100}</div>
+                <div className="text-neutral-500 dark:text-neutral-400">Координаты / сундук / возврат</div>
+                <div className="font-semibold text-sm">{mcStatus.deathCoordinatesCost ?? 10} / {mcStatus.deathChestCost ?? 50} / {mcStatus.deathTeleportCost ?? 100}</div>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">

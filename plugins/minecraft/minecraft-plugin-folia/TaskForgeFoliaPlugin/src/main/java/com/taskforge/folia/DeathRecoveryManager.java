@@ -84,6 +84,7 @@ import org.bukkit.util.io.BukkitObjectOutputStream;
 public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private static final Gson GSON = new Gson();
     private static final String API_PATH = "/api/integrations/minecraft/death-recovery";
+    private static final String ACTION_COORDINATES = "coordinates";
     private static final String ACTION_CHEST = "chest";
     private static final String ACTION_RETURN = "return";
     private static final String ACTION_BOTH = "both";
@@ -103,7 +104,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final int spectatorSeconds;
     private final int maxDistance;
     private final int chestSearchRadius;
+    private final int emergencyChestSearchRadius;
     private final int safeSearchRadius;
+    private final int coordinatesCost;
     private final int chestCost;
     private final int teleportCost;
     private final Duration backendTimeout;
@@ -116,7 +119,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         this.spectatorSeconds = positiveInt("deathRecovery.spectatorSeconds", 5);
         this.maxDistance = positiveInt("deathRecovery.maxDistance", 12);
         this.chestSearchRadius = positiveInt("deathRecovery.chestSearchRadius", 16);
+        this.emergencyChestSearchRadius = Math.max(chestSearchRadius, positiveInt("deathRecovery.emergencyChestSearchRadius", 256));
         this.safeSearchRadius = positiveInt("deathRecovery.safeSearchRadius", 8);
+        this.coordinatesCost = positiveInt("deathRecovery.coordinatesCost", 10);
         this.chestCost = positiveInt("deathRecovery.chestCost", 50);
         this.teleportCost = positiveInt("deathRecovery.teleportCost", 100);
         this.backendTimeout = Duration.ofMillis(positiveInt("deathRecovery.backendTimeoutMillis", 4500));
@@ -156,6 +161,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         // Resume offers, paid rescues and pending notifications explicitly in that case.
         for (Player player : plugin.onlinePlayersSnapshot()) {
             pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+                restoreInterruptedSpectator(player);
                 showPendingOffers(player);
                 notifyUnseenChests(player);
                 resumeUnresolved(player);
@@ -166,6 +172,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     public void disable() {
         stopped.set(true);
+        for (RescueSession session : new ArrayList<>(rescues.values())) {
+            session.record.rescuePending = true;
+            session.record.rescueCompleted = false;
+            session.record.stage = Stage.RESCUE_PENDING;
+            session.record.rescueEndsAt = Instant.now().plusSeconds(Math.max(1, session.secondsRemaining()));
+            saveQuietly(session.record);
+            Player player = plugin.findOnlinePlayer(session.record.playerId);
+            if (player != null && player.isOnline()) {
+                // The scheduler may be cancelled during shutdown, therefore the persisted
+                // RESCUE_PENDING state is also repaired on the next enable/join.
+                onPlayer(player, () -> restoreGameMode(player, session.record), 1L);
+            }
+        }
+        rescues.clear();
         deaths.values().forEach(this::saveQuietly);
     }
 
@@ -173,6 +193,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     public void onDeath(PlayerDeathEvent event) {
         if (!plugin.getConfig().getBoolean("deathRecovery.enabled", true)) return;
         Player player = event.getEntity();
+        // Another plugin/game rule owns the inventory lifecycle in this case. Capturing the same
+        // stacks here would create a second copy in a later death chest.
+        if (event.getKeepInventory()) return;
         List<ItemStack> drops = new ArrayList<>();
         for (ItemStack item : event.getDrops()) {
             if (item != null && !item.getType().isAir() && item.getAmount() > 0) drops.add(item.clone());
@@ -227,6 +250,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     public void onRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
         pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+            restoreInterruptedSpectator(player);
             showPendingOffers(player);
             notifyUnseenChests(player);
             resumeUnresolved(player);
@@ -237,6 +261,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+            restoreInterruptedSpectator(player);
             showPendingOffers(player);
             notifyUnseenChests(player);
             resumeUnresolved(player);
@@ -249,6 +274,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         RescueSession session = rescues.remove(event.getPlayer().getUniqueId());
         if (session != null) {
             session.record.rescueEndsAt = Instant.now().plusSeconds(Math.max(1, session.secondsRemaining()));
+            restoreGameMode(event.getPlayer(), session.record);
             saveQuietly(session.record);
         }
     }
@@ -296,7 +322,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         try { deathId = UUID.fromString(args[0]); }
         catch (IllegalArgumentException ex) { return true; }
         String action = args[1].toLowerCase(Locale.ROOT);
-        if (!List.of(ACTION_CHEST, ACTION_RETURN, ACTION_BOTH, ACTION_DROP).contains(action)) return true;
+        if (!List.of(ACTION_COORDINATES, ACTION_CHEST, ACTION_RETURN, ACTION_BOTH, ACTION_DROP).contains(action)) return true;
         DeathRecord record = deaths.get(deathId);
         if (record == null || !record.playerId.equals(player.getUniqueId())) {
             player.sendMessage(Component.text("Предложение не найдено или уже завершено.", NamedTextColor.RED));
@@ -324,6 +350,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             saveQuietly(record);
         }
         switch (action) {
+            case ACTION_COORDINATES -> purchaseCoordinates(player, record);
             case ACTION_DROP -> health(record.playerId).thenAccept(healthy -> {
                 if (healthy) releaseDrops(record, "Вещи выпали в месте смерти.");
                 else createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
@@ -336,15 +363,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void prepareChestAndPurchase(Player player, DeathRecord record, boolean withReturn) {
+        if (!beginChestSearch(record)) return;
         if (deserializeItems(record.itemsBase64).size() > 54) {
+            endChestSearch(record);
             releaseDrops(record, "В двойной сундук не помещаются все вещи; рейтинг не списан, вещи выпали обычно.");
             return;
         }
-        findOrReuseChestSpot(record, result -> {
+        findAnyChestSpot(record, result -> {
             if (result.isEmpty()) {
+                endChestSearch(record);
+                record.stage = resolveWorld(record).isEmpty() ? Stage.WORLD_UNAVAILABLE : Stage.RESOLVING;
+                record.lastError = "death-chest-location-not-found";
+                saveQuietly(record);
                 onPlayer(player, () -> player.sendMessage(Component.text(
-                    "Не удалось найти место для двойного сундука. Вещи выпали обычно.", NamedTextColor.RED)), 1L);
-                releaseDrops(record, null);
+                    "Сундук пока не удалось поставить. Вещи сохранены системой, рейтинг не списан; попытка повторится автоматически.", NamedTextColor.YELLOW)), 1L);
                 return;
             }
             ChestSpot spot = result.get();
@@ -356,11 +388,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     record.backendUnavailable = true;
                     saveQuietly(record);
                     placeChest(record, spot, placed -> {
+                        endChestSearch(record);
                         if (placed) {
                             notifyFreeChest(record, spot.first, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                             finish(record, Stage.FREE_CHEST_CREATED);
                         } else {
-                            releaseDrops(record, "Сервис рейтинга недоступен, а сундук поставить не удалось. Вещи выпали обычно.");
+                            scheduleGuaranteedChestRetry(record, "Сервис рейтинга недоступен — вещи сохранены системой до создания сундука.");
                         }
                     });
                     return;
@@ -373,9 +406,13 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                         record.paymentConfirmed = true;
                         saveQuietly(record);
                         placeChest(record, spot, placed -> {
+                            endChestSearch(record);
                             if (!placed) {
                                 requestCompensation(record, amount);
-                                releaseDrops(record, "Сундук создать не удалось; платёж отправлен на возврат.");
+                                record.chestSpotReserved = false;
+                                saveQuietly(record);
+                                createCompensatedChest(record,
+                                    "Сундук не удалось создать с первой попытки. Платёж отправлен на возврат, вещи будут сохранены бесплатно.");
                             } else {
                                 notifyChest(record, spot.first, false, "Сундук смерти создан.");
                                 if (withReturn) startRescueWhenOnline(record);
@@ -391,15 +428,17 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                         record.compensationPending = true;
                         saveQuietly(record);
                         placeChest(record, spot, placed -> {
+                            endChestSearch(record);
                             if (placed) {
                                 notifyFreeChest(record, spot.first, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                                 finish(record, Stage.FREE_CHEST_CREATED);
                             } else {
-                                releaseDrops(record, "Сервис рейтинга недоступен, а сундук поставить не удалось. Вещи выпали обычно.");
+                                scheduleGuaranteedChestRetry(record, "Сервис рейтинга недоступен — вещи сохранены системой до создания сундука.");
                             }
                             requestCompensation(record, amount);
                         });
                     } else {
+                        endChestSearch(record);
                         releaseDrops(record, "Покупка отклонена: недостаточно рейтинга или аккаунт не привязан.");
                     }
                 });
@@ -407,24 +446,65 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         });
     }
 
-    private void purchaseAndReturn(Player player, DeathRecord record) {
-        purchase(record, ACTION_RETURN, teleportCost).thenAccept(outcome -> {
-            if (outcome == PurchaseOutcome.CONFIRMED) {
-                record.chargedAmount = teleportCost;
-                record.paymentConfirmed = true;
-                record.rescuePending = true;
-                saveQuietly(record);
-                releaseDrops(record, null, () -> startRescueWhenOnline(record));
-            } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
+    private void purchaseCoordinates(Player player, DeathRecord record) {
+        // A very fast respawn/click can beat the asynchronous death-state PUT. Ensure the
+        // backend row exists before charging, otherwise a healthy backend could answer 404
+        // and incorrectly turn the selected paid action into ordinary drops.
+        syncCreate(record).thenAccept(syncResult -> {
+            if (syncResult == BackendResult.UNAVAILABLE) {
                 record.backendUnavailable = true;
-                record.chargedAmount = teleportCost;
-                record.compensationPending = true;
                 saveQuietly(record);
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-                requestCompensation(record, teleportCost);
-            } else {
-                releaseDrops(record, "Покупка отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                return;
             }
+            purchase(record, ACTION_COORDINATES, coordinatesCost).thenAccept(outcome -> {
+                if (outcome == PurchaseOutcome.CONFIRMED) {
+                    record.chargedAmount = coordinatesCost;
+                    record.paymentConfirmed = true;
+                    saveQuietly(record);
+                    releaseDrops(record, null, () -> notifyDeathCoordinates(record));
+                } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
+                    record.backendUnavailable = true;
+                    record.chargedAmount = coordinatesCost;
+                    record.compensationPending = true;
+                    saveQuietly(record);
+                    createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                    requestCompensation(record, coordinatesCost);
+                } else {
+                    releaseDrops(record, "Покупка координат отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                }
+            });
+        });
+    }
+
+    private void purchaseAndReturn(Player player, DeathRecord record) {
+        // See purchaseCoordinates: persist the exact death first so a fast click cannot race
+        // the initial PUT and be misclassified as a business denial.
+        syncCreate(record).thenAccept(syncResult -> {
+            if (syncResult == BackendResult.UNAVAILABLE) {
+                record.backendUnavailable = true;
+                saveQuietly(record);
+                createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                return;
+            }
+            purchase(record, ACTION_RETURN, teleportCost).thenAccept(outcome -> {
+                if (outcome == PurchaseOutcome.CONFIRMED) {
+                    record.chargedAmount = teleportCost;
+                    record.paymentConfirmed = true;
+                    record.rescuePending = true;
+                    saveQuietly(record);
+                    releaseDrops(record, null, () -> startRescueWhenOnline(record));
+                } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
+                    record.backendUnavailable = true;
+                    record.chargedAmount = teleportCost;
+                    record.compensationPending = true;
+                    saveQuietly(record);
+                    createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                    requestCompensation(record, teleportCost);
+                } else {
+                    releaseDrops(record, "Покупка отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                }
+            });
         });
     }
 
@@ -434,9 +514,23 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
             if ((record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)
                 && now.isAfter(record.offerExpiresAt)) expire(record);
-            if (record.compensationPending && record.chargedAmount > 0 && claimRetry(record)) {
+            if (record.compensationPending && record.chargedAmount > 0 && claimCompensationRetry(record)) {
                 requestCompensation(record, record.chargedAmount);
             }
+
+            // A backend outage must produce a chest even while the owner is offline.
+            // World/chunk work is scheduled on the exact Folia region and does not need a Player.
+            if (record.backendUnavailable && !record.itemsResolved && !record.isTerminal() && claimRetry(record)) {
+                createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                continue;
+            }
+            if (record.compensated && !record.itemsResolved && !record.isTerminal()
+                && (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action))
+                && claimRetry(record)) {
+                createCompensatedChest(record, "Платёж возвращён — вещи сохранены бесплатно в сундуке.");
+                continue;
+            }
+
             Player player = plugin.findOnlinePlayer(record.playerId);
             if (player != null && player.isOnline()
                 && (record.compensationPending || record.rescuePending || !record.isTerminal())) {
@@ -470,6 +564,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 saveQuietly(r);
                 long left = Math.max(0, Duration.between(Instant.now(), r.offerExpiresAt).toSeconds());
                 Component line = Component.text("Смерть: ", NamedTextColor.GRAY)
+                    .append(button("[Координаты — " + coordinatesCost + "]", r, ACTION_COORDINATES, NamedTextColor.LIGHT_PURPLE))
+                    .append(Component.space())
                     .append(button("[Сундук — " + chestCost + "]", r, ACTION_CHEST, NamedTextColor.GOLD))
                     .append(Component.space())
                     .append(button("[Вернуться — " + teleportCost + "]", r, ACTION_RETURN, NamedTextColor.AQUA))
@@ -528,14 +624,34 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
             if (!record.playerId.equals(player.getUniqueId())) continue;
 
-            if (record.compensationPending && record.chargedAmount > 0 && claimRetry(record)) {
+            if (record.compensationPending && record.chargedAmount > 0 && claimCompensationRetry(record)) {
                 requestCompensation(record, record.chargedAmount);
                 continue;
             }
-            if (record.compensated && !record.itemsResolved && claimRetry(record)) {
-                releaseDrops(record, "Платёж возвращён. Вещи выпали в месте смерти.");
+
+            // Outage fallback always wins over compensation state: an ambiguous request may be
+            // refunded before the exact death world becomes available for the free chest.
+            if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
+                createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                 continue;
             }
+
+            if (record.compensated && !record.itemsResolved && claimRetry(record)) {
+                if (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) {
+                    createCompensatedChest(record, "Платёж возвращён — вещи сохранены бесплатно в сундуке.");
+                } else {
+                    releaseDrops(record, "Платёж возвращён. Вещи выпали в месте смерти.");
+                }
+                continue;
+            }
+
+            // A paid coordinate message is deliberately recoverable after a plugin/server restart.
+            if (ACTION_COORDINATES.equals(record.action) && record.paymentConfirmed && record.itemsResolved
+                && record.stage != Stage.COORDINATES_SENT && claimRetry(record)) {
+                notifyDeathCoordinates(record);
+                continue;
+            }
+
             if (record.rescuePending && record.paymentConfirmed && !record.compensated && claimRetry(record)) {
                 if (!record.itemsResolved && ACTION_RETURN.equals(record.action)) {
                     releaseDrops(record, null, () -> startRescueWhenOnline(record));
@@ -544,6 +660,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
                 continue;
             }
+
             if (record.stage == Stage.WAITING_RESPAWN || record.stage == Stage.OFFER || record.isTerminal()) continue;
             if (resolveWorld(record).isEmpty()) {
                 record.stage = Stage.WORLD_UNAVAILABLE;
@@ -552,16 +669,25 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             }
             if (!claimRetry(record)) continue;
 
-            if (record.backendUnavailable && !record.itemsResolved) {
-                createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+            if (ACTION_COORDINATES.equals(record.action)) {
+                record.stage = Stage.RESOLVING;
+                saveQuietly(record);
+                if (record.paymentConfirmed) {
+                    if (!record.itemsResolved) releaseDrops(record, null, () -> notifyDeathCoordinates(record));
+                    else notifyDeathCoordinates(record);
+                } else {
+                    purchaseCoordinates(player, record);
+                }
                 continue;
             }
+
             if (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) {
                 record.stage = Stage.RESOLVING;
                 saveQuietly(record);
                 prepareChestAndPurchase(player, record, ACTION_BOTH.equals(record.action));
                 continue;
             }
+
             if (ACTION_RETURN.equals(record.action)) {
                 record.stage = Stage.RESOLVING;
                 saveQuietly(record);
@@ -573,6 +699,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
                 continue;
             }
+
             if (ACTION_DROP.equals(record.action) || "expired".equals(record.action)) {
                 health(record.playerId).thenAccept(healthy -> {
                     if (healthy) releaseDrops(record, "Вещи выпали в месте смерти.");
@@ -581,8 +708,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 continue;
             }
 
-            // Unknown intermediate state: fail safely by preserving the captured items.
-            createFreeChest(record, "Операция смерти была восстановлена после перезапуска. Вещи сохранены бесплатно.");
+            // Unknown intermediate state: fail safely by preserving the captured items in a chest.
+            createCompensatedChest(record, "Операция смерти восстановлена после перезапуска — вещи сохранены бесплатно.");
         }
     }
 
@@ -591,6 +718,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             Instant now = Instant.now();
             if (record.retryAfter != null && now.isBefore(record.retryAfter)) return false;
             record.retryAfter = now.plusSeconds(15);
+            return true;
+        }
+    }
+
+    private boolean claimCompensationRetry(DeathRecord record) {
+        synchronized (record) {
+            Instant now = Instant.now();
+            if (record.compensationRetryAfter != null && now.isBefore(record.compensationRetryAfter)) return false;
+            record.compensationRetryAfter = now.plusSeconds(15);
             return true;
         }
     }
@@ -743,18 +879,21 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         onPlayer(player, () -> {
             if (record.previousGameMode == null || record.previousGameMode.isBlank())
                 record.previousGameMode = player.getGameMode().name();
+            Location fallback = player.getLocation().clone();
             record.rescuePending = true;
             record.stage = Stage.RESCUE_ACTIVE;
             record.rescueEndsAt = Instant.now().plusSeconds(spectatorSeconds);
             saveQuietly(record);
-            RescueSession session = new RescueSession(record, center, record.rescueEndsAt);
+            RescueSession session = new RescueSession(record, center, fallback, record.rescueEndsAt);
             rescues.put(player.getUniqueId(), session);
             session.internalTeleport = true;
             player.teleportAsync(center).whenComplete((ok, err) -> onPlayer(player, () -> {
                 session.internalTeleport = false;
                 if (err != null || !Boolean.TRUE.equals(ok)) {
                     rescues.remove(player.getUniqueId());
+                    restoreGameMode(player, record);
                     record.stage = Stage.RESCUE_PENDING;
+                    record.rescuePending = true;
                     saveQuietly(record);
                     player.sendMessage(Component.text("Возврат будет повторён, когда мир станет доступен.", NamedTextColor.YELLOW));
                     return;
@@ -785,43 +924,82 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             int left = (int) Math.ceil(Math.max(0, Duration.between(now, session.endsAt).toMillis()) / 1000.0);
             if (left > 0) {
                 player.sendActionBar(Component.text("Найдите точку появления: " + left, NamedTextColor.AQUA));
-            } else {
-                rescues.remove(player.getUniqueId());
-                findSafeLocation(session.record, player.getLocation(), found -> {
-                    if (found.isPresent()) completeRescue(session.record, player, found.get());
-                    else {
-                        session.record.stage = Stage.RESCUE_PENDING;
-                        session.record.rescuePending = true;
-                        session.record.rescueEndsAt = Instant.now().plusSeconds(5);
-                        saveQuietly(session.record);
-                        onPlayer(player, () -> player.sendMessage(Component.text(
-                            "Безопасная точка не найдена. Оплаченный возврат будет повторён.", NamedTextColor.YELLOW)), 1L);
-                    }
-                });
+                return;
             }
+
+            rescues.remove(player.getUniqueId());
+            findSafeLocation(session.record, player.getLocation(), found -> {
+                if (found.isPresent()) {
+                    completeRescue(session, player, found.get());
+                    return;
+                }
+                // The player's chosen point may be inside lava/void. Try the death centre once more,
+                // then always return to the safe location captured before spectator mode.
+                findSafeLocation(session.record, session.center, centerFound -> {
+                    if (centerFound.isPresent()) completeRescue(session, player, centerFound.get());
+                    else completeRescueFallback(session, player,
+                        "Безопасная точка рядом со смертью не найдена. Вы возвращены в исходную точку.");
+                });
+            });
         }, 1L);
     }
 
-    private void completeRescue(DeathRecord record, Player player, Location destination) {
-        RescueSession temporary = new RescueSession(record, destination, Instant.now());
-        temporary.internalTeleport = true;
+    private void completeRescue(RescueSession session, Player player, Location destination) {
+        session.internalTeleport = true;
         player.teleportAsync(destination).whenComplete((ok, err) -> onPlayer(player, () -> {
+            session.internalTeleport = false;
             if (err != null || !Boolean.TRUE.equals(ok)) {
-                record.stage = Stage.RESCUE_PENDING;
-                record.rescuePending = true;
-                saveQuietly(record);
+                completeRescueFallback(session, player,
+                    "Телепортация в выбранную точку не удалась. Вы возвращены в исходную точку.");
                 return;
             }
-            GameMode restore = GameMode.SURVIVAL;
-            try { if (record.previousGameMode != null) restore = GameMode.valueOf(record.previousGameMode); }
-            catch (IllegalArgumentException ignored) { }
-            player.setGameMode(restore);
-            record.finalX = destination.getX(); record.finalY = destination.getY(); record.finalZ = destination.getZ();
-            record.rescuePending = false;
-            record.rescueCompleted = true;
-            finish(record, record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
+            restoreGameMode(player, session.record);
+            session.record.finalX = destination.getX();
+            session.record.finalY = destination.getY();
+            session.record.finalZ = destination.getZ();
+            session.record.rescuePending = false;
+            session.record.rescueCompleted = true;
+            finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
             player.sendMessage(Component.text("Возврат завершён.", NamedTextColor.GREEN));
         }, 1L));
+    }
+
+    private void completeRescueFallback(RescueSession session, Player player, String message) {
+        session.internalTeleport = true;
+        player.teleportAsync(session.fallback).whenComplete((ok, err) -> onPlayer(player, () -> {
+            session.internalTeleport = false;
+            restoreGameMode(player, session.record);
+            Location finalLocation = Boolean.TRUE.equals(ok) && err == null ? session.fallback : player.getLocation();
+            session.record.finalX = finalLocation.getX();
+            session.record.finalY = finalLocation.getY();
+            session.record.finalZ = finalLocation.getZ();
+            session.record.rescuePending = false;
+            session.record.rescueCompleted = true;
+            session.record.lastError = Boolean.TRUE.equals(ok) && err == null ? "safe-location-not-found" : "fallback-teleport-failed";
+            finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
+            player.sendMessage(Component.text(message, NamedTextColor.YELLOW));
+        }, 1L));
+    }
+
+    private void restoreInterruptedSpectator(Player player) {
+        if (player.getGameMode() != GameMode.SPECTATOR || rescues.containsKey(player.getUniqueId())) return;
+        deaths.values().stream()
+            .filter(record -> record.playerId.equals(player.getUniqueId()))
+            .filter(record -> record.rescuePending && !record.rescueCompleted)
+            .filter(record -> record.previousGameMode != null && !record.previousGameMode.isBlank())
+            .max(Comparator.comparing(record -> record.updatedAt))
+            .ifPresent(record -> restoreGameMode(player, record));
+    }
+
+    private void restoreGameMode(Player player, DeathRecord record) {
+        GameMode restore = GameMode.SURVIVAL;
+        try {
+            if (record.previousGameMode != null && !record.previousGameMode.isBlank())
+                restore = GameMode.valueOf(record.previousGameMode);
+        } catch (IllegalArgumentException ignored) { }
+        if (player.getGameMode() == GameMode.SPECTATOR || player.getGameMode() != restore) {
+            player.setGameMode(restore);
+        }
     }
 
     private void teleportInternal(RescueSession session, Player player, Location location) {
@@ -849,6 +1027,234 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private Optional<Location> deathLocation(DeathRecord r) {
         return resolveWorld(r).map(w -> new Location(w, r.x, r.y, r.z, r.yaw, r.pitch));
+    }
+
+    private boolean beginChestSearch(DeathRecord record) {
+        synchronized (record) {
+            if (record.chestSearchInFlight || record.itemsResolved || record.isTerminal()) return false;
+            record.chestSearchInFlight = true;
+            return true;
+        }
+    }
+
+    private void endChestSearch(DeathRecord record) {
+        synchronized (record) {
+            record.chestSearchInFlight = false;
+        }
+    }
+
+    private void findAnyChestSpot(DeathRecord record, Consumer<Optional<ChestSpot>> callback) {
+        findOrReuseChestSpot(record, nearby -> {
+            if (nearby.isPresent() || resolveWorld(record).isEmpty()) {
+                callback.accept(nearby);
+                return;
+            }
+            findExpandedChestSpot(record, callback);
+        });
+    }
+
+    private void findExpandedChestSpot(DeathRecord record, Consumer<Optional<ChestSpot>> callback) {
+        Optional<World> worldOpt = resolveWorld(record);
+        if (worldOpt.isEmpty()) {
+            record.stage = Stage.WORLD_UNAVAILABLE;
+            saveQuietly(record);
+            callback.accept(Optional.empty());
+            return;
+        }
+        World world = worldOpt.get();
+        int originChunkX = ((int) Math.floor(record.x)) >> 4;
+        int originChunkZ = ((int) Math.floor(record.z)) >> 4;
+        int chunkRadius = Math.max(1, (emergencyChestSearchRadius + 15) / 16);
+        List<ChunkCandidate> chunks = new ArrayList<>();
+        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
+            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+                int cx = originChunkX + dx;
+                int cz = originChunkZ + dz;
+                double centerX = cx * 16.0 + 7.5;
+                double centerZ = cz * 16.0 + 7.5;
+                double horizontalDistance = Math.hypot(centerX - record.x, centerZ - record.z);
+                if (horizontalDistance <= emergencyChestSearchRadius + 12.0) {
+                    chunks.add(new ChunkCandidate(cx, cz, horizontalDistance));
+                }
+            }
+        }
+        chunks.sort(Comparator.comparingDouble(c -> c.distance));
+        inspectExpandedChestChunks(world, record, chunks, 0, callback);
+    }
+
+    private void inspectExpandedChestChunks(
+        World world,
+        DeathRecord record,
+        List<ChunkCandidate> chunks,
+        int index,
+        Consumer<Optional<ChestSpot>> callback) {
+        if (index >= chunks.size()) {
+            findSpawnChestSpot(world, callback);
+            return;
+        }
+        ChunkCandidate chunk = chunks.get(index);
+        Bukkit.getRegionScheduler().execute(plugin, world, chunk.x, chunk.z, () -> {
+            Optional<ChestSpot> found = scanChunkForChest(world, record, chunk.x, chunk.z);
+            if (found.isPresent()) callback.accept(found);
+            else inspectExpandedChestChunks(world, record, chunks, index + 1, callback);
+        });
+    }
+
+    private void findSpawnChestSpot(World world, Consumer<Optional<ChestSpot>> callback) {
+        Location spawn = world.getSpawnLocation();
+        int chunkX = spawn.getBlockX() >> 4;
+        int chunkZ = spawn.getBlockZ() >> 4;
+        Bukkit.getRegionScheduler().execute(plugin, world, chunkX, chunkZ, () ->
+            callback.accept(scanAnchorChunkForChest(world, spawn, chunkX, chunkZ)));
+    }
+
+    private Optional<ChestSpot> scanAnchorChunkForChest(World world, Location anchor, int chunkX, int chunkZ) {
+        int minX = chunkX << 4;
+        int minZ = chunkZ << 4;
+        int maxX = minX + 15;
+        int maxZ = minZ + 15;
+        int originY = Math.max(world.getMinHeight(), Math.min(world.getMaxHeight() - 1, anchor.getBlockY()));
+
+        for (int dy = 0; dy <= 32; dy++) {
+            int low = originY - dy;
+            if (low >= world.getMinHeight()) {
+                Optional<ChestSpot> found = scanAnchorLayer(world, anchor, minX, maxX, minZ, maxZ, low);
+                if (found.isPresent()) return found;
+            }
+            int high = originY + dy;
+            if (dy > 0 && high < world.getMaxHeight()) {
+                Optional<ChestSpot> found = scanAnchorLayer(world, anchor, minX, maxX, minZ, maxZ, high);
+                if (found.isPresent()) return found;
+            }
+        }
+
+        ChestSpot best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                int y = Math.max(world.getMinHeight(), Math.min(world.getMaxHeight() - 1, world.getHighestBlockYAt(x, z) + 1));
+                Optional<ChestSpot> found = chestAt(world, x, y, z, maxX, maxZ);
+                if (found.isEmpty()) continue;
+                double distance = found.get().first.distanceSquared(anchor);
+                if (distance < bestDistance) {
+                    best = found.get();
+                    bestDistance = distance;
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private Optional<ChestSpot> scanAnchorLayer(
+        World world, Location anchor, int minX, int maxX, int minZ, int maxZ, int y) {
+        ChestSpot best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                Optional<ChestSpot> found = chestAt(world, x, y, z, maxX, maxZ);
+                if (found.isEmpty()) continue;
+                double distance = found.get().first.distanceSquared(anchor);
+                if (distance < bestDistance) {
+                    best = found.get();
+                    bestDistance = distance;
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private Optional<ChestSpot> scanChunkForChest(World world, DeathRecord record, int chunkX, int chunkZ) {
+        int minX = chunkX << 4;
+        int minZ = chunkZ << 4;
+        int maxX = minX + 15;
+        int maxZ = minZ + 15;
+        int originY = Math.max(world.getMinHeight(), Math.min(world.getMaxHeight() - 1, (int) Math.floor(record.y)));
+        double maxHorizontalDistanceSq = (double) emergencyChestSearchRadius * emergencyChestSearchRadius;
+
+        // Search cave/air space close to the actual death height first. The old implementation
+        // scanned the complete world height in every chunk and could stall a Folia region.
+        int verticalRadius = Math.min(48, Math.max(originY - world.getMinHeight(), world.getMaxHeight() - 1 - originY));
+        for (int dy = 0; dy <= verticalRadius; dy++) {
+            int lowY = originY - dy;
+            if (lowY >= world.getMinHeight()) {
+                Optional<ChestSpot> found = scanChunkLayer(world, record, minX, maxX, minZ, maxZ, lowY, maxHorizontalDistanceSq);
+                if (found.isPresent()) return found;
+            }
+            int highY = originY + dy;
+            if (dy > 0 && highY < world.getMaxHeight()) {
+                Optional<ChestSpot> found = scanChunkLayer(world, record, minX, maxX, minZ, maxZ, highY, maxHorizontalDistanceSq);
+                if (found.isPresent()) return found;
+            }
+        }
+
+        // If the death happened in a sealed cave/void, search the nearest terrain surface in the
+        // same namespace world. This gives a real chest and coordinates instead of normal drops.
+        ChestSpot best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                double dx = x + 0.5 - record.x;
+                double dz = z + 0.5 - record.z;
+                double horizontalDistance = dx * dx + dz * dz;
+                if (horizontalDistance > maxHorizontalDistanceSq) continue;
+
+                int y = Math.max(world.getMinHeight(), Math.min(world.getMaxHeight() - 1, world.getHighestBlockYAt(x, z) + 1));
+                double dy = y - record.y;
+                double distance = horizontalDistance + dy * dy;
+                if (distance >= bestDistance) continue;
+                Optional<ChestSpot> found = chestAt(world, x, y, z, maxX, maxZ);
+                if (found.isPresent()) {
+                    best = found.get();
+                    bestDistance = distance;
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private Optional<ChestSpot> scanChunkLayer(
+        World world,
+        DeathRecord record,
+        int minX,
+        int maxX,
+        int minZ,
+        int maxZ,
+        int y,
+        double maxHorizontalDistanceSq) {
+        ChestSpot best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                double dx = x + 0.5 - record.x;
+                double dy = y - record.y;
+                double dz = z + 0.5 - record.z;
+                double horizontalDistance = dx * dx + dz * dz;
+                if (horizontalDistance > maxHorizontalDistanceSq) continue;
+                double distance = horizontalDistance + dy * dy;
+                if (distance >= bestDistance) continue;
+
+                Optional<ChestSpot> found = chestAt(world, x, y, z, maxX, maxZ);
+                if (found.isPresent()) {
+                    best = found.get();
+                    bestDistance = distance;
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private Optional<ChestSpot> chestAt(World world, int x, int y, int z, int maxX, int maxZ) {
+        Block first = world.getBlockAt(x, y, z);
+        if (!replaceable(first)) return Optional.empty();
+        if (x < maxX) {
+            Block east = world.getBlockAt(x + 1, y, z);
+            if (replaceable(east)) return Optional.of(new ChestSpot(first.getLocation(), east.getLocation(), true));
+        }
+        if (z < maxZ) {
+            Block south = world.getBlockAt(x, y, z + 1);
+            if (replaceable(south)) return Optional.of(new ChestSpot(first.getLocation(), south.getLocation(), false));
+        }
+        return Optional.empty();
     }
 
     private void findOrReuseChestSpot(DeathRecord record, Consumer<Optional<ChestSpot>> callback) {
@@ -1092,27 +1498,65 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void createFreeChest(DeathRecord record, String reason) {
+        createGuaranteedChest(record, reason, true);
+    }
+
+    private void createCompensatedChest(DeathRecord record, String reason) {
+        createGuaranteedChest(record, reason, false);
+    }
+
+    private void createGuaranteedChest(DeathRecord record, String reason, boolean backendOutage) {
         synchronized (record) {
             if (record.itemsResolved || record.isTerminal()) return;
             record.stage = Stage.RESOLVING;
-            record.backendUnavailable = true;
+            record.backendUnavailable |= backendOutage;
             saveQuietly(record);
         }
-        findOrReuseChestSpot(record, spot -> {
+        if (!beginChestSearch(record)) return;
+        if (deserializeItems(record.itemsBase64).size() > 54) {
+            endChestSearch(record);
+            scheduleGuaranteedChestRetry(record,
+                reason + " Вещей больше вместимости двойного сундука; они остаются в защищённом хранилище плагина.");
+            return;
+        }
+        findAnyChestSpot(record, spot -> {
             if (spot.isEmpty()) {
-                releaseDrops(record, reason + " Поставить сундук не удалось; вещи выпали обычно.");
+                endChestSearch(record);
+                scheduleGuaranteedChestRetry(record, reason + " Подходящее место пока не найдено.");
                 return;
             }
             reserveChestSpot(record, spot.get());
             placeChest(record, spot.get(), placed -> {
+                endChestSearch(record);
                 if (placed) {
-                    notifyFreeChest(record, spot.get().first, reason);
+                    notifyChest(record, spot.get().first, backendOutage, reason);
                     finish(record, Stage.FREE_CHEST_CREATED);
                 } else {
-                    releaseDrops(record, reason + " Поставить сундук не удалось; вещи выпали обычно.");
+                    record.chestSpotReserved = false;
+                    saveQuietly(record);
+                    scheduleGuaranteedChestRetry(record, reason + " Место заняли; ищем следующее.");
                 }
             });
         });
+    }
+
+    private void scheduleGuaranteedChestRetry(DeathRecord record, String message) {
+        boolean notify;
+        synchronized (record) {
+            if (record.itemsResolved || record.isTerminal()) return;
+            notify = !"death-chest-retry".equals(record.lastError);
+            record.stage = resolveWorld(record).isEmpty() ? Stage.WORLD_UNAVAILABLE : Stage.RESOLVING;
+            record.chestSpotReserved = false;
+            record.lastError = "death-chest-retry";
+            record.retryAfter = Instant.now().plusSeconds(15);
+            saveQuietly(record);
+        }
+        if (notify) {
+            Player player = plugin.findOnlinePlayer(record.playerId);
+            if (player != null && player.isOnline()) {
+                onPlayer(player, () -> player.sendMessage(Component.text(message, NamedTextColor.YELLOW)), 1L);
+            }
+        }
     }
 
     private void fallbackUnclaimedOffer(DeathRecord record, String reason) {
@@ -1125,6 +1569,21 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         saveQuietly(record);
         createFreeChest(record, reason);
+    }
+
+    private void notifyDeathCoordinates(DeathRecord record) {
+        Player player = plugin.findOnlinePlayer(record.playerId);
+        if (player == null || !player.isOnline() || player.isDead()) return;
+        onPlayer(player, () -> {
+            if (!player.isOnline() || player.isDead()) return;
+            int x = (int) Math.floor(record.x);
+            int y = (int) Math.floor(record.y);
+            int z = (int) Math.floor(record.z);
+            player.sendMessage(Component.text("Координаты смерти: " + record.worldKey + " / " + record.worldName
+                + " — " + x + " " + y + " " + z, NamedTextColor.LIGHT_PURPLE));
+            record.userNotified = true;
+            finish(record, Stage.COORDINATES_SENT);
+        }, 1L);
     }
 
     private void notifyFreeChest(DeathRecord record, Location at, String reason) {
@@ -1232,14 +1691,39 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         Bukkit.getRegionScheduler().execute(plugin, world, sample.getBlockX() >> 4, sample.getBlockZ() >> 4, () -> {
             for (Location l : groups.get(index)) {
                 Block feet = l.getBlock(), head = feet.getRelative(BlockFace.UP), floor = feet.getRelative(BlockFace.DOWN);
-                boolean open = (feet.getType().isAir() || feet.isPassable()) && (head.getType().isAir() || head.isPassable());
-                boolean safeFloor = floor.getType().isSolid() && floor.getType() != Material.MAGMA_BLOCK && floor.getType() != Material.CAMPFIRE;
-                if (open && safeFloor && feet.getType() != Material.LAVA && head.getType() != Material.LAVA) {
+                boolean open = isSafeBodyBlock(feet) && isSafeBodyBlock(head);
+                boolean safeFloor = isSafeFloor(floor);
+                if (open && safeFloor) {
                     callback.accept(Optional.of(l)); return;
                 }
             }
             inspectSafeChunks(world, groups, index + 1, callback);
         });
+    }
+
+    private boolean isSafeBodyBlock(Block block) {
+        Material type = block.getType();
+        if (!(type.isAir() || block.isPassable())) return false;
+        return type != Material.WATER
+            && type != Material.LAVA
+            && type != Material.FIRE
+            && type != Material.SOUL_FIRE
+            && type != Material.POWDER_SNOW
+            && type != Material.COBWEB
+            && type != Material.SWEET_BERRY_BUSH
+            && type != Material.WITHER_ROSE
+            && type != Material.POINTED_DRIPSTONE;
+    }
+
+    private boolean isSafeFloor(Block block) {
+        Material type = block.getType();
+        return type.isSolid()
+            && type != Material.MAGMA_BLOCK
+            && type != Material.CAMPFIRE
+            && type != Material.SOUL_CAMPFIRE
+            && type != Material.CACTUS
+            && type != Material.POWDER_SNOW
+            && type != Material.POINTED_DRIPSTONE;
     }
 
     private CompletableFuture<PurchaseOutcome> purchase(DeathRecord record, String action, int amount) {
@@ -1310,7 +1794,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void requestCompensation(DeathRecord record, int amount) {
-        record.compensationPending = true; saveQuietly(record);
+        synchronized (record) {
+            record.compensationPending = true;
+            record.compensationRetryAfter = Instant.now().plusSeconds(15);
+        }
+        saveQuietly(record);
         String body = json(Map.of(
             "requestId", record.requestId.toString(),
             "amount", amount,
@@ -1396,7 +1884,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             stream.filter(p -> p.getFileName().toString().endsWith(".properties")).forEach(path -> {
                 try (InputStream in = Files.newInputStream(path)) {
                     Properties p = new Properties(); p.load(in); DeathRecord r = DeathRecord.from(p);
-                    if (r.isTerminal() && Duration.between(r.updatedAt, Instant.now()).toDays() > 7) Files.deleteIfExists(path);
+                    boolean oldTerminal = r.isTerminal()
+                        && Duration.between(r.updatedAt, Instant.now()).toDays() > 7;
+                    // Never prune an offline player's chest coordinates before they were shown.
+                    // The physical chest may live forever, so losing this journal row would make it
+                    // impossible to fulfil the promised notification on the next join.
+                    boolean notificationOwed = !r.userNotified
+                        && (r.chestCreated || ACTION_COORDINATES.equals(r.action));
+                    boolean canPrune = oldTerminal && !notificationOwed;
+                    if (canPrune) Files.deleteIfExists(path);
                     else deaths.put(r.deathId, r);
                 } catch (Exception ex) { plugin.getLogger().log(Level.SEVERE, "Cannot load " + path, ex); }
             });
@@ -1488,7 +1984,13 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private enum PurchaseOutcome { CONFIRMED, DENIED, UNAVAILABLE }
     private enum Stage {
         WAITING_RESPAWN, OFFER, RESOLVING, WORLD_UNAVAILABLE, RESCUE_PENDING, RESCUE_ACTIVE,
-        DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED;
+        DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, COORDINATES_SENT, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED;
+    }
+
+    private static final class ChunkCandidate {
+        final int x, z;
+        final double distance;
+        ChunkCandidate(int x, int z, double distance) { this.x = x; this.z = z; this.distance = distance; }
     }
 
     private static final class ChestSpot {
@@ -1497,8 +1999,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private static final class RescueSession {
-        final DeathRecord record; final Location center; final Instant endsAt; volatile boolean internalTeleport;
-        RescueSession(DeathRecord record, Location center, Instant endsAt) { this.record = record; this.center = center; this.endsAt = endsAt; }
+        final DeathRecord record; final Location center; final Location fallback; final Instant endsAt; volatile boolean internalTeleport;
+        RescueSession(DeathRecord record, Location center, Location fallback, Instant endsAt) {
+            this.record = record; this.center = center; this.fallback = fallback; this.endsAt = endsAt;
+        }
         long secondsRemaining() { return Math.max(0, Duration.between(Instant.now(), endsAt).toSeconds()); }
     }
 
@@ -1510,10 +2014,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         int chestX, chestY, chestZ, chestSecondX, chestSecondY, chestSecondZ, chargedAmount;
         Instant createdAt, offerExpiresAt, updatedAt, rescueEndsAt;
         transient volatile Instant retryAfter = Instant.EPOCH;
+        transient volatile Instant compensationRetryAfter = Instant.EPOCH;
+        transient volatile boolean chestSearchInFlight;
         Stage stage; boolean paymentConfirmed, dropsReleased, chestSpotReserved, chestCreated, itemsResolved, rescuePending, rescueCompleted;
         boolean backendUnavailable, compensationPending, compensated, userNotified;
         long revision;
-        boolean isTerminal() { return stage == Stage.DROPS_RELEASED || stage == Stage.CHEST_CREATED || stage == Stage.FREE_CHEST_CREATED || stage == Stage.RESCUE_COMPLETED || stage == Stage.CHEST_AND_RESCUE_COMPLETED; }
+        boolean isTerminal() { return stage == Stage.DROPS_RELEASED || stage == Stage.CHEST_CREATED || stage == Stage.FREE_CHEST_CREATED || stage == Stage.COORDINATES_SENT || stage == Stage.RESCUE_COMPLETED || stage == Stage.CHEST_AND_RESCUE_COMPLETED; }
         Properties toProperties() {
             Properties p = new Properties();
             put(p,"deathId",deathId); put(p,"playerId",playerId); put(p,"playerName",playerName); put(p,"worldUuid",worldUuid); put(p,"worldKey",worldKey); put(p,"worldName",worldName);

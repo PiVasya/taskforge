@@ -13,6 +13,7 @@ internal static partial class MinecraftApiEndpoints
 {
     private static readonly HashSet<string> DeathRecoveryActions = new(StringComparer.OrdinalIgnoreCase)
     {
+        "coordinates",
         "chest",
         "return",
         "both"
@@ -245,6 +246,7 @@ internal static partial class MinecraftApiEndpoints
 
             var expectedAmount = action switch
             {
+                "coordinates" => DeathCoordinatesCost(cfg),
                 "chest" => DeathChestCost(cfg),
                 "return" => DeathTeleportCost(cfg),
                 _ => DeathChestCost(cfg) + DeathTeleportCost(cfg)
@@ -427,12 +429,14 @@ internal static partial class MinecraftApiEndpoints
                     Delta = -expectedAmount,
                     Kind = action switch
                     {
+                        "coordinates" => "death-coordinates",
                         "chest" => "death-chest",
                         "return" => "death-teleport",
                         _ => "death-chest-and-teleport"
                     },
                     Reason = action switch
                     {
+                        "coordinates" => "Получение координат места смерти",
                         "chest" => "Сохранение вещей в сундуке после смерти",
                         "return" => "Возврат к месту смерти",
                         _ => "Сундук и возврат к месту смерти"
@@ -683,6 +687,7 @@ internal static partial class MinecraftApiEndpoints
             .Where(x => x.Confirmed
                 && x.UnlinkedAtUtc == null
                 && x.UserId != null
+                && (x.PlayerUuid == null || x.PlayerUuid == string.Empty)
                 && x.PlayerName != null
                 && x.PlayerName.ToLower() == lower)
             .Select(x => x.UserId)
@@ -750,6 +755,7 @@ internal static partial class MinecraftApiEndpoints
             "DROPS_RELEASED" or
             "CHEST_CREATED" or
             "FREE_CHEST_CREATED" or
+            "COORDINATES_SENT" or
             "RESCUE_COMPLETED" or
             "CHEST_AND_RESCUE_COMPLETED";
 

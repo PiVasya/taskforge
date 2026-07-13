@@ -1,7 +1,7 @@
 name: DefaultGroupAssigner
-version: 1.0.0
+version: 1.1.0
 main: by.taskforge.defaultassigner.DefaultGroupAssigner
-api-version: "1.21"
+api-version: "26.1.2"
 folia-supported: true
 
 permissions:

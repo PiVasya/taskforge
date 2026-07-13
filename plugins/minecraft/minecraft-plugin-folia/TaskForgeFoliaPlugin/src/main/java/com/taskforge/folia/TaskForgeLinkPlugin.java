@@ -78,6 +78,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private boolean chatIncludeRootAdvancements;
     private String chatSitePrefix;
     private volatile Instant chatCursorUtc = Instant.EPOCH;
+    private int deathCoordinatesCost;
     private int deathChestCost;
     private int deathTeleportCost;
     private DeathRecoveryManager deathRecoveryManager;
@@ -202,6 +203,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         chatIncludeRootAdvancements = getConfig().getBoolean("chat.includeRootAdvancements", false);
         chatSitePrefix = getConfig().getString("chat.sitePrefix", "§d[TaskForge]§r ");
         chatCursorUtc = Instant.now();
+        deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
 
@@ -277,7 +279,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!"tfback".equalsIgnoreCase(command.getName())) return false;
-        sender.sendMessage("TaskForge: после смерти используй кнопки [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
+        sender.sendMessage("TaskForge: после смерти используй кнопки [Координаты], [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
         return true;
     }
 
@@ -580,6 +582,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         int minecraftSpent;
         int minecraftRestored;
         int minecraftAdjustment;
+        int deathCoordinatesCost;
         int deathChestCost;
         int deathTeleportCost;
         int effectiveScore;
@@ -608,10 +611,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     return;
                 }
                 int balance = st.minecraftBalance;
+                int coordinatesCost = st.deathCoordinatesCost > 0 ? st.deathCoordinatesCost : plugin.deathCoordinatesCost;
                 int chestCost = st.deathChestCost > 0 ? st.deathChestCost : plugin.deathChestCost;
                 int returnCost = st.deathTeleportCost > 0 ? st.deathTeleportCost : plugin.deathTeleportCost;
                 plugin.sendChat(p, "§eTaskForge: §7Minecraft-баланс: §e" + balance
-                        + "§7. Сундук: §e" + chestCost + "§7, возврат: §e" + returnCost + "§7.");
+                        + "§7. Координаты: §e" + coordinatesCost + "§7, сундук: §e" + chestCost + "§7, возврат: §e" + returnCost + "§7.");
             }, plugin.tfExecutor);
         }
 

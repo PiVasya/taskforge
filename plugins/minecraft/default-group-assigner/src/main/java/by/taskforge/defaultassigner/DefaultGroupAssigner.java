@@ -30,7 +30,7 @@ public final class DefaultGroupAssigner extends JavaPlugin implements Listener {
         }
 
         String group = getConfig().getString("group", "default");
-        int delay = getConfig().getInt("delayTicks", 20);
+        int delay = Math.max(1, getConfig().getInt("delayTicks", 20));
         String template = getConfig().getString("commandTemplate", "fperm user addgroup {player} {group}");
 
         String cmd = template

@@ -340,7 +340,7 @@ export default function AdminUserManagementPage() {
                 <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Баланс MC</div><div className="text-xl font-semibold">{minecraftRating?.minecraftBalance ?? minecraftRating?.balance ?? 0}</div></div>
                 <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Потрачено</div><div className="text-xl font-semibold">{minecraftRating?.minecraftSpent ?? 0}</div></div>
                 <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Восстановлено</div><div className="text-xl font-semibold">{minecraftRating?.minecraftRestored ?? 0}</div></div>
-                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Возврат смерти</div><div className="text-xl font-semibold">{minecraftRating?.deathTeleportCost ?? 100}</div></div>
+                <div className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="text-xs opacity-60">Координаты / сундук / возврат</div><div className="text-xl font-semibold">{minecraftRating?.deathCoordinatesCost ?? 10} / {minecraftRating?.deathChestCost ?? 50} / {minecraftRating?.deathTeleportCost ?? 100}</div></div>
               </div>
             </div>
             <div className="w-full lg:max-w-sm rounded-2xl border border-[rgb(var(--border))] p-3">

@@ -79,6 +79,9 @@ internal static class MinecraftApiCommonService
     internal static int DeathTeleportCost(IConfiguration cfg)
         => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_TELEPORT_COST") ?? 100, 1, 100000);
 
+    internal static int DeathCoordinatesCost(IConfiguration cfg)
+        => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_COORDINATES_COST") ?? 10, 1, 100000);
+
     internal static async Task<MinecraftRatingBalanceDto> BuildMinecraftRatingBalanceAsync(
         Guid userId,
         MinecraftDbContext db,
@@ -110,6 +113,7 @@ internal static class MinecraftApiCommonService
             restored,
             effective,
             Math.Max(0, effective),
+            DeathCoordinatesCost(cfg),
             DeathChestCost(cfg),
             DeathTeleportCost(cfg));
     }
@@ -147,6 +151,7 @@ internal static class MinecraftApiCommonService
         int restoredTotal,
         int effectiveRating,
         int balance,
+        int deathCoordinatesCost,
         int deathChestCost,
         int deathTeleportCost);
 

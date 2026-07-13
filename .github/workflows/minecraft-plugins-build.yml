@@ -39,6 +39,14 @@ jobs:
         working-directory: plugins/minecraft/minecraft-plugin-folia/CustomMobTweaksPlugin
         run: gradle --no-daemon clean build
 
+      - name: Build DefaultGroupAssigner
+        working-directory: plugins/minecraft/default-group-assigner
+        run: mvn -B -ntp clean package
+
+      - name: Build WorldLoaderFolia
+        working-directory: plugins/minecraft/world-loader-folia
+        run: mvn -B -ntp clean package
+
       - name: Prepare downloadable jars
         shell: bash
         run: |
@@ -46,6 +54,8 @@ jobs:
           mkdir -p dist/minecraft-plugins
           cp plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin/build/libs/TaskForgeFoliaPlugin-*.jar dist/minecraft-plugins/TaskForgeLink.jar
           cp plugins/minecraft/minecraft-plugin-folia/CustomMobTweaksPlugin/build/libs/CustomMobTweaksPlugin-*.jar dist/minecraft-plugins/CustomMobTweaks.jar
+          cp plugins/minecraft/default-group-assigner/target/default-group-assigner-*.jar dist/minecraft-plugins/DefaultGroupAssigner.jar
+          cp plugins/minecraft/world-loader-folia/target/WorldLoaderFolia.jar dist/minecraft-plugins/WorldLoaderFolia.jar
           cd dist/minecraft-plugins
           sha256sum *.jar > SHA256SUMS.txt
           zip -9 ../taskforge-minecraft-plugins.zip *.jar SHA256SUMS.txt
@@ -69,6 +79,8 @@ jobs:
             echo
             echo "- TaskForgeLink.jar"
             echo "- CustomMobTweaks.jar"
+            echo "- DefaultGroupAssigner.jar"
+            echo "- WorldLoaderFolia.jar"
             echo "- taskforge-minecraft-plugins.zip"
             echo
             echo "Open this workflow run and download the artifact named \`taskforge-minecraft-plugins-${GITHUB_SHA}\`."
@@ -88,6 +100,8 @@ jobs:
           gh release upload "$tag" \
             dist/minecraft-plugins/TaskForgeLink.jar \
             dist/minecraft-plugins/CustomMobTweaks.jar \
+            dist/minecraft-plugins/DefaultGroupAssigner.jar \
+            dist/minecraft-plugins/WorldLoaderFolia.jar \
             dist/minecraft-plugins/SHA256SUMS.txt \
             dist/taskforge-minecraft-plugins.zip \
             --clobber

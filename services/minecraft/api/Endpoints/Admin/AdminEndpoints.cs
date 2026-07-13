@@ -63,6 +63,7 @@ internal static partial class MinecraftApiEndpoints
                     totalSpent = balance.spentTotal,
                     minecraftSpent = balance.spentTotal,
                     minecraftRestored = balance.restoredTotal,
+                    deathCoordinatesCost = balance.deathCoordinatesCost,
                     deathChestCost = balance.deathChestCost,
                     deathTeleportCost = balance.deathTeleportCost,
                     lastSpentAtUtc = await db.RatingTransactions.AsNoTracking().Where(x => x.UserId == item.UserId && x.Delta < 0).MaxAsync(x => (DateTimeOffset?)x.CreatedAtUtc, ct),
@@ -105,6 +106,7 @@ internal static partial class MinecraftApiEndpoints
                 minecraftAdjustment = balance.adjustmentTotal,
                 minecraftSpent = balance.spentTotal,
                 minecraftRestored = balance.restoredTotal,
+                deathCoordinatesCost = balance.deathCoordinatesCost,
                 deathChestCost = balance.deathChestCost,
                 deathTeleportCost = balance.deathTeleportCost,
                 transactions = rows.Select(ToRatingTransactionDto).ToArray()

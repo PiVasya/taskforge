@@ -1,11 +1,12 @@
 name: WorldLoaderFolia
-version: 1.0.0
+version: 1.1.0
 main: com.example.worldloader.WorldLoaderFolia
-api-version: "1.21"
+api-version: "26.1.2"
 folia-supported: true
+softdepend: [Worlds, Terra, Portals]
 commands:
   loadworld:
-    description: Load (or create) a world by name.
+    description: Resolve an already registered world by exact name or namespace key.
     usage: /loadworld <world>
     permission: worldloader.load
   tpsurv:

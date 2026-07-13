@@ -89,13 +89,26 @@ internal static partial class MinecraftApiEndpoints
             }
             if (match == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Код не найден или устарел. Сгенерируй новый." });
 
+            var confirmedUuid = string.IsNullOrWhiteSpace(req.PlayerUuid)
+                ? null
+                : req.PlayerUuid.Trim().ToLowerInvariant();
+            if (confirmedUuid is not null)
+            {
+                var uuidOwner = await db.Links.AsNoTracking().FirstOrDefaultAsync(x => x.Confirmed
+                    && x.UnlinkedAtUtc == null
+                    && x.PlayerUuid != null
+                    && x.PlayerUuid.ToLower() == confirmedUuid, ct);
+                if (uuidOwner is not null && uuidOwner.UserId != uid.Value)
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Этот Minecraft UUID уже привязан к другой учётной записи." });
+            }
+
             match.UsedAtUtc = now;
             db.Links.Add(new MinecraftLink
             {
                 Id = Guid.NewGuid(),
                 UserId = uid.Value,
                 PlayerName = match.Nick,
-                PlayerUuid = string.IsNullOrWhiteSpace(req.PlayerUuid) ? null : req.PlayerUuid.Trim(),
+                PlayerUuid = confirmedUuid,
                 Code = "LINK-" + Guid.NewGuid().ToString("N"),
                 Confirmed = true,
                 CreatedAt = now,
@@ -123,6 +136,7 @@ internal static partial class MinecraftApiEndpoints
         app.MapGet("/api/integrations/minecraft/economy", (IConfiguration cfg) =>
             Microsoft.AspNetCore.Http.Results.Ok(new
             {
+                deathCoordinatesCost = DeathCoordinatesCost(cfg),
                 deathChestCost = DeathChestCost(cfg),
                 deathTeleportCost = DeathTeleportCost(cfg),
                 deathChestAndTeleportCost = DeathChestCost(cfg) + DeathTeleportCost(cfg)
@@ -150,17 +164,25 @@ internal static partial class MinecraftApiEndpoints
                     minecraftSpent = 0,
                     minecraftRestored = 0,
                     minecraftAdjustment = 0,
+                    deathCoordinatesCost = DeathCoordinatesCost(cfg),
                     deathChestCost = DeathChestCost(cfg),
                     deathTeleportCost = DeathTeleportCost(cfg),
                     effectiveScore = 0,
                     debuffed = false
                 });
             }
-            if (!string.IsNullOrWhiteSpace(uuid) && active.PlayerUuid != uuid)
+            var linkChanged = false;
+            if (!string.IsNullOrWhiteSpace(uuid) && string.IsNullOrWhiteSpace(active.PlayerUuid))
             {
-                active.PlayerUuid = uuid;
-                await db.SaveChangesAsync(ct);
+                active.PlayerUuid = uuid.ToLowerInvariant();
+                linkChanged = true;
             }
+            if (!string.Equals(active.PlayerName, nick, StringComparison.Ordinal))
+            {
+                active.PlayerName = nick;
+                linkChanged = true;
+            }
+            if (linkChanged) await db.SaveChangesAsync(ct);
             var dto = await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct);
             logger.LogInformation("MC join: nick={Nick} user={UserId} balance={Balance}", nick, active.UserId, dto.minecraftBalance);
             return Microsoft.AspNetCore.Http.Results.Ok(dto);
@@ -172,7 +194,7 @@ internal static partial class MinecraftApiEndpoints
             var active = await FindActiveLinkAsync(db, NormalizeNick(nick), (uuid ?? string.Empty).Trim(), ct);
             if (active == null || active.UserId == null)
             {
-                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick, uuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false });
+                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick, uuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathCoordinatesCost = DeathCoordinatesCost(cfg), deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false });
             }
             return Microsoft.AspNetCore.Http.Results.Ok(await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct));
         });
@@ -183,15 +205,26 @@ internal static partial class MinecraftApiEndpoints
 
     private static async Task<MinecraftLink?> FindActiveLinkAsync(MinecraftDbContext db, string? nick, string? uuid, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(uuid))
+        var normalizedUuid = (uuid ?? string.Empty).Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(normalizedUuid))
         {
-            var byUuid = await db.Links.FirstOrDefaultAsync(x => x.Confirmed && x.UnlinkedAtUtc == null && x.PlayerUuid == uuid, ct);
+            var byUuid = await db.Links.FirstOrDefaultAsync(x => x.Confirmed
+                && x.UnlinkedAtUtc == null
+                && x.PlayerUuid != null
+                && x.PlayerUuid.ToLower() == normalizedUuid, ct);
             if (byUuid != null) return byUuid;
         }
+
+        // Nick fallback exists only for legacy links that have never stored a UUID.
+        // A renamed/recycled nickname must never reassign a link that already belongs to another UUID.
         if (!string.IsNullOrWhiteSpace(nick))
         {
             var lower = nick.ToLowerInvariant();
-            return await db.Links.FirstOrDefaultAsync(x => x.Confirmed && x.UnlinkedAtUtc == null && x.PlayerName != null && x.PlayerName.ToLower() == lower, ct);
+            return await db.Links.FirstOrDefaultAsync(x => x.Confirmed
+                && x.UnlinkedAtUtc == null
+                && (x.PlayerUuid == null || x.PlayerUuid == string.Empty)
+                && x.PlayerName != null
+                && x.PlayerName.ToLower() == lower, ct);
         }
         return null;
     }
@@ -202,7 +235,7 @@ internal static partial class MinecraftApiEndpoints
         var linkCount = await db.Links.AsNoTracking().CountAsync(x => x.UserId == userId && x.Confirmed, ct);
         if (active == null)
         {
-            return new { linked = false, nick = (string?)null, uuid = (string?)null, linkCount, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false };
+            return new { linked = false, nick = (string?)null, uuid = (string?)null, linkCount, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathCoordinatesCost = DeathCoordinatesCost(cfg), deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false };
         }
         return await BuildPlayerStatusAsync(userId, db, cfg, httpFactory, ct);
     }
@@ -229,6 +262,7 @@ internal static partial class MinecraftApiEndpoints
             balance.adjustmentTotal,
             balance.spentTotal,
             balance.restoredTotal,
+            balance.deathCoordinatesCost,
             balance.deathChestCost,
             balance.deathTeleportCost,
             balance.effectiveRating,
@@ -252,6 +286,7 @@ internal static partial class MinecraftApiEndpoints
         int minecraftAdjustment,
         int minecraftSpent,
         int minecraftRestored,
+        int deathCoordinatesCost,
         int deathChestCost,
         int deathTeleportCost,
         int effectiveScore,

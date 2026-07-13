@@ -5,12 +5,12 @@
 
   <groupId>by.taskforge</groupId>
   <artifactId>default-group-assigner</artifactId>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <name>DefaultGroupAssigner</name>
 
   <properties>
-    <maven.compiler.source>17</maven.compiler.source>
-    <maven.compiler.target>17</maven.compiler.target>
+    <maven.compiler.release>25</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
   <repositories>
@@ -22,10 +22,21 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.papermc.paper</groupId>
-      <artifactId>paper-api</artifactId>
-      <version>1.21.1-R0.1-SNAPSHOT</version>
+      <groupId>dev.folia</groupId>
+      <artifactId>folia-api</artifactId>
+      <version>26.1.2.build.8-stable</version>
       <scope>provided</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.14.0</version>
+        <configuration><release>25</release></configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>
