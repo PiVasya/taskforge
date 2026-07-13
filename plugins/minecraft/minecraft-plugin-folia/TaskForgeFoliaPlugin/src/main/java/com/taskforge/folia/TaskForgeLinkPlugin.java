@@ -28,6 +28,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
@@ -39,6 +42,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Folia/Paper plugin.
@@ -82,6 +86,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int deathChestCost;
     private int deathTeleportCost;
     private DeathRecoveryManager deathRecoveryManager;
+
+    private boolean debugEnabled;
+    private boolean debugHttp;
+    private boolean debugHttpBodies;
+    private boolean debugDeathRecovery;
+    private boolean debugScheduler;
+    private boolean debugJournal;
+    private boolean debugHeartbeat;
+    private int debugConnectivityProbeSeconds;
+    private final AtomicLong httpSequence = new AtomicLong();
 
     // Игроки-исключения: без запросов в API и игровых сообщений TaskForge.
     private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
@@ -132,6 +146,75 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         return s == null || s.trim().isEmpty();
     }
 
+    boolean debugEnabled() { return debugEnabled; }
+    boolean debugDeathRecovery() { return debugEnabled && debugDeathRecovery; }
+    boolean debugScheduler() { return debugEnabled && debugScheduler; }
+    boolean debugJournal() { return debugEnabled && debugJournal; }
+    boolean debugHeartbeat() { return debugEnabled && debugHeartbeat; }
+
+    void debug(String area, String message) {
+        if (!debugEnabled) return;
+        getLogger().info("[DEBUG][" + area + "] " + message);
+    }
+
+    void debugDeath(String message) {
+        if (debugDeathRecovery()) debug("death", message);
+    }
+
+    void debugScheduler(String message) {
+        if (debugScheduler()) debug("scheduler", message);
+    }
+
+    void debugJournal(String message) {
+        if (debugJournal()) debug("journal", message);
+    }
+
+    private String bodyPreview(String body) {
+        if (!debugHttpBodies || body == null || body.isEmpty()) return body == null || body.isEmpty() ? "<empty>" : "<hidden len=" + body.length() + ">";
+        String normalized = body.replace('\n', ' ').replace('\r', ' ');
+        return normalized.length() > 1000 ? normalized.substring(0, 1000) + "...<truncated>" : normalized;
+    }
+
+    private static String keyFingerprint(String value) {
+        if (isBlank(value)) return "missing";
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 6);
+        } catch (NoSuchAlgorithmException impossible) {
+            return "sha256-unavailable";
+        }
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while ((current instanceof CompletionException || current instanceof ExecutionException) && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private void logHttpRequest(long id, String scope, HttpRequest request, String body) {
+        if (!debugEnabled || !debugHttp) return;
+        debug("http", "#" + id + " -> " + scope + " " + request.method() + " " + request.uri()
+                + " timeout=" + request.timeout().map(Duration::toMillis).orElse(-1L) + "ms body=" + bodyPreview(body));
+    }
+
+    private void logHttpResponse(long id, String scope, HttpResponse<String> response) {
+        if (!debugEnabled || !debugHttp) return;
+        if (response == null) {
+            debug("http", "#" + id + " <- " + scope + " null response");
+            return;
+        }
+        debug("http", "#" + id + " <- " + scope + " status=" + response.statusCode()
+                + " uri=" + response.uri() + " body=" + bodyPreview(response.body()));
+    }
+
+    private void logHttpException(long id, String scope, Throwable error) {
+        Throwable root = unwrap(error);
+        getLogger().log(java.util.logging.Level.WARNING, "[DEBUG][http] #" + id + " !! " + scope
+                + " " + root.getClass().getName() + ": " + root.getMessage(), root);
+    }
+
     private HttpClient buildHttpClient() {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -146,7 +229,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     private void markTaskForgeFailure(String scope, Throwable ex) {
         int failures = consecutiveTaskForgeFailures.incrementAndGet();
-        String msg = ex == null ? "unknown" : ex.getClass().getSimpleName() + ": " + ex.getMessage();
+        Throwable root = ex == null ? null : unwrap(ex);
+        String msg = root == null ? "HTTP response was not successful; see preceding [DEBUG][http] response"
+                : root.getClass().getSimpleName() + ": " + root.getMessage();
         getLogger().warning("TaskForge " + scope + " call failed (" + failures + " in a row): " + msg);
         if (failures >= 3) {
             getLogger().warning("TaskForge connectivity looks stale, rebuilding HTTP client.");
@@ -159,6 +244,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         return HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(taskForgeTimeoutSeconds))
+                .header("Accept", "application/json")
+                .header("User-Agent", "TaskForgeLink/" + getDescription().getVersion())
+                .header("X-Request-Id", UUID.randomUUID().toString())
                 .header("X-Minecraft-Key", taskForgeKey);
     }
 
@@ -170,6 +258,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         // Some configs may contain wrong-cased keys like `taskforgekey`.
         // We read both and auto-migrate to the canonical camelCase keys.
         migrateConfigKeys();
+
+        debugEnabled = getConfig().getBoolean("debug.enabled", true);
+        debugHttp = getConfig().getBoolean("debug.http", true);
+        debugHttpBodies = getConfig().getBoolean("debug.httpBodies", true);
+        debugDeathRecovery = getConfig().getBoolean("debug.deathRecovery", true);
+        debugScheduler = getConfig().getBoolean("debug.scheduler", true);
+        debugJournal = getConfig().getBoolean("debug.journal", true);
+        debugHeartbeat = getConfig().getBoolean("debug.heartbeat", true);
+        debugConnectivityProbeSeconds = Math.max(10, getConfig().getInt("debug.connectivityProbeSeconds", 30));
 
         String host = getConfig().getString("http.host", "0.0.0.0");
         int port = getConfig().getInt("http.port", 25566);
@@ -207,6 +304,23 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
 
+        getLogger().info("[TaskForgeLink] development diagnostics enabled=" + debugEnabled
+                + " http=" + debugHttp + " httpBodies=" + debugHttpBodies
+                + " deathRecovery=" + debugDeathRecovery + " scheduler=" + debugScheduler
+                + " journal=" + debugJournal + " heartbeat=" + debugHeartbeat);
+        getLogger().info("[TaskForgeLink] backend baseUrl=" + (taskForgeBaseUrl.isBlank() ? "<missing>" : taskForgeBaseUrl)
+                + " pluginKey=" + keyFingerprint(taskForgeKey) + " len=" + taskForgeKey.length()
+                + " webhookKey=" + keyFingerprint(key) + " len=" + key.length()
+                + " timeoutSeconds=" + taskForgeTimeoutSeconds);
+        getLogger().info("[TaskForgeLink] death costs coordinates=" + deathCoordinatesCost
+                + " chest=" + deathChestCost + " teleport=" + deathTeleportCost);
+        if (!canCallTaskForge()) {
+            getLogger().warning("[TaskForgeLink] Minecraft -> TaskForge calls are disabled because apiBaseUrl or pluginKey is empty.");
+        }
+        if ("CHANGE_ME".equals(key) || "CHANGE_ME".equals(taskForgeKey)) {
+            getLogger().severe("[TaskForgeLink] CHANGE_ME is still present in a security key. Replace it before exposing the server.");
+        }
+
         // exemptions
         exemptNicksLower.clear();
         exemptUuidsLower.clear();
@@ -226,6 +340,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             // Простая проверка доступности (без ключей)
             server.createContext("/health", ex -> {
                 int onlinePlayerCount = onlinePlayerCount();
+                debug("http-in", "health request ip=" + ex.getRemoteAddress() + " method=" + ex.getRequestMethod()
+                        + " onlinePlayers=" + onlinePlayerCount);
                 String resp = "{\"ok\":true,\"onlinePlayers\":" + onlinePlayerCount + "}";
                 ex.getResponseHeaders().add("Content-Type", "application/json");
                 ex.getResponseHeaders().add("Connection", "close");
@@ -271,9 +387,14 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             return t;
         });
         janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
+        if (canCallTaskForge()) {
+            janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe, 0, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
+        }
         if (chatEnabled && canCallTaskForge()) {
             janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
         }
+        getLogger().info("[TaskForgeLink] enabled; trackedOnlinePlayers=" + onlinePlayerCount()
+                + " connectivityProbeSeconds=" + debugConnectivityProbeSeconds);
     }
 
     @Override
@@ -285,6 +406,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        getLogger().info("[TaskForgeLink] disabling; onlinePlayers=" + onlinePlayerCount()
+                + " seenRequestIds=" + seenRequestIds.size());
         if (deathRecoveryManager != null) {
             deathRecoveryManager.disable();
             deathRecoveryManager = null;
@@ -341,12 +464,20 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
 
+        long httpId = httpSequence.incrementAndGet();
+        logHttpRequest(httpId, "join", req, body);
         return httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
-                .thenApply(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); return parseStatusResponse(resp); })
-                .exceptionally(ex -> {
-                    markTaskForgeFailure("join", ex);
-                    return null;
+                .handle((resp, error) -> {
+                    if (error != null) {
+                        logHttpException(httpId, "join", error);
+                        markTaskForgeFailure("join", error);
+                        return null;
+                    }
+                    logHttpResponse(httpId, "join", resp);
+                    if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
+                    else markTaskForgeFailure("join-http", null);
+                    return parseStatusResponse(resp);
                 });
     }
 
@@ -360,12 +491,20 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 .GET()
                 .build();
 
+        long httpId = httpSequence.incrementAndGet();
+        logHttpRequest(httpId, "status", req, null);
         return httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
-                .thenApply(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); return parseStatusResponse(resp); })
-                .exceptionally(ex -> {
-                    markTaskForgeFailure("status", ex);
-                    return null;
+                .handle((resp, error) -> {
+                    if (error != null) {
+                        logHttpException(httpId, "status", error);
+                        markTaskForgeFailure("status", error);
+                        return null;
+                    }
+                    logHttpResponse(httpId, "status", resp);
+                    if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
+                    else markTaskForgeFailure("status-http", null);
+                    return parseStatusResponse(resp);
                 });
     }
 
@@ -386,10 +525,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     void sendChat(Player p, String message) {
         if (p == null || message == null) return;
+        debugScheduler("queue chat player=" + p.getName() + " uuid=" + p.getUniqueId() + " len=" + message.length());
         p.getScheduler().run(this, task -> {
-            if (!p.isOnline()) return;
+            if (!p.isOnline()) {
+                debugScheduler("skip chat because player went offline uuid=" + p.getUniqueId());
+                return;
+            }
             p.sendMessage(message);
-        }, null);
+            debugScheduler("chat delivered player=" + p.getName() + " uuid=" + p.getUniqueId());
+        }, () -> debugScheduler("chat scheduler retired before delivery uuid=" + p.getUniqueId()));
     }
 
     boolean isExempt(Player p) {
@@ -405,6 +549,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         if (player == null) return;
         UUID id = player.getUniqueId();
         onlinePlayers.put(id, player);
+        debug("player", "track online name=" + player.getName() + " uuid=" + id + " dead=" + player.isDead());
         String name = player.getName();
         if (name != null && !name.isBlank()) {
             onlinePlayersByName.put(name.toLowerCase(Locale.ROOT), id);
@@ -415,6 +560,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         if (player == null) return;
         UUID id = player.getUniqueId();
         onlinePlayers.remove(id, player);
+        debug("player", "track offline name=" + player.getName() + " uuid=" + id);
         String name = player.getName();
         if (name != null && !name.isBlank()) {
             onlinePlayersByName.remove(name.toLowerCase(Locale.ROOT), id);
@@ -482,12 +628,43 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
 
+        long httpId = httpSequence.incrementAndGet();
+        String scope = "chat-push-" + (kind == null ? "chat" : kind.trim());
+        logHttpRequest(httpId, scope, req, body);
         httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
-                .thenAccept(resp -> { if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess(); else markTaskForgeFailure("chat-push-http", null); })
-                .exceptionally(ex -> {
-                    markTaskForgeFailure("chat-push", ex);
-                    return null;
+                .whenComplete((resp, error) -> {
+                    if (error != null) {
+                        logHttpException(httpId, scope, error);
+                        markTaskForgeFailure(scope, error);
+                        return;
+                    }
+                    logHttpResponse(httpId, scope, resp);
+                    if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
+                    else markTaskForgeFailure(scope + "-http", null);
+                });
+    }
+
+    private void probeTaskForgeConnectivitySafe() {
+        if (!canCallTaskForge()) return;
+        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/death-recovery/health";
+        HttpRequest request = newTaskForgeRequest(url).GET().build();
+        long id = httpSequence.incrementAndGet();
+        logHttpRequest(id, "connectivity-probe", request, null);
+        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .orTimeout(taskForgeTimeoutSeconds + 1L, TimeUnit.SECONDS)
+                .whenComplete((response, error) -> {
+                    if (error != null) {
+                        logHttpException(id, "connectivity-probe", error);
+                        markTaskForgeFailure("connectivity-probe", error);
+                        return;
+                    }
+                    logHttpResponse(id, "connectivity-probe", response);
+                    if (response != null && response.statusCode() >= 200 && response.statusCode() < 300) {
+                        markTaskForgeSuccess();
+                    } else {
+                        markTaskForgeFailure("connectivity-probe-http", null);
+                    }
                 });
     }
 
@@ -509,11 +686,19 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 .GET()
                 .build();
 
-        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        long httpId = httpSequence.incrementAndGet();
+        logHttpRequest(httpId, "chat-poll", req, null);
+        HttpResponse<String> resp;
+        try {
+            resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (Exception error) {
+            logHttpException(httpId, "chat-poll", error);
+            throw error;
+        }
+        logHttpResponse(httpId, "chat-poll", resp);
         if (resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             markTaskForgeFailure("chat-poll-http", null);
-            getLogger().warning("TaskForge chat poll HTTP status=" + resp.statusCode());
             return;
         }
 
@@ -693,7 +878,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                             "[TF->MC] unauthorized ip=" + remoteIp +
                                     " hasHeader=" + (!gotKey.isBlank()) +
                                     " gotLen=" + gotKey.length() +
-                                    " expectedLen=" + sharedKey.length());
+                                    " gotFp=" + keyFingerprint(gotKey) +
+                                    " expectedLen=" + sharedKey.length() +
+                                    " expectedFp=" + keyFingerprint(sharedKey));
                     writeJson(ex, 401, "{\"error\":\"unauthorized\"}");
                     return;
                 }
@@ -745,7 +932,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 plugin.getLogger().info("[TF->MC] code delivered nick=" + finalP.getName() + " uuid=" + uuid + " ip=" + remoteIp);
                 writeJson(ex, 200, "{\"delivered\":true,\"online\":true,\"uuid\":\"" + uuid + "\"}");
             } catch (Exception e) {
-                plugin.getLogger().severe("HTTP handler error: " + e.getMessage());
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "[TF->MC] HTTP handler error", e);
                 writeJson(ex, 500, "{\"error\":\"server_error\"}");
             }
         }

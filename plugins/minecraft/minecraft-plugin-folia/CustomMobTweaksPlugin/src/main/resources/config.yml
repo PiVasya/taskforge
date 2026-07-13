@@ -75,4 +75,4 @@ skeleton-sniper:
   max-track-distance: 40.0
 
 messages:
-  debug: false
+  debug: true

@@ -34,3 +34,12 @@ Type-specific fields:
 - `image-test`: `testCases`, `imageTestReferenceKey`, `imageTestSimilarityThreshold`
 - `test`: `testSettings`, `questions`
 - `math`: `testSettings`, `blocks`
+
+## Minecraft plugin logging policy
+
+- Пока проект находится в разработке, `TaskForgeLink` должен собираться и поставляться с максимально подробными безопасными логами.
+- В `plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin/src/main/resources/config.yml` сохранять `debug.enabled=true`, а также `debug.http`, `debug.httpBodies`, `debug.deathRecovery`, `debug.scheduler`, `debug.journal` и `debug.heartbeat` равными `true`.
+- Логировать запуск, конфигурацию без раскрытия секретов, HTTP URI/метод/status/body preview, переходы death-recovery, планировщики Folia, запись журнала, повторные попытки и доставку сообщений игроку.
+- Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
+- Не отключать и не уменьшать эти логи, пока пользователь явно не попросит изменить политику логирования.
+- В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.

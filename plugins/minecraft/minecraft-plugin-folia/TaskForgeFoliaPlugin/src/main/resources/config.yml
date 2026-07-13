@@ -8,7 +8,7 @@ security:
   allowedIps: []
 
 taskforge:
-  apiBaseUrl: ""
+  apiBaseUrl: "https://taskforge.by"
   pluginKey: ""
   timeoutSeconds: 5
 
@@ -43,3 +43,13 @@ chat:
   includeRootAdvancements: false
   sitePrefix: "§d[TaskForge]§r "
   minecraftPrefix: "[MC] "
+
+debug:
+  enabled: true
+  http: true
+  httpBodies: true
+  deathRecovery: true
+  scheduler: true
+  journal: true
+  heartbeat: true
+  connectivityProbeSeconds: 30

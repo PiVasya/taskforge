@@ -607,7 +607,7 @@ public final class MobEffectsListener implements Listener {
 
     private void debug(String text) {
         if (plugin.getConfig().getBoolean("messages.debug", false)) {
-            plugin.getLogger().info(text);
+            plugin.getLogger().info("[CustomMobTweaks][DEBUG] " + text);
         }
     }
 }

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -25,10 +26,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 
@@ -99,6 +102,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final NamespacedKey itemIndexKey;
     private final NamespacedKey chestStateKey;
     private final AtomicBoolean stopped = new AtomicBoolean(false);
+    private final AtomicLong backendRequestSequence = new AtomicLong();
 
     private final int offerSeconds;
     private final int spectatorSeconds;
@@ -136,12 +140,19 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         this.deathIdKey = new NamespacedKey(plugin, "death_id");
         this.itemIndexKey = new NamespacedKey(plugin, "death_item_index");
         this.chestStateKey = new NamespacedKey(plugin, "death_chest_state");
+        plugin.debugDeath("manager constructed apiBaseUrl=" + (apiBaseUrl.isBlank() ? "<missing>" : apiBaseUrl)
+            + " serverTokenPresent=" + !serverToken.isBlank() + " tokenLen=" + serverToken.length()
+            + " offerSeconds=" + offerSeconds + " spectatorSeconds=" + spectatorSeconds
+            + " maxDistance=" + maxDistance + " chestSearchRadius=" + chestSearchRadius
+            + " emergencyChestSearchRadius=" + emergencyChestSearchRadius
+            + " safeSearchRadius=" + safeSearchRadius + " backendTimeoutMs=" + backendTimeout.toMillis());
     }
 
     public void enable() {
         try {
             Files.createDirectories(journalDir);
             loadJournal();
+            plugin.debugJournal("journal initialized dir=" + journalDir + " records=" + deaths.size());
         } catch (IOException ex) {
             plugin.getLogger().log(Level.SEVERE, "Cannot initialize death recovery journal", ex);
         }
@@ -152,6 +163,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             plugin.getLogger().severe("Command tfdeath is missing from plugin.yml; death offer buttons cannot work");
         }
         Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> heartbeat(), 20L, 20L);
+        plugin.debugDeath("listeners registered; heartbeat scheduled every 20 ticks; loadedRecords=" + deaths.size());
         // Reconcile journal records with the backend without delaying plugin enable.
         for (DeathRecord record : deaths.values()) {
             syncCreate(record);
@@ -160,13 +172,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         // A hot plugin reload does not emit PlayerJoinEvent for players that are already online.
         // Resume offers, paid rescues and pending notifications explicitly in that case.
         for (Player player : plugin.onlinePlayersSnapshot()) {
-            pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+            Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
+            onPlayer(player, () -> {
                 restoreInterruptedSpectator(player);
                 showPendingOffers(player);
                 notifyUnseenChests(player);
                 resumeUnresolved(player);
                 resumePaidRescues(player);
-            }, 20L));
+            }, 20L);
+            pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+                showPendingOffersExcluding(player, knownBeforePull);
+                notifyUnseenChests(player);
+                resumeUnresolved(player);
+                resumePaidRescues(player);
+            }, 1L));
         }
     }
 
@@ -191,16 +210,27 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDeath(PlayerDeathEvent event) {
-        if (!plugin.getConfig().getBoolean("deathRecovery.enabled", true)) return;
+        if (!plugin.getConfig().getBoolean("deathRecovery.enabled", true)) {
+            plugin.debugDeath("death ignored because feature is disabled");
+            return;
+        }
         Player player = event.getEntity();
+        plugin.debugDeath("PlayerDeathEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
+            + " keepInventory=" + event.getKeepInventory() + " rawDrops=" + event.getDrops().size());
         // Another plugin/game rule owns the inventory lifecycle in this case. Capturing the same
         // stacks here would create a second copy in a later death chest.
-        if (event.getKeepInventory()) return;
+        if (event.getKeepInventory()) {
+            plugin.debugDeath("death capture skipped because keepInventory=true player=" + player.getUniqueId());
+            return;
+        }
         List<ItemStack> drops = new ArrayList<>();
         for (ItemStack item : event.getDrops()) {
             if (item != null && !item.getType().isAir() && item.getAmount() > 0) drops.add(item.clone());
         }
-        if (drops.isEmpty()) return;
+        if (drops.isEmpty()) {
+            plugin.debugDeath("death capture skipped because final drop list is empty player=" + player.getUniqueId());
+            return;
+        }
         // Serialize before clearing so an unexpected serialization failure leaves vanilla drops intact.
         final String serializedDrops;
         try { serializedDrops = serializeItems(drops); }
@@ -235,6 +265,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         deaths.put(record.deathId, record);
         event.getDrops().clear();
+        plugin.debugDeath("captured deathId=" + record.deathId + " requestId=" + record.requestId
+            + " player=" + record.playerName + "/" + record.playerId + " items=" + drops.size()
+            + " worldUuid=" + record.worldUuid + " worldKey=" + record.worldKey + " worldName=" + record.worldName
+            + " xyz=" + record.x + "," + record.y + "," + record.z + " offerExpiresAt=" + record.offerExpiresAt);
         syncCreate(record).thenAccept(result -> {
             if (result == BackendResult.UNAVAILABLE) {
                 fallbackUnclaimedOffer(record, "Сервис рейтинга временно недоступен.");
@@ -249,24 +283,55 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
-        pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
-            restoreInterruptedSpectator(player);
-            showPendingOffers(player);
-            notifyUnseenChests(player);
-            resumeUnresolved(player);
-        }, 2L));
-    }
+        Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
+        plugin.debugDeath("PlayerRespawnEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
+            + " localRecords=" + knownBeforePull.size());
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
+        // Local delivery must never wait for the backend. A chest is commonly created while the
+        // player is still dead, so the first safe delivery point is the player scheduler after respawn.
+        onPlayer(player, () -> {
             restoreInterruptedSpectator(player);
             showPendingOffers(player);
             notifyUnseenChests(player);
             resumeUnresolved(player);
             resumePaidRescues(player);
-        }, 20L));
+        }, 2L);
+
+        pullPending(player).whenComplete((ignored, error) -> {
+            if (error != null) plugin.debugDeath("pending pull after respawn failed player=" + player.getUniqueId() + " error=" + error);
+            onPlayer(player, () -> {
+                showPendingOffersExcluding(player, knownBeforePull);
+                notifyUnseenChests(player);
+                resumeUnresolved(player);
+                resumePaidRescues(player);
+            }, 1L);
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
+        plugin.debugDeath("PlayerJoinEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
+            + " localRecords=" + knownBeforePull.size());
+
+        onPlayer(player, () -> {
+            restoreInterruptedSpectator(player);
+            showPendingOffers(player);
+            notifyUnseenChests(player);
+            resumeUnresolved(player);
+            resumePaidRescues(player);
+        }, 20L);
+
+        pullPending(player).whenComplete((ignored, error) -> {
+            if (error != null) plugin.debugDeath("pending pull after join failed player=" + player.getUniqueId() + " error=" + error);
+            onPlayer(player, () -> {
+                showPendingOffersExcluding(player, knownBeforePull);
+                notifyUnseenChests(player);
+                resumeUnresolved(player);
+                resumePaidRescues(player);
+            }, 1L);
+        });
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -511,7 +576,30 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private void heartbeat() {
         if (stopped.get()) return;
         Instant now = Instant.now();
+        int notificationOwed = 0;
+        int unresolved = 0;
+        int compensationPending = 0;
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
+            if (!record.userNotified && (record.chestCreated || ACTION_COORDINATES.equals(record.action))) {
+                notificationOwed++;
+                Player notificationPlayer = plugin.findOnlinePlayer(record.playerId);
+                if (notificationPlayer != null && notificationPlayer.isOnline() && !notificationPlayer.isDead()) {
+                    if (record.chestCreated) {
+                        Optional<World> notificationWorld = resolveWorld(record);
+                        if (notificationWorld.isPresent()) {
+                            Location chestAt = new Location(notificationWorld.get(), record.chestX, record.chestY, record.chestZ);
+                            boolean free = record.backendUnavailable || record.compensated;
+                            notifyChest(record, chestAt, free, free
+                                ? "Сервис рейтинга был недоступен — вещи бесплатно сохранены в сундуке."
+                                : "Сундук смерти создан.");
+                        }
+                    } else if (ACTION_COORDINATES.equals(record.action) && record.itemsResolved) {
+                        notifyDeathCoordinates(record);
+                    }
+                }
+            }
+            if (!record.isTerminal()) unresolved++;
+            if (record.compensationPending) compensationPending++;
             if ((record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)
                 && now.isAfter(record.offerExpiresAt)) expire(record);
             if (record.compensationPending && record.chargedAmount > 0 && claimCompensationRetry(record)) {
@@ -538,6 +626,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             }
         }
         for (RescueSession session : new ArrayList<>(rescues.values())) tickRescue(session, now);
+        if (plugin.debugHeartbeat() && (!deaths.isEmpty() || plugin.onlinePlayersSnapshot().size() > 0)) {
+            plugin.debug("heartbeat", "records=" + deaths.size() + " unresolved=" + unresolved
+                + " notificationOwed=" + notificationOwed + " compensationPending=" + compensationPending
+                + " activeRescues=" + rescues.size() + " onlinePlayers=" + plugin.onlinePlayersSnapshot().size());
+        }
     }
 
     private void expire(DeathRecord record) {
@@ -554,9 +647,22 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         });
     }
 
+    private Set<UUID> deathIdsFor(UUID playerId) {
+        Set<UUID> ids = new HashSet<>();
+        for (DeathRecord record : deaths.values()) {
+            if (record.playerId.equals(playerId)) ids.add(record.deathId);
+        }
+        return ids;
+    }
+
     private void showPendingOffers(Player player) {
+        showPendingOffersExcluding(player, Set.of());
+    }
+
+    private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds) {
         deaths.values().stream()
             .filter(r -> r.playerId.equals(player.getUniqueId()))
+            .filter(r -> !excludedDeathIds.contains(r.deathId))
             .filter(r -> r.stage == Stage.WAITING_RESPAWN || r.stage == Stage.OFFER)
             .sorted(Comparator.comparing(r -> r.createdAt))
             .forEach(r -> {
@@ -575,6 +681,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     .append(button("[Обычный дроп]", r, ACTION_DROP, NamedTextColor.WHITE));
                 player.sendMessage(line);
                 player.sendMessage(Component.text("Выбор доступен ещё " + left + " сек.", NamedTextColor.GRAY));
+                plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getUniqueId()
+                    + " secondsLeft=" + left + " stage=" + r.stage);
             });
     }
 
@@ -1031,8 +1139,16 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private boolean beginChestSearch(DeathRecord record) {
         synchronized (record) {
-            if (record.chestSearchInFlight || record.itemsResolved || record.isTerminal()) return false;
+            if (record.chestSearchInFlight || record.itemsResolved || record.isTerminal()) {
+                plugin.debugDeath("chest search skipped deathId=" + record.deathId
+                    + " inFlight=" + record.chestSearchInFlight + " itemsResolved=" + record.itemsResolved
+                    + " terminal=" + record.isTerminal() + " stage=" + record.stage);
+                return false;
+            }
             record.chestSearchInFlight = true;
+            plugin.debugDeath("chest search started deathId=" + record.deathId + " world=" + record.worldKey
+                + " origin=" + record.x + "," + record.y + "," + record.z
+                + " radius=" + chestSearchRadius + " emergencyRadius=" + emergencyChestSearchRadius);
             return true;
         }
     }
@@ -1041,6 +1157,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         synchronized (record) {
             record.chestSearchInFlight = false;
         }
+        plugin.debugDeath("chest search ended deathId=" + record.deathId + " stage=" + record.stage
+            + " chestCreated=" + record.chestCreated + " reserved=" + record.chestSpotReserved);
     }
 
     private void findAnyChestSpot(DeathRecord record, Consumer<Optional<ChestSpot>> callback) {
@@ -1312,6 +1430,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         record.chestSecondY = spot.second.getBlockY();
         record.chestSecondZ = spot.second.getBlockZ();
         record.chestSpotReserved = true;
+        plugin.debugDeath("chest spot reserved deathId=" + record.deathId + " first=" + record.chestX + ","
+            + record.chestY + "," + record.chestZ + " second=" + record.chestSecondX + ","
+            + record.chestSecondY + "," + record.chestSecondZ);
         saveQuietly(record);
     }
 
@@ -1430,6 +1551,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void placeChest(DeathRecord record, ChestSpot spot, Consumer<Boolean> callback) {
         World world = spot.first.getWorld();
+        plugin.debugDeath("queue chest placement deathId=" + record.deathId + " world=" + world.getKey()
+            + " first=" + spot.first.getBlockX() + "," + spot.first.getBlockY() + "," + spot.first.getBlockZ()
+            + " second=" + spot.second.getBlockX() + "," + spot.second.getBlockY() + "," + spot.second.getBlockZ());
         Bukkit.getRegionScheduler().execute(plugin, world, spot.first.getBlockX() >> 4, spot.first.getBlockZ() >> 4, () -> {
             Block a = spot.first.getBlock();
             Block b = spot.second.getBlock();
@@ -1443,11 +1567,14 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     record.chestCreated = true;
                     record.itemsResolved = true;
                     saveQuietly(record);
+                    plugin.debugDeath("existing complete chest reused deathId=" + record.deathId);
                     callback.accept(true);
                     return;
                 }
 
                 if ((!ownedA && !replaceable(a)) || (!ownedB && !replaceable(b))) {
+                    plugin.debugDeath("chest placement blocked deathId=" + record.deathId
+                        + " firstType=" + a.getType() + " secondType=" + b.getType());
                     callback.accept(false);
                     return;
                 }
@@ -1471,6 +1598,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 record.chestSpotReserved = true;
                 record.chestCreated = true;
                 record.itemsResolved = true;
+                plugin.debugDeath("chest placement completed deathId=" + record.deathId + " itemStacks=" + items.size()
+                    + " first=" + a.getX() + "," + a.getY() + "," + a.getZ());
                 saveQuietly(record);
                 callback.accept(true);
             } catch (Exception ex) {
@@ -1506,6 +1635,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void createGuaranteedChest(DeathRecord record, String reason, boolean backendOutage) {
+        plugin.debugDeath("guaranteed chest requested deathId=" + record.deathId + " backendOutage=" + backendOutage
+            + " reason=" + reason + " stage=" + record.stage + " itemsResolved=" + record.itemsResolved);
         synchronized (record) {
             if (record.itemsResolved || record.isTerminal()) return;
             record.stage = Stage.RESOLVING;
@@ -1521,6 +1652,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         findAnyChestSpot(record, spot -> {
             if (spot.isEmpty()) {
+                plugin.debugDeath("no chest spot found deathId=" + record.deathId + " world=" + record.worldKey);
                 endChestSearch(record);
                 scheduleGuaranteedChestRetry(record, reason + " Подходящее место пока не найдено.");
                 return;
@@ -1529,6 +1661,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             placeChest(record, spot.get(), placed -> {
                 endChestSearch(record);
                 if (placed) {
+                    plugin.debugDeath("guaranteed chest resolved deathId=" + record.deathId + " backendOutage=" + backendOutage);
                     notifyChest(record, spot.get().first, backendOutage, reason);
                     finish(record, Stage.FREE_CHEST_CREATED);
                 } else {
@@ -1551,6 +1684,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             record.retryAfter = Instant.now().plusSeconds(15);
             saveQuietly(record);
         }
+        plugin.debugDeath("guaranteed chest retry scheduled deathId=" + record.deathId
+            + " retryAfter=" + record.retryAfter + " notifyPlayer=" + notify + " message=" + message);
         if (notify) {
             Player player = plugin.findOnlinePlayer(record.playerId);
             if (player != null && player.isOnline()) {
@@ -1573,16 +1708,33 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void notifyDeathCoordinates(DeathRecord record) {
         Player player = plugin.findOnlinePlayer(record.playerId);
-        if (player == null || !player.isOnline() || player.isDead()) return;
+        synchronized (record) {
+            if (record.userNotified || record.notificationDispatchPending) return;
+            if (player == null || !player.isOnline() || player.isDead()) {
+                plugin.debugDeath("coordinates notification deferred deathId=" + record.deathId
+                    + " playerPresent=" + (player != null) + " online=" + (player != null && player.isOnline())
+                    + " dead=" + (player != null && player.isDead()));
+                return;
+            }
+            record.notificationDispatchPending = true;
+        }
         onPlayer(player, () -> {
-            if (!player.isOnline() || player.isDead()) return;
+            synchronized (record) { record.notificationDispatchPending = false; }
+            if (!player.isOnline() || player.isDead()) {
+                plugin.debugDeath("coordinates notification scheduler ran but player unavailable deathId=" + record.deathId);
+                return;
+            }
             int x = (int) Math.floor(record.x);
             int y = (int) Math.floor(record.y);
             int z = (int) Math.floor(record.z);
             player.sendMessage(Component.text("Координаты смерти: " + record.worldKey + " / " + record.worldName
                 + " — " + x + " " + y + " " + z, NamedTextColor.LIGHT_PURPLE));
             record.userNotified = true;
+            plugin.debugDeath("coordinates notification delivered deathId=" + record.deathId + " player=" + record.playerId);
             finish(record, Stage.COORDINATES_SENT);
+        }, () -> {
+            synchronized (record) { record.notificationDispatchPending = false; }
+            plugin.debugDeath("coordinates notification scheduler retired deathId=" + record.deathId);
         }, 1L);
     }
 
@@ -1592,9 +1744,23 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void notifyChest(DeathRecord record, Location at, boolean free, String reason) {
         Player player = plugin.findOnlinePlayer(record.playerId);
-        if (player == null || !player.isOnline() || player.isDead()) return;
+        synchronized (record) {
+            if (record.userNotified || record.notificationDispatchPending) return;
+            if (player == null || !player.isOnline() || player.isDead()) {
+                plugin.debugDeath("chest notification deferred deathId=" + record.deathId
+                    + " playerPresent=" + (player != null) + " online=" + (player != null && player.isOnline())
+                    + " dead=" + (player != null && player.isDead()) + " chest=" + record.worldKey + " "
+                    + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ());
+                return;
+            }
+            record.notificationDispatchPending = true;
+        }
         onPlayer(player, () -> {
-            if (!player.isOnline() || player.isDead()) return;
+            synchronized (record) { record.notificationDispatchPending = false; }
+            if (!player.isOnline() || player.isDead()) {
+                plugin.debugDeath("chest notification scheduler ran but player unavailable deathId=" + record.deathId);
+                return;
+            }
             if (free) {
                 player.showTitle(Title.title(Component.text("Сервис рейтинга недоступен", NamedTextColor.YELLOW),
                     Component.text("Вещи бесплатно сохранены в сундуке", NamedTextColor.GREEN)));
@@ -1603,7 +1769,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             player.sendMessage(Component.text("Сундук: " + record.worldKey + " / " + record.worldName + " "
                 + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ(), NamedTextColor.AQUA));
             record.userNotified = true;
+            plugin.debugDeath("chest notification delivered deathId=" + record.deathId + " player=" + record.playerId
+                + " free=" + free + " chest=" + record.worldKey + " " + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ());
             saveQuietly(record);
+        }, () -> {
+            synchronized (record) { record.notificationDispatchPending = false; }
+            plugin.debugDeath("chest notification scheduler retired deathId=" + record.deathId);
         }, 1L);
     }
 
@@ -1828,15 +1999,38 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private CompletableFuture<HttpResponse<String>> request(String method, String path, String body) {
-        if (apiBaseUrl.isBlank()) return CompletableFuture.failedFuture(new IOException("Minecraft API URL is not configured"));
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(trimSlash(apiBaseUrl) + path))
-            .timeout(backendTimeout).header("Accept", "application/json");
-        if (!serverToken.isBlank()) {
-            builder.header("X-Minecraft-Key", serverToken);
+        if (apiBaseUrl.isBlank()) {
+            plugin.debugDeath("backend request blocked because apiBaseUrl is empty method=" + method + " path=" + path);
+            return CompletableFuture.failedFuture(new IOException("Minecraft API URL is not configured"));
         }
+        long requestNumber = backendRequestSequence.incrementAndGet();
+        URI uri = URI.create(trimSlash(apiBaseUrl) + path);
+        String requestId = UUID.randomUUID().toString();
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+            .timeout(backendTimeout)
+            .header("Accept", "application/json")
+            .header("User-Agent", "TaskForgeLink/" + plugin.getDescription().getVersion())
+            .header("X-Request-Id", requestId);
+        if (!serverToken.isBlank()) builder.header("X-Minecraft-Key", serverToken);
         if (body == null) builder.method(method, HttpRequest.BodyPublishers.noBody());
         else builder.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(body));
-        return http.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpRequest request = builder.build();
+        plugin.debugDeath("backend-http #" + requestNumber + " -> " + method + " " + uri
+            + " requestId=" + requestId + " tokenPresent=" + !serverToken.isBlank()
+            + " tokenLen=" + serverToken.length() + " bodyLen=" + (body == null ? 0 : body.length()));
+        return http.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .whenComplete((response, error) -> {
+                if (error != null) {
+                    plugin.getLogger().log(Level.WARNING, "[DEBUG][death-http] #" + requestNumber + " !! "
+                        + method + " " + uri + " requestId=" + requestId + " "
+                        + error.getClass().getName() + ": " + error.getMessage(), error);
+                    return;
+                }
+                String responseBody = response == null || response.body() == null ? "" : response.body().replace('\n', ' ').replace('\r', ' ');
+                if (responseBody.length() > 1000) responseBody = responseBody.substring(0, 1000) + "...<truncated>";
+                plugin.debugDeath("backend-http #" + requestNumber + " <- requestId=" + requestId + " status="
+                    + (response == null ? "null" : response.statusCode()) + " body=" + (responseBody.isEmpty() ? "<empty>" : responseBody));
+            });
     }
 
     private void finish(DeathRecord record, Stage stage) {
@@ -1847,7 +2041,22 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void onPlayer(Player player, Runnable action, long delay) {
-        player.getScheduler().execute(plugin, action, () -> { }, delay);
+        onPlayer(player, action, () -> plugin.debugScheduler("entity scheduler retired player="
+            + player.getUniqueId() + " delayTicks=" + delay), delay);
+    }
+
+    private void onPlayer(Player player, Runnable action, Runnable retired, long delay) {
+        plugin.debugScheduler("queue entity task player=" + player.getName() + "/" + player.getUniqueId()
+            + " dead=" + player.isDead() + " online=" + player.isOnline() + " delayTicks=" + delay);
+        player.getScheduler().execute(plugin, () -> {
+            plugin.debugScheduler("run entity task player=" + player.getName() + "/" + player.getUniqueId()
+                + " dead=" + player.isDead() + " online=" + player.isOnline());
+            try {
+                action.run();
+            } catch (Throwable error) {
+                plugin.getLogger().log(Level.SEVERE, "Entity-scheduled death recovery action failed for " + player.getUniqueId(), error);
+            }
+        }, retired, delay);
     }
 
     private int positiveInt(String path, int fallback) {
@@ -1892,8 +2101,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     boolean notificationOwed = !r.userNotified
                         && (r.chestCreated || ACTION_COORDINATES.equals(r.action));
                     boolean canPrune = oldTerminal && !notificationOwed;
-                    if (canPrune) Files.deleteIfExists(path);
-                    else deaths.put(r.deathId, r);
+                    if (canPrune) {
+                        Files.deleteIfExists(path);
+                        plugin.debugJournal("pruned old terminal record path=" + path + " deathId=" + r.deathId);
+                    } else {
+                        deaths.put(r.deathId, r);
+                        plugin.debugJournal("loaded deathId=" + r.deathId + " player=" + r.playerId
+                            + " stage=" + r.stage + " chestCreated=" + r.chestCreated
+                            + " userNotified=" + r.userNotified + " revision=" + r.revision);
+                    }
                 } catch (Exception ex) { plugin.getLogger().log(Level.SEVERE, "Cannot load " + path, ex); }
             });
         }
@@ -1915,6 +2131,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 } catch (IOException notAtomic) {
                     Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
                 }
+                plugin.debugJournal("persisted deathId=" + record.deathId + " stage=" + record.stage
+                    + " revision=" + record.revision + " itemsResolved=" + record.itemsResolved
+                    + " chestCreated=" + record.chestCreated + " userNotified=" + record.userNotified
+                    + " path=" + target);
                 return true;
             } catch (IOException ex) {
                 plugin.getLogger().log(Level.SEVERE, "Cannot persist death " + record.deathId, ex);
@@ -2018,6 +2238,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         transient volatile boolean chestSearchInFlight;
         Stage stage; boolean paymentConfirmed, dropsReleased, chestSpotReserved, chestCreated, itemsResolved, rescuePending, rescueCompleted;
         boolean backendUnavailable, compensationPending, compensated, userNotified;
+        volatile boolean notificationDispatchPending;
         long revision;
         boolean isTerminal() { return stage == Stage.DROPS_RELEASED || stage == Stage.CHEST_CREATED || stage == Stage.FREE_CHEST_CREATED || stage == Stage.COORDINATES_SENT || stage == Stage.RESCUE_COMPLETED || stage == Stage.CHEST_AND_RESCUE_COMPLETED; }
         Properties toProperties() {
