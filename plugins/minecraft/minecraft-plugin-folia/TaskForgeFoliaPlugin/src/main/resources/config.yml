@@ -24,6 +24,9 @@ deathRecovery:
   chestCost: 50
   teleportCost: 100
   backendTimeoutMillis: 5000
+  # Link status is refreshed while players are online. Only confirmed LINKED players have drops intercepted.
+  # UNLINKED or UNKNOWN players always keep completely vanilla death behavior.
+  linkStatusRefreshSeconds: 15
   # Optional overrides. Empty values reuse taskforge.apiBaseUrl and taskforge.pluginKey.
   apiBaseUrl: ""
   serverToken: ""

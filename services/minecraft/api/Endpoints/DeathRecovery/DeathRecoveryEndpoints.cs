@@ -29,15 +29,21 @@ internal static partial class MinecraftApiEndpoints
             IConfiguration cfg,
             MinecraftDbContext db,
             IHttpClientFactory httpFactory,
+            ILogger<Program> logger,
             CancellationToken ct) =>
         {
             if (!IsPluginAuthorized(http, cfg))
+            {
+                logger.LogWarning("Death recovery health unauthorized: playerUuid={PlayerUuid} remote={Remote}", playerUuid, http.Connection.RemoteIpAddress);
                 return Microsoft.AspNetCore.Http.Results.Unauthorized();
+            }
 
+            logger.LogInformation("Death recovery health start: playerUuid={PlayerUuid} remote={Remote}", playerUuid, http.Connection.RemoteIpAddress);
             try
             {
                 if (!await db.Database.CanConnectAsync(ct))
                 {
+                    logger.LogWarning("Death recovery health failed: minecraft database unavailable playerUuid={PlayerUuid}", playerUuid);
                     return Microsoft.AspNetCore.Http.Results.Json(
                         new { available = false, reason = "minecraft-database-unavailable" },
                         statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -45,6 +51,7 @@ internal static partial class MinecraftApiEndpoints
 
                 if (!await AreRatingBackendsHealthyAsync(cfg, httpFactory, ct))
                 {
+                    logger.LogWarning("Death recovery health failed: rating backends unavailable playerUuid={PlayerUuid}", playerUuid);
                     return Microsoft.AspNetCore.Http.Results.Json(
                         new { available = false, reason = "rating-backend-unavailable" },
                         statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -74,20 +81,24 @@ internal static partial class MinecraftApiEndpoints
                     }
                 }
 
+                var linked = userId is Guid id && id != Guid.Empty;
+                logger.LogInformation("Death recovery health success: playerUuid={PlayerUuid} linked={Linked} userId={UserId}", playerUuid, linked, userId);
                 return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
                     available = true,
-                    linked = userId is Guid id && id != Guid.Empty
+                    linked
                 });
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
+                logger.LogWarning("Death recovery health timed out: playerUuid={PlayerUuid}", playerUuid);
                 return Microsoft.AspNetCore.Http.Results.Json(
                     new { available = false, reason = "backend-timeout" },
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogError(ex, "Death recovery health failed unexpectedly: playerUuid={PlayerUuid}", playerUuid);
                 return Microsoft.AspNetCore.Http.Results.Json(
                     new { available = false, reason = "minecraft-backend-unavailable" },
                     statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -100,10 +111,27 @@ internal static partial class MinecraftApiEndpoints
             HttpContext http,
             IConfiguration cfg,
             MinecraftDbContext db,
+            ILogger<Program> logger,
             CancellationToken ct) =>
         {
             if (!IsPluginAuthorized(http, cfg))
+            {
+                logger.LogWarning("Death recovery state unauthorized: deathId={DeathId} playerUuid={PlayerUuid} remote={Remote}", deathId, request.PlayerUuid, http.Connection.RemoteIpAddress);
                 return Microsoft.AspNetCore.Http.Results.Unauthorized();
+            }
+            logger.LogInformation(
+                "Death recovery state start: deathId={DeathId} playerUuid={PlayerUuid} player={PlayerName} stage={Stage} action={Action} revision={Revision} itemsLength={ItemsLength} itemsResolved={ItemsResolved} dropsReleased={DropsReleased} chestCreated={ChestCreated} backendUnavailable={BackendUnavailable}",
+                deathId,
+                request.PlayerUuid,
+                request.PlayerName,
+                request.Stage,
+                request.Action,
+                request.Revision,
+                request.ItemsPayload?.Length ?? 0,
+                request.ItemsResolved,
+                request.DropsReleased,
+                request.ChestCreated,
+                request.BackendUnavailable);
             if (request.DeathId != deathId || request.PlayerUuid == Guid.Empty || request.WorldUuid == Guid.Empty)
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "invalid death recovery identity" });
             if (string.IsNullOrWhiteSpace(request.PlayerName)
@@ -112,26 +140,62 @@ internal static partial class MinecraftApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "missing world or player data" });
 
             var entity = await db.DeathRecoveries.FirstOrDefaultAsync(x => x.DeathId == deathId, ct);
+            var linkedUserId = entity?.UserId ?? await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, ct);
+            logger.LogInformation(
+                "Death recovery link resolution: deathId={DeathId} entityExists={EntityExists} existingUserId={ExistingUserId} resolvedUserId={ResolvedUserId}",
+                deathId,
+                entity is not null,
+                entity?.UserId,
+                linkedUserId);
+
+            if (entity is null && linkedUserId is null)
+            {
+                logger.LogWarning("Death recovery state rejected because player is not linked: deathId={DeathId} playerUuid={PlayerUuid} player={PlayerName}", deathId, request.PlayerUuid, request.PlayerName);
+                return Microsoft.AspNetCore.Http.Results.Conflict(new
+                {
+                    success = false,
+                    linked = false,
+                    reason = "not-linked"
+                });
+            }
+
             if (entity is null)
             {
                 entity = new MinecraftDeathRecovery
                 {
                     DeathId = deathId,
+                    UserId = linkedUserId,
                     CreatedAtUtc = request.CreatedAtUtc ?? DateTimeOffset.UtcNow,
                     OfferExpiresAtUtc = request.OfferExpiresAtUtc ?? DateTimeOffset.UtcNow,
                     UpdatedAtUtc = DateTimeOffset.UtcNow
                 };
                 db.DeathRecoveries.Add(entity);
+                logger.LogInformation("Death recovery row created in change tracker: deathId={DeathId} userId={UserId}", deathId, linkedUserId);
             }
             else
             {
                 if (entity.PlayerUuid != Guid.Empty && entity.PlayerUuid != request.PlayerUuid)
+                {
+                    logger.LogWarning("Death recovery player mismatch: deathId={DeathId} existing={ExistingPlayerUuid} incoming={IncomingPlayerUuid}", deathId, entity.PlayerUuid, request.PlayerUuid);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "death recovery player mismatch" });
+                }
                 if (request.Revision < entity.Revision)
+                {
+                    logger.LogInformation("Death recovery stale revision ignored: deathId={DeathId} incoming={IncomingRevision} stored={StoredRevision}", deathId, request.Revision, entity.Revision);
                     return Microsoft.AspNetCore.Http.Results.Ok(ToDeathRecoveryDto(entity));
+                }
+                if (entity.UserId is null && linkedUserId is null && !request.ItemsResolved)
+                {
+                    logger.LogWarning("Legacy unlinked death recovery row rejected: deathId={DeathId} playerUuid={PlayerUuid}", deathId, request.PlayerUuid);
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new
+                    {
+                        success = false,
+                        linked = false,
+                        reason = "not-linked"
+                    });
+                }
             }
 
-            var linkedUserId = await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, ct);
             entity.UserId ??= linkedUserId;
             entity.PlayerUuid = request.PlayerUuid;
             entity.PlayerName = Limit(request.PlayerName, 32);
@@ -199,6 +263,17 @@ internal static partial class MinecraftApiEndpoints
             entity.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
             await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Death recovery state saved: deathId={DeathId} userId={UserId} stage={Stage} action={Action} revision={Revision} itemsResolved={ItemsResolved} dropsReleased={DropsReleased} chestCreated={ChestCreated} paymentStatus={PaymentStatus}",
+                entity.DeathId,
+                entity.UserId,
+                entity.Stage,
+                entity.Action,
+                entity.Revision,
+                entity.ItemsResolved,
+                entity.DropsReleased,
+                entity.ChestCreated,
+                entity.PaymentStatus);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDeathRecoveryDto(entity));
         });
 

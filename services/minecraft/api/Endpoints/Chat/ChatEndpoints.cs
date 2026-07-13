@@ -12,10 +12,11 @@ internal static partial class MinecraftApiEndpoints
 {
     private static WebApplication MapChatEndpoints(WebApplication app)
     {
-        app.MapGet("/api/integrations/minecraft/chat/meta", async (HttpContext http, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        app.MapGet("/api/integrations/minecraft/chat/meta", async (HttpContext http, IConfiguration cfg, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
         {
             if (!HasMinecraftAccess(http)) return Forbidden();
-            var online = await GetOnlinePlayersAsync(cfg, httpFactory, ct);
+            var online = await GetOnlinePlayersAsync(cfg, httpFactory, logger, ct);
+            logger.LogInformation("Minecraft chat meta requested: onlinePlayers={OnlinePlayers} available={Available}", online, online.HasValue);
             return Microsoft.AspNetCore.Http.Results.Ok(new { onlinePlayers = online, available = online.HasValue });
         });
 
@@ -56,19 +57,23 @@ internal static partial class MinecraftApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToMinecraftChatDto(msg));
         });
 
-        app.MapPost("/api/integrations/minecraft/chat/bridge/incoming", async (IncomingMinecraftChatRequest req, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHubContext<MinecraftChatHub> hub, CancellationToken ct) =>
+        app.MapPost("/api/integrations/minecraft/chat/bridge/incoming", async (IncomingMinecraftChatRequest req, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHubContext<MinecraftChatHub> hub, ILogger<Program> logger, CancellationToken ct) =>
         {
             if (!IsPluginAuthorized(http, cfg)) return Microsoft.AspNetCore.Http.Results.Unauthorized();
             var nick = NormalizeNick(req.Nick);
             var text = NormalizeMessage(req.Message);
             var source = NormalizeSource(req.Kind);
-            if (string.IsNullOrWhiteSpace(nick) || string.IsNullOrWhiteSpace(text) || IsSuppressedMinecraftMessage(source, text)) return Microsoft.AspNetCore.Http.Results.Ok(new { ignored = true });
-
             var uuid = (req.Uuid ?? string.Empty).Trim();
-            var linkedUserId = await db.Links.AsNoTracking()
-                .Where(x => x.Confirmed && x.UnlinkedAtUtc == null && ((uuid.Length > 0 && x.PlayerUuid == uuid) || (x.PlayerName != null && x.PlayerName.ToLower() == nick.ToLower())))
-                .Select(x => x.UserId)
-                .FirstOrDefaultAsync(ct);
+            logger.LogInformation("Minecraft chat incoming: nick={Nick} uuid={Uuid} source={Source} messageLength={Length}", nick, uuid, source, text.Length);
+            if (string.IsNullOrWhiteSpace(nick) || string.IsNullOrWhiteSpace(text) || IsSuppressedMinecraftMessage(source, text))
+            {
+                logger.LogInformation("Minecraft chat incoming ignored: nickValid={NickValid} textValid={TextValid} suppressed={Suppressed}", !string.IsNullOrWhiteSpace(nick), !string.IsNullOrWhiteSpace(text), IsSuppressedMinecraftMessage(source, text));
+                return Microsoft.AspNetCore.Http.Results.Ok(new { ignored = true });
+            }
+
+            var activeLink = await FindActiveLinkAsync(db, nick, uuid, ct);
+            var linkedUserId = activeLink?.UserId;
+            logger.LogInformation("Minecraft chat link resolution: nick={Nick} uuid={Uuid} linked={Linked} userId={UserId}", nick, uuid, linkedUserId.HasValue, linkedUserId);
             var msg = new MinecraftChatMessage
             {
                 Id = Guid.NewGuid(),
@@ -83,6 +88,7 @@ internal static partial class MinecraftApiEndpoints
             db.ChatMessages.Add(msg);
             await db.SaveChangesAsync(ct);
             await BroadcastAsync(hub, msg, ct);
+            logger.LogInformation("Minecraft chat persisted and broadcast: messageId={MessageId} source={Source} linkedUserId={UserId}", msg.Id, msg.Source, msg.UserId);
             return Microsoft.AspNetCore.Http.Results.Ok(ToMinecraftChatDto(msg));
         });
 

@@ -43,3 +43,12 @@ Type-specific fields:
 - Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
 - Не отключать и не уменьшать эти логи, пока пользователь явно не попросит изменить политику логирования.
 - В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.
+
+## Minecraft death-recovery safety policy
+
+- Never clear `PlayerDeathEvent#getDrops()` unless the current online-session cache has an authoritative `LINKED` result for that exact UUID.
+- `UNLINKED` and `UNKNOWN` players must keep fully vanilla death behavior: do not serialize items, do not create a death-recovery journal row, do not create a backend row, do not alter experience, and do not delay drops.
+- After an unlinked death, show a concise message after respawn explaining that linking `taskforge.by` enables coordinates, death chests, and return-to-death actions.
+- If link status cannot be verified, prefer vanilla drops over interception. A previously confirmed linked state may be preserved during a transient refresh failure for the current online session.
+- The backend must reject creation of a new death-recovery row for an unlinked player and must return an explicit `not-linked` reason.
+- Keep verbose diagnostics for link-cache transitions, death gating, vanilla-drop preservation, backend rejection, scheduler delivery, and recovery state transitions until the user explicitly changes the logging policy.

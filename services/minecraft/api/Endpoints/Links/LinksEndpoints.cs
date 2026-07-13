@@ -148,9 +148,11 @@ internal static partial class MinecraftApiEndpoints
             var nick = NormalizeNick(request.Nick);
             if (!IsValidNick(nick)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "bad nick" });
             var uuid = (request.Uuid ?? string.Empty).Trim();
+            logger.LogInformation("Minecraft join status request: nick={Nick} uuid={Uuid} remote={Remote}", nick, uuid, http.Connection.RemoteIpAddress);
             var active = await FindActiveLinkAsync(db, nick, uuid, ct);
             if (active == null || active.UserId == null)
             {
+                logger.LogInformation("Minecraft join resolved as unlinked: nick={Nick} uuid={Uuid}", nick, uuid);
                 return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
                     linked = false,
@@ -182,21 +184,35 @@ internal static partial class MinecraftApiEndpoints
                 active.PlayerName = nick;
                 linkChanged = true;
             }
-            if (linkChanged) await db.SaveChangesAsync(ct);
+            if (linkChanged)
+            {
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("Minecraft active link updated from join: linkId={LinkId} userId={UserId} nick={Nick} uuid={Uuid}", active.Id, active.UserId, active.PlayerName, active.PlayerUuid);
+            }
             var dto = await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct);
-            logger.LogInformation("MC join: nick={Nick} user={UserId} balance={Balance}", nick, active.UserId, dto.minecraftBalance);
+            logger.LogInformation("Minecraft join resolved as linked: nick={Nick} uuid={Uuid} user={UserId} balance={Balance} costs={CoordinatesCost}/{ChestCost}/{TeleportCost}", nick, uuid, active.UserId, dto.minecraftBalance, dto.deathCoordinatesCost, dto.deathChestCost, dto.deathTeleportCost);
             return Microsoft.AspNetCore.Http.Results.Ok(dto);
         });
 
-        app.MapGet("/api/integrations/minecraft/player-status", async (string? nick, string? uuid, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        app.MapGet("/api/integrations/minecraft/player-status", async (string? nick, string? uuid, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
         {
-            if (!IsPluginAuthorized(http, cfg)) return Microsoft.AspNetCore.Http.Results.Unauthorized();
-            var active = await FindActiveLinkAsync(db, NormalizeNick(nick), (uuid ?? string.Empty).Trim(), ct);
+            if (!IsPluginAuthorized(http, cfg))
+            {
+                logger.LogWarning("Minecraft player-status unauthorized: nick={Nick} uuid={Uuid} remote={Remote}", nick, uuid, http.Connection.RemoteIpAddress);
+                return Microsoft.AspNetCore.Http.Results.Unauthorized();
+            }
+            var normalizedNick = NormalizeNick(nick);
+            var normalizedUuid = (uuid ?? string.Empty).Trim();
+            logger.LogInformation("Minecraft player-status start: nick={Nick} uuid={Uuid}", normalizedNick, normalizedUuid);
+            var active = await FindActiveLinkAsync(db, normalizedNick, normalizedUuid, ct);
             if (active == null || active.UserId == null)
             {
-                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick, uuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathCoordinatesCost = DeathCoordinatesCost(cfg), deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false });
+                logger.LogInformation("Minecraft player-status result: linked=false nick={Nick} uuid={Uuid}", normalizedNick, normalizedUuid);
+                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick = normalizedNick, uuid = normalizedUuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathCoordinatesCost = DeathCoordinatesCost(cfg), deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false });
             }
-            return Microsoft.AspNetCore.Http.Results.Ok(await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct));
+            var dto = await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct);
+            logger.LogInformation("Minecraft player-status result: linked=true nick={Nick} uuid={Uuid} userId={UserId} balance={Balance}", normalizedNick, normalizedUuid, active.UserId, dto.minecraftBalance);
+            return Microsoft.AspNetCore.Http.Results.Ok(dto);
         });
 
 

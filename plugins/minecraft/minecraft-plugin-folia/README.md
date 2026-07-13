@@ -1,80 +1,32 @@
 # TaskForge Minecraft plugins
 
-В репозитории собираются только два плагина под Folia 26.1.2 и Java 25:
+This repository intentionally contains exactly two Minecraft plugins:
 
-- `TaskForgeLink` — привязка аккаунта, двусторонний чат, Minecraft-баланс и система восстановления после смерти;
-- `CustomMobTweaks` — настраиваемые усиления мобов.
+1. `TaskForgeFoliaPlugin` -> `TaskForgeLink.jar`
+2. `CustomMobTweaksPlugin` -> `CustomMobTweaks.jar`
 
-Workflow `.github/workflows/minecraft-plugins-build.yml` собирает только два JAR и архив:
+No world loader or default-group plugin is maintained here.
 
-```text
-TaskForgeLink.jar
-CustomMobTweaks.jar
-SHA256SUMS.txt
-taskforge-minecraft-plugins.zip
-```
+## Development logging policy
 
-## Режим разработки и логи
+During development, verbose diagnostics are mandatory. Do not disable `debug.enabled`, HTTP, death-recovery, scheduler, journal, heartbeat, or link-cache logging unless the user explicitly requests a logging-policy change.
 
-Пока проект находится в разработке, подробные логи TaskForgeLink включены по умолчанию. В `config.yml` должны оставаться:
+## Death recovery safety
 
-```yaml
-debug:
-  enabled: true
-  http: true
-  httpBodies: true
-  deathRecovery: true
-  scheduler: true
-  journal: true
-  heartbeat: true
-  connectivityProbeSeconds: 30
-```
+TaskForge death recovery intercepts drops only when the current online-session cache has an authoritative `LINKED` result from the TaskForge API.
 
-Логи не должны печатать сами ключи. Вместо них выводятся только факт наличия, длина и короткий SHA-256 fingerprint. Отключать или уменьшать подробность логирования можно только по прямой просьбе пользователя.
+- `LINKED`: TaskForge death offer is enabled.
+- `UNLINKED`: Minecraft handles drops and experience normally; the player receives a link-account hint after respawn.
+- `UNKNOWN`: Minecraft handles the death normally because the plugin could not safely confirm the link.
 
-## Система смерти
+The backend also rejects creation of a new death-recovery row for an unlinked UUID.
 
-Плагин перехватывает только итоговый список `PlayerDeathEvent#getDrops()`. Опыт остаётся ванильным. Если другой плагин или gamerule уже включил `keepInventory`, TaskForge не перехватывает предметы и не создаёт их копию.
-
-После респавна показываются пять действий:
-
-```text
-[Координаты — 10]
-[Сундук — 50]
-[Вернуться — 100]
-[Сундук + возврат — 150]
-[Обычный дроп]
-```
-
-При недоступности backend предметы бесплатно сохраняются в сундуке. Если сундук создан, но игрок в момент создания ещё находится на экране смерти, уведомление сохраняется в локальном журнале и повторяется сразу после респавна, при входе и каждую секунду heartbeat до успешной доставки.
-
-### Сундук
-
-- сначала ищется ближайший двойной сундук в радиусе 16 блоков;
-- затем поиск расширяется по уже загруженным соседним чанкам до 256 блоков;
-- если рядом всё занято, используется свободное место около spawn того же точного мира;
-- заменяются только воздух, вода и лава; твёрдые блоки не ломаются;
-- при временной невозможности поставить сундук предметы остаются в журнале и поиск повторяется;
-- после создания игрок получает namespace мира и координаты сундука.
-
-### Мультимиры
-
-Для смерти сохраняются UUID мира, точный `NamespacedKey` и точное Bukkit-имя. Разрешение выполняется только в порядке:
-
-```text
-UUID -> NamespacedKey -> точное имя
-```
-
-Нет подстановки первого мира, хаба, `minecraft:overworld` или `terra:*`. Плагин не создаёт, не импортирует и не выгружает миры.
-
-## Локальная сборка
-
-Нужны Java 25 и Gradle 9.4.1.
+## Build
 
 ```bash
 cd plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin
-gradle --no-daemon clean build
+gradle clean build
 
 cd ../CustomMobTweaksPlugin
-gradle --no-daemon clean build
+gradle clean build
 ```

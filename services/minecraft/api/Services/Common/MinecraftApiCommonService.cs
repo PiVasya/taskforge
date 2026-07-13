@@ -120,17 +120,6 @@ internal static class MinecraftApiCommonService
 
     internal static object ToRatingTransactionDto(MinecraftRatingTransaction x) => new
     {
-        x.Id,
-        x.UserId,
-        x.PlayerName,
-        x.PlayerUuid,
-        x.Delta,
-        x.Kind,
-        x.Reason,
-        x.RequestId,
-        x.MetadataJson,
-        x.ActorUserId,
-        x.CreatedAtUtc,
         id = x.Id,
         userId = x.UserId,
         playerName = x.PlayerName,
@@ -397,13 +386,8 @@ internal static class MinecraftApiCommonService
 
     internal static object ToMinecraftChatDto(MinecraftChatMessage x) => new
     {
-        x.Id,
-        x.Source,
-        x.AuthorName,
-        x.MinecraftNick,
-        x.MinecraftUuid,
-        x.Message,
-        x.CreatedAtUtc,
+        id = x.Id,
+        userId = x.UserId,
         source = x.Source,
         authorName = x.AuthorName,
         minecraftNick = x.MinecraftNick,
@@ -438,23 +422,49 @@ internal static class MinecraftApiCommonService
         return lower.Length == 0 || lower.Contains("recipes/") || lower.Contains("/root");
     }
 
-    internal static async Task<int?> GetOnlinePlayersAsync(IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<int?> GetOnlinePlayersAsync(
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        ILogger logger,
+        CancellationToken ct)
     {
         var baseUrl = (cfg["MINECRAFT_WEBHOOK_BASE_URL"] ?? cfg["MINECRAFT_SERVER_URL"] ?? string.Empty).Trim();
         var healthUrl = (cfg["MINECRAFT_HEALTH_URL"] ?? string.Empty).Trim();
-        var endpoint = !string.IsNullOrWhiteSpace(healthUrl) ? healthUrl : (!string.IsNullOrWhiteSpace(baseUrl) ? new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), "health").ToString() : null);
-        if (string.IsNullOrWhiteSpace(endpoint)) return null;
+        var endpoint = !string.IsNullOrWhiteSpace(healthUrl)
+            ? healthUrl
+            : (!string.IsNullOrWhiteSpace(baseUrl)
+                ? new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), "health").ToString()
+                : null);
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            logger.LogWarning("Minecraft health probe skipped: MINECRAFT_HEALTH_URL and MINECRAFT_WEBHOOK_BASE_URL are empty");
+            return null;
+        }
+
+        var started = DateTimeOffset.UtcNow;
+        logger.LogInformation("Minecraft health probe -> {Endpoint}", endpoint);
         try
         {
-            var client = httpFactory.CreateClient();
+            var client = httpFactory.CreateClient("minecraft-health");
+            client.Timeout = TimeSpan.FromSeconds(8);
             using var resp = await client.GetAsync(endpoint, ct);
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            logger.LogInformation(
+                "Minecraft health probe <- {Endpoint} status={Status} elapsedMs={ElapsedMs} body={Body}",
+                endpoint,
+                (int)resp.StatusCode,
+                (long)(DateTimeOffset.UtcNow - started).TotalMilliseconds,
+                Short(body, 500));
             if (!resp.IsSuccessStatusCode) return null;
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            return doc.RootElement.TryGetProperty("onlinePlayers", out var online) && online.TryGetInt32(out var n) ? n : null;
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("onlinePlayers", out var online) && online.TryGetInt32(out var n))
+                return n;
+            logger.LogWarning("Minecraft health response did not contain integer onlinePlayers: endpoint={Endpoint} body={Body}", endpoint, Short(body, 500));
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex, "Minecraft health probe failed: endpoint={Endpoint} elapsedMs={ElapsedMs}", endpoint, (long)(DateTimeOffset.UtcNow - started).TotalMilliseconds);
             return null;
         }
     }

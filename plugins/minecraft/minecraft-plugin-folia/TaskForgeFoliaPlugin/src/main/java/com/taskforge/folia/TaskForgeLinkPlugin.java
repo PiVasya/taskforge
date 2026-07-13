@@ -62,6 +62,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private final ConcurrentHashMap<String, Instant> seenRequestIds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Player> onlinePlayers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, UUID> onlinePlayersByName = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, LinkStateSnapshot> linkStates = new ConcurrentHashMap<>();
+    private final Set<UUID> linkRefreshInFlight = ConcurrentHashMap.newKeySet();
     private ScheduledExecutorService janitor;
 
     private volatile HttpClient httpClient;
@@ -85,6 +87,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int deathCoordinatesCost;
     private int deathChestCost;
     private int deathTeleportCost;
+    private int linkStatusRefreshSeconds;
     private DeathRecoveryManager deathRecoveryManager;
 
     private boolean debugEnabled;
@@ -303,6 +306,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
+        linkStatusRefreshSeconds = Math.max(5, getConfig().getInt("deathRecovery.linkStatusRefreshSeconds", 15));
 
         getLogger().info("[TaskForgeLink] development diagnostics enabled=" + debugEnabled
                 + " http=" + debugHttp + " httpBodies=" + debugHttpBodies
@@ -313,7 +317,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 + " webhookKey=" + keyFingerprint(key) + " len=" + key.length()
                 + " timeoutSeconds=" + taskForgeTimeoutSeconds);
         getLogger().info("[TaskForgeLink] death costs coordinates=" + deathCoordinatesCost
-                + " chest=" + deathChestCost + " teleport=" + deathTeleportCost);
+                + " chest=" + deathChestCost + " teleport=" + deathTeleportCost
+                + " linkStatusRefreshSeconds=" + linkStatusRefreshSeconds);
         if (!canCallTaskForge()) {
             getLogger().warning("[TaskForgeLink] Minecraft -> TaskForge calls are disabled because apiBaseUrl or pluginKey is empty.");
         }
@@ -380,6 +385,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathRecoveryManager = new DeathRecoveryManager(this);
         deathRecoveryManager.enable();
 
+        // Hot reloads do not emit PlayerJoinEvent. Prime the authoritative link cache for every
+        // already-online player before death recovery is allowed to intercept future drops.
+        for (Player online : onlinePlayersSnapshot()) {
+            refreshPlayerLinkState(online, "plugin-enable");
+        }
+
         // Очистка кеша requestId, чтобы не рос бесконечно
         janitor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "taskforge-link-janitor");
@@ -389,6 +400,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
         if (canCallTaskForge()) {
             janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe, 0, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
+            janitor.scheduleAtFixedRate(this::refreshOnlineLinkStatesSafe, 1, linkStatusRefreshSeconds, TimeUnit.SECONDS);
         }
         if (chatEnabled && canCallTaskForge()) {
             janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
@@ -431,6 +443,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         seenRequestIds.clear();
         onlinePlayers.clear();
         onlinePlayersByName.clear();
+        linkStates.clear();
+        linkRefreshInFlight.clear();
     }
 
     private void cleanupRequestCache() {
@@ -453,6 +467,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     CompletableFuture<PlayerStatusResponse> notifyJoinAsync(Player p) {
         if (!canCallTaskForge()) {
+            recordLinkStateFailure(p == null ? null : p.getUniqueId(), "join", "backend-not-configured");
             return CompletableFuture.completedFuture(null);
         }
 
@@ -472,17 +487,21 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     if (error != null) {
                         logHttpException(httpId, "join", error);
                         markTaskForgeFailure("join", error);
+                        recordLinkStateFailure(p.getUniqueId(), "join", unwrap(error).getClass().getSimpleName());
                         return null;
                     }
                     logHttpResponse(httpId, "join", resp);
                     if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
                     else markTaskForgeFailure("join-http", null);
-                    return parseStatusResponse(resp);
+                    PlayerStatusResponse status = parseStatusResponse(resp);
+                    recordLinkStateResponse(p.getUniqueId(), status, "join", resp == null ? "null-response" : "http-" + resp.statusCode());
+                    return status;
                 });
     }
 
     CompletableFuture<PlayerStatusResponse> getStatusAsync(Player p) {
         if (!canCallTaskForge()) {
+            recordLinkStateFailure(p == null ? null : p.getUniqueId(), "status", "backend-not-configured");
             return CompletableFuture.completedFuture(null);
         }
         String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/player-status?uuid=" + p.getUniqueId();
@@ -499,12 +518,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     if (error != null) {
                         logHttpException(httpId, "status", error);
                         markTaskForgeFailure("status", error);
+                        recordLinkStateFailure(p.getUniqueId(), "status", unwrap(error).getClass().getSimpleName());
                         return null;
                     }
                     logHttpResponse(httpId, "status", resp);
                     if (resp != null && resp.statusCode() >= 200 && resp.statusCode() < 300) markTaskForgeSuccess();
                     else markTaskForgeFailure("status-http", null);
-                    return parseStatusResponse(resp);
+                    PlayerStatusResponse status = parseStatusResponse(resp);
+                    recordLinkStateResponse(p.getUniqueId(), status, "status", resp == null ? "null-response" : "http-" + resp.statusCode());
+                    return status;
                 });
     }
 
@@ -525,7 +547,11 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     void sendChat(Player p, String message) {
         if (p == null || message == null) return;
-        debugScheduler("queue chat player=" + p.getName() + " uuid=" + p.getUniqueId() + " len=" + message.length());
+        String preview = message.replace('\n', ' ').replace('\r', ' ');
+        if (preview.length() > 240) preview = preview.substring(0, 240) + "...";
+        debugScheduler("queue chat player=" + p.getName() + " uuid=" + p.getUniqueId()
+                + " dead=" + p.isDead() + " online=" + p.isOnline() + " len=" + message.length()
+                + " message=" + preview);
         p.getScheduler().run(this, task -> {
             if (!p.isOnline()) {
                 debugScheduler("skip chat because player went offline uuid=" + p.getUniqueId());
@@ -549,7 +575,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         if (player == null) return;
         UUID id = player.getUniqueId();
         onlinePlayers.put(id, player);
-        debug("player", "track online name=" + player.getName() + " uuid=" + id + " dead=" + player.isDead());
+        linkStates.put(id, new LinkStateSnapshot(LinkState.UNKNOWN, Instant.EPOCH, Instant.now(), "track-online", "awaiting-status"));
+        debug("player", "track online name=" + player.getName() + " uuid=" + id + " dead=" + player.isDead()
+                + " linkState=UNKNOWN");
         String name = player.getName();
         if (name != null && !name.isBlank()) {
             onlinePlayersByName.put(name.toLowerCase(Locale.ROOT), id);
@@ -560,7 +588,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         if (player == null) return;
         UUID id = player.getUniqueId();
         onlinePlayers.remove(id, player);
-        debug("player", "track offline name=" + player.getName() + " uuid=" + id);
+        linkStates.remove(id);
+        linkRefreshInFlight.remove(id);
+        debug("player", "track offline name=" + player.getName() + " uuid=" + id + " linkCacheRemoved=true");
         String name = player.getName();
         if (name != null && !name.isBlank()) {
             onlinePlayersByName.remove(name.toLowerCase(Locale.ROOT), id);
@@ -583,6 +613,131 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     List<Player> onlinePlayersSnapshot() {
         return List.copyOf(onlinePlayers.values());
+    }
+
+
+    enum LinkState {
+        LINKED,
+        UNLINKED,
+        UNKNOWN
+    }
+
+    static final class LinkStateSnapshot {
+        final LinkState state;
+        final Instant confirmedAt;
+        final Instant lastAttemptAt;
+        final String source;
+        final String detail;
+
+        LinkStateSnapshot(LinkState state, Instant confirmedAt, Instant lastAttemptAt, String source, String detail) {
+            this.state = state == null ? LinkState.UNKNOWN : state;
+            this.confirmedAt = confirmedAt == null ? Instant.EPOCH : confirmedAt;
+            this.lastAttemptAt = lastAttemptAt == null ? Instant.EPOCH : lastAttemptAt;
+            this.source = source == null ? "unknown" : source;
+            this.detail = detail == null ? "" : detail;
+        }
+    }
+
+    LinkState linkState(UUID playerId) {
+        if (playerId == null) return LinkState.UNKNOWN;
+        LinkStateSnapshot snapshot = linkStates.get(playerId);
+        return snapshot == null ? LinkState.UNKNOWN : snapshot.state;
+    }
+
+    String linkStateDebug(UUID playerId) {
+        LinkStateSnapshot snapshot = playerId == null ? null : linkStates.get(playerId);
+        if (snapshot == null) return "state=UNKNOWN cache=missing";
+        long confirmedAge = snapshot.confirmedAt.equals(Instant.EPOCH)
+                ? -1L : Math.max(0L, Duration.between(snapshot.confirmedAt, Instant.now()).toSeconds());
+        long attemptAge = snapshot.lastAttemptAt.equals(Instant.EPOCH)
+                ? -1L : Math.max(0L, Duration.between(snapshot.lastAttemptAt, Instant.now()).toSeconds());
+        return "state=" + snapshot.state + " source=" + snapshot.source + " detail=" + snapshot.detail
+                + " confirmedAgeSec=" + confirmedAge + " attemptAgeSec=" + attemptAge;
+    }
+
+    String linkStateCounts() {
+        int linked = 0, unlinked = 0, unknown = 0;
+        for (LinkStateSnapshot snapshot : linkStates.values()) {
+            switch (snapshot.state) {
+                case LINKED -> linked++;
+                case UNLINKED -> unlinked++;
+                default -> unknown++;
+            }
+        }
+        return "linked=" + linked + " unlinked=" + unlinked + " unknown=" + unknown
+                + " refreshInFlight=" + linkRefreshInFlight.size();
+    }
+
+    private void recordLinkStateResponse(UUID playerId, PlayerStatusResponse status, String source, String detail) {
+        if (playerId == null) return;
+        if (status == null) {
+            recordLinkStateFailure(playerId, source, detail + ":parse-null");
+            return;
+        }
+        LinkState newState = status.linked ? LinkState.LINKED : LinkState.UNLINKED;
+        Instant now = Instant.now();
+        LinkStateSnapshot previous = linkStates.put(playerId,
+                new LinkStateSnapshot(newState, now, now, source, detail));
+        debug("link-cache", "authoritative update player=" + playerId + " previous="
+                + (previous == null ? "missing" : previous.state) + " current=" + newState
+                + " source=" + source + " detail=" + detail + " balance=" + status.minecraftBalance);
+        DeathRecoveryManager manager = deathRecoveryManager;
+        if (manager != null) manager.onLinkStateChanged(playerId, newState, source);
+    }
+
+    void markLinkStateUnlinked(UUID playerId, String source) {
+        if (playerId == null) return;
+        Instant now = Instant.now();
+        LinkStateSnapshot previous = linkStates.put(playerId,
+                new LinkStateSnapshot(LinkState.UNLINKED, now, now, source, "backend-authoritative-not-linked"));
+        debug("link-cache", "forced UNLINKED from backend player=" + playerId
+                + " previous=" + (previous == null ? "missing" : previous.state) + " source=" + source);
+        DeathRecoveryManager manager = deathRecoveryManager;
+        if (manager != null) manager.onLinkStateChanged(playerId, LinkState.UNLINKED, source);
+    }
+
+    private void recordLinkStateFailure(UUID playerId, String source, String detail) {
+        if (playerId == null) return;
+        Instant now = Instant.now();
+        linkStates.compute(playerId, (id, previous) -> {
+            if (previous == null || previous.state == LinkState.UNKNOWN) {
+                debug("link-cache", "status unavailable player=" + playerId
+                        + " state=UNKNOWN source=" + source + " detail=" + detail);
+                return new LinkStateSnapshot(LinkState.UNKNOWN, Instant.EPOCH, now, source, detail);
+            }
+            debug("link-cache", "status refresh failed player=" + playerId + " preserving=" + previous.state
+                    + " source=" + source + " detail=" + detail
+                    + " confirmedAt=" + previous.confirmedAt);
+            return new LinkStateSnapshot(previous.state, previous.confirmedAt, now, source, detail + ":preserved");
+        });
+    }
+
+    private void refreshPlayerLinkState(Player player, String source) {
+        if (player == null || !player.isOnline() || isExempt(player)) return;
+        UUID playerId = player.getUniqueId();
+        if (!linkRefreshInFlight.add(playerId)) {
+            debug("link-cache", "refresh skipped; already in flight player=" + playerId + " source=" + source);
+            return;
+        }
+        debug("link-cache", "refresh start player=" + player.getName() + "/" + playerId
+                + " source=" + source + " " + linkStateDebug(playerId));
+        getStatusAsync(player).whenComplete((status, error) -> {
+            linkRefreshInFlight.remove(playerId);
+            if (error != null) recordLinkStateFailure(playerId, source, unwrap(error).getClass().getSimpleName());
+            debug("link-cache", "refresh end player=" + player.getName() + "/" + playerId
+                    + " source=" + source + " result=" + (status == null ? "null" : status.linked)
+                    + " " + linkStateDebug(playerId));
+        });
+    }
+
+    private void refreshOnlineLinkStatesSafe() {
+        try {
+            List<Player> players = onlinePlayersSnapshot();
+            debug("link-cache", "periodic refresh tick players=" + players.size() + " " + linkStateCounts());
+            for (Player player : players) refreshPlayerLinkState(player, "periodic");
+        } catch (Throwable error) {
+            getLogger().log(java.util.logging.Level.SEVERE, "Periodic Minecraft link-state refresh failed", error);
+        }
     }
 
     private static String normalizeBase(String base) {
@@ -789,8 +944,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 return;
             }
 
+            plugin.debug("link-cache", "join status request player=" + p.getName() + "/" + p.getUniqueId()
+                    + " " + plugin.linkStateDebug(p.getUniqueId()));
             plugin.notifyJoinAsync(p).thenAcceptAsync(st -> {
-                if (st == null) return;
+                if (st == null) {
+                    plugin.sendChat(p, "§eTaskForge: §7не удалось проверить привязку. Пока проверка недоступна, смерти остаются полностью обычными.");
+                    return;
+                }
                 if (!st.linked) {
                     plugin.sendChat(p, "§eTaskForge: §7можно привязать Minecraft в профиле сайта и тратить рейтинг на полезные действия в игре.");
                     return;

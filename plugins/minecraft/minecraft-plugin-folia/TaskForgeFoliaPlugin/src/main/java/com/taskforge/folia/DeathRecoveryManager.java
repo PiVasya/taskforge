@@ -98,6 +98,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final Path journalDir;
     private final Map<UUID, DeathRecord> deaths = new ConcurrentHashMap<>();
     private final Map<UUID, RescueSession> rescues = new ConcurrentHashMap<>();
+    private final Map<UUID, PendingVanillaDeathNotice> vanillaDeathNotices = new ConcurrentHashMap<>();
     private final NamespacedKey deathIdKey;
     private final NamespacedKey itemIndexKey;
     private final NamespacedKey chestStateKey;
@@ -164,9 +165,22 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> heartbeat(), 20L, 20L);
         plugin.debugDeath("listeners registered; heartbeat scheduled every 20 ticks; loadedRecords=" + deaths.size());
-        // Reconcile journal records with the backend without delaying plugin enable.
+        // Reconcile journal records with the backend without delaying plugin enable.  Older
+        // builds may have captured a death for a player who was not actually linked.  Treat
+        // an authoritative backend rejection exactly like the live-death path: release the
+        // stored items instead of leaving the record stuck until the next cache refresh.
         for (DeathRecord record : deaths.values()) {
-            syncCreate(record);
+            syncCreate(record).thenAccept(result -> {
+                plugin.debugDeath("startup backend reconciliation deathId=" + record.deathId
+                    + " player=" + record.playerId + " stage=" + record.stage + " result=" + result);
+                if (result == BackendResult.UNLINKED) {
+                    plugin.markLinkStateUnlinked(record.playerId, "startup-death-state-put");
+                    handleBackendUnlinked(record, "startup-backend-rejected-not-linked");
+                } else if (result == BackendResult.UNAVAILABLE) {
+                    plugin.debugDeath("startup backend reconciliation deferred deathId=" + record.deathId
+                        + " reason=backend-unavailable; local journal remains authoritative");
+                }
+            });
         }
 
         // A hot plugin reload does not emit PlayerJoinEvent for players that are already online.
@@ -215,8 +229,28 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             return;
         }
         Player player = event.getEntity();
+        Location rawDeathLocation = player.getLocation().clone();
+        String rawWorld = rawDeathLocation.getWorld() == null ? "<null>" : rawDeathLocation.getWorld().getKey().toString();
+        TaskForgeLinkPlugin.LinkState linkState = plugin.linkState(player.getUniqueId());
         plugin.debugDeath("PlayerDeathEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
-            + " keepInventory=" + event.getKeepInventory() + " rawDrops=" + event.getDrops().size());
+            + " keepInventory=" + event.getKeepInventory() + " rawDrops=" + event.getDrops().size()
+            + " droppedExp=" + event.getDroppedExp() + " world=" + rawWorld
+            + " xyz=" + rawDeathLocation.getX() + "," + rawDeathLocation.getY() + "," + rawDeathLocation.getZ()
+            + " exempt=" + plugin.isExempt(player) + " " + plugin.linkStateDebug(player.getUniqueId()));
+        if (plugin.isExempt(player)) {
+            plugin.debugDeath("death left vanilla because player is exempt uuid=" + player.getUniqueId()
+                + " dropsUntouched=" + event.getDrops().size());
+            return;
+        }
+        if (linkState != TaskForgeLinkPlugin.LinkState.LINKED) {
+            queueVanillaDeathNotice(player, linkState, event.getDrops().size(), rawDeathLocation,
+                linkState == TaskForgeLinkPlugin.LinkState.UNLINKED ? "unlinked-cache" : "unknown-cache");
+            plugin.debugDeath("death left completely vanilla because TaskForge link is not confirmed player="
+                + player.getName() + "/" + player.getUniqueId() + " linkState=" + linkState
+                + " dropsUntouched=" + event.getDrops().size() + " keepInventory=" + event.getKeepInventory()
+                + " expUntouched=" + event.getDroppedExp());
+            return;
+        }
         // Another plugin/game rule owns the inventory lifecycle in this case. Capturing the same
         // stacks here would create a second copy in a later death chest.
         if (event.getKeepInventory()) {
@@ -264,17 +298,30 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             return;
         }
         deaths.put(record.deathId, record);
+        int interceptedCount = event.getDrops().size();
         event.getDrops().clear();
+        plugin.debugDeath("vanilla drops suppressed deathId=" + record.deathId + " player=" + record.playerId
+            + " before=" + interceptedCount + " after=" + event.getDrops().size()
+            + " reason=confirmed-linked-local-journal-persisted");
         plugin.debugDeath("captured deathId=" + record.deathId + " requestId=" + record.requestId
             + " player=" + record.playerName + "/" + record.playerId + " items=" + drops.size()
+            + " itemSummary=" + summarizeItems(drops)
             + " worldUuid=" + record.worldUuid + " worldKey=" + record.worldKey + " worldName=" + record.worldName
             + " xyz=" + record.x + "," + record.y + "," + record.z + " offerExpiresAt=" + record.offerExpiresAt);
         syncCreate(record).thenAccept(result -> {
+            plugin.debugDeath("initial backend synchronization result deathId=" + record.deathId
+                + " result=" + result + " " + plugin.linkStateDebug(record.playerId));
+            if (result == BackendResult.UNLINKED) {
+                plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
+                handleBackendUnlinked(record, "backend-create-rejected-not-linked");
+                return;
+            }
             if (result == BackendResult.UNAVAILABLE) {
                 fallbackUnclaimedOffer(record, "Сервис рейтинга временно недоступен.");
                 return;
             }
             health(record.playerId).thenAccept(healthy -> {
+                plugin.debugDeath("post-create health deathId=" + record.deathId + " available=" + healthy);
                 if (!healthy) fallbackUnclaimedOffer(record, "Сервис рейтинга временно недоступен.");
             });
         });
@@ -285,7 +332,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         Player player = event.getPlayer();
         Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
         plugin.debugDeath("PlayerRespawnEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
-            + " localRecords=" + knownBeforePull.size());
+            + " localRecords=" + knownBeforePull.size() + " pendingVanillaNotice="
+            + vanillaDeathNotices.containsKey(player.getUniqueId()) + " " + plugin.linkStateDebug(player.getUniqueId()));
+
+        deliverVanillaDeathNotice(player, "respawn-event");
 
         // Local delivery must never wait for the backend. A chest is commonly created while the
         // player is still dead, so the first safe delivery point is the player scheduler after respawn.
@@ -313,7 +363,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         Player player = event.getPlayer();
         Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
         plugin.debugDeath("PlayerJoinEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
-            + " localRecords=" + knownBeforePull.size());
+            + " localRecords=" + knownBeforePull.size() + " pendingVanillaNotice="
+            + vanillaDeathNotices.containsKey(player.getUniqueId()) + " " + plugin.linkStateDebug(player.getUniqueId()));
+
+        deliverVanillaDeathNotice(player, "join-event");
 
         onPlayer(player, () -> {
             restoreInterruptedSpectator(player);
@@ -398,6 +451,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void choose(Player player, DeathRecord record, String action) {
+        TaskForgeLinkPlugin.LinkState currentLinkState = plugin.linkState(player.getUniqueId());
+        plugin.debugDeath("death action requested player=" + player.getName() + "/" + player.getUniqueId()
+            + " deathId=" + record.deathId + " action=" + action + " stage=" + record.stage
+            + " " + plugin.linkStateDebug(player.getUniqueId()));
+        if (currentLinkState != TaskForgeLinkPlugin.LinkState.LINKED) {
+            player.sendMessage(Component.text("TaskForge не подтверждён. Вещи будут выпущены обычным способом.", NamedTextColor.YELLOW));
+            handleBackendUnlinked(record, "action-click-link-state-" + currentLinkState.name().toLowerCase(Locale.ROOT));
+            return;
+        }
         synchronized (record) {
             if (!(record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)) {
                 player.sendMessage(Component.text("Это предложение уже обработано.", NamedTextColor.RED));
@@ -449,6 +511,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
             // The backend must see the reservation before it is allowed to charge 50/150.
             syncCreate(record).thenAccept(syncResult -> {
+                if (syncResult == BackendResult.UNLINKED) {
+                    endChestSearch(record);
+                    plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
+                    handleBackendUnlinked(record, "backend-reservation-rejected-not-linked");
+                    return;
+                }
                 if (syncResult == BackendResult.UNAVAILABLE) {
                     record.backendUnavailable = true;
                     saveQuietly(record);
@@ -484,6 +552,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                                 else finish(record, Stage.CHEST_CREATED);
                             }
                         });
+                    } else if (outcome == PurchaseOutcome.UNLINKED) {
+                        endChestSearch(record);
+                        plugin.markLinkStateUnlinked(record.playerId, "purchase");
+                        handleBackendUnlinked(record, "backend-purchase-rejected-not-linked");
                     } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
                         // The HTTP result is ambiguous: the request may have reached the backend before the connection failed.
                         // Fulfil the free-chest fallback now and reconcile the same idempotency key later. The backend either
@@ -516,6 +588,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         // backend row exists before charging, otherwise a healthy backend could answer 404
         // and incorrectly turn the selected paid action into ordinary drops.
         syncCreate(record).thenAccept(syncResult -> {
+            if (syncResult == BackendResult.UNLINKED) {
+                plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
+                handleBackendUnlinked(record, "backend-coordinate-create-rejected-not-linked");
+                return;
+            }
             if (syncResult == BackendResult.UNAVAILABLE) {
                 record.backendUnavailable = true;
                 saveQuietly(record);
@@ -528,6 +605,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     record.paymentConfirmed = true;
                     saveQuietly(record);
                     releaseDrops(record, null, () -> notifyDeathCoordinates(record));
+                } else if (outcome == PurchaseOutcome.UNLINKED) {
+                    plugin.markLinkStateUnlinked(record.playerId, "purchase");
+                    handleBackendUnlinked(record, "backend-coordinate-purchase-rejected-not-linked");
                 } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
                     record.backendUnavailable = true;
                     record.chargedAmount = coordinatesCost;
@@ -546,6 +626,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         // See purchaseCoordinates: persist the exact death first so a fast click cannot race
         // the initial PUT and be misclassified as a business denial.
         syncCreate(record).thenAccept(syncResult -> {
+            if (syncResult == BackendResult.UNLINKED) {
+                plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
+                handleBackendUnlinked(record, "backend-return-create-rejected-not-linked");
+                return;
+            }
             if (syncResult == BackendResult.UNAVAILABLE) {
                 record.backendUnavailable = true;
                 saveQuietly(record);
@@ -559,6 +644,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     record.rescuePending = true;
                     saveQuietly(record);
                     releaseDrops(record, null, () -> startRescueWhenOnline(record));
+                } else if (outcome == PurchaseOutcome.UNLINKED) {
+                    plugin.markLinkStateUnlinked(record.playerId, "purchase");
+                    handleBackendUnlinked(record, "backend-return-purchase-rejected-not-linked");
                 } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
                     record.backendUnavailable = true;
                     record.chargedAmount = teleportCost;
@@ -573,12 +661,167 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         });
     }
 
+    void onLinkStateChanged(UUID playerId, TaskForgeLinkPlugin.LinkState state, String source) {
+        if (playerId == null || state == null) return;
+        plugin.debugDeath("link-state callback player=" + playerId + " state=" + state + " source=" + source
+            + " records=" + deaths.values().stream().filter(r -> r.playerId.equals(playerId)).count());
+        if (state == TaskForgeLinkPlugin.LinkState.LINKED) {
+            Player player = plugin.findOnlinePlayer(playerId);
+            if (player != null && player.isOnline() && !player.isDead()) {
+                onPlayer(player, () -> {
+                    showPendingOffers(player);
+                    notifyUnseenChests(player);
+                    resumeUnresolved(player);
+                    resumePaidRescues(player);
+                }, 1L);
+                pullPending(player).exceptionally(error -> {
+                    plugin.debugDeath("pending pull after link confirmation failed player=" + playerId + " error=" + error);
+                    return null;
+                });
+            }
+            return;
+        }
+        if (state != TaskForgeLinkPlugin.LinkState.UNLINKED) return;
+
+        // Repair records captured by older plugin versions or by the tiny race between cache refresh
+        // and an unlink operation. No purchase means the safest result is an immediate ordinary drop.
+        for (DeathRecord record : new ArrayList<>(deaths.values())) {
+            if (!record.playerId.equals(playerId)) continue;
+            boolean release;
+            synchronized (record) {
+                release = !record.itemsResolved
+                    && !record.paymentConfirmed
+                    && record.chargedAmount <= 0
+                    && (record.stage == Stage.WAITING_RESPAWN || record.stage == Stage.OFFER);
+                if (release) {
+                    record.stage = Stage.RESOLVING;
+                    record.action = "unlinked-vanilla-release";
+                    record.lastError = "link-state-became-unlinked:" + source;
+                    saveQuietly(record);
+                }
+            }
+            if (release) {
+                plugin.debugDeath("releasing previously captured drops because player is unlinked deathId="
+                    + record.deathId + " player=" + playerId + " source=" + source);
+                releaseDrops(record, null, () -> queueVanillaDeathNotice(record.playerId, record.playerName,
+                    TaskForgeLinkPlugin.LinkState.UNLINKED, countSerializedItems(record.itemsBase64),
+                    record.worldKey, record.x, record.y, record.z, "link-state-callback"));
+            }
+        }
+    }
+
+    private void handleBackendUnlinked(DeathRecord record, String source) {
+        plugin.debugDeath("backend rejected captured death as unlinked deathId=" + record.deathId
+            + " player=" + record.playerId + " source=" + source + " itemsResolved=" + record.itemsResolved);
+        synchronized (record) {
+            if (record.itemsResolved || record.paymentConfirmed || record.chargedAmount > 0) return;
+            record.stage = Stage.RESOLVING;
+            record.action = "unlinked-vanilla-release";
+            record.lastError = source;
+            saveQuietly(record);
+        }
+        releaseDrops(record, null, () -> queueVanillaDeathNotice(record.playerId, record.playerName,
+            TaskForgeLinkPlugin.LinkState.UNLINKED, countSerializedItems(record.itemsBase64),
+            record.worldKey, record.x, record.y, record.z, source));
+    }
+
+    private String summarizeItems(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) return "[]";
+        Map<String, Integer> totals = new LinkedHashMap<>();
+        for (ItemStack item : items) {
+            if (item == null || item.getType().isAir() || item.getAmount() <= 0) continue;
+            totals.merge(item.getType().getKey().toString(), item.getAmount(), Integer::sum);
+        }
+        String text = totals.toString();
+        return text.length() > 800 ? text.substring(0, 800) + "...<truncated>" : text;
+    }
+
+    private int countSerializedItems(String payload) {
+        try { return deserializeItems(payload).size(); }
+        catch (RuntimeException error) {
+            plugin.getLogger().log(Level.WARNING, "Cannot count serialized death items for diagnostics", error);
+            return -1;
+        }
+    }
+
+    private void queueVanillaDeathNotice(Player player, TaskForgeLinkPlugin.LinkState state, int dropStacks,
+                                         Location deathLocation, String source) {
+        World world = deathLocation == null ? null : deathLocation.getWorld();
+        queueVanillaDeathNotice(player.getUniqueId(), player.getName(), state, dropStacks,
+            world == null ? "unknown" : world.getKey().toString(),
+            deathLocation == null ? 0.0 : deathLocation.getX(),
+            deathLocation == null ? 0.0 : deathLocation.getY(),
+            deathLocation == null ? 0.0 : deathLocation.getZ(), source);
+    }
+
+    private void queueVanillaDeathNotice(UUID playerId, String playerName, TaskForgeLinkPlugin.LinkState state,
+                                         int dropStacks, String worldKey, double x, double y, double z, String source) {
+        PendingVanillaDeathNotice notice = new PendingVanillaDeathNotice(playerId, playerName, state,
+            dropStacks, worldKey, x, y, z, Instant.now(), source);
+        PendingVanillaDeathNotice previous = vanillaDeathNotices.put(playerId, notice);
+        plugin.debugDeath("vanilla death notice queued player=" + playerName + "/" + playerId
+            + " state=" + state + " dropStacks=" + dropStacks + " world=" + worldKey
+            + " xyz=" + x + "," + y + "," + z + " source=" + source
+            + " replacedPrevious=" + (previous != null));
+        Player player = plugin.findOnlinePlayer(playerId);
+        if (player != null) deliverVanillaDeathNotice(player, "queue");
+    }
+
+    private void deliverVanillaDeathNotice(Player player, String trigger) {
+        if (player == null) return;
+        PendingVanillaDeathNotice notice = vanillaDeathNotices.get(player.getUniqueId());
+        if (notice == null) return;
+        synchronized (notice) {
+            if (notice.dispatchPending) {
+                plugin.debugDeath("vanilla death notice delivery already pending player=" + player.getUniqueId()
+                    + " trigger=" + trigger);
+                return;
+            }
+            notice.dispatchPending = true;
+        }
+        plugin.debugDeath("vanilla death notice delivery queued player=" + player.getName() + "/" + player.getUniqueId()
+            + " trigger=" + trigger + " dead=" + player.isDead() + " online=" + player.isOnline()
+            + " state=" + notice.state + " source=" + notice.source);
+        onPlayer(player, () -> {
+            if (!player.isOnline() || player.isDead()) {
+                synchronized (notice) { notice.dispatchPending = false; }
+                plugin.debugDeath("vanilla death notice deferred player=" + player.getUniqueId()
+                    + " trigger=" + trigger + " dead=" + player.isDead() + " online=" + player.isOnline());
+                return;
+            }
+            if (notice.state == TaskForgeLinkPlugin.LinkState.UNLINKED) {
+                player.sendMessage("§eTaskForge не привязан.");
+                player.sendMessage("§7Привяжите Minecraft в профиле §ftaskforge.by§7, чтобы восстанавливать вещи, получать координаты смерти и возвращаться назад.");
+            } else {
+                player.sendMessage("§eTaskForge: §7не удалось подтвердить привязку сайта во время смерти.");
+                player.sendMessage("§7Чтобы не потерять предметы из-за сбоя проверки, смерть обработана полностью обычным способом.");
+            }
+            player.sendMessage("§7Ваши вещи и опыт обработаны Minecraft как обычно; TaskForge их не перехватывал.");
+            boolean removed = vanillaDeathNotices.remove(player.getUniqueId(), notice);
+            plugin.debugDeath("vanilla death notice delivered player=" + player.getName() + "/" + player.getUniqueId()
+                + " trigger=" + trigger + " state=" + notice.state + " dropStacks=" + notice.dropStacks
+                + " world=" + notice.worldKey + " xyz=" + notice.x + "," + notice.y + "," + notice.z
+                + " removed=" + removed);
+        }, () -> {
+            synchronized (notice) { notice.dispatchPending = false; }
+            plugin.debugDeath("vanilla death notice scheduler retired player=" + player.getUniqueId()
+                + " trigger=" + trigger);
+        }, 2L);
+    }
+
     private void heartbeat() {
         if (stopped.get()) return;
         Instant now = Instant.now();
         int notificationOwed = 0;
         int unresolved = 0;
         int compensationPending = 0;
+        int vanillaNoticesPending = vanillaDeathNotices.size();
+        for (PendingVanillaDeathNotice notice : new ArrayList<>(vanillaDeathNotices.values())) {
+            Player noticePlayer = plugin.findOnlinePlayer(notice.playerId);
+            if (noticePlayer != null && noticePlayer.isOnline() && !noticePlayer.isDead()) {
+                deliverVanillaDeathNotice(noticePlayer, "heartbeat");
+            }
+        }
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
             if (!record.userNotified && (record.chestCreated || ACTION_COORDINATES.equals(record.action))) {
                 notificationOwed++;
@@ -628,8 +871,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         for (RescueSession session : new ArrayList<>(rescues.values())) tickRescue(session, now);
         if (plugin.debugHeartbeat() && (!deaths.isEmpty() || plugin.onlinePlayersSnapshot().size() > 0)) {
             plugin.debug("heartbeat", "records=" + deaths.size() + " unresolved=" + unresolved
-                + " notificationOwed=" + notificationOwed + " compensationPending=" + compensationPending
-                + " activeRescues=" + rescues.size() + " onlinePlayers=" + plugin.onlinePlayersSnapshot().size());
+                + " notificationOwed=" + notificationOwed + " vanillaNoticesPending=" + vanillaNoticesPending
+                + " compensationPending=" + compensationPending + " activeRescues=" + rescues.size()
+                + " onlinePlayers=" + plugin.onlinePlayersSnapshot().size() + " linkCache={" + plugin.linkStateCounts() + "}");
         }
     }
 
@@ -660,6 +904,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds) {
+        TaskForgeLinkPlugin.LinkState linkState = plugin.linkState(player.getUniqueId());
+        if (linkState != TaskForgeLinkPlugin.LinkState.LINKED) {
+            plugin.debugDeath("pending offers withheld player=" + player.getName() + "/" + player.getUniqueId()
+                + " reason=link-not-confirmed " + plugin.linkStateDebug(player.getUniqueId()));
+            return;
+        }
         deaths.values().stream()
             .filter(r -> r.playerId.equals(player.getUniqueId()))
             .filter(r -> !excludedDeathIds.contains(r.deathId))
@@ -697,6 +947,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private CompletableFuture<Void> pullPending(Player player) {
+        if (plugin.linkState(player.getUniqueId()) != TaskForgeLinkPlugin.LinkState.LINKED) {
+            plugin.debugDeath("pending backend pull skipped player=" + player.getUniqueId()
+                + " reason=link-not-confirmed " + plugin.linkStateDebug(player.getUniqueId()));
+            return CompletableFuture.completedFuture(null);
+        }
         if (apiBaseUrl.isBlank() || serverToken.isBlank()) return CompletableFuture.completedFuture(null);
         return request("GET", API_PATH + "/player/" + player.getUniqueId() + "/pending", null)
             .thenAccept(response -> {
@@ -1906,6 +2161,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             "amount", amount));
         return request("POST", API_PATH + "/" + record.deathId + "/purchase", body).thenApply(response -> {
             if (response == null || response.statusCode() >= 500) return PurchaseOutcome.UNAVAILABLE;
+            if (response.statusCode() == 409 && response.body() != null
+                && response.body().toLowerCase(Locale.ROOT).contains("not-linked")) {
+                return PurchaseOutcome.UNLINKED;
+            }
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 try {
                     JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
@@ -1929,6 +2188,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         String body = recordJson(record);
         return request("PUT", API_PATH + "/" + record.deathId, body).thenApply(response -> {
             if (response == null || response.statusCode() >= 500) return BackendResult.UNAVAILABLE;
+            if (response.statusCode() == 409 && response.body() != null
+                && response.body().toLowerCase(Locale.ROOT).contains("not-linked")) {
+                return BackendResult.UNLINKED;
+            }
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 try {
                     JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
@@ -2200,8 +2463,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private enum BackendResult { AVAILABLE, UNAVAILABLE }
-    private enum PurchaseOutcome { CONFIRMED, DENIED, UNAVAILABLE }
+    private enum BackendResult { AVAILABLE, UNAVAILABLE, UNLINKED }
+    private enum PurchaseOutcome { CONFIRMED, DENIED, UNAVAILABLE, UNLINKED }
     private enum Stage {
         WAITING_RESPAWN, OFFER, RESOLVING, WORLD_UNAVAILABLE, RESCUE_PENDING, RESCUE_ACTIVE,
         DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, COORDINATES_SENT, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED;
@@ -2224,6 +2487,35 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             this.record = record; this.center = center; this.fallback = fallback; this.endsAt = endsAt;
         }
         long secondsRemaining() { return Math.max(0, Duration.between(Instant.now(), endsAt).toSeconds()); }
+    }
+
+    private static final class PendingVanillaDeathNotice {
+        final UUID playerId;
+        final String playerName;
+        final TaskForgeLinkPlugin.LinkState state;
+        final int dropStacks;
+        final String worldKey;
+        final double x;
+        final double y;
+        final double z;
+        final Instant createdAt;
+        final String source;
+        boolean dispatchPending;
+
+        PendingVanillaDeathNotice(UUID playerId, String playerName, TaskForgeLinkPlugin.LinkState state,
+                                  int dropStacks, String worldKey, double x, double y, double z,
+                                  Instant createdAt, String source) {
+            this.playerId = playerId;
+            this.playerName = playerName == null ? "unknown" : playerName;
+            this.state = state == null ? TaskForgeLinkPlugin.LinkState.UNKNOWN : state;
+            this.dropStacks = dropStacks;
+            this.worldKey = worldKey == null ? "unknown" : worldKey;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.createdAt = createdAt == null ? Instant.now() : createdAt;
+            this.source = source == null ? "unknown" : source;
+        }
     }
 
     private static final class DeathRecord {
