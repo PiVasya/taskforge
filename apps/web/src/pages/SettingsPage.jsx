@@ -764,7 +764,6 @@ export default function SettingsPage() {
       setMcError(null);
       const st = await getMinecraftStatus();
       setMcStatus(st);
-      if (st?.nick) setMcNick(st.nick);
     } catch (e) {
       const parsed = handleApiError(e, notify, "Не удалось обновить Minecraft");
       setMcError(parsed);
@@ -811,6 +810,7 @@ export default function SettingsPage() {
       setMcError(null);
       const st = await confirmMinecraftLink(code);
       setMcStatus(st);
+      setMcNick("");
       setMcInputCode("");
       setMcExpires(null);
       setMcDelivery(null);
@@ -830,22 +830,23 @@ export default function SettingsPage() {
     }
   };
 
-  const handleUnlinkMc = async () => {
-    if (!window.confirm("Отвязать Minecraft от аккаунта?")) return;
+  const handleUnlinkMc = async (linkId, nick) => {
+    if (!linkId) return;
+    if (!window.confirm(`Удалить привязку ${nick || "Minecraft"}? Баланс сохранится.`)) return;
     try {
       setMcLoading(true);
       setMcError(null);
-      await unlinkMinecraft();
+      const st = await unlinkMinecraft(linkId);
+      setMcStatus(st);
       setMcInputCode("");
       setMcExpires(null);
       setMcDelivery(null);
-      await refreshMcStatus();
       try {
         await auth?.refresh?.();
       } catch {}
-      notify.success("Minecraft отвязан");
+      notify.success("Привязка Minecraft удалена. Баланс сохранён.");
     } catch (e) {
-      const parsed = handleApiError(e, notify, "Не удалось отвязать Minecraft");
+      const parsed = handleApiError(e, notify, "Не удалось удалить привязку Minecraft");
       setMcError(parsed);
     } finally {
       setMcLoading(false);
@@ -1454,131 +1455,111 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card className="p-4 space-y-3">
+      <Card className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-semibold">Minecraft</div>
             <div className="text-sm text-neutral-500 dark:text-neutral-400">
-              Привязка ника и Minecraft-баланс для игровых действий.
+              Привязка Minecraft для игровых возможностей. Можно добавить любое количество ников.
             </div>
           </div>
           {mcStatus ? (
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              Привязки: {mcStatus.linkCount ?? 0}/2
+              Привязок: {mcStatus.linkCount ?? 0}
             </div>
           ) : null}
         </div>
+
         <InlineError value={mcError} />
+
         {mcStatus?.linked ? (
           <div className="space-y-3">
-            <div className="text-sm">
-              Привязан ник: <b>{mcStatus.nick}</b>
-              {mcStatus.uuid ? (
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {" "}
-                  ({mcStatus.uuid})
-                </span>
+            <div className="max-w-xs rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">Баланс</div>
+              <div className="font-semibold text-lg">{mcStatus.minecraftBalance ?? mcStatus.balance ?? 0}</div>
+            </div>
+
+            <div className="space-y-2">
+              {(Array.isArray(mcStatus.links) ? mcStatus.links : []).map((link) => (
+                <div
+                  key={link.id || link.nick}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2"
+                >
+                  <div className="text-sm">
+                    Привязан ник: <b>{link.nick || "неизвестно"}</b>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleUnlinkMc(link.id, link.nick)}
+                    disabled={mcLoading || !link.id}
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="space-y-3 border-t border-[rgba(var(--border)/0.45)] pt-4">
+          <div>
+            <label className="text-sm text-neutral-500 dark:text-neutral-400">
+              Новый ник на сервере
+            </label>
+            <Input
+              placeholder="Player_123"
+              value={mcNick}
+              onChange={(e) => setMcNick(e.target.value)}
+              disabled={mcLoading}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleRequestMc} disabled={mcLoading}>
+              {mcLoading ? "Отправка…" : "Отправить код в игру"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={refreshMcStatus}
+              disabled={mcLoading}
+            >
+              Обновить
+            </Button>
+          </div>
+          {mcDelivery ? (
+            <div
+              className={`rounded-2xl px-3 py-2 text-xs ${mcDelivery.delivered ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}
+            >
+              {mcDelivery.delivered
+                ? "Код отправлен в игру. Введите полученный код ниже."
+                : `Не удалось доставить код в игру: ${mcDelivery.message || "неизвестная ошибка"}`}
+              {mcDelivery.delivered && mcExpires ? (
+                <div className="mt-1 opacity-80">
+                  Действует до: {new Date(mcExpires).toLocaleString()}
+                </div>
               ) : null}
             </div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              Основной рейтинг не списывается. Для Minecraft хранится отдельная сумма трат и восстановлений.
-            </div>
-            <div className="grid sm:grid-cols-4 gap-2 text-xs">
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">Основной</div>
-                <div className="font-semibold text-sm">{mcStatus.baseRating ?? mcStatus.score ?? 0}</div>
-              </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">MC баланс</div>
-                <div className="font-semibold text-sm">{mcStatus.minecraftBalance ?? mcStatus.balance ?? 0}</div>
-              </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">Потрачено</div>
-                <div className="font-semibold text-sm">{mcStatus.minecraftSpent ?? 0}</div>
-              </div>
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">Координаты / сундук / возврат</div>
-                <div className="font-semibold text-sm">{mcStatus.deathCoordinatesCost ?? 10} / {mcStatus.deathChestCost ?? 50} / {mcStatus.deathTeleportCost ?? 100}</div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={refreshMcStatus}
-                disabled={mcLoading}
-              >
-                Обновить
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleUnlinkMc}
-                disabled={mcLoading}
-              >
-                Удалить привязку
-              </Button>
-            </div>
+          ) : null}
+          <div>
+            <label className="text-sm text-neutral-500 dark:text-neutral-400">
+              Код, полученный в игре
+            </label>
+            <Input
+              placeholder="ABCD-EFGH"
+              value={mcInputCode}
+              onChange={(e) => setMcInputCode(e.target.value)}
+              disabled={mcLoading}
+            />
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm text-neutral-500 dark:text-neutral-400">
-                Ник на сервере
-              </label>
-              <Input
-                placeholder="Player_123"
-                value={mcNick}
-                onChange={(e) => setMcNick(e.target.value)}
-                disabled={mcLoading}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={handleRequestMc} disabled={mcLoading}>
-                {mcLoading ? "Отправка…" : "Отправить код в игру"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={refreshMcStatus}
-                disabled={mcLoading}
-              >
-                Обновить
-              </Button>
-            </div>
-            {mcDelivery ? (
-              <div
-                className={`rounded-2xl px-3 py-2 text-xs ${mcDelivery.delivered ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}
-              >
-                {mcDelivery.delivered
-                  ? "Код отправлен в игру. Введите полученный код ниже."
-                  : `Не удалось доставить код в игру: ${mcDelivery.message || "неизвестная ошибка"}`}
-                {mcDelivery.delivered && mcExpires ? (
-                  <div className="mt-1 opacity-80">
-                    Действует до: {new Date(mcExpires).toLocaleString()}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            <div>
-              <label className="text-sm text-neutral-500 dark:text-neutral-400">
-                Код, полученный в игре
-              </label>
-              <Input
-                placeholder="ABCD-EFGH"
-                value={mcInputCode}
-                onChange={(e) => setMcInputCode(e.target.value)}
-                disabled={mcLoading}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={handleConfirmMc}
-                disabled={mcLoading || !mcInputCode}
-              >
-                Подтвердить
-              </Button>
-            </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleConfirmMc}
+              disabled={mcLoading || !mcInputCode}
+            >
+              Подтвердить
+            </Button>
           </div>
-        )}
+        </div>
       </Card>
     </div>
   );

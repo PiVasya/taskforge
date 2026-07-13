@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'com.taskforge'
-version = '1.5.1'
+version = '1.6.0'
 
 def targetJava = 25
 java {

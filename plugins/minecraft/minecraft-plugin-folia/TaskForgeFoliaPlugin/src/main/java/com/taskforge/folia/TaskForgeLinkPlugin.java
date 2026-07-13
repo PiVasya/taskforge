@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -306,7 +307,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
-        linkStatusRefreshSeconds = Math.max(5, getConfig().getInt("deathRecovery.linkStatusRefreshSeconds", 15));
+        linkStatusRefreshSeconds = Math.max(5, getConfig().getInt("deathRecovery.linkStatusRefreshSeconds", 5));
 
         getLogger().info("[TaskForgeLink] development diagnostics enabled=" + debugEnabled
                 + " http=" + debugHttp + " httpBodies=" + debugHttpBodies
@@ -504,7 +505,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             recordLinkStateFailure(p == null ? null : p.getUniqueId(), "status", "backend-not-configured");
             return CompletableFuture.completedFuture(null);
         }
-        String url = normalizeBase(taskForgeBaseUrl) + "/api/integrations/minecraft/player-status?uuid=" + p.getUniqueId();
+        String url = normalizeBase(taskForgeBaseUrl)
+                + "/api/integrations/minecraft/player-status?uuid="
+                + encodeQuery(p.getUniqueId().toString())
+                + "&nick=" + encodeQuery(p.getName());
+        debug("link-cache", "status identity query player=" + p.getName() + "/" + p.getUniqueId()
+                + " includesUuid=true includesNick=true");
 
         HttpRequest req = newTaskForgeRequest(url)
                 .GET()
@@ -738,6 +744,10 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         } catch (Throwable error) {
             getLogger().log(java.util.logging.Level.SEVERE, "Periodic Minecraft link-state refresh failed", error);
         }
+    }
+
+    private static String encodeQuery(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
 
     private static String normalizeBase(String base) {

@@ -26,7 +26,7 @@ deathRecovery:
   backendTimeoutMillis: 5000
   # Link status is refreshed while players are online. Only confirmed LINKED players have drops intercepted.
   # UNLINKED or UNKNOWN players always keep completely vanilla death behavior.
-  linkStatusRefreshSeconds: 15
+  linkStatusRefreshSeconds: 5
   # Optional overrides. Empty values reuse taskforge.apiBaseUrl and taskforge.pluginKey.
   apiBaseUrl: ""
   serverToken: ""

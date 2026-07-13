@@ -36,6 +36,13 @@ jobs:
       - name: Check Docker workflow integrity
         run: python3 scripts/ci/check-workflow-integrity.py
 
+  minecraft-link-invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check unlimited Minecraft links and shared balance
+        run: bash scripts/ci/check-minecraft-link-invariants.sh
+
   compose-check:
     runs-on: ubuntu-latest
     steps:
@@ -46,7 +53,7 @@ jobs:
       - run: bash ./deploy/prod/compose.sh config
 
   build:
-    needs: [compose-check, workflow-integrity]
+    needs: [compose-check, workflow-integrity, minecraft-link-invariants]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

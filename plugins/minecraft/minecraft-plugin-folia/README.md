@@ -30,3 +30,7 @@ gradle clean build
 cd ../CustomMobTweaksPlugin
 gradle clean build
 ```
+
+## Link identity synchronization
+
+The online status probe always sends the exact UUID together with the current nickname. UUID-bound links are resolved strictly by UUID. A nickname may bind an UUID only when exactly one active UUID-less link exists for that exact nickname.

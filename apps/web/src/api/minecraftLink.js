@@ -15,6 +15,8 @@ export async function confirmMinecraftLink(code) {
   return res.data;
 }
 
-export async function unlinkMinecraft() {
-  await api.delete('/api/integrations/minecraft/unlink');
+export async function unlinkMinecraft(linkId) {
+  if (!linkId) throw new Error('Minecraft link id is required');
+  const res = await api.delete(`/api/integrations/minecraft/links/${linkId}`);
+  return res.data;
 }

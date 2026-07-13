@@ -187,3 +187,7 @@ Image-test expected images are stored in MinIO/S3 via files-api. `TestsJson` sto
 ## Minecraft link-code delivery
 
 Production sends account-link codes directly from `minecraft-api` to `http://mc.taskforge.by:25566/taskforge/link/send`. The browser never receives or displays a fallback code. Configure matching `MINECRAFT_WEBHOOK_KEY` / `security.taskforgeKey` values and keep TCP port `25566` reachable from the site server. Startup and delivery diagnostics are logged without revealing raw secrets or one-time codes.
+
+## Minecraft multiple links and balance
+
+A TaskForge account can keep any number of active Minecraft profiles. Each exact Minecraft UUID can belong to only one TaskForge account and cannot be linked twice. All profiles on the same TaskForge account share one Minecraft balance based on the account `UserId`; link and unlink operations never reset or restore the rating ledger. Individual profiles can be removed without affecting the other profiles or the shared balance.

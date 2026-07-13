@@ -24,7 +24,8 @@ internal static class MinecraftApiCommonService
         string Message,
         int? StatusCode,
         string? RequestId,
-        string? Uri);
+        string? Uri,
+        string? PlayerUuid);
 
     internal static string SecretFingerprint(string? value)
     {
@@ -326,7 +327,7 @@ internal static class MinecraftApiCommonService
                 "[minecraft-webhook] delivery blocked: MINECRAFT_WEBHOOK_BASE_URL and MINECRAFT_SERVER_URL are empty requestId={RequestId} nick={Nick}",
                 requestId,
                 nick);
-            return new(false, false, "адрес Minecraft-сервера не задан", null, requestId, null);
+            return new(false, false, "адрес Minecraft-сервера не задан", null, requestId, null, null);
         }
 
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsedBase)
@@ -337,7 +338,7 @@ internal static class MinecraftApiCommonService
                 requestId,
                 nick,
                 baseUrl);
-            return new(false, false, "некорректный адрес Minecraft-сервера", null, requestId, baseUrl);
+            return new(false, false, "некорректный адрес Minecraft-сервера", null, requestId, baseUrl, null);
         }
 
         if (string.IsNullOrWhiteSpace(key))
@@ -347,7 +348,7 @@ internal static class MinecraftApiCommonService
                 requestId,
                 nick,
                 baseUrl);
-            return new(false, false, "ключ webhook не задан", null, requestId, baseUrl);
+            return new(false, false, "ключ webhook не задан", null, requestId, baseUrl, null);
         }
 
         var targetUri = new Uri(parsedBase.ToString().TrimEnd('/') + "/" + path.TrimStart('/'));
@@ -386,7 +387,7 @@ internal static class MinecraftApiCommonService
 
             if (!resp.IsSuccessStatusCode)
             {
-                return new(true, false, $"HTTP {(int)resp.StatusCode}: {Short(body, 300)}", (int)resp.StatusCode, requestId, targetUri.ToString());
+                return new(true, false, $"HTTP {(int)resp.StatusCode}: {Short(body, 300)}", (int)resp.StatusCode, requestId, targetUri.ToString(), null);
             }
 
             try
@@ -395,10 +396,21 @@ internal static class MinecraftApiCommonService
                 var root = doc.RootElement;
                 var delivered = root.TryGetProperty("delivered", out var d) && d.ValueKind == JsonValueKind.True;
                 var duplicate = root.TryGetProperty("duplicate", out var dup) && dup.ValueKind == JsonValueKind.True;
-                if (delivered) return new(true, true, "delivered", (int)resp.StatusCode, requestId, targetUri.ToString());
-                if (duplicate) return new(true, true, "duplicate", (int)resp.StatusCode, requestId, targetUri.ToString());
+                var playerUuid = root.TryGetProperty("uuid", out var uuidElement) && uuidElement.ValueKind == JsonValueKind.String
+                    ? uuidElement.GetString()?.Trim().ToLowerInvariant()
+                    : null;
+                logger.LogInformation(
+                    "[minecraft-webhook] parsed delivery result requestId={RequestId} nick={Nick} delivered={Delivered} duplicate={Duplicate} playerUuidPresent={PlayerUuidPresent} playerUuid={PlayerUuid}",
+                    requestId,
+                    nick,
+                    delivered,
+                    duplicate,
+                    !string.IsNullOrWhiteSpace(playerUuid),
+                    playerUuid);
+                if (delivered) return new(true, true, "delivered", (int)resp.StatusCode, requestId, targetUri.ToString(), playerUuid);
+                if (duplicate) return new(true, true, "duplicate", (int)resp.StatusCode, requestId, targetUri.ToString(), playerUuid);
                 if (root.TryGetProperty("reason", out var reason) && reason.ValueKind == JsonValueKind.String)
-                    return new(true, false, reason.GetString() ?? "not delivered", (int)resp.StatusCode, requestId, targetUri.ToString());
+                    return new(true, false, reason.GetString() ?? "not delivered", (int)resp.StatusCode, requestId, targetUri.ToString(), playerUuid);
             }
             catch (Exception parseEx)
             {
@@ -411,7 +423,7 @@ internal static class MinecraftApiCommonService
                     Short(body, 800));
             }
 
-            return new(true, true, "sent", (int)resp.StatusCode, requestId, targetUri.ToString());
+            return new(true, true, "sent", (int)resp.StatusCode, requestId, targetUri.ToString(), null);
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
@@ -423,7 +435,7 @@ internal static class MinecraftApiCommonService
                 nick,
                 targetUri,
                 elapsedMs);
-            return new(true, false, "тайм-аут подключения к Minecraft", null, requestId, targetUri.ToString());
+            return new(true, false, "тайм-аут подключения к Minecraft", null, requestId, targetUri.ToString(), null);
         }
         catch (Exception ex)
         {
@@ -437,7 +449,7 @@ internal static class MinecraftApiCommonService
                 elapsedMs,
                 ex.GetType().FullName,
                 ex.Message);
-            return new(true, false, $"{ex.GetType().Name}: {ex.Message}", null, requestId, targetUri.ToString());
+            return new(true, false, $"{ex.GetType().Name}: {ex.Message}", null, requestId, targetUri.ToString(), null);
         }
     }
 

@@ -71,11 +71,18 @@ export default function AdminMinecraftLinksPage() {
                 <div>
                   <div className="font-medium">{x.fullName || x.email}</div>
                   <div className="text-sm opacity-70 mt-1">{x.email}</div>
-                  <div className="text-sm mt-3 space-y-1 opacity-80">
-                    <div>Nick: {x.minecraftNick || '—'}</div>
-                    <div>UUID: {x.minecraftUuid || '—'}</div>
-                    <div>Привязан: {x.linkedAtUtc ? new Date(x.linkedAtUtc).toLocaleString() : '—'}</div>
-                    <div>Сколько раз привязывал: {x.linkCount ?? 0}</div>
+                  <div className="text-sm mt-3 space-y-2 opacity-80">
+                    <div>Активных привязок: {x.activeLinkCount ?? (x.activeLinks || []).length ?? 0}</div>
+                    {(x.activeLinks || []).length ? (x.activeLinks || []).map((link) => (
+                      <div key={link.id || `${link.uuid}-${link.nick}`} className="rounded-xl border px-3 py-2">
+                        <div>Nick: {link.nick || '—'}</div>
+                        <div>UUID: {link.uuid || '—'}</div>
+                        <div>Привязан: {link.linkedAtUtc ? new Date(link.linkedAtUtc).toLocaleString() : '—'}</div>
+                      </div>
+                    )) : (
+                      <div>Активных Minecraft-профилей нет</div>
+                    )}
+                    <div>Всего подтверждений за историю: {x.linkCount ?? 0}</div>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -89,7 +96,9 @@ export default function AdminMinecraftLinksPage() {
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {(x.featureRoles || []).length ? x.featureRoles.map((r) => <Badge key={r} intent="outline">{r}</Badge>) : <Badge intent="secondary">Без доп. ролей</Badge>}
-                    <Badge intent="success">Активно</Badge>
+                    {(x.activeLinkCount ?? (x.activeLinks || []).length) > 0
+                      ? <Badge intent="success">Активно</Badge>
+                      : <Badge intent="secondary">Нет активных привязок</Badge>}
                   </div>
                   <div className="text-sm opacity-70">Последняя трата: {x.lastSpentAtUtc ? new Date(x.lastSpentAtUtc).toLocaleString() : 'ещё не было'}</div>
                 </div>

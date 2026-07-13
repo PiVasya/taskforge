@@ -60,7 +60,7 @@ internal static partial class MinecraftApiEndpoints
                 Guid? userId = null;
                 if (playerUuid is Guid requestedUuid && requestedUuid != Guid.Empty)
                 {
-                    userId = await FindLinkedUserIdAsync(db, requestedUuid, null, ct);
+                    userId = await FindLinkedUserIdAsync(db, requestedUuid, null, logger, ct);
                 }
                 else
                 {
@@ -140,7 +140,7 @@ internal static partial class MinecraftApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "missing world or player data" });
 
             var entity = await db.DeathRecoveries.FirstOrDefaultAsync(x => x.DeathId == deathId, ct);
-            var linkedUserId = entity?.UserId ?? await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, ct);
+            var linkedUserId = entity?.UserId ?? await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, logger, ct);
             logger.LogInformation(
                 "Death recovery link resolution: deathId={DeathId} entityExists={EntityExists} existingUserId={ExistingUserId} resolvedUserId={ResolvedUserId}",
                 deathId,
@@ -379,7 +379,7 @@ internal static partial class MinecraftApiEndpoints
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "chest-place-not-reserved" });
                 }
 
-                var userId = death.UserId ?? await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, ct);
+                var userId = death.UserId ?? await FindLinkedUserIdAsync(db, request.PlayerUuid, request.PlayerName, logger, ct);
                 if (userId is null)
                 {
                     await transaction.RollbackAsync(ct);
@@ -603,7 +603,7 @@ internal static partial class MinecraftApiEndpoints
                 .FirstOrDefaultAsync(x => x.RequestId == sourceRequestId, ct);
             var userId = source?.UserId
                 ?? death.UserId
-                ?? await FindLinkedUserIdAsync(db, death.PlayerUuid, death.PlayerName, ct);
+                ?? await FindLinkedUserIdAsync(db, death.PlayerUuid, death.PlayerName, logger, ct);
 
             if (userId is Guid lockedUserId
                 && db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true)
@@ -742,31 +742,53 @@ internal static partial class MinecraftApiEndpoints
         MinecraftDbContext db,
         Guid playerUuid,
         string? playerName,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
         var uuid = playerUuid.ToString().ToLowerInvariant();
-        var byUuid = await db.Links.AsNoTracking()
+        var uuidOwners = await db.Links.AsNoTracking()
             .Where(x => x.Confirmed
                 && x.UnlinkedAtUtc == null
                 && x.UserId != null
                 && x.PlayerUuid != null
                 && x.PlayerUuid.ToLower() == uuid)
-            .Select(x => x.UserId)
-            .FirstOrDefaultAsync(ct);
-        if (byUuid is Guid userId) return userId;
+            .Select(x => x.UserId!.Value)
+            .Distinct()
+            .Take(2)
+            .ToListAsync(ct);
+        if (uuidOwners.Count == 1) return uuidOwners[0];
+        if (uuidOwners.Count > 1)
+        {
+            logger.LogCritical(
+                "Death recovery refused ambiguous Minecraft UUID ownership to protect the shared balance: playerUuid={PlayerUuid} userIds={UserIds}",
+                playerUuid,
+                string.Join(',', uuidOwners));
+            return null;
+        }
 
         var nick = NormalizeNick(playerName);
         if (!IsValidNick(nick)) return null;
         var lower = nick.ToLowerInvariant();
-        return await db.Links.AsNoTracking()
+        var legacyCandidates = await db.Links.AsNoTracking()
             .Where(x => x.Confirmed
                 && x.UnlinkedAtUtc == null
                 && x.UserId != null
                 && (x.PlayerUuid == null || x.PlayerUuid == string.Empty)
                 && x.PlayerName != null
                 && x.PlayerName.ToLower() == lower)
-            .Select(x => x.UserId)
-            .FirstOrDefaultAsync(ct);
+            .Select(x => x.UserId!.Value)
+            .Distinct()
+            .Take(2)
+            .ToListAsync(ct);
+        if (legacyCandidates.Count == 1) return legacyCandidates[0];
+        if (legacyCandidates.Count > 1)
+        {
+            logger.LogCritical(
+                "Death recovery refused ambiguous UUID-less nickname ownership to protect the shared balance: playerName={PlayerName} userIds={UserIds}",
+                nick,
+                string.Join(',', legacyCandidates));
+        }
+        return null;
     }
 
     private static object ToDeathRecoveryDto(MinecraftDeathRecovery x) => new

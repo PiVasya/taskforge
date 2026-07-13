@@ -25,8 +25,12 @@ internal static partial class MinecraftApiEndpoints
                 .Select(g => new
                 {
                     UserId = g.Key,
+                    ActiveLinks = g.Where(x => x.UnlinkedAtUtc == null)
+                        .OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt)
+                        .ToArray(),
                     Latest = g.Where(x => x.UnlinkedAtUtc == null).OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt).FirstOrDefault()
                         ?? g.OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt).First(),
+                    ActiveLinkCount = g.Count(x => x.UnlinkedAtUtc == null),
                     LinkCount = g.Count()
                 })
                 .ToList();
@@ -54,7 +58,15 @@ internal static partial class MinecraftApiEndpoints
                     uuid = item.Latest.PlayerUuid,
                     linkedAtUtc = item.Latest.ConfirmedAtUtc ?? item.Latest.CreatedAt,
                     unlinkedAtUtc = item.Latest.UnlinkedAtUtc,
+                    activeLinkCount = item.ActiveLinkCount,
                     linkCount = item.LinkCount,
+                    activeLinks = item.ActiveLinks.Select(x => new
+                    {
+                        id = x.Id,
+                        nick = x.PlayerName,
+                        uuid = x.PlayerUuid,
+                        linkedAtUtc = x.ConfirmedAtUtc ?? x.CreatedAt
+                    }).ToArray(),
                     totalScore = balance.baseRating,
                     baseRating = balance.baseRating,
                     minecraftBalance = balance.balance,
@@ -85,6 +97,10 @@ internal static partial class MinecraftApiEndpoints
         {
             var balance = await BuildMinecraftRatingBalanceAsync(userId, db, cfg, httpFactory, ct);
             var active = await db.Links.AsNoTracking().Where(x => x.UserId == userId && x.Confirmed && x.UnlinkedAtUtc == null).OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt).FirstOrDefaultAsync(ct);
+            var activeLinks = await db.Links.AsNoTracking()
+                .Where(x => x.UserId == userId && x.Confirmed && x.UnlinkedAtUtc == null)
+                .OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt)
+                .ToListAsync(ct);
             var linkCount = await db.Links.AsNoTracking().CountAsync(x => x.UserId == userId && x.Confirmed, ct);
             var rows = await db.RatingTransactions.AsNoTracking()
                 .Where(x => x.UserId == userId)
@@ -98,7 +114,15 @@ internal static partial class MinecraftApiEndpoints
                 linked = active != null,
                 nick = active?.PlayerName,
                 uuid = active?.PlayerUuid,
+                activeLinkCount = activeLinks.Count,
                 linkCount,
+                activeLinks = activeLinks.Select(x => new
+                {
+                    id = x.Id,
+                    nick = x.PlayerName,
+                    uuid = x.PlayerUuid,
+                    linkedAtUtc = x.ConfirmedAtUtc ?? x.CreatedAt
+                }).ToArray(),
                 baseRating = balance.baseRating,
                 minecraftBalance = balance.balance,
                 balance = balance.balance,
