@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist/minecraft-plugins
           cp plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin/build/libs/TaskForgeFoliaPlugin-*.jar dist/minecraft-plugins/TaskForgeLink.jar
-          cp plugins/minecraft/minecraft-plugin-folia/CustomMobTweaksPlugin/build/libs/CustomMobTweaksPlugin-*.jar dist/minecraft-plugins/CustomMobTweaks.jar
+          cp plugins/minecraft/minecraft-plugin-folia/CustomMobTweaksPlugin/build/libs/CustomMobTweaks-*.jar dist/minecraft-plugins/CustomMobTweaks.jar
           cd dist/minecraft-plugins
           sha256sum *.jar > SHA256SUMS.txt
           zip -9 ../taskforge-minecraft-plugins.zip *.jar SHA256SUMS.txt

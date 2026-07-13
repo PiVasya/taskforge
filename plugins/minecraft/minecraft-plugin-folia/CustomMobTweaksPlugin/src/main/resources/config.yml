@@ -1,3 +1,10 @@
+# CustomMobTweaks 2.0.0
+# Target: Folia 26.1.2 / Java 25.
+# Chances accept either 0.0-1.0 or percentages greater than 1 (for example 2 = 2%).
+
+# -----------------------------------------------------------------------------
+# Existing CustomMobTweaks mechanics
+# -----------------------------------------------------------------------------
 blaze-fireball-lightning:
   enabled: true
   effect-only: true
@@ -35,6 +42,7 @@ breeze-fireball-primary:
   fire-ticks: 40
   incendiary: false
 
+# Applied when a drowned-thrown trident hits something.
 drowned-trident-glow:
   enabled: true
   duration-ticks: 80
@@ -74,5 +82,413 @@ skeleton-sniper:
   homing-lead-factor: 0.35
   max-track-distance: 40.0
 
+# -----------------------------------------------------------------------------
+# Mechanics ported and rebuilt from CreakingPerks
+# -----------------------------------------------------------------------------
+harder-creaking:
+  enabled: true
+  # Potion amplifier, 9 means Speed X.
+  speed-amplifier: 9
+  hit-damage: 20.0
+  blindness-duration-ticks: 100
+  darkness-radius: 10.0
+  darkness-duration-ticks: 50
+  darkness-check-period-ticks: 20
+
+harder-breeze:
+  enabled: true
+
+  # A Breeze shoots an additional wind charge at the closest visible player.
+  attack-cooldown-ticks: 10
+  attack-range: 16.0
+  projectile-speed: 1.5
+  require-line-of-sight: true
+
+  # Taking damage from the Breeze starts a rain of wind charges over the player.
+  projectile-rain-amount: 5
+  projectile-rain-radius: 3.0
+  projectile-rain-height: 8.0
+  projectile-rain-speed: 0.5
+  projectile-rain-duration-ticks: 60
+  projectile-rain-period-ticks: 10
+
+  # Every Breeze wind charge creates a visual blast and pushes nearby entities.
+  explosion-radius: 3.0
+  explosion-knockback: 1.5
+  explosion-damage: 0.0
+
+  # CreakingPerks used a 5% radiation-zone chance for Breeze charges.
+  radiation-zone:
+    enabled: true
+    chance: 0.05
+    radius: 5.0
+    knockback: 2.0
+    fire-duration-ticks: 100
+    duration-ticks: 120
+    check-period-ticks: 5
+    item-drop-interval-ticks: 60
+    drop-random-inventory-items: true
+    particle-density: 50
+
+harder-bogged:
+  enabled: true
+  bleeding-duration-ticks: 100
+  poison-duration-ticks: 20
+  particle-spawn-interval-ticks: 5
+
+  # Green blood puddles remain on the ground and empower the first hostile mob
+  # that steps into them. Bogged themselves are not buffed.
+  blood-particle-duration-ticks: 100
+  puddle-check-period-ticks: 5
+  puddle-trigger-radius: 1.0
+  mob-buff-duration-ticks: 200
+  mob-size-multiplier: 1.25
+  mob-damage-multiplier: 1.5
+
+harder-armadillo:
+  enabled: true
+  base-sphere-radius: 10.0
+  radius-per-20-percent-health-loss: 5.0
+  sphere-duration-ticks: 100
+  check-period-ticks: 5
+  particle-density: 20
+  push-force: 1.5
+
+harder-stray:
+  enabled: true
+  freeze-duration-ticks: 100
+  freeze-damage-interval-ticks: 20
+  slowness-amplifier: 1
+  particle-density: 10
+
+  # true: temporarily removes maximum health every interval, then restores it.
+  # false: deals direct damage instead.
+  use-max-health-reduction: true
+  max-health-reduction-per-interval: 0.5
+  direct-damage-per-interval: 16.0
+
+illusioner-spawn:
+  enabled: true
+  # No custom/purple name is assigned.
+  replace-natural-hostile-mobs: true
+  replacement-chance: 0.001
+  give-bow: true
+  health-multiplier: 1.0
+
+  # Additional Folia-safe spawn attempts around online players.
+  periodic-check-interval-ticks: 600
+  periodic-spawn:
+    enabled: true
+    chance-per-check: 0.001
+    min-radius: 24
+    max-radius: 48
+    max-block-light: 7
+    no-other-illusioner-radius: 48.0
+
+# A new configurable elite zombie variant requested for this update.
+trident-zombie:
+  enabled: true
+  spawn-chance: 0.03
+  health-multiplier: 1.5
+  damage-multiplier: 1.35
+  speed-multiplier: 1.10
+  attack-range: 18.0
+  attack-cooldown-ticks: 50
+  trident-speed: 1.35
+  trident-damage: 8.0
+  require-line-of-sight: true
+
+freezing-snowball:
+  enabled: true
+  players-only: false
+  freeze-duration-ticks: 60
+  slowness-amplifier: 2
+  mining-fatigue-amplifier: 1
+  particle-density: 15
+
+lava-damage:
+  enabled: true
+  check-period-ticks: 10
+  armor-damage-interval-ticks: 20
+  regular-armor-damage: 50
+  netherite-health-damage: 4.0
+  netherite-item-melt-interval-ticks: 40
+  netherite-repair-amount: 10
+  particle-density: 15
+  notify-item-melt: true
+
+dry-weapon:
+  enabled: true
+  weapon-durability: 150
+  long-range-damage: 2.0
+  short-range-damage: 1.0
+  max-range: 10.0
+  ray-size: 0.45
+  min-ammo-cost: 1
+  max-ammo-cost: 10
+  craft-fail-chance: 0.05
+  min-fire-rate: 1
+  max-fire-rate: 3
+  leaf-hit-tracking-duration-ticks: 1200
+  tornado-minimum-hits: 5
+  tornado-chance: 0.2
+  tornado-lift-per-2-hits: 1
+  tornado-max-lift-blocks: 50
+  fire-effect-chance: 0.2
+  fire-effect-duration-ticks: 60
+  splinter-effect-chance: 0.2
+  splinter-effect-duration-ticks: 100
+  durability-damage-chance: 0.2
+  item-durability-damage: 5
+
+happy-ghast-bomber:
+  enabled: true
+  slow-drop-interval-ticks: 20
+  fast-drop-interval-ticks: 20
+  fast-mode-min-tnt: 10
+  min-tnt-cost: 1
+  max-tnt-cost: 5
+  projectile-count: 5
+  projectile-spread: 2.0
+  projectile-speed: 0.8
+  radiation-zone:
+    radius: 5.0
+    knockback: 2.0
+    fire-duration-ticks: 100
+    duration-ticks: 120
+    check-period-ticks: 5
+    item-drop-interval-ticks: 60
+    drop-random-inventory-items: true
+    particle-density: 50
+
+# -----------------------------------------------------------------------------
+# Extra loot
+# Each enhanced mob has an independent switch and an arbitrary number of drops.
+# chance: 0.02 means 2%; chance: 2 also means 2%.
+# -----------------------------------------------------------------------------
+extra-loot:
+  breeze:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      breeze-rods:
+        material: BREEZE_ROD
+        chance: 1.0
+        min-amount: 1
+        max-amount: 100
+      elytra:
+        material: ELYTRA
+        chance: 0.02
+        looting-bonus-per-level: 0.0025
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.08
+        looting-bonus-per-level: 0.01
+        min-amount: 1
+        max-amount: 2
+
+  trident-zombie:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      trident:
+        material: TRIDENT
+        chance: 0.12
+        looting-bonus-per-level: 0.02
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.03
+        min-amount: 1
+        max-amount: 1
+
+  creaking:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      resin:
+        material: RESIN_CLUMP
+        chance: 0.65
+        looting-bonus-per-level: 0.05
+        min-amount: 2
+        max-amount: 8
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.025
+        min-amount: 1
+        max-amount: 1
+
+  bogged:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      spore-blossom:
+        material: SPORE_BLOSSOM
+        chance: 0.12
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.025
+        min-amount: 1
+        max-amount: 1
+
+  stray:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      blue-ice:
+        material: BLUE_ICE
+        chance: 0.20
+        min-amount: 1
+        max-amount: 3
+      echo-shard:
+        material: ECHO_SHARD
+        chance: 0.035
+        min-amount: 1
+        max-amount: 1
+
+  armadillo:
+    enabled: false
+    killed-by-player-only: true
+    drops:
+      scutes:
+        material: ARMADILLO_SCUTE
+        chance: 0.30
+        min-amount: 1
+        max-amount: 3
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
+
+  illusioner:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      enchanted-golden-apple:
+        material: ENCHANTED_GOLDEN_APPLE
+        chance: 1.0
+        looting-bonus-per-level: 0.01
+        min-amount: 1
+        max-amount: 1
+      totem:
+        material: TOTEM_OF_UNDYING
+        chance: 0.08
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.05
+        min-amount: 1
+        max-amount: 2
+
+  drowned:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      trident:
+        material: TRIDENT
+        chance: 0.05
+        looting-bonus-per-level: 0.01
+        min-amount: 1
+        max-amount: 1
+
+  blaze:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      blaze-rods:
+        material: BLAZE_ROD
+        chance: 0.35
+        looting-bonus-per-level: 0.03
+        min-amount: 1
+        max-amount: 4
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.02
+        min-amount: 1
+        max-amount: 1
+
+  wither-skeleton:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      skull:
+        material: WITHER_SKELETON_SKULL
+        chance: 0.04
+        looting-bonus-per-level: 0.01
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.035
+        min-amount: 1
+        max-amount: 1
+
+  pillager:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      emeralds:
+        material: EMERALD
+        chance: 0.20
+        min-amount: 1
+        max-amount: 5
+      totem:
+        material: TOTEM_OF_UNDYING
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
+
+  snow-golem:
+    enabled: false
+    killed-by-player-only: true
+    drops:
+      packed-ice:
+        material: PACKED_ICE
+        chance: 0.25
+        min-amount: 1
+        max-amount: 3
+
+  happy-ghast:
+    enabled: false
+    killed-by-player-only: true
+    drops:
+      wind-charges:
+        material: WIND_CHARGE
+        chance: 0.50
+        min-amount: 2
+        max-amount: 8
+      ghast-tears:
+        material: GHAST_TEAR
+        chance: 0.25
+        min-amount: 1
+        max-amount: 3
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
+
+  skeleton-sniper:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      spectral-arrows:
+        material: SPECTRAL_ARROW
+        chance: 0.30
+        min-amount: 2
+        max-amount: 10
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.015
+        min-amount: 1
+        max-amount: 1
+
 messages:
-  debug: true
+  debug: false

@@ -44,10 +44,12 @@ public final class MobEffectsListener implements Listener {
 
     private final CustomMobTweaksPlugin plugin;
     private final NamespacedKey pillagerPierceArrowKey;
+    private final NamespacedKey harderBreezeChargeKey;
 
     public MobEffectsListener(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
         this.pillagerPierceArrowKey = new NamespacedKey(plugin, "pillager_pierce_arrow");
+        this.harderBreezeChargeKey = new NamespacedKey(plugin, "harder_breeze_charge");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -312,6 +314,9 @@ public final class MobEffectsListener implements Listener {
         }
 
         if (!(event.getEntity() instanceof BreezeWindCharge windCharge)) {
+            return;
+        }
+        if (windCharge.getPersistentDataContainer().has(harderBreezeChargeKey, PersistentDataType.BYTE)) {
             return;
         }
         if (!(windCharge.getShooter() instanceof Breeze breeze)) {
@@ -607,7 +612,7 @@ public final class MobEffectsListener implements Listener {
 
     private void debug(String text) {
         if (plugin.getConfig().getBoolean("messages.debug", false)) {
-            plugin.getLogger().info("[CustomMobTweaks][DEBUG] " + text);
+            plugin.getLogger().info(text);
         }
     }
 }

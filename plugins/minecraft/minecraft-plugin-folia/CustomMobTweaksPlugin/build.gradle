@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'me.vasya'
-version = '1.1.1'
+version = '2.0.0'
 
 def targetJava = 25
 java {
@@ -18,10 +18,14 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'dev.folia:folia-api:26.1.2.build.8-stable'
+    compileOnly 'io.papermc.paper:paper-api:26.1.2.build.74-stable'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release.set(targetJava)
+}
+
+jar {
+    archiveBaseName = 'CustomMobTweaks'
 }
