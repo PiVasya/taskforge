@@ -71,7 +71,7 @@ internal static partial class MinecraftApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Ok(new { ignored = true });
             }
 
-            var activeLink = await FindActiveLinkAsync(db, nick, uuid, ct);
+            var activeLink = await FindActiveLinkAsync(db, nick, uuid, logger, ct);
             var linkedUserId = activeLink?.UserId;
             logger.LogInformation("Minecraft chat link resolution: nick={Nick} uuid={Uuid} linked={Linked} userId={UserId}", nick, uuid, linkedUserId.HasValue, linkedUserId);
             var msg = new MinecraftChatMessage
