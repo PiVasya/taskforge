@@ -426,7 +426,6 @@ export default function SettingsPage() {
 
   const [mcStatus, setMcStatus] = useState(null);
   const [mcNick, setMcNick] = useState("");
-  const [mcGeneratedCode, setMcGeneratedCode] = useState("");
   const [mcInputCode, setMcInputCode] = useState("");
   const [mcExpires, setMcExpires] = useState(null);
   const [mcDelivery, setMcDelivery] = useState(null);
@@ -781,10 +780,11 @@ export default function SettingsPage() {
     try {
       setMcLoading(true);
       setMcError(null);
+      setMcDelivery(null);
+      setMcExpires(null);
       const dto = await requestMinecraftLink(nick);
       setMcInputCode("");
       setMcExpires(dto.expiresAtUtc);
-      setMcGeneratedCode(dto.code || "");
       setMcDelivery(dto.delivery || null);
       setMcStatus(dto.status || dto);
       notify.success("Код Minecraft создан");
@@ -836,7 +836,6 @@ export default function SettingsPage() {
       setMcLoading(true);
       setMcError(null);
       await unlinkMinecraft();
-      setMcGeneratedCode("");
       setMcInputCode("");
       setMcExpires(null);
       setMcDelivery(null);
@@ -850,16 +849,6 @@ export default function SettingsPage() {
       setMcError(parsed);
     } finally {
       setMcLoading(false);
-    }
-  };
-
-  const handleCopyMcCode = async () => {
-    if (!mcGeneratedCode) return;
-    try {
-      await navigator.clipboard.writeText(mcGeneratedCode);
-      notify.success("Код скопирован");
-    } catch {
-      notify.warn("Не удалось скопировать код");
     }
   };
 
@@ -1556,25 +1545,13 @@ export default function SettingsPage() {
             </div>
             {mcDelivery ? (
               <div
-                className={`rounded-2xl px-3 py-2 text-xs ${mcDelivery.delivered ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}`}
+                className={`rounded-2xl px-3 py-2 text-xs ${mcDelivery.delivered ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}
               >
-                {mcDelivery.attempted
-                  ? mcDelivery.delivered
-                    ? "Код отправлен в игру."
-                    : `Не удалось доставить код в игру: ${mcDelivery.message}`
-                  : "Плагин Minecraft ещё не настроен. Код можно ввести вручную."}
-              </div>
-            ) : null}
-            {mcGeneratedCode ? (
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Запасной код
-                </div>
-                <div className="mt-1 font-mono text-lg tracking-wider">
-                  {mcGeneratedCode}
-                </div>
-                {mcExpires ? (
-                  <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {mcDelivery.delivered
+                  ? "Код отправлен в игру. Введите полученный код ниже."
+                  : `Не удалось доставить код в игру: ${mcDelivery.message || "неизвестная ошибка"}`}
+                {mcDelivery.delivered && mcExpires ? (
+                  <div className="mt-1 opacity-80">
                     Действует до: {new Date(mcExpires).toLocaleString()}
                   </div>
                 ) : null}
@@ -1582,7 +1559,7 @@ export default function SettingsPage() {
             ) : null}
             <div>
               <label className="text-sm text-neutral-500 dark:text-neutral-400">
-                Код из игры
+                Код, полученный в игре
               </label>
               <Input
                 placeholder="ABCD-EFGH"
@@ -1598,13 +1575,6 @@ export default function SettingsPage() {
                 disabled={mcLoading || !mcInputCode}
               >
                 Подтвердить
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleCopyMcCode}
-                disabled={!mcGeneratedCode}
-              >
-                Копировать запасной код
               </Button>
             </div>
           </div>

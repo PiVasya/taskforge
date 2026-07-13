@@ -1082,14 +1082,67 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 }
 
                 Player finalP = p;
-                // Folia-safe: отправка сообщения через scheduler игрока
-                finalP.getScheduler().run(plugin, task -> {
-                    finalP.sendMessage("\u00A7a\u2714 \u00A7fКод привязки TaskForge: \u00A7e" + code);
-                    finalP.sendMessage("\u00A77Введи его на сайте в профиле. Код действует примерно 10 минут.");
-                }, null);
-
                 String uuid = finalP.getUniqueId().toString();
-                plugin.getLogger().info("[TF->MC] code delivered nick=" + finalP.getName() + " uuid=" + uuid + " ip=" + remoteIp);
+                CompletableFuture<Boolean> deliveredFuture = new CompletableFuture<>();
+
+                plugin.getLogger().info("[TF->MC] scheduling code delivery nick=" + finalP.getName()
+                        + " uuid=" + uuid + " requestId=" + requestId + " ip=" + remoteIp);
+
+                // Folia-safe: the HTTP request is acknowledged only after the entity task actually runs.
+                finalP.getScheduler().run(plugin, task -> {
+                    try {
+                        finalP.sendMessage("\u00A7a\u2714 \u00A7fКод привязки TaskForge: \u00A7e" + code);
+                        finalP.sendMessage("\u00A77Введи его на сайте в профиле. Код действует примерно 10 минут.");
+                        deliveredFuture.complete(true);
+                        plugin.getLogger().info("[TF->MC] entity task delivered code nick=" + finalP.getName()
+                                + " uuid=" + uuid + " requestId=" + requestId);
+                    } catch (Throwable sendError) {
+                        deliveredFuture.completeExceptionally(sendError);
+                        plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                                "[TF->MC] entity task failed while delivering code nick=" + finalP.getName()
+                                        + " uuid=" + uuid + " requestId=" + requestId,
+                                sendError);
+                    }
+                }, () -> {
+                    deliveredFuture.complete(false);
+                    plugin.getLogger().warning("[TF->MC] entity scheduler retired before code delivery nick="
+                            + finalP.getName() + " uuid=" + uuid + " requestId=" + requestId);
+                });
+
+                final boolean delivered;
+                try {
+                    delivered = deliveredFuture.get(4, TimeUnit.SECONDS);
+                } catch (TimeoutException timeout) {
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "[TF->MC] timed out waiting for entity scheduler nick=" + finalP.getName()
+                                    + " uuid=" + uuid + " requestId=" + requestId,
+                            timeout);
+                    writeJson(ex, 504, "{\"delivered\":false,\"online\":true,\"reason\":\"scheduler_timeout\"}");
+                    return;
+                } catch (ExecutionException execution) {
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "[TF->MC] entity scheduler delivery failed nick=" + finalP.getName()
+                                    + " uuid=" + uuid + " requestId=" + requestId,
+                            execution.getCause() == null ? execution : execution.getCause());
+                    writeJson(ex, 500, "{\"delivered\":false,\"online\":true,\"reason\":\"scheduler_failed\"}");
+                    return;
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "[TF->MC] interrupted while waiting for entity scheduler nick=" + finalP.getName()
+                                    + " uuid=" + uuid + " requestId=" + requestId,
+                            interrupted);
+                    writeJson(ex, 503, "{\"delivered\":false,\"online\":true,\"reason\":\"interrupted\"}");
+                    return;
+                }
+
+                if (!delivered) {
+                    writeJson(ex, 409, "{\"delivered\":false,\"online\":false,\"reason\":\"player_unavailable\"}");
+                    return;
+                }
+
+                plugin.getLogger().info("[TF->MC] code delivery confirmed nick=" + finalP.getName()
+                        + " uuid=" + uuid + " requestId=" + requestId + " ip=" + remoteIp);
                 writeJson(ex, 200, "{\"delivered\":true,\"online\":true,\"uuid\":\"" + uuid + "\"}");
             } catch (Exception e) {
                 plugin.getLogger().log(java.util.logging.Level.SEVERE, "[TF->MC] HTTP handler error", e);

@@ -38,7 +38,7 @@ internal static partial class MinecraftApiEndpoints
             var code = GenerateCode();
             var (salt, hash) = HashCode(code);
             var expires = now.AddMinutes(10);
-            db.LinkCodes.Add(new MinecraftLinkCode
+            var linkCode = new MinecraftLinkCode
             {
                 Id = Guid.NewGuid(),
                 UserId = uid.Value,
@@ -47,20 +47,62 @@ internal static partial class MinecraftApiEndpoints
                 CodeHash = hash,
                 ExpiresAtUtc = expires,
                 CreatedAtUtc = now
-            });
+            };
+            db.LinkCodes.Add(linkCode);
             await db.SaveChangesAsync(ct);
 
-            logger.LogInformation("Minecraft link code generated: user={UserId} nick={Nick} code={Code} exp={Exp}", uid, nick, code, expires);
+            logger.LogInformation(
+                "Minecraft link code generated: user={UserId} nick={Nick} codeId={CodeId} codeFp={CodeFingerprint} expiresAt={ExpiresAt}",
+                uid,
+                nick,
+                linkCode.Id,
+                SecretFingerprint(code),
+                expires);
+
             var deliveryResult = await SendLinkCodeAsync(nick, code, cfg, httpFactory, logger, ct);
-            var attempted = !string.IsNullOrWhiteSpace(cfg["MINECRAFT_WEBHOOK_BASE_URL"]) || !string.IsNullOrWhiteSpace(cfg["MINECRAFT_SERVER_URL"]);
+            if (!deliveryResult.Ok)
+            {
+                db.LinkCodes.Remove(linkCode);
+                await db.SaveChangesAsync(ct);
+                logger.LogWarning(
+                    "Minecraft link code discarded because delivery failed: user={UserId} nick={Nick} codeId={CodeId} attempted={Attempted} status={StatusCode} message={Message}",
+                    uid,
+                    nick,
+                    linkCode.Id,
+                    deliveryResult.Attempted,
+                    deliveryResult.StatusCode,
+                    deliveryResult.Message);
+
+                return Microsoft.AspNetCore.Http.Results.Json(new
+                {
+                    message = deliveryResult.Attempted
+                        ? $"Не удалось отправить код в Minecraft: {deliveryResult.Message}"
+                        : $"Отправка кода в Minecraft не настроена: {deliveryResult.Message}",
+                    delivery = new
+                    {
+                        attempted = deliveryResult.Attempted,
+                        delivered = false,
+                        message = deliveryResult.Message,
+                        statusCode = deliveryResult.StatusCode
+                    }
+                }, statusCode: deliveryResult.Attempted
+                    ? StatusCodes.Status502BadGateway
+                    : StatusCodes.Status503ServiceUnavailable);
+            }
+
             var status = await BuildStatusAsync(uid.Value, db, cfg, httpFactory, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                code,
                 expiresAtUtc = expires,
                 expiresInSeconds = (int)Math.Max(0, (expires - DateTimeOffset.UtcNow).TotalSeconds),
                 status,
-                delivery = new { attempted, delivered = deliveryResult.Ok, message = deliveryResult.Message }
+                delivery = new
+                {
+                    attempted = deliveryResult.Attempted,
+                    delivered = true,
+                    message = deliveryResult.Message,
+                    statusCode = deliveryResult.StatusCode
+                }
             });
         });
 

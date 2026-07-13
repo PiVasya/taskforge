@@ -182,3 +182,8 @@ Do not switch these values to `0` or remove the development probes unless the us
 ## Image-test v2 MinIO
 
 Image-test expected images are stored in MinIO/S3 via files-api. `TestsJson` stores only input/output/threshold/hidden metadata and image keys/URLs. See `IMAGE_TEST_V2_MINIO_UPDATE.md`.
+
+
+## Minecraft link-code delivery
+
+Production sends account-link codes directly from `minecraft-api` to `http://mc.taskforge.by:25566/taskforge/link/send`. The browser never receives or displays a fallback code. Configure matching `MINECRAFT_WEBHOOK_KEY` / `security.taskforgeKey` values and keep TCP port `25566` reachable from the site server. Startup and delivery diagnostics are logged without revealing raw secrets or one-time codes.

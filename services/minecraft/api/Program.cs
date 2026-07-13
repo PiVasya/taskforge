@@ -20,6 +20,39 @@ var app = builder.Build();
 
 app.UseTaskForgeDebugRequestLogging("minecraft-api");
 
+var configuredWebhookBaseUrl = (builder.Configuration["MINECRAFT_WEBHOOK_BASE_URL"]
+    ?? builder.Configuration["MINECRAFT_SERVER_URL"]
+    ?? string.Empty).Trim();
+var configuredWebhookPath = (builder.Configuration["MINECRAFT_WEBHOOK_SEND_CODE_PATH"]
+    ?? builder.Configuration["MINECRAFT_SERVER_LINK_PATH"]
+    ?? "/taskforge/link/send").Trim();
+var configuredHealthUrl = (builder.Configuration["MINECRAFT_HEALTH_URL"] ?? string.Empty).Trim();
+var configuredWebhookKey = builder.Configuration["MINECRAFT_WEBHOOK_KEY"]
+    ?? builder.Configuration["MINECRAFT_SERVER_KEY"]
+    ?? string.Empty;
+var configuredPluginKey = builder.Configuration["MINECRAFT_PLUGIN_KEY"]
+    ?? builder.Configuration["MINECRAFT_SERVER_KEY"]
+    ?? string.Empty;
+
+app.Logger.LogInformation(
+    "[minecraft-config] webhookBaseUrl={WebhookBaseUrl} webhookPath={WebhookPath} healthUrl={HealthUrl} webhookKeyPresent={WebhookKeyPresent} webhookKeyLen={WebhookKeyLength} webhookKeyFp={WebhookKeyFingerprint} pluginKeyPresent={PluginKeyPresent} pluginKeyLen={PluginKeyLength} pluginKeyFp={PluginKeyFingerprint}",
+    string.IsNullOrWhiteSpace(configuredWebhookBaseUrl) ? "<empty>" : configuredWebhookBaseUrl,
+    configuredWebhookPath,
+    string.IsNullOrWhiteSpace(configuredHealthUrl) ? "<empty>" : configuredHealthUrl,
+    !string.IsNullOrWhiteSpace(configuredWebhookKey),
+    configuredWebhookKey.Length,
+    KeyFingerprint(configuredWebhookKey),
+    !string.IsNullOrWhiteSpace(configuredPluginKey),
+    configuredPluginKey.Length,
+    KeyFingerprint(configuredPluginKey));
+
+if (string.IsNullOrWhiteSpace(configuredWebhookBaseUrl))
+    app.Logger.LogError("[minecraft-config] link-code delivery is disabled because MINECRAFT_WEBHOOK_BASE_URL is empty");
+if (string.IsNullOrWhiteSpace(configuredWebhookKey))
+    app.Logger.LogError("[minecraft-config] link-code delivery is disabled because MINECRAFT_WEBHOOK_KEY is empty");
+if (string.IsNullOrWhiteSpace(configuredHealthUrl))
+    app.Logger.LogWarning("[minecraft-config] direct Minecraft health URL is empty; online-player probe will use the webhook base URL when possible");
+
 app.Use(async (context, next) =>
 {
     if (!context.Request.Path.StartsWithSegments("/api/integrations/minecraft"))

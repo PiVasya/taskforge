@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
@@ -16,6 +17,21 @@ namespace TaskForge.Minecraft.Api.Services.Common;
 internal static class MinecraftApiCommonService
 {
     private static readonly Regex NickRx = new("^[A-Za-z0-9_]{3,16}$", RegexOptions.Compiled);
+
+    internal sealed record MinecraftWebhookDeliveryResult(
+        bool Attempted,
+        bool Ok,
+        string Message,
+        int? StatusCode,
+        string? RequestId,
+        string? Uri);
+
+    internal static string SecretFingerprint(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "missing";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes.AsSpan(0, 6)).ToLowerInvariant();
+    }
 
     internal static IResult Unauthorized() => Microsoft.AspNetCore.Http.Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);
 
@@ -279,44 +295,149 @@ internal static class MinecraftApiCommonService
         return (true, MergeActivitySummaries(solutions, tasks));
     }
 
-    internal static async Task<(bool Ok, string Message)> SendLinkCodeAsync(string nick, string code, IConfiguration cfg, IHttpClientFactory httpFactory, ILogger logger, CancellationToken ct)
+    internal static async Task<MinecraftWebhookDeliveryResult> SendLinkCodeAsync(
+        string nick,
+        string code,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        ILogger logger,
+        CancellationToken ct)
     {
         var baseUrl = (cfg["MINECRAFT_WEBHOOK_BASE_URL"] ?? cfg["MINECRAFT_SERVER_URL"] ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(baseUrl)) return (false, "Webhook Minecraft не настроен");
-        var path = cfg["MINECRAFT_WEBHOOK_SEND_CODE_PATH"] ?? cfg["MINECRAFT_SERVER_LINK_PATH"] ?? "/taskforge/link/send";
-        var key = cfg["MINECRAFT_WEBHOOK_KEY"] ?? cfg["MINECRAFT_SERVER_KEY"];
+        var path = (cfg["MINECRAFT_WEBHOOK_SEND_CODE_PATH"] ?? cfg["MINECRAFT_SERVER_LINK_PATH"] ?? "/taskforge/link/send").Trim();
+        var key = cfg["MINECRAFT_WEBHOOK_KEY"] ?? cfg["MINECRAFT_SERVER_KEY"] ?? string.Empty;
+        var requestId = Guid.NewGuid().ToString("N");
+
+        logger.LogInformation(
+            "[minecraft-webhook] preparing link-code delivery nick={Nick} requestId={RequestId} baseUrlPresent={BaseUrlPresent} baseUrl={BaseUrl} path={Path} keyPresent={KeyPresent} keyLen={KeyLength} keyFp={KeyFingerprint} codeFp={CodeFingerprint}",
+            nick,
+            requestId,
+            !string.IsNullOrWhiteSpace(baseUrl),
+            string.IsNullOrWhiteSpace(baseUrl) ? "<empty>" : baseUrl,
+            path,
+            !string.IsNullOrWhiteSpace(key),
+            key.Length,
+            SecretFingerprint(key),
+            SecretFingerprint(code));
+
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            logger.LogError(
+                "[minecraft-webhook] delivery blocked: MINECRAFT_WEBHOOK_BASE_URL and MINECRAFT_SERVER_URL are empty requestId={RequestId} nick={Nick}",
+                requestId,
+                nick);
+            return new(false, false, "адрес Minecraft-сервера не задан", null, requestId, null);
+        }
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsedBase)
+            || (parsedBase.Scheme != Uri.UriSchemeHttp && parsedBase.Scheme != Uri.UriSchemeHttps))
+        {
+            logger.LogError(
+                "[minecraft-webhook] delivery blocked: invalid base URL requestId={RequestId} nick={Nick} baseUrl={BaseUrl}",
+                requestId,
+                nick,
+                baseUrl);
+            return new(false, false, "некорректный адрес Minecraft-сервера", null, requestId, baseUrl);
+        }
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            logger.LogError(
+                "[minecraft-webhook] delivery blocked: MINECRAFT_WEBHOOK_KEY and MINECRAFT_SERVER_KEY are empty requestId={RequestId} nick={Nick} baseUrl={BaseUrl}",
+                requestId,
+                nick,
+                baseUrl);
+            return new(false, false, "ключ webhook не задан", null, requestId, baseUrl);
+        }
+
+        var targetUri = new Uri(parsedBase.ToString().TrimEnd('/') + "/" + path.TrimStart('/'));
+        var started = Stopwatch.GetTimestamp();
 
         try
         {
             var client = httpFactory.CreateClient("minecraft-webhook");
-            client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(8);
-            using var msg = new HttpRequestMessage(HttpMethod.Post, path.TrimStart('/'))
+            using var msg = new HttpRequestMessage(HttpMethod.Post, targetUri)
             {
                 Content = JsonContent.Create(new { nick, code, ttlSeconds = 600 }, options: JsonOptions())
             };
-            msg.Headers.TryAddWithoutValidation("X-Request-Id", Guid.NewGuid().ToString("N"));
-            if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-TaskForge-Key", key);
+            msg.Headers.TryAddWithoutValidation("X-Request-Id", requestId);
+            msg.Headers.TryAddWithoutValidation("X-TaskForge-Key", key);
+
+            logger.LogInformation(
+                "[minecraft-webhook] -> POST {Uri} requestId={RequestId} nick={Nick} timeoutSeconds={TimeoutSeconds}",
+                targetUri,
+                requestId,
+                nick,
+                client.Timeout.TotalSeconds);
+
             using var resp = await client.SendAsync(msg, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode) return (false, $"Webhook ответил {(int)resp.StatusCode}. {Short(body, 300)}");
+            var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+            logger.LogInformation(
+                "[minecraft-webhook] <- POST {Uri} requestId={RequestId} nick={Nick} status={StatusCode} elapsedMs={ElapsedMs:F1} body={Body}",
+                targetUri,
+                requestId,
+                nick,
+                (int)resp.StatusCode,
+                elapsedMs,
+                Short(body, 800));
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                return new(true, false, $"HTTP {(int)resp.StatusCode}: {Short(body, 300)}", (int)resp.StatusCode, requestId, targetUri.ToString());
+            }
+
             try
             {
                 using var doc = JsonDocument.Parse(body);
                 var root = doc.RootElement;
                 var delivered = root.TryGetProperty("delivered", out var d) && d.ValueKind == JsonValueKind.True;
                 var duplicate = root.TryGetProperty("duplicate", out var dup) && dup.ValueKind == JsonValueKind.True;
-                if (delivered) return (true, "delivered");
-                if (duplicate) return (true, "duplicate");
-                if (root.TryGetProperty("reason", out var reason) && reason.ValueKind == JsonValueKind.String) return (false, reason.GetString() ?? "not delivered");
+                if (delivered) return new(true, true, "delivered", (int)resp.StatusCode, requestId, targetUri.ToString());
+                if (duplicate) return new(true, true, "duplicate", (int)resp.StatusCode, requestId, targetUri.ToString());
+                if (root.TryGetProperty("reason", out var reason) && reason.ValueKind == JsonValueKind.String)
+                    return new(true, false, reason.GetString() ?? "not delivered", (int)resp.StatusCode, requestId, targetUri.ToString());
             }
-            catch {}
-            return (true, "sent");
+            catch (Exception parseEx)
+            {
+                logger.LogWarning(
+                    parseEx,
+                    "[minecraft-webhook] response JSON parse failed requestId={RequestId} nick={Nick} uri={Uri} body={Body}",
+                    requestId,
+                    nick,
+                    targetUri,
+                    Short(body, 800));
+            }
+
+            return new(true, true, "sent", (int)resp.StatusCode, requestId, targetUri.ToString());
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            logger.LogError(
+                ex,
+                "[minecraft-webhook] timeout requestId={RequestId} nick={Nick} uri={Uri} elapsedMs={ElapsedMs:F1}",
+                requestId,
+                nick,
+                targetUri,
+                elapsedMs);
+            return new(true, false, "тайм-аут подключения к Minecraft", null, requestId, targetUri.ToString());
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Minecraft webhook delivery error for nick={Nick}", nick);
-            return (false, "ошибка доставки");
+            var elapsedMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            logger.LogError(
+                ex,
+                "[minecraft-webhook] delivery exception requestId={RequestId} nick={Nick} uri={Uri} elapsedMs={ElapsedMs:F1} exceptionType={ExceptionType} exceptionMessage={ExceptionMessage}",
+                requestId,
+                nick,
+                targetUri,
+                elapsedMs,
+                ex.GetType().FullName,
+                ex.Message);
+            return new(true, false, $"{ex.GetType().Name}: {ex.Message}", null, requestId, targetUri.ToString());
         }
     }
 
