@@ -61,14 +61,6 @@ internal static class MinecraftApiCommonService
         return SHA256.HashData(input);
     }
 
-    internal static DateTimeOffset GetWeekStartUtc(DateTimeOffset now)
-    {
-        var utc = now.UtcDateTime;
-        var day = (int)utc.DayOfWeek;
-        var diffToMonday = day == 0 ? 6 : day - 1;
-        return new DateTimeOffset(utc.Date.AddDays(-diffToMonday), TimeSpan.Zero);
-    }
-
     internal static string? PluginKey(IConfiguration cfg) => cfg["MINECRAFT_PLUGIN_KEY"] ?? cfg["MINECRAFT_SERVER_KEY"];
 
     internal static bool IsPluginAuthorized(HttpContext http, IConfiguration cfg)
@@ -77,41 +69,34 @@ internal static class MinecraftApiCommonService
         if (string.IsNullOrWhiteSpace(key)) return false;
         var fromPlugin = http.Request.Headers["X-Minecraft-Key"].ToString();
         var fromTaskForge = http.Request.Headers["X-TaskForge-Key"].ToString();
-        return string.Equals(fromPlugin, key, StringComparison.Ordinal) || string.Equals(fromTaskForge, key, StringComparison.Ordinal);
+        return string.Equals(fromPlugin, key, StringComparison.Ordinal)
+            || string.Equals(fromTaskForge, key, StringComparison.Ordinal);
     }
 
-    internal static async Task<MinecraftEconomySettings> GetOrCreateEconomySettingsAsync(MinecraftDbContext db, IConfiguration cfg, CancellationToken ct)
-    {
-        var existing = await db.EconomySettings.OrderByDescending(x => x.UpdatedAtUtc).FirstOrDefaultAsync(ct);
-        if (existing != null) return existing;
-        var created = new MinecraftEconomySettings
-        {
-            Id = Guid.NewGuid(),
-            WeeklyPenalty = Math.Max(1, cfg.GetValue<int?>("MINECRAFT_WEEKLY_PENALTY") ?? 70),
-            UpdatedAtUtc = DateTimeOffset.UtcNow
-        };
-        db.EconomySettings.Add(created);
-        await db.SaveChangesAsync(ct);
-        return created;
-    }
-
-    internal static async Task<int> WeeklyPenaltyAsync(MinecraftDbContext db, IConfiguration cfg, CancellationToken ct)
-    {
-        var row = await db.EconomySettings.AsNoTracking().OrderByDescending(x => x.UpdatedAtUtc).FirstOrDefaultAsync(ct);
-        if (row is { WeeklyPenalty: > 0 }) return row.WeeklyPenalty;
-        if (int.TryParse(cfg["MINECRAFT_WEEKLY_PENALTY"], out var p) && p > 0) return p;
-        return 70;
-    }
-
-    internal static async Task<int> PenaltyTotalAsync(MinecraftDbContext db, Guid userId, CancellationToken ct)
-        => await db.WeeklyJoins.AsNoTracking().Where(x => x.UserId == userId).SumAsync(x => (int?)x.PenaltyApplied, ct) ?? 0;
+    internal static int DeathChestCost(IConfiguration cfg)
+        => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_CHEST_COST") ?? 50, 1, 100000);
 
     internal static int DeathTeleportCost(IConfiguration cfg)
         => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_TELEPORT_COST") ?? 100, 1, 100000);
 
-    internal static async Task<MinecraftRatingBalanceDto> BuildMinecraftRatingBalanceAsync(Guid userId, MinecraftDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<MinecraftRatingBalanceDto> BuildMinecraftRatingBalanceAsync(
+        Guid userId,
+        MinecraftDbContext db,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
     {
         var activity = await LoadActivitySummaryAsync(userId, cfg, httpFactory, ct);
+        return await BuildMinecraftRatingBalanceAsync(userId, activity, db, cfg, ct);
+    }
+
+    internal static async Task<MinecraftRatingBalanceDto> BuildMinecraftRatingBalanceAsync(
+        Guid userId,
+        UserActivitySummaryDto activity,
+        MinecraftDbContext db,
+        IConfiguration cfg,
+        CancellationToken ct)
+    {
         var baseRating = activity.Score > 0 ? activity.Score : activity.Rating;
         var rows = await db.RatingTransactions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
         var adjustment = rows.Sum(x => x.Delta);
@@ -125,6 +110,7 @@ internal static class MinecraftApiCommonService
             restored,
             effective,
             Math.Max(0, effective),
+            DeathChestCost(cfg),
             DeathTeleportCost(cfg));
     }
 
@@ -154,30 +140,45 @@ internal static class MinecraftApiCommonService
         createdAtUtc = x.CreatedAtUtc
     };
 
-    internal sealed record MinecraftRatingBalanceDto(int baseRating, int adjustmentTotal, int spentTotal, int restoredTotal, int effectiveRating, int balance, int deathTeleportCost);
+    internal sealed record MinecraftRatingBalanceDto(
+        int baseRating,
+        int adjustmentTotal,
+        int spentTotal,
+        int restoredTotal,
+        int effectiveRating,
+        int balance,
+        int deathChestCost,
+        int deathTeleportCost);
 
-    internal static async Task<UserActivitySummaryDto> LoadActivitySummaryAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    private static async Task<UserActivitySummaryDto?> ReadActivitySummaryAsync(
+        Guid userId,
+        string serviceName,
+        string fallback,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
     {
-        async Task<UserActivitySummaryDto?> ReadAsync(string serviceName, string fallback)
+        try
         {
-            try
-            {
-                var client = httpFactory.CreateClient();
-                using var msg = new HttpRequestMessage(HttpMethod.Get, $"{ServiceUrl(cfg, serviceName, fallback)}/api/internal/users/{userId}/activity-summary");
-                AddInternalKey(msg, cfg);
-                using var resp = await client.SendAsync(msg, ct);
-                if (!resp.IsSuccessStatusCode) return null;
-                return await resp.Content.ReadFromJsonAsync<UserActivitySummaryDto>(JsonOptions(), ct);
-            }
-            catch
-            {
-                return null;
-            }
+            var client = httpFactory.CreateClient();
+            using var msg = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{ServiceUrl(cfg, serviceName, fallback)}/api/internal/users/{userId}/activity-summary");
+            AddInternalKey(msg, cfg);
+            using var resp = await client.SendAsync(msg, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<UserActivitySummaryDto>(JsonOptions(), ct);
         }
+        catch
+        {
+            return null;
+        }
+    }
 
-        var solutions = await ReadAsync("SolutionsApi", "http://solutions-api:8080") ?? new UserActivitySummaryDto();
-        var tasks = await ReadAsync("TasksApi", "http://tasks-api:8080") ?? new UserActivitySummaryDto();
-        return new UserActivitySummaryDto
+    private static UserActivitySummaryDto MergeActivitySummaries(
+        UserActivitySummaryDto solutions,
+        UserActivitySummaryDto tasks)
+        => new()
         {
             SolvedAssignments = solutions.SolvedAssignments + tasks.SolvedAssignments,
             TotalAttempts = solutions.TotalAttempts + tasks.TotalAttempts,
@@ -188,6 +189,100 @@ internal static class MinecraftApiCommonService
             Score = solutions.Score + tasks.Score,
             Rating = solutions.Rating + tasks.Rating
         };
+
+    internal static async Task<UserActivitySummaryDto> LoadActivitySummaryAsync(
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
+    {
+        var solutions = await ReadActivitySummaryAsync(
+            userId,
+            "SolutionsApi",
+            "http://solutions-api:8080",
+            cfg,
+            httpFactory,
+            ct) ?? new UserActivitySummaryDto();
+        var tasks = await ReadActivitySummaryAsync(
+            userId,
+            "TasksApi",
+            "http://tasks-api:8080",
+            cfg,
+            httpFactory,
+            ct) ?? new UserActivitySummaryDto();
+        return MergeActivitySummaries(solutions, tasks);
+    }
+
+    private static async Task<bool> ProbeServiceReadyAsync(
+        string serviceName,
+        string fallback,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
+    {
+        try
+        {
+            var client = httpFactory.CreateClient();
+            using var response = await client.GetAsync(
+                $"{ServiceUrl(cfg, serviceName, fallback)}/health/ready",
+                ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static async Task<bool> AreRatingBackendsHealthyAsync(
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
+    {
+        var solutionsTask = ProbeServiceReadyAsync(
+            "SolutionsApi",
+            "http://solutions-api:8080",
+            cfg,
+            httpFactory,
+            ct);
+        var tasksTask = ProbeServiceReadyAsync(
+            "TasksApi",
+            "http://tasks-api:8080",
+            cfg,
+            httpFactory,
+            ct);
+        await Task.WhenAll(solutionsTask, tasksTask);
+        return await solutionsTask && await tasksTask;
+    }
+
+    internal static async Task<(bool Available, UserActivitySummaryDto Summary)> TryLoadActivitySummaryStrictAsync(
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
+    {
+        var solutionsTask = ReadActivitySummaryAsync(
+            userId,
+            "SolutionsApi",
+            "http://solutions-api:8080",
+            cfg,
+            httpFactory,
+            ct);
+        var tasksTask = ReadActivitySummaryAsync(
+            userId,
+            "TasksApi",
+            "http://tasks-api:8080",
+            cfg,
+            httpFactory,
+            ct);
+
+        await Task.WhenAll(solutionsTask, tasksTask);
+        var solutions = await solutionsTask;
+        var tasks = await tasksTask;
+        if (solutions is null || tasks is null)
+            return (false, new UserActivitySummaryDto());
+
+        return (true, MergeActivitySummaries(solutions, tasks));
     }
 
     internal static async Task<(bool Ok, string Message)> SendLinkCodeAsync(string nick, string code, IConfiguration cfg, IHttpClientFactory httpFactory, ILogger logger, CancellationToken ct)
@@ -231,7 +326,12 @@ internal static class MinecraftApiCommonService
         }
     }
 
-    internal static async Task AssignMinecraftRoleAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task AssignMinecraftRoleAsync(
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        ILogger logger,
+        CancellationToken ct)
     {
         try
         {
@@ -242,12 +342,27 @@ internal static class MinecraftApiCommonService
                 Content = JsonContent.Create(new RoleAssignRequest("Minecraft"), options: JsonOptions())
             };
             AddInternalKey(msg, cfg);
-            await client.SendAsync(msg, ct);
+            using var response = await client.SendAsync(msg, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Failed to assign Minecraft role: user={UserId} status={StatusCode}",
+                    userId,
+                    (int)response.StatusCode);
+            }
         }
-        catch {}
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to assign Minecraft role: user={UserId}", userId);
+        }
     }
 
-    internal static async Task RemoveMinecraftRoleAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task RemoveMinecraftRoleAsync(
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        ILogger logger,
+        CancellationToken ct)
     {
         try
         {
@@ -255,9 +370,19 @@ internal static class MinecraftApiCommonService
             var identity = ServiceUrl(cfg, "IdentityApi", "http://identity-api:8080");
             using var msg = new HttpRequestMessage(HttpMethod.Delete, $"{identity}/api/internal/feature-roles/users/{userId}/roles/Minecraft");
             AddInternalKey(msg, cfg);
-            await client.SendAsync(msg, ct);
+            using var response = await client.SendAsync(msg, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Failed to remove Minecraft role: user={UserId} status={StatusCode}",
+                    userId,
+                    (int)response.StatusCode);
+            }
         }
-        catch {}
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to remove Minecraft role: user={UserId}", userId);
+        }
     }
 
     internal static async Task BroadcastAsync(IHubContext<MinecraftChatHub> hub, MinecraftChatMessage message, CancellationToken ct)

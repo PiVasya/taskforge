@@ -5,7 +5,7 @@
   "solutions": ["UserTaskSolutions", "UserImageTaskSolutions", "UserTaskTestAttempts", "UserTaskMathAttempts", "UserQuotaBuckets", "Badges", "UserBadges"],
   "ai": ["AgentConversations", "AgentMessages", "AgentRuns", "AgentSteps", "AgentRunArtifacts"],
   "support": ["SupportTickets", "SupportMessages"],
-  "minecraft": ["MinecraftLinkCodes", "MinecraftWeeklyJoins", "MinecraftEconomySettings", "MinecraftChatMessages"],
+  "minecraft": ["MinecraftLinks", "MinecraftLinkCodes", "MinecraftChatMessages", "MinecraftRatingTransactions", "MinecraftDeathRecoveries", "ServiceSchemaMarkers"],
   "notifications": ["TelegramLinkCodes"],
   "observability": ["RequestLogs", "UserActionLogs"]
 }

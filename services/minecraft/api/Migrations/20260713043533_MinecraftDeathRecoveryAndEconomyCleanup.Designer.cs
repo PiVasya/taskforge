@@ -12,7 +12,7 @@ using TaskForge.Minecraft.Api.Data;
 namespace TaskForge.Minecraft.Api.Migrations
 {
     [DbContext(typeof(MinecraftDbContext))]
-    [Migration("20260712193052_MinecraftDeathRecoveryAndEconomyCleanup")]
+    [Migration("20260713043533_MinecraftDeathRecoveryAndEconomyCleanup")]
     partial class MinecraftDeathRecoveryAndEconomyCleanup
     {
         /// <inheritdoc />
@@ -32,16 +32,20 @@ namespace TaskForge.Minecraft.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("AuthorName")
+                        .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("Author");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("CreatedAt");
 
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("Text");
 
                     b.Property<string>("MinecraftNick")
                         .HasMaxLength(32)
@@ -53,36 +57,183 @@ namespace TaskForge.Minecraft.Api.Migrations
 
                     b.Property<string>("Source")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("SiteUser");
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedAtUtc");
+                    b.HasIndex("CreatedAtUtc")
+                        .HasDatabaseName("IX_MinecraftChatMessages_CreatedAt");
 
                     b.ToTable("MinecraftChatMessages", (string)null);
                 });
 
-            modelBuilder.Entity("TaskForge.Minecraft.Api.Domain.MinecraftEconomySettings", b =>
+            modelBuilder.Entity("TaskForge.Minecraft.Api.Domain.MinecraftDeathRecovery", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("DeathId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("BackendUnavailable")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ChargedAmount")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("ChestCreated")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("ChestSecondX")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ChestSecondY")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ChestSecondZ")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("ChestSpotReserved")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("ChestX")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ChestY")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ChestZ")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Compensated")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CompensationPending")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("DropsReleased")
+                        .HasColumnType("boolean");
+
+                    b.Property<double?>("FinalX")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("FinalY")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("FinalZ")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ItemsPayload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("ItemsResolved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset>("OfferExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PaymentStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<float>("Pitch")
+                        .HasColumnType("real");
+
+                    b.Property<string>("PlayerName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("PlayerUuid")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PreviousGameMode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("PurchaseRequestId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<bool>("RescueCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("RescueEndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("RescuePending")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("WeeklyPenalty")
-                        .HasColumnType("integer");
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
 
-                    b.HasKey("Id");
+                    b.Property<string>("WorldKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
-                    b.HasIndex("UpdatedAtUtc");
+                    b.Property<string>("WorldName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
-                    b.ToTable("MinecraftEconomySettings", (string)null);
+                    b.Property<Guid>("WorldUuid")
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("X")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Y")
+                        .HasColumnType("double precision");
+
+                    b.Property<float>("Yaw")
+                        .HasColumnType("real");
+
+                    b.Property<double>("Z")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("DeathId");
+
+                    b.HasIndex("PurchaseRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("PlayerUuid", "OfferExpiresAtUtc");
+
+                    b.HasIndex("Stage", "UpdatedAtUtc");
+
+                    b.ToTable("MinecraftDeathRecoveries", (string)null);
                 });
 
             modelBuilder.Entity("TaskForge.Minecraft.Api.Domain.MinecraftLink", b =>
@@ -218,32 +369,6 @@ namespace TaskForge.Minecraft.Api.Migrations
                     b.HasIndex("UserId", "CreatedAtUtc");
 
                     b.ToTable("MinecraftRatingTransactions", (string)null);
-                });
-
-            modelBuilder.Entity("TaskForge.Minecraft.Api.Domain.MinecraftWeeklyJoin", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("PenaltyApplied")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("WeekStartUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "WeekStartUtc")
-                        .IsUnique();
-
-                    b.ToTable("MinecraftWeeklyJoins", (string)null);
                 });
 
             modelBuilder.Entity("TaskForge.Minecraft.Api.Domain.ServiceSchemaMarker", b =>

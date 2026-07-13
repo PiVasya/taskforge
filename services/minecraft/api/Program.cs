@@ -25,13 +25,6 @@ if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
     await db.Database.MigrateAsync();
     app.Logger.LogInformation("EF Core migrations for MinecraftDbContext applied.");
 }
-else if (builder.Configuration.GetValue("Database:EnsureCreated", false))
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<MinecraftDbContext>();
-    await db.Database.EnsureCreatedAsync();
-}
-
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

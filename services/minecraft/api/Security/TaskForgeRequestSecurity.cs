@@ -15,6 +15,7 @@ public static class TaskForgeRequestSecurity
         Authenticated,
         Editor,
         Admin,
+        Minecraft,
         Internal
     }
 
@@ -76,6 +77,14 @@ public static class TaskForgeRequestSecurity
                 return;
             }
 
+            if (requirement == Requirement.Minecraft && !HasAnyRole(principal, "Admin", "Minecraft"))
+            {
+                await WriteProblem(context, StatusCodes.Status403Forbidden,
+                    "Для Minecraft-чата нужна привязанная Minecraft-учётная запись.",
+                    "MINECRAFT_REQUIRED");
+                return;
+            }
+
             context.User = principal;
             await next();
         });
@@ -91,6 +100,8 @@ public static class TaskForgeRequestSecurity
         if (string.Equals(service, "quiz", StringComparison.OrdinalIgnoreCase) && path.StartsWith("/api/admin/quiz")) return Requirement.Editor;
         if (string.Equals(service, "tasks", StringComparison.OrdinalIgnoreCase) && path.StartsWith("/api/admin/assignments")) return Requirement.Editor;
         if (path.StartsWith("/api/admin/")) return Requirement.Admin;
+        if (string.Equals(service, "minecraft", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWith("/hubs/minecraft-chat")) return Requirement.Minecraft;
         if (path.StartsWith("/hubs/")) return Requirement.Authenticated;
 
         var safeMethod = HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
@@ -100,7 +111,7 @@ public static class TaskForgeRequestSecurity
         {
             if (path.StartsWith("/api/integrations/minecraft/events/")) return Requirement.Public;
             if (path.StartsWith("/api/integrations/minecraft/player-status")) return Requirement.Public;
-            if (path.StartsWith("/api/integrations/minecraft/death-teleport/")) return Requirement.Public;
+            if (path.StartsWith("/api/integrations/minecraft/death-recovery/")) return Requirement.Public;
             if (path.StartsWith("/api/integrations/minecraft/chat/bridge/")) return Requirement.Public;
         }
 

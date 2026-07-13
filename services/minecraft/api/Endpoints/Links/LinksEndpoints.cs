@@ -1,10 +1,8 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Minecraft.Api.Contracts;
 using TaskForge.Minecraft.Api.Data;
 using TaskForge.Minecraft.Api.Domain;
 using static TaskForge.Minecraft.Api.Services.Common.MinecraftApiCommonService;
-using static TaskForge.Minecraft.Api.Services.Serialization.MinecraftApiSerializationService;
 
 namespace TaskForge.Minecraft.Api.Endpoints;
 
@@ -104,13 +102,13 @@ internal static partial class MinecraftApiEndpoints
                 ConfirmedAtUtc = now
             });
             await db.SaveChangesAsync(ct);
-            await AssignMinecraftRoleAsync(uid.Value, cfg, httpFactory, ct);
+            await AssignMinecraftRoleAsync(uid.Value, cfg, httpFactory, logger, ct);
             logger.LogInformation("Minecraft linked: user={UserId} nick={Nick}", uid, match.Nick);
             var status = await BuildStatusAsync(uid.Value, db, cfg, httpFactory, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(status);
         });
 
-        app.MapDelete("/api/integrations/minecraft/unlink", async (HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        app.MapDelete("/api/integrations/minecraft/unlink", async (HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
         {
             var uid = UserId(http, cfg);
             if (uid == null) return Unauthorized();
@@ -118,15 +116,16 @@ internal static partial class MinecraftApiEndpoints
             var links = await db.Links.Where(x => x.UserId == uid.Value && x.Confirmed && x.UnlinkedAtUtc == null).ToListAsync(ct);
             foreach (var link in links) link.UnlinkedAtUtc = now;
             await db.SaveChangesAsync(ct);
-            await RemoveMinecraftRoleAsync(uid.Value, cfg, httpFactory, ct);
+            await RemoveMinecraftRoleAsync(uid.Value, cfg, httpFactory, logger, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false });
         });
 
         app.MapGet("/api/integrations/minecraft/economy", (IConfiguration cfg) =>
             Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                weeklyPenalty = 0,
-                deathTeleportCost = DeathTeleportCost(cfg)
+                deathChestCost = DeathChestCost(cfg),
+                deathTeleportCost = DeathTeleportCost(cfg),
+                deathChestAndTeleportCost = DeathChestCost(cfg) + DeathTeleportCost(cfg)
             }));
 
         app.MapPost("/api/integrations/minecraft/events/join", async (MinecraftJoinEventRequest request, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
@@ -151,11 +150,9 @@ internal static partial class MinecraftApiEndpoints
                     minecraftSpent = 0,
                     minecraftRestored = 0,
                     minecraftAdjustment = 0,
+                    deathChestCost = DeathChestCost(cfg),
                     deathTeleportCost = DeathTeleportCost(cfg),
-                    weeklyPenaltyCurrent = 0,
-                    penaltyTotal = 0,
                     effectiveScore = 0,
-                    chargedThisWeek = false,
                     debuffed = false
                 });
             }
@@ -164,7 +161,7 @@ internal static partial class MinecraftApiEndpoints
                 active.PlayerUuid = uuid;
                 await db.SaveChangesAsync(ct);
             }
-            var dto = await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, false, ct);
+            var dto = await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct);
             logger.LogInformation("MC join: nick={Nick} user={UserId} balance={Balance}", nick, active.UserId, dto.minecraftBalance);
             return Microsoft.AspNetCore.Http.Results.Ok(dto);
         });
@@ -175,81 +172,11 @@ internal static partial class MinecraftApiEndpoints
             var active = await FindActiveLinkAsync(db, NormalizeNick(nick), (uuid ?? string.Empty).Trim(), ct);
             if (active == null || active.UserId == null)
             {
-                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick, uuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathTeleportCost = DeathTeleportCost(cfg), weeklyPenaltyCurrent = 0, penaltyTotal = 0, effectiveScore = 0, chargedThisWeek = false, debuffed = false });
+                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, nick, uuid, linkCount = 0, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false });
             }
-            return Microsoft.AspNetCore.Http.Results.Ok(await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, false, ct));
+            return Microsoft.AspNetCore.Http.Results.Ok(await BuildPlayerStatusAsync(active.UserId.Value, db, cfg, httpFactory, ct));
         });
 
-        app.MapPost("/api/integrations/minecraft/death-teleport/quote", async (MinecraftDeathTeleportQuoteRequest request, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
-        {
-            if (!IsPluginAuthorized(http, cfg)) return Microsoft.AspNetCore.Http.Results.Unauthorized();
-            var active = await FindActiveLinkAsync(db, NormalizeNick(request.Nick), (request.Uuid ?? string.Empty).Trim(), ct);
-            var cost = DeathTeleportCost(cfg);
-            if (active == null || active.UserId == null)
-            {
-                return Microsoft.AspNetCore.Http.Results.Ok(new { linked = false, allowed = false, reason = "not-linked", cost, balance = 0, baseRating = 0, adjustmentTotal = 0, spentTotal = 0, restoredTotal = 0 });
-            }
-            var balance = await BuildMinecraftRatingBalanceAsync(active.UserId.Value, db, cfg, httpFactory, ct);
-            var allowed = balance.balance >= cost;
-            return Microsoft.AspNetCore.Http.Results.Ok(new
-            {
-                linked = true,
-                allowed,
-                reason = allowed ? null : "not-enough-rating",
-                cost,
-                balance = balance.balance,
-                baseRating = balance.baseRating,
-                adjustmentTotal = balance.adjustmentTotal,
-                spentTotal = balance.spentTotal,
-                restoredTotal = balance.restoredTotal,
-                nick = active.PlayerName,
-                uuid = active.PlayerUuid
-            });
-        });
-
-        app.MapPost("/api/integrations/minecraft/death-teleport/purchase", async (MinecraftDeathTeleportPurchaseRequest request, HttpContext http, IConfiguration cfg, MinecraftDbContext db, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
-        {
-            if (!IsPluginAuthorized(http, cfg)) return Microsoft.AspNetCore.Http.Results.Unauthorized();
-            var reqId = (request.RequestId ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(reqId) || reqId.Length > 120) return Microsoft.AspNetCore.Http.Results.BadRequest(new { success = false, reason = "bad-request-id" });
-
-            var existing = await db.RatingTransactions.AsNoTracking().FirstOrDefaultAsync(x => x.RequestId == reqId, ct);
-            if (existing != null)
-            {
-                var current = await BuildMinecraftRatingBalanceAsync(existing.UserId, db, cfg, httpFactory, ct);
-                return Microsoft.AspNetCore.Http.Results.Ok(new { success = true, duplicate = true, cost = -existing.Delta, newBalance = current.balance, balance = current.balance, baseRating = current.baseRating, adjustmentTotal = current.adjustmentTotal });
-            }
-
-            var active = await FindActiveLinkAsync(db, NormalizeNick(request.Nick), (request.Uuid ?? string.Empty).Trim(), ct);
-            var cost = DeathTeleportCost(cfg);
-            if (active == null || active.UserId == null) return Microsoft.AspNetCore.Http.Results.Ok(new { success = false, reason = "not-linked", cost, balance = 0 });
-
-            var balance = await BuildMinecraftRatingBalanceAsync(active.UserId.Value, db, cfg, httpFactory, ct);
-            if (balance.balance < cost)
-            {
-                return Microsoft.AspNetCore.Http.Results.Ok(new { success = false, reason = "not-enough-rating", cost, balance = balance.balance, baseRating = balance.baseRating, adjustmentTotal = balance.adjustmentTotal });
-            }
-
-            var now = DateTimeOffset.UtcNow;
-            var metadata = JsonSerializer.Serialize(new { request.DeathId, request.Nick, request.Uuid }, JsonOptions());
-            db.RatingTransactions.Add(new MinecraftRatingTransaction
-            {
-                Id = Guid.NewGuid(),
-                UserId = active.UserId.Value,
-                PlayerName = active.PlayerName ?? request.Nick,
-                PlayerUuid = active.PlayerUuid ?? request.Uuid,
-                Delta = -cost,
-                Kind = "death-teleport",
-                Reason = "Телепорт на место смерти",
-                RequestId = reqId,
-                MetadataJson = metadata,
-                CreatedAtUtc = now
-            });
-            await db.SaveChangesAsync(ct);
-            var updated = await BuildMinecraftRatingBalanceAsync(active.UserId.Value, db, cfg, httpFactory, ct);
-            logger.LogInformation("Minecraft rating spent: user={UserId} nick={Nick} cost={Cost} balance={Balance} deathId={DeathId}", active.UserId, active.PlayerName, cost, updated.balance, request.DeathId);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { success = true, duplicate = false, cost, newBalance = updated.balance, balance = updated.balance, baseRating = updated.baseRating, adjustmentTotal = updated.adjustmentTotal, spentTotal = updated.spentTotal, restoredTotal = updated.restoredTotal });
-        });
 
         return app;
     }
@@ -275,12 +202,12 @@ internal static partial class MinecraftApiEndpoints
         var linkCount = await db.Links.AsNoTracking().CountAsync(x => x.UserId == userId && x.Confirmed, ct);
         if (active == null)
         {
-            return new { linked = false, nick = (string?)null, uuid = (string?)null, linkCount, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathTeleportCost = DeathTeleportCost(cfg), weeklyPenaltyCurrent = 0, penaltyTotal = 0, effectiveScore = 0, debuffed = false };
+            return new { linked = false, nick = (string?)null, uuid = (string?)null, linkCount, score = 0, baseRating = 0, minecraftBalance = 0, balance = 0, minecraftSpent = 0, minecraftRestored = 0, minecraftAdjustment = 0, deathChestCost = DeathChestCost(cfg), deathTeleportCost = DeathTeleportCost(cfg), effectiveScore = 0, debuffed = false };
         }
-        return await BuildPlayerStatusAsync(userId, db, cfg, httpFactory, false, ct);
+        return await BuildPlayerStatusAsync(userId, db, cfg, httpFactory, ct);
     }
 
-    private static async Task<MinecraftPlayerStatusDto> BuildPlayerStatusAsync(Guid userId, MinecraftDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, bool chargedThisWeek, CancellationToken ct)
+    private static async Task<MinecraftPlayerStatusDto> BuildPlayerStatusAsync(Guid userId, MinecraftDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
     {
         var active = await db.Links.AsNoTracking().Where(x => x.UserId == userId && x.Confirmed && x.UnlinkedAtUtc == null).OrderByDescending(x => x.ConfirmedAtUtc ?? x.CreatedAt).FirstOrDefaultAsync(ct);
         var linkCount = await db.Links.AsNoTracking().CountAsync(x => x.UserId == userId && x.Confirmed, ct);
@@ -302,11 +229,9 @@ internal static partial class MinecraftApiEndpoints
             balance.adjustmentTotal,
             balance.spentTotal,
             balance.restoredTotal,
+            balance.deathChestCost,
             balance.deathTeleportCost,
-            0,
-            balance.spentTotal,
             balance.effectiveRating,
-            chargedThisWeek,
             false);
     }
 
@@ -327,10 +252,8 @@ internal static partial class MinecraftApiEndpoints
         int minecraftAdjustment,
         int minecraftSpent,
         int minecraftRestored,
+        int deathChestCost,
         int deathTeleportCost,
-        int weeklyPenaltyCurrent,
-        int penaltyTotal,
         int effectiveScore,
-        bool chargedThisWeek,
         bool debuffed);
 }

@@ -1505,11 +1505,11 @@ export default function SettingsPage() {
               </div>
               <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
                 <div className="text-neutral-500 dark:text-neutral-400">Потрачено</div>
-                <div className="font-semibold text-sm">{mcStatus.minecraftSpent ?? mcStatus.penaltyTotal ?? 0}</div>
+                <div className="font-semibold text-sm">{mcStatus.minecraftSpent ?? 0}</div>
               </div>
               <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
-                <div className="text-neutral-500 dark:text-neutral-400">Возврат смерти</div>
-                <div className="font-semibold text-sm">{mcStatus.deathTeleportCost ?? 100}</div>
+                <div className="text-neutral-500 dark:text-neutral-400">Сундук / возврат</div>
+                <div className="font-semibold text-sm">{mcStatus.deathChestCost ?? 50} / {mcStatus.deathTeleportCost ?? 100}</div>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">

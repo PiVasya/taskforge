@@ -32,7 +32,7 @@ export default function AdminMinecraftLinksPage() {
 
   const stats = useMemo(() => ({
     total: items.length,
-    totalSpent: items.reduce((s, x) => s + Number(x.minecraftSpent ?? x.totalPenalty ?? 0), 0),
+    totalSpent: items.reduce((s, x) => s + Number(x.minecraftSpent ?? x.totalSpent ?? 0), 0),
     totalRestored: items.reduce((s, x) => s + Number(x.minecraftRestored || 0), 0),
   }), [items]);
 
@@ -82,7 +82,7 @@ export default function AdminMinecraftLinksPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Основной рейтинг</div><div className="text-2xl font-semibold mt-1">{x.totalScore ?? 0}</div></div>
                     <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Minecraft-баланс</div><div className="text-2xl font-semibold mt-1">{x.minecraftBalance ?? x.effectiveScore ?? 0}</div></div>
-                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Потрачено</div><div className="text-2xl font-semibold mt-1">{x.minecraftSpent ?? x.totalPenalty ?? 0}</div></div>
+                    <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Потрачено</div><div className="text-2xl font-semibold mt-1">{x.minecraftSpent ?? x.totalSpent ?? 0}</div></div>
                     <div className="rounded-2xl border px-4 py-3"><div className="text-xs opacity-60">Восстановлено</div><div className="text-2xl font-semibold mt-1">{x.minecraftRestored ?? 0}</div></div>
                   </div>
                 </div>
@@ -91,7 +91,7 @@ export default function AdminMinecraftLinksPage() {
                     {(x.featureRoles || []).length ? x.featureRoles.map((r) => <Badge key={r} intent="outline">{r}</Badge>) : <Badge intent="secondary">Без доп. ролей</Badge>}
                     <Badge intent="success">Активно</Badge>
                   </div>
-                  <div className="text-sm opacity-70">Последняя трата: {x.lastPenaltyAtUtc ? new Date(x.lastPenaltyAtUtc).toLocaleString() : 'ещё не было'}</div>
+                  <div className="text-sm opacity-70">Последняя трата: {x.lastSpentAtUtc ? new Date(x.lastSpentAtUtc).toLocaleString() : 'ещё не было'}</div>
                 </div>
               </div>
             </Card>

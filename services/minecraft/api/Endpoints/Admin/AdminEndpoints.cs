@@ -60,12 +60,12 @@ internal static partial class MinecraftApiEndpoints
                     minecraftBalance = balance.balance,
                     effectiveScore = balance.effectiveRating,
                     minecraftAdjustment = balance.adjustmentTotal,
-                    totalPenalty = balance.spentTotal,
+                    totalSpent = balance.spentTotal,
                     minecraftSpent = balance.spentTotal,
                     minecraftRestored = balance.restoredTotal,
+                    deathChestCost = balance.deathChestCost,
                     deathTeleportCost = balance.deathTeleportCost,
-                    weeklyJoinEvents = 0,
-                    lastPenaltyAtUtc = await db.RatingTransactions.AsNoTracking().Where(x => x.UserId == item.UserId && x.Delta < 0).MaxAsync(x => (DateTimeOffset?)x.CreatedAtUtc, ct),
+                    lastSpentAtUtc = await db.RatingTransactions.AsNoTracking().Where(x => x.UserId == item.UserId && x.Delta < 0).MaxAsync(x => (DateTimeOffset?)x.CreatedAtUtc, ct),
                     featureRoles = roles,
                     debuffed = false
                 });
@@ -105,6 +105,7 @@ internal static partial class MinecraftApiEndpoints
                 minecraftAdjustment = balance.adjustmentTotal,
                 minecraftSpent = balance.spentTotal,
                 minecraftRestored = balance.restoredTotal,
+                deathChestCost = balance.deathChestCost,
                 deathTeleportCost = balance.deathTeleportCost,
                 transactions = rows.Select(ToRatingTransactionDto).ToArray()
             });

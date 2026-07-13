@@ -10,21 +10,21 @@ security:
 taskforge:
   apiBaseUrl: ""
   pluginKey: ""
-  timeoutSeconds: 4
+  timeoutSeconds: 5
 
-deathTeleport:
+deathRecovery:
   enabled: true
-  cost: 100
-  offerTtlSeconds: 300
-  messageDelayTicks: 20
-  recovery:
-    spectatorSeconds: 10
-    maxDistance: 24
-    safeSearchRadius: 8
-    fireResistanceSeconds: 60
-    resistanceSeconds: 10
-    regenerationSeconds: 10
-    slowFallingSeconds: 10
+  offerSeconds: 300
+  spectatorSeconds: 5
+  maxDistance: 12
+  chestSearchRadius: 16
+  safeSearchRadius: 8
+  chestCost: 50
+  teleportCost: 100
+  backendTimeoutMillis: 5000
+  # Optional overrides. Empty values reuse taskforge.apiBaseUrl and taskforge.pluginKey.
+  apiBaseUrl: ""
+  serverToken: ""
 
 exemptions:
   nicks: []
