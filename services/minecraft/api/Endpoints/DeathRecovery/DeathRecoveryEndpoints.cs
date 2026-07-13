@@ -340,10 +340,35 @@ internal static partial class MinecraftApiEndpoints
                 });
             }
 
+            logger.LogInformation(
+                "Minecraft death purchase start: death={DeathId} player={PlayerUuid} action={Action} amount={Amount} request={RequestId}",
+                deathId,
+                request.PlayerUuid,
+                action,
+                request.Amount,
+                requestId);
+
             var existing = await db.RatingTransactions.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.RequestId == requestId, ct);
             if (existing is not null)
             {
+                if (!TransactionMatchesPurchase(existing, deathId, action, request.PlayerUuid))
+                {
+                    logger.LogError(
+                        "Minecraft death purchase request-id collision: death={DeathId} action={Action} request={RequestId} existingDelta={Delta} existingUser={UserId}",
+                        deathId,
+                        action,
+                        requestId,
+                        existing.Delta,
+                        existing.UserId);
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "request-id-collision" });
+                }
+                logger.LogInformation(
+                    "Minecraft death purchase duplicate accepted: death={DeathId} action={Action} request={RequestId} charged={Charged}",
+                    deathId,
+                    action,
+                    requestId,
+                    -existing.Delta);
                 return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
                     success = true,
@@ -366,12 +391,6 @@ internal static partial class MinecraftApiEndpoints
                 {
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "player-mismatch" });
-                }
-                if (death.PurchaseRequestId is not null
-                    && !string.Equals(death.PurchaseRequestId, requestId, StringComparison.Ordinal))
-                {
-                    await transaction.RollbackAsync(ct);
-                    return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "death-already-purchased" });
                 }
                 if ((action is "chest" or "both") && !death.ChestSpotReserved)
                 {
@@ -407,25 +426,24 @@ internal static partial class MinecraftApiEndpoints
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "linked-user-mismatch" });
                 }
-                if (death.PurchaseRequestId is not null
-                    && !string.Equals(death.PurchaseRequestId, requestId, StringComparison.Ordinal))
-                {
-                    await transaction.RollbackAsync(ct);
-                    return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "death-already-purchased" });
-                }
                 if ((action is "chest" or "both") && !death.ChestSpotReserved)
                 {
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "chest-place-not-reserved" });
                 }
 
-                if (death.Compensated || string.Equals(death.PaymentStatus, "compensated", StringComparison.OrdinalIgnoreCase))
+                if (await db.RatingTransactions.AsNoTracking().AnyAsync(x => x.RequestId == refundRequestId, ct))
                 {
                     await transaction.RollbackAsync(ct);
+                    logger.LogWarning(
+                        "Minecraft death purchase blocked by compensation marker: death={DeathId} action={Action} request={RequestId}",
+                        deathId,
+                        action,
+                        requestId);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new
                     {
                         success = false,
-                        reason = "purchase-cancelled-after-fallback",
+                        reason = "purchase-already-compensated",
                         requestId
                     });
                 }
@@ -434,6 +452,17 @@ internal static partial class MinecraftApiEndpoints
                     .FirstOrDefaultAsync(x => x.RequestId == requestId, ct);
                 if (existing is not null)
                 {
+                    if (!TransactionMatchesPurchase(existing, deathId, action, request.PlayerUuid))
+                    {
+                        await transaction.RollbackAsync(ct);
+                        logger.LogError(
+                            "Minecraft death purchase request-id collision after lock: death={DeathId} action={Action} request={RequestId} existingDelta={Delta}",
+                            deathId,
+                            action,
+                            requestId,
+                            existing.Delta);
+                        return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "request-id-collision" });
+                    }
                     var alreadyRefunded = await db.RatingTransactions.AsNoTracking()
                         .AnyAsync(x => x.RequestId == refundRequestId, ct);
                     if (alreadyRefunded)
@@ -484,6 +513,14 @@ internal static partial class MinecraftApiEndpoints
                 var balance = Math.Max(0, baseRating + adjustment);
                 if (balance < expectedAmount)
                 {
+                    logger.LogWarning(
+                        "Minecraft death purchase denied for insufficient balance: user={UserId} death={DeathId} action={Action} cost={Cost} balance={Balance} request={RequestId}",
+                        userId,
+                        deathId,
+                        action,
+                        expectedAmount,
+                        balance,
+                        requestId);
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new
                     {
@@ -524,21 +561,27 @@ internal static partial class MinecraftApiEndpoints
                 death.UserId = userId;
                 death.Action = action;
                 death.PurchaseRequestId = requestId;
-                death.ChargedAmount = expectedAmount;
+                death.ChargedAmount = checked(death.ChargedAmount + expectedAmount);
                 death.PaymentStatus = "confirmed";
                 death.PaymentErrorCode = null;
+                death.Compensated = false;
+                death.CompensationPending = false;
                 death.Revision = Math.Max(0, death.Revision) + 1;
                 death.UpdatedAtUtc = now;
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
 
                 logger.LogInformation(
-                    "Minecraft death purchase confirmed: user={UserId} player={PlayerUuid} death={DeathId} action={Action} amount={Amount}",
+                    "Minecraft death purchase confirmed: user={UserId} player={PlayerUuid} death={DeathId} action={Action} amount={Amount} balanceBefore={BalanceBefore} balanceAfter={BalanceAfter} aggregateCharged={AggregateCharged} request={RequestId}",
                     userId,
                     request.PlayerUuid,
                     deathId,
                     action,
-                    expectedAmount);
+                    expectedAmount,
+                    balance,
+                    balance - expectedAmount,
+                    death.ChargedAmount,
+                    requestId);
 
                 return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
@@ -558,6 +601,8 @@ internal static partial class MinecraftApiEndpoints
                     .FirstOrDefaultAsync(x => x.RequestId == requestId, ct);
                 if (existing is not null)
                 {
+                    if (!TransactionMatchesPurchase(existing, deathId, action, request.PlayerUuid))
+                        return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "request-id-collision" });
                     return Microsoft.AspNetCore.Http.Results.Ok(new
                     {
                         success = true,
@@ -593,14 +638,13 @@ internal static partial class MinecraftApiEndpoints
                 await transaction.RollbackAsync(ct);
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { success = false, reason = "death-not-found" });
             }
-            if (!string.Equals(death.PurchaseRequestId, sourceRequestId, StringComparison.Ordinal))
+            var source = await db.RatingTransactions.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.RequestId == sourceRequestId, ct);
+            if (source is not null && !TransactionBelongsToDeath(source, deathId))
             {
                 await transaction.RollbackAsync(ct);
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "purchase-mismatch" });
             }
-
-            var source = await db.RatingTransactions.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.RequestId == sourceRequestId, ct);
             var userId = source?.UserId
                 ?? death.UserId
                 ?? await FindLinkedUserIdAsync(db, death.PlayerUuid, death.PlayerName, logger, ct);
@@ -616,22 +660,22 @@ internal static partial class MinecraftApiEndpoints
             // Re-read after the per-user lock. If an ambiguous purchase was still committing,
             // this sees it and refunds it; otherwise the no-charge marker prevents a late charge.
             await db.Entry(death).ReloadAsync(ct);
-            if (!string.Equals(death.PurchaseRequestId, sourceRequestId, StringComparison.Ordinal))
+            source = await db.RatingTransactions.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.RequestId == sourceRequestId, ct);
+            if (source is not null && !TransactionBelongsToDeath(source, deathId))
             {
                 await transaction.RollbackAsync(ct);
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "purchase-mismatch" });
             }
-            source = await db.RatingTransactions.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.RequestId == sourceRequestId, ct);
             var refundRequestId = "death-refund:" + sourceRequestId;
             var existingRefund = await db.RatingTransactions.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.RequestId == refundRequestId, ct);
 
             if (existingRefund is not null)
             {
-                death.PaymentStatus = "compensated";
+                death.PaymentStatus = death.ChargedAmount > 0 ? "confirmed" : "compensated";
                 death.CompensationPending = false;
-                death.Compensated = true;
+                death.Compensated = death.ChargedAmount == 0;
                 death.Revision = Math.Max(0, death.Revision) + 1;
                 death.UpdatedAtUtc = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
@@ -640,7 +684,7 @@ internal static partial class MinecraftApiEndpoints
                 {
                     success = true,
                     duplicate = true,
-                    noCharge = false,
+                    noCharge = existingRefund.Delta == 0,
                     refunded = existingRefund.Delta,
                     revision = death.Revision
                 });
@@ -648,12 +692,29 @@ internal static partial class MinecraftApiEndpoints
 
             if (source is null)
             {
-                death.UserId ??= userId;
-                death.ChargedAmount = 0;
-                death.PaymentStatus = "compensated";
+                if (userId is not Guid markerUserId || markerUserId == Guid.Empty)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "linked-user-missing" });
+                }
+                db.RatingTransactions.Add(new MinecraftRatingTransaction
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = markerUserId,
+                    PlayerName = death.PlayerName,
+                    PlayerUuid = death.PlayerUuid.ToString(),
+                    Delta = 0,
+                    Kind = "death-purchase-refund-marker",
+                    Reason = "Запрет позднего списания после неоднозначной Minecraft-операции",
+                    RequestId = refundRequestId,
+                    MetadataJson = JsonSerializer.Serialize(new { deathId, sourceRequestId, noCharge = true }, JsonOptions()),
+                    CreatedAtUtc = DateTimeOffset.UtcNow
+                });
+                death.UserId ??= markerUserId;
+                death.PaymentStatus = death.ChargedAmount > 0 ? "confirmed" : "compensated";
                 death.PaymentErrorCode = "no-charge-to-refund";
                 death.CompensationPending = false;
-                death.Compensated = true;
+                death.Compensated = death.ChargedAmount == 0;
                 death.Revision = Math.Max(0, death.Revision) + 1;
                 death.UpdatedAtUtc = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
@@ -696,11 +757,11 @@ internal static partial class MinecraftApiEndpoints
                 CreatedAtUtc = DateTimeOffset.UtcNow
             });
             death.UserId = source.UserId;
-            death.ChargedAmount = chargedAmount;
-            death.PaymentStatus = "compensated";
+            death.ChargedAmount = Math.Max(0, death.ChargedAmount - chargedAmount);
+            death.PaymentStatus = death.ChargedAmount > 0 ? "confirmed" : "compensated";
             death.PaymentErrorCode = null;
             death.CompensationPending = false;
-            death.Compensated = true;
+            death.Compensated = death.ChargedAmount == 0;
             death.Revision = Math.Max(0, death.Revision) + 1;
             death.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
@@ -721,10 +782,13 @@ internal static partial class MinecraftApiEndpoints
             }
 
             logger.LogWarning(
-                "Minecraft death purchase compensated: user={UserId} death={DeathId} amount={Amount}",
+                "Minecraft death purchase compensated: user={UserId} death={DeathId} sourceRequest={SourceRequestId} refundRequest={RefundRequestId} amount={Amount} aggregateChargedRemaining={AggregateChargedRemaining}",
                 source.UserId,
                 deathId,
-                chargedAmount);
+                sourceRequestId,
+                refundRequestId,
+                chargedAmount,
+                death.ChargedAmount);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 success = true,
@@ -736,6 +800,54 @@ internal static partial class MinecraftApiEndpoints
         });
 
         return app;
+    }
+
+
+    private static bool TransactionMatchesPurchase(
+        MinecraftRatingTransaction transaction,
+        Guid deathId,
+        string action,
+        Guid playerUuid)
+    {
+        if (transaction.Delta >= 0) return false;
+        if (!string.Equals(transaction.PlayerUuid, playerUuid.ToString(), StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.IsNullOrWhiteSpace(transaction.MetadataJson)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(transaction.MetadataJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("deathId", out var deathValue)
+                || deathValue.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(deathValue.GetString(), out var parsedDeath)
+                || parsedDeath != deathId)
+            {
+                return false;
+            }
+            return root.TryGetProperty("action", out var actionValue)
+                && actionValue.ValueKind == JsonValueKind.String
+                && string.Equals(actionValue.GetString(), action, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TransactionBelongsToDeath(MinecraftRatingTransaction transaction, Guid deathId)
+    {
+        if (string.IsNullOrWhiteSpace(transaction.MetadataJson)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(transaction.MetadataJson);
+            if (!document.RootElement.TryGetProperty("deathId", out var value)) return false;
+            return value.ValueKind == JsonValueKind.String
+                && Guid.TryParse(value.GetString(), out var parsed)
+                && parsed == deathId;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static async Task<Guid?> FindLinkedUserIdAsync(

@@ -688,7 +688,15 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 + (previous == null ? "missing" : previous.state) + " current=" + newState
                 + " source=" + source + " detail=" + detail + " balance=" + status.minecraftBalance);
         DeathRecoveryManager manager = deathRecoveryManager;
-        if (manager != null) manager.onLinkStateChanged(playerId, newState, source);
+        if (manager != null && (previous == null || previous.state != newState)) {
+            debug("link-cache", "state transition callback player=" + playerId
+                    + " previous=" + (previous == null ? "missing" : previous.state)
+                    + " current=" + newState + " source=" + source);
+            manager.onLinkStateChanged(playerId, newState, source);
+        } else if (manager != null) {
+            debug("link-cache", "state unchanged; death callback suppressed player=" + playerId
+                    + " state=" + newState + " source=" + source);
+        }
     }
 
     void markLinkStateUnlinked(UUID playerId, String source) {
@@ -699,7 +707,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         debug("link-cache", "forced UNLINKED from backend player=" + playerId
                 + " previous=" + (previous == null ? "missing" : previous.state) + " source=" + source);
         DeathRecoveryManager manager = deathRecoveryManager;
-        if (manager != null) manager.onLinkStateChanged(playerId, LinkState.UNLINKED, source);
+        if (manager != null && (previous == null || previous.state != LinkState.UNLINKED)) {
+            manager.onLinkStateChanged(playerId, LinkState.UNLINKED, source);
+        }
     }
 
     private void recordLinkStateFailure(UUID playerId, String source, String detail) {

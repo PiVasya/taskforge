@@ -34,3 +34,16 @@ gradle clean build
 ## Link identity synchronization
 
 The online status probe always sends the exact UUID together with the current nickname. UUID-bound links are resolved strictly by UUID. A nickname may bind an UUID only when exactly one active UUID-less link exists for that exact nickname.
+
+
+## Multi-action death offers
+
+A death offer remains open until its timer expires or every remaining option is exhausted. Actions are sequential, never concurrent:
+
+- coordinates do not resolve the items, so a chest, return, or ordinary drop may be selected afterwards;
+- a denied purchase keeps the captured items and the remaining buttons available;
+- ordinary drop resolves the items but leaves coordinates and return available;
+- return releases unresolved items at the death point before the spectator rescue, so a chest cannot be selected afterwards;
+- every paid action has its own deterministic request id and its own compensation marker, preventing duplicate charges and accidental whole-balance restoration.
+
+Periodic link-state refreshes do not repeat the offer. A refreshed button line is sent only after an explicit action result, a real link-state transition, respawn, or reconnect.

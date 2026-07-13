@@ -92,6 +92,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private static final String ACTION_RETURN = "return";
     private static final String ACTION_BOTH = "both";
     private static final String ACTION_DROP = "drop";
+    private static final Duration OFFER_DISPLAY_COOLDOWN = Duration.ofSeconds(30);
 
     private final TaskForgeLinkPlugin plugin;
     private final HttpClient http;
@@ -389,7 +390,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        RescueSession session = rescues.remove(event.getPlayer().getUniqueId());
+        UUID leavingPlayerId = event.getPlayer().getUniqueId();
+        for (DeathRecord record : deaths.values()) {
+            if (record.playerId.equals(leavingPlayerId)) record.lastOfferShownAt = Instant.EPOCH;
+        }
+        RescueSession session = rescues.remove(leavingPlayerId);
         if (session != null) {
             session.record.rescueEndsAt = Instant.now().plusSeconds(Math.max(1, session.secondsRemaining()));
             restoreGameMode(event.getPlayer(), session.record);
@@ -454,65 +459,286 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         TaskForgeLinkPlugin.LinkState currentLinkState = plugin.linkState(player.getUniqueId());
         plugin.debugDeath("death action requested player=" + player.getName() + "/" + player.getUniqueId()
             + " deathId=" + record.deathId + " action=" + action + " stage=" + record.stage
-            + " " + plugin.linkStateDebug(player.getUniqueId()));
+            + " offerClosed=" + record.offerClosed + " itemsResolved=" + record.itemsResolved
+            + " coordinatesGranted=" + record.coordinatesGranted + " chestCreated=" + record.chestCreated
+            + " rescueCompleted=" + record.rescueCompleted + " rescuePending=" + record.rescuePending
+            + " inFlight=" + record.actionsInFlight + " " + plugin.linkStateDebug(player.getUniqueId()));
         if (currentLinkState != TaskForgeLinkPlugin.LinkState.LINKED) {
             player.sendMessage(Component.text("TaskForge не подтверждён. Вещи будут выпущены обычным способом.", NamedTextColor.YELLOW));
             handleBackendUnlinked(record, "action-click-link-state-" + currentLinkState.name().toLowerCase(Locale.ROOT));
             return;
         }
         synchronized (record) {
-            if (!(record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)) {
-                player.sendMessage(Component.text("Это предложение уже обработано.", NamedTextColor.RED));
-                return;
-            }
-            if (Instant.now().isAfter(record.offerExpiresAt)) {
-                player.sendMessage(Component.text("Предложение уже истекло.", NamedTextColor.RED));
+            if (record.offerClosed || Instant.now().isAfter(record.offerExpiresAt)) {
+                player.sendMessage(Component.text("Время выбора уже истекло.", NamedTextColor.RED));
                 expire(record);
                 return;
             }
+            String unavailable = actionUnavailableReason(record, action);
+            if (unavailable != null) {
+                player.sendMessage(Component.text(unavailable, NamedTextColor.YELLOW));
+                showOffer(player, record, true, "unavailable-action");
+                return;
+            }
+            if (!record.actionsInFlight.isEmpty() || record.chestSearchInFlight || record.compensationPending || record.rescuePending || rescues.containsKey(record.playerId)) {
+                String active = activeOperationDescription(record);
+                player.sendMessage(Component.text(
+                    "Сейчас уже выполняется: " + active + ". Дождитесь результата, затем можно выбрать следующее действие.",
+                    NamedTextColor.YELLOW));
+                plugin.debugDeath("death action rejected because another operation is active deathId=" + record.deathId
+                    + " requested=" + action + " active=" + active + " inFlight=" + record.actionsInFlight
+                    + " chestSearch=" + record.chestSearchInFlight + " compensation=" + record.compensationPending
+                    + " rescuePending=" + record.rescuePending + " rescueActive=" + rescues.containsKey(record.playerId));
+                return;
+            }
+            record.actionsInFlight.add(action);
             record.action = action;
             record.stage = Stage.RESOLVING;
             record.updatedAt = Instant.now();
             deferRetry(record);
             saveQuietly(record);
         }
+
+        player.sendMessage(Component.text(actionStartMessage(action, record), NamedTextColor.AQUA));
         switch (action) {
             case ACTION_COORDINATES -> purchaseCoordinates(player, record);
-            case ACTION_DROP -> health(record.playerId).thenAccept(healthy -> {
-                if (healthy) releaseDrops(record, "Вещи выпали в месте смерти.");
-                else createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-            });
+            case ACTION_DROP -> {
+                health(record.playerId).thenAccept(healthy -> {
+                    if (healthy) {
+                        releaseDrops(record, null, () -> {
+                            completeAction(record, ACTION_DROP);
+                            onPlayer(player, () -> {
+                                player.sendMessage(Component.text(
+                                    "Обычный дроп выполнен: вещи выброшены в точке смерти. Координаты и возврат всё ещё доступны до конца времени выбора.",
+                                    NamedTextColor.GREEN));
+                                showOffer(player, record, true, "drop-completed");
+                            }, 1L);
+                        });
+                    } else {
+                        completeAction(record, ACTION_DROP);
+                        createFreeChest(record, "Сервис рейтинга недоступен — вместо дропа вещи бесплатно сохранены в сундуке.");
+                    }
+                });
+            }
             case ACTION_CHEST -> prepareChestAndPurchase(player, record, false);
             case ACTION_RETURN -> purchaseAndReturn(player, record);
-            case ACTION_BOTH -> prepareChestAndPurchase(player, record, true);
-            default -> releaseDrops(record, "Вещи выпали в месте смерти.");
+            case ACTION_BOTH -> prepareBoth(player, record);
+            default -> completeAction(record, action);
+        }
+    }
+
+
+    private String actionStartMessage(String action, DeathRecord record) {
+        return switch (action) {
+            case ACTION_COORDINATES -> "Действие запущено: координаты смерти. Стоимость — " + coordinatesCost + ". Проверяю баланс.";
+            case ACTION_CHEST -> "Действие запущено: сундук. Стоимость — " + chestCost + ". Ищу ближайшее свободное место и проверяю баланс.";
+            case ACTION_RETURN -> "Действие запущено: возврат к месту смерти. Стоимость — " + teleportCost + ". Вещи будут выброшены в точке смерти, затем начнётся возврат.";
+            case ACTION_BOTH -> {
+                int cost = remainingBundleCost(record);
+                yield "Действие запущено: " + remainingBundleTitle(record) + ". Стоимость — " + cost + ". Проверяю место, баланс и безопасную точку.";
+            }
+            case ACTION_DROP -> "Действие запущено: обычный дроп. Стоимость — 0. Вещи будут выброшены в точке смерти.";
+            default -> "Действие запущено.";
+        };
+    }
+
+    private String activeOperationDescription(DeathRecord record) {
+        if (record.compensationPending) return "возврат ошибочного списания";
+        if (record.rescuePending || rescues.containsKey(record.playerId)) return "возврат к месту смерти";
+        if (record.chestSearchInFlight) return "поиск места и создание сундука";
+        String active = record.actionsInFlight.stream().findFirst().orElse(record.action);
+        return switch (active == null ? "" : active) {
+            case ACTION_COORDINATES -> "получение координат";
+            case ACTION_CHEST -> "создание сундука";
+            case ACTION_RETURN -> "возврат к месту смерти";
+            case ACTION_BOTH -> "создание сундука и возврат";
+            case ACTION_DROP -> "обычный дроп";
+            default -> "предыдущее действие";
+        };
+    }
+
+    private int remainingBundleCost(DeathRecord record) {
+        int cost = 0;
+        if (!record.chestCreated && !record.chestPurchased && !record.itemsResolved) cost += chestCost;
+        if (!record.returnPurchased && !record.rescueCompleted && !record.rescuePending && !rescues.containsKey(record.playerId)) cost += teleportCost;
+        return cost;
+    }
+
+    private String remainingBundleTitle(DeathRecord record) {
+        boolean chest = !record.chestCreated && !record.chestPurchased && !record.itemsResolved;
+        boolean back = !record.returnPurchased && !record.rescueCompleted && !record.rescuePending && !rescues.containsKey(record.playerId);
+        if (chest && back) return "сундук и возврат";
+        if (chest) return "сундук";
+        if (back) return "возврат";
+        return "оставшиеся действия";
+    }
+
+    private String actionUnavailableReason(DeathRecord record, String action) {
+        if (ACTION_COORDINATES.equals(action) && record.coordinatesGranted)
+            return "Координаты для этой смерти уже получены.";
+        if (ACTION_CHEST.equals(action)) {
+            if (record.chestCreated) return "Сундук для этой смерти уже создан.";
+            if (record.chestPurchased) return "Сундук уже оплачен и сейчас создаётся. Повторного списания не будет.";
+            if (record.itemsResolved) return "Сундук уже нельзя создать: вещи ранее были выброшены или обработаны.";
+        }
+        if (ACTION_RETURN.equals(action) && (record.returnPurchased || record.rescueCompleted || record.rescuePending || rescues.containsKey(record.playerId)))
+            return record.rescueCompleted ? "Возврат для этой смерти уже выполнен." : "Возврат уже оплачен и выполняется. Повторного списания не будет.";
+        if (ACTION_DROP.equals(action)) {
+            if (record.chestPurchased && !record.chestCreated)
+                return "Обычный дроп недоступен: сундук уже оплачен и создаётся. Повторного списания не будет.";
+            if (record.itemsResolved)
+                return record.chestCreated ? "Вещи уже находятся в сундуке." : "Вещи уже были выброшены.";
+        }
+        if (ACTION_BOTH.equals(action)) {
+            boolean chestDone = record.chestCreated;
+            boolean returnDone = record.returnPurchased || record.rescueCompleted || record.rescuePending || rescues.containsKey(record.playerId);
+            if (record.chestPurchased && !record.chestCreated)
+                return "Сундук уже оплачен и создаётся. Дождитесь результата; возврат после этого останется доступен отдельно.";
+            if (chestDone && returnDone) return "Сундук и возврат для этой смерти уже выполнены.";
+            if (!chestDone && record.itemsResolved) {
+                return returnDone
+                    ? "Сундук уже нельзя создать: вещи ранее были выброшены, а возврат уже выполнен."
+                    : "Сундук уже нельзя создать: вещи ранее были выброшены. Можно отдельно выбрать возврат.";
+            }
+        }
+        return null;
+    }
+
+    private void completeAction(DeathRecord record, String action) {
+        synchronized (record) {
+            record.actionsInFlight.remove(action);
+            if (ACTION_BOTH.equals(action)) {
+                record.actionsInFlight.remove(ACTION_CHEST);
+                record.actionsInFlight.remove(ACTION_RETURN);
+            }
+            record.updatedAt = Instant.now();
+            if (record.itemsResolved && record.coordinatesGranted && record.rescueCompleted) {
+                record.offerClosed = true;
+            }
+            if (!record.offerClosed && Instant.now().isBefore(record.offerExpiresAt)) {
+                record.stage = Stage.OFFER;
+            }
+            saveQuietly(record);
+            plugin.debugDeath("death action completed deathId=" + record.deathId + " action=" + action
+                + " offerClosed=" + record.offerClosed + " itemsResolved=" + record.itemsResolved
+                + " coordinatesGranted=" + record.coordinatesGranted + " chestCreated=" + record.chestCreated
+                + " rescueCompleted=" + record.rescueCompleted + " chargedAmount=" + record.chargedAmount
+                + " remainingInFlight=" + record.actionsInFlight);
+        }
+    }
+
+    private void failAction(Player player, DeathRecord record, String action, PurchaseResult result, String title) {
+        synchronized (record) {
+            record.actionsInFlight.remove(action);
+            record.paymentErrorCode = result.reason;
+            record.lastError = result.reason;
+            if (!record.offerClosed && Instant.now().isBefore(record.offerExpiresAt)) record.stage = Stage.OFFER;
+            saveQuietly(record);
+        }
+        plugin.debugDeath("death action failed deathId=" + record.deathId + " action=" + action
+            + " title=" + title + " outcome=" + result.outcome + " reason=" + result.reason
+            + " balance=" + result.balance + " cost=" + result.cost + " charged=" + result.charged
+            + " itemsResolved=" + record.itemsResolved + " offerClosed=" + record.offerClosed);
+        String message;
+        if ("not-enough-rating".equals(result.reason)) {
+            String balance = result.balance >= 0 ? String.valueOf(result.balance) : "неизвестно";
+            String cost = result.cost > 0 ? String.valueOf(result.cost) : "неизвестно";
+            message = title + " не выполнено: недостаточно баланса. Нужно " + cost + ", доступно " + balance + ". Можно выбрать другое действие.";
+        } else {
+            message = title + " не выполнено: " + purchaseReasonText(result.reason) + ". Можно выбрать другое действие.";
+        }
+        onPlayer(player, () -> {
+            player.sendMessage(Component.text(message, NamedTextColor.RED));
+            showOffer(player, record, true, "action-denied-" + action);
+        }, 1L);
+    }
+
+    private String purchaseReasonText(String reason) {
+        if (reason == null || reason.isBlank()) return "покупка отклонена";
+        return switch (reason) {
+            case "not-linked" -> "аккаунт Minecraft не привязан к TaskForge";
+            case "cost-mismatch" -> "цена на сервере и сайте не совпадает";
+            case "chest-place-not-reserved" -> "место для сундука ещё не подготовлено";
+            case "purchase-already-compensated", "purchase-cancelled-after-fallback" -> "это списание уже отменено";
+            case "death-not-found" -> "запись смерти не найдена";
+            case "player-mismatch" -> "UUID игрока не совпал";
+            case "linked-user-mismatch" -> "привязка указывает на другой аккаунт";
+            case "linked-user-missing" -> "не удалось определить владельца привязки";
+            case "request-id-collision" -> "обнаружен конфликт идентификатора операции; списание остановлено";
+            case "purchase-denied" -> "сайт отклонил покупку без дополнительной причины";
+            case "bad-request" -> "сайт отклонил параметры операции";
+            default -> "сайт вернул причину «" + reason + "»";
+        };
+    }
+
+    private void prepareBoth(Player player, DeathRecord record) {
+        boolean needChest;
+        boolean needReturn;
+        synchronized (record) {
+            needChest = !record.chestCreated && !record.chestPurchased && !record.itemsResolved;
+            needReturn = !record.returnPurchased && !record.rescueCompleted && !record.rescuePending && !rescues.containsKey(record.playerId);
+            if (!needChest && needReturn) {
+                record.actionsInFlight.remove(ACTION_BOTH);
+                record.actionsInFlight.add(ACTION_RETURN);
+                record.action = ACTION_RETURN;
+                saveQuietly(record);
+            } else if (needChest && !needReturn) {
+                record.actionsInFlight.remove(ACTION_BOTH);
+                record.actionsInFlight.add(ACTION_CHEST);
+                record.action = ACTION_CHEST;
+                saveQuietly(record);
+            }
+        }
+        if (needChest && needReturn) {
+            prepareChestAndPurchase(player, record, true);
+        } else if (needChest) {
+            prepareChestAndPurchase(player, record, false);
+        } else if (needReturn) {
+            purchaseAndReturn(player, record);
+        } else {
+            completeAction(record, ACTION_BOTH);
+            onPlayer(player, () -> player.sendMessage(Component.text(
+                "Сундук и возврат уже выполнены; повторного списания не было.", NamedTextColor.YELLOW)), 1L);
         }
     }
 
     private void prepareChestAndPurchase(Player player, DeathRecord record, boolean withReturn) {
-        if (!beginChestSearch(record)) return;
+        String action = withReturn ? ACTION_BOTH : ACTION_CHEST;
+        if (!beginChestSearch(record)) {
+            completeAction(record, action);
+            onPlayer(player, () -> player.sendMessage(Component.text(
+                record.itemsResolved ? "Сундук уже нельзя создать: вещи ранее были обработаны." : "Поиск места для сундука уже выполняется.",
+                NamedTextColor.YELLOW)), 1L);
+            return;
+        }
         if (deserializeItems(record.itemsBase64).size() > 54) {
             endChestSearch(record);
-            releaseDrops(record, "В двойной сундук не помещаются все вещи; рейтинг не списан, вещи выпали обычно.");
+            completeAction(record, action);
+            onPlayer(player, () -> {
+                player.sendMessage(Component.text("Сундук не создан: предметов больше, чем помещается в двойной сундук. Баланс не списан.", NamedTextColor.RED));
+                showOffer(player, record, true, "chest-too-many-items");
+            }, 1L);
             return;
         }
         findAnyChestSpot(record, result -> {
             if (result.isEmpty()) {
                 endChestSearch(record);
-                record.stage = resolveWorld(record).isEmpty() ? Stage.WORLD_UNAVAILABLE : Stage.RESOLVING;
                 record.lastError = "death-chest-location-not-found";
-                saveQuietly(record);
-                onPlayer(player, () -> player.sendMessage(Component.text(
-                    "Сундук пока не удалось поставить. Вещи сохранены системой, рейтинг не списан; попытка повторится автоматически.", NamedTextColor.YELLOW)), 1L);
+                completeAction(record, action);
+                onPlayer(player, () -> {
+                    player.sendMessage(Component.text(
+                        "Сундук не создан: свободное место пока не найдено. Баланс не списан. Можно повторить попытку или выбрать другое действие.",
+                        NamedTextColor.YELLOW));
+                    showOffer(player, record, true, "chest-location-not-found");
+                }, 1L);
                 return;
             }
             ChestSpot spot = result.get();
             reserveChestSpot(record, spot);
-
-            // The backend must see the reservation before it is allowed to charge 50/150.
             syncCreate(record).thenAccept(syncResult -> {
                 if (syncResult == BackendResult.UNLINKED) {
                     endChestSearch(record);
+                    completeAction(record, action);
                     plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
                     handleBackendUnlinked(record, "backend-reservation-rejected-not-linked");
                     return;
@@ -522,8 +748,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     saveQuietly(record);
                     placeChest(record, spot, placed -> {
                         endChestSearch(record);
+                        completeAction(record, action);
                         if (placed) {
-                            notifyFreeChest(record, spot.first, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                            record.offerClosed = true;
+                            notifyFreeChest(record, spot.first, "Сервис рейтинга недоступен — вещи сохранены бесплатно. Платные действия для этой смерти закрыты.");
                             finish(record, Stage.FREE_CHEST_CREATED);
                         } else {
                             scheduleGuaranteedChestRetry(record, "Сервис рейтинга недоступен — вещи сохранены системой до создания сундука.");
@@ -533,50 +761,81 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
 
                 int amount = withReturn ? chestCost + teleportCost : chestCost;
-                purchase(record, withReturn ? ACTION_BOTH : ACTION_CHEST, amount).thenAccept(outcome -> {
-                    if (outcome == PurchaseOutcome.CONFIRMED) {
-                        record.chargedAmount = amount;
-                        record.paymentConfirmed = true;
-                        saveQuietly(record);
+                purchase(record, action, amount).thenAccept(result2 -> {
+                    if (result2.outcome == PurchaseOutcome.CONFIRMED) {
+                        final int confirmedCharge = result2.charged > 0 ? result2.charged : amount;
+                        synchronized (record) {
+                            boolean wasChestPurchased = record.chestPurchased;
+                            boolean wasReturnPurchased = record.returnPurchased;
+                            if (withReturn) {
+                                if (!wasChestPurchased && !wasReturnPurchased) record.chargedAmount += confirmedCharge;
+                                record.chestPurchased = true;
+                                record.returnPurchased = true;
+                            } else {
+                                if (!wasChestPurchased) record.chargedAmount += confirmedCharge;
+                                record.chestPurchased = true;
+                            }
+                            record.paymentConfirmed = true;
+                            record.compensated = false;
+                            record.paymentErrorCode = "";
+                            saveQuietly(record);
+                        }
                         placeChest(record, spot, placed -> {
                             endChestSearch(record);
                             if (!placed) {
-                                requestCompensation(record, amount);
                                 record.chestSpotReserved = false;
+                                record.compensationAction = action;
+                                record.compensationAmount = confirmedCharge;
                                 saveQuietly(record);
+                                requestCompensation(record, action, confirmedCharge);
+                                completeAction(record, action);
                                 createCompensatedChest(record,
-                                    "Сундук не удалось создать с первой попытки. Платёж отправлен на возврат, вещи будут сохранены бесплатно.");
+                                    withReturn
+                                        ? "Сундук не удалось создать. Списание " + confirmedCharge + " за сундук и возврат отправлено на возврат; возврат не запускался. Вещи будут сохранены бесплатно."
+                                        : "Сундук не удалось создать. Списание " + confirmedCharge + " отправлено на возврат; вещи будут сохранены бесплатно.");
                             } else {
-                                notifyChest(record, spot.first, false, "Сундук смерти создан.");
-                                if (withReturn) startRescueWhenOnline(record);
-                                else finish(record, Stage.CHEST_CREATED);
+                                if (withReturn) {
+                                    notifyChest(record, spot.first, false,
+                                        "Сундук создан. Списано " + confirmedCharge + " за сундук и возврат. Возврат запускается.");
+                                    record.rescuePending = true;
+                                    saveQuietly(record);
+                                    startRescueWhenOnline(record);
+                                } else {
+                                    notifyChest(record, spot.first, false,
+                                        "Сундук создан. Списано " + confirmedCharge + ". Координаты и возврат всё ещё можно выбрать отдельно.");
+                                    completeAction(record, action);
+                                    finish(record, Stage.CHEST_CREATED);
+                                    onPlayer(player, () -> showOffer(player, record, true, "chest-completed"), 2L);
+                                }
                             }
                         });
-                    } else if (outcome == PurchaseOutcome.UNLINKED) {
+                    } else if (result2.outcome == PurchaseOutcome.UNLINKED) {
                         endChestSearch(record);
+                        completeAction(record, action);
                         plugin.markLinkStateUnlinked(record.playerId, "purchase");
                         handleBackendUnlinked(record, "backend-purchase-rejected-not-linked");
-                    } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
-                        // The HTTP result is ambiguous: the request may have reached the backend before the connection failed.
-                        // Fulfil the free-chest fallback now and reconcile the same idempotency key later. The backend either
-                        // refunds a committed charge or atomically records that there was nothing to refund.
+                    } else if (result2.outcome == PurchaseOutcome.UNAVAILABLE) {
                         record.backendUnavailable = true;
-                        record.chargedAmount = amount;
+                        record.compensationAction = action;
+                        record.compensationAmount = amount;
                         record.compensationPending = true;
                         saveQuietly(record);
                         placeChest(record, spot, placed -> {
                             endChestSearch(record);
+                            completeAction(record, action);
                             if (placed) {
+                                record.offerClosed = true;
                                 notifyFreeChest(record, spot.first, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                                 finish(record, Stage.FREE_CHEST_CREATED);
                             } else {
                                 scheduleGuaranteedChestRetry(record, "Сервис рейтинга недоступен — вещи сохранены системой до создания сундука.");
                             }
-                            requestCompensation(record, amount);
+                            requestCompensation(record, action, amount);
                         });
                     } else {
                         endChestSearch(record);
-                        releaseDrops(record, "Покупка отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                        record.chestSpotReserved = false;
+                        failAction(player, record, action, result2, withReturn ? "Сундук и возврат" : "Сундук");
                     }
                 });
             });
@@ -584,78 +843,100 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void purchaseCoordinates(Player player, DeathRecord record) {
-        // A very fast respawn/click can beat the asynchronous death-state PUT. Ensure the
-        // backend row exists before charging, otherwise a healthy backend could answer 404
-        // and incorrectly turn the selected paid action into ordinary drops.
         syncCreate(record).thenAccept(syncResult -> {
             if (syncResult == BackendResult.UNLINKED) {
+                completeAction(record, ACTION_COORDINATES);
                 plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
                 handleBackendUnlinked(record, "backend-coordinate-create-rejected-not-linked");
                 return;
             }
             if (syncResult == BackendResult.UNAVAILABLE) {
+                completeAction(record, ACTION_COORDINATES);
                 record.backendUnavailable = true;
                 saveQuietly(record);
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                 return;
             }
-            purchase(record, ACTION_COORDINATES, coordinatesCost).thenAccept(outcome -> {
-                if (outcome == PurchaseOutcome.CONFIRMED) {
-                    record.chargedAmount = coordinatesCost;
-                    record.paymentConfirmed = true;
-                    saveQuietly(record);
-                    releaseDrops(record, null, () -> notifyDeathCoordinates(record));
-                } else if (outcome == PurchaseOutcome.UNLINKED) {
+            purchase(record, ACTION_COORDINATES, coordinatesCost).thenAccept(result -> {
+                if (result.outcome == PurchaseOutcome.CONFIRMED) {
+                    synchronized (record) {
+                        if (!record.coordinatesGranted) record.chargedAmount += result.charged;
+                        record.paymentConfirmed = true;
+                        record.compensated = false;
+                        record.coordinatesGranted = true;
+                        record.paymentErrorCode = "";
+                        saveQuietly(record);
+                    }
+                    notifyDeathCoordinates(record);
+                    completeAction(record, ACTION_COORDINATES);
+                    onPlayer(player, () -> showOffer(player, record, true, "coordinates-completed"), 2L);
+                } else if (result.outcome == PurchaseOutcome.UNLINKED) {
+                    completeAction(record, ACTION_COORDINATES);
                     plugin.markLinkStateUnlinked(record.playerId, "purchase");
                     handleBackendUnlinked(record, "backend-coordinate-purchase-rejected-not-linked");
-                } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
+                } else if (result.outcome == PurchaseOutcome.UNAVAILABLE) {
+                    completeAction(record, ACTION_COORDINATES);
                     record.backendUnavailable = true;
-                    record.chargedAmount = coordinatesCost;
+                    record.compensationAction = ACTION_COORDINATES;
+                    record.compensationAmount = coordinatesCost;
                     record.compensationPending = true;
                     saveQuietly(record);
                     createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-                    requestCompensation(record, coordinatesCost);
+                    requestCompensation(record, ACTION_COORDINATES, coordinatesCost);
                 } else {
-                    releaseDrops(record, "Покупка координат отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                    failAction(player, record, ACTION_COORDINATES, result, "Получение координат");
                 }
             });
         });
     }
 
     private void purchaseAndReturn(Player player, DeathRecord record) {
-        // See purchaseCoordinates: persist the exact death first so a fast click cannot race
-        // the initial PUT and be misclassified as a business denial.
         syncCreate(record).thenAccept(syncResult -> {
             if (syncResult == BackendResult.UNLINKED) {
+                completeAction(record, ACTION_RETURN);
                 plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
                 handleBackendUnlinked(record, "backend-return-create-rejected-not-linked");
                 return;
             }
             if (syncResult == BackendResult.UNAVAILABLE) {
+                completeAction(record, ACTION_RETURN);
                 record.backendUnavailable = true;
                 saveQuietly(record);
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                 return;
             }
-            purchase(record, ACTION_RETURN, teleportCost).thenAccept(outcome -> {
-                if (outcome == PurchaseOutcome.CONFIRMED) {
-                    record.chargedAmount = teleportCost;
-                    record.paymentConfirmed = true;
-                    record.rescuePending = true;
-                    saveQuietly(record);
-                    releaseDrops(record, null, () -> startRescueWhenOnline(record));
-                } else if (outcome == PurchaseOutcome.UNLINKED) {
+            purchase(record, ACTION_RETURN, teleportCost).thenAccept(result -> {
+                if (result.outcome == PurchaseOutcome.CONFIRMED) {
+                    synchronized (record) {
+                        if (!record.returnPurchased) record.chargedAmount += result.charged;
+                        record.paymentConfirmed = true;
+                        record.compensated = false;
+                        record.returnPurchased = true;
+                        record.rescuePending = true;
+                        record.paymentErrorCode = "";
+                        saveQuietly(record);
+                    }
+                    Runnable beginRescue = () -> startRescueWhenOnline(record);
+                    if (!record.itemsResolved) {
+                        releaseDrops(record, null, beginRescue);
+                    } else {
+                        beginRescue.run();
+                    }
+                } else if (result.outcome == PurchaseOutcome.UNLINKED) {
+                    completeAction(record, ACTION_RETURN);
                     plugin.markLinkStateUnlinked(record.playerId, "purchase");
                     handleBackendUnlinked(record, "backend-return-purchase-rejected-not-linked");
-                } else if (outcome == PurchaseOutcome.UNAVAILABLE) {
+                } else if (result.outcome == PurchaseOutcome.UNAVAILABLE) {
+                    completeAction(record, ACTION_RETURN);
                     record.backendUnavailable = true;
-                    record.chargedAmount = teleportCost;
+                    record.compensationAction = ACTION_RETURN;
+                    record.compensationAmount = teleportCost;
                     record.compensationPending = true;
                     saveQuietly(record);
                     createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-                    requestCompensation(record, teleportCost);
+                    requestCompensation(record, ACTION_RETURN, teleportCost);
                 } else {
-                    releaseDrops(record, "Покупка отклонена: недостаточно рейтинга или аккаунт не привязан.");
+                    failAction(player, record, ACTION_RETURN, result, "Возврат");
                 }
             });
         });
@@ -823,49 +1104,44 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             }
         }
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
-            if (!record.userNotified && (record.chestCreated || ACTION_COORDINATES.equals(record.action))) {
+            Player notificationPlayer = plugin.findOnlinePlayer(record.playerId);
+            if (record.coordinatesGranted && !record.coordinatesNotified) {
                 notificationOwed++;
-                Player notificationPlayer = plugin.findOnlinePlayer(record.playerId);
+                if (notificationPlayer != null && notificationPlayer.isOnline() && !notificationPlayer.isDead()) notifyDeathCoordinates(record);
+            }
+            if (record.chestCreated && !record.chestNotified) {
+                notificationOwed++;
                 if (notificationPlayer != null && notificationPlayer.isOnline() && !notificationPlayer.isDead()) {
-                    if (record.chestCreated) {
-                        Optional<World> notificationWorld = resolveWorld(record);
-                        if (notificationWorld.isPresent()) {
-                            Location chestAt = new Location(notificationWorld.get(), record.chestX, record.chestY, record.chestZ);
-                            boolean free = record.backendUnavailable || record.compensated;
-                            notifyChest(record, chestAt, free, free
-                                ? "Сервис рейтинга был недоступен — вещи бесплатно сохранены в сундуке."
-                                : "Сундук смерти создан.");
-                        }
-                    } else if (ACTION_COORDINATES.equals(record.action) && record.itemsResolved) {
-                        notifyDeathCoordinates(record);
+                    Optional<World> notificationWorld = resolveWorld(record);
+                    if (notificationWorld.isPresent()) {
+                        Location chestAt = new Location(notificationWorld.get(), record.chestX, record.chestY, record.chestZ);
+                        boolean free = record.backendUnavailable || record.compensated;
+                        notifyChest(record, chestAt, free, free
+                            ? "Сервис рейтинга был недоступен — вещи бесплатно сохранены в сундуке."
+                            : "Сундук смерти создан.");
                     }
                 }
             }
-            if (!record.isTerminal()) unresolved++;
+            if (!record.offerClosed || record.compensationPending || record.rescuePending || (record.backendUnavailable && !record.itemsResolved)) unresolved++;
             if (record.compensationPending) compensationPending++;
-            if ((record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)
-                && now.isAfter(record.offerExpiresAt)) expire(record);
-            if (record.compensationPending && record.chargedAmount > 0 && claimCompensationRetry(record)) {
-                requestCompensation(record, record.chargedAmount);
+            if (!record.offerClosed && now.isAfter(record.offerExpiresAt)) expire(record);
+            if (record.compensationPending && record.compensationAmount > 0 && claimCompensationRetry(record)) {
+                requestCompensation(record,
+                    record.compensationAction == null || record.compensationAction.isBlank() ? record.action : record.compensationAction,
+                    record.compensationAmount);
             }
-
-            // A backend outage must produce a chest even while the owner is offline.
-            // World/chunk work is scheduled on the exact Folia region and does not need a Player.
-            if (record.backendUnavailable && !record.itemsResolved && !record.isTerminal() && claimRetry(record)) {
+            if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                 continue;
             }
-            if (record.compensated && !record.itemsResolved && !record.isTerminal()
-                && (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action))
-                && claimRetry(record)) {
+            if (record.compensated && !record.itemsResolved
+                && (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) && claimRetry(record)) {
                 createCompensatedChest(record, "Платёж возвращён — вещи сохранены бесплатно в сундуке.");
                 continue;
             }
-
-            Player player = plugin.findOnlinePlayer(record.playerId);
-            if (player != null && player.isOnline()
-                && (record.compensationPending || record.rescuePending || !record.isTerminal())) {
-                resumeUnresolved(player);
+            if (notificationPlayer != null && notificationPlayer.isOnline()
+                && (record.compensationPending || record.rescuePending || record.stage == Stage.RESOLVING || record.stage == Stage.WORLD_UNAVAILABLE)) {
+                resumeUnresolved(notificationPlayer);
             }
         }
         for (RescueSession session : new ArrayList<>(rescues.values())) tickRescue(session, now);
@@ -879,11 +1155,17 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void expire(DeathRecord record) {
         synchronized (record) {
-            if (!(record.stage == Stage.OFFER || record.stage == Stage.WAITING_RESPAWN)) return;
-            record.stage = Stage.RESOLVING;
+            if (record.offerClosed) return;
+            record.offerClosed = true;
+            record.actionsInFlight.clear();
             record.action = "expired";
-            deferRetry(record);
+            record.updatedAt = Instant.now();
             saveQuietly(record);
+        }
+        if (record.itemsResolved) {
+            plugin.debugDeath("offer expired after items already resolved deathId=" + record.deathId
+                + " coordinatesGranted=" + record.coordinatesGranted + " rescueCompleted=" + record.rescueCompleted);
+            return;
         }
         health(record.playerId).thenAccept(healthy -> {
             if (healthy) releaseDrops(record, "Время выбора истекло. Вещи выпали в месте смерти.");
@@ -900,10 +1182,14 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void showPendingOffers(Player player) {
-        showPendingOffersExcluding(player, Set.of());
+        showPendingOffersExcluding(player, Set.of(), false, "generic");
     }
 
     private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds) {
+        showPendingOffersExcluding(player, excludedDeathIds, false, "backend-pull");
+    }
+
+    private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds, boolean force, String trigger) {
         TaskForgeLinkPlugin.LinkState linkState = plugin.linkState(player.getUniqueId());
         if (linkState != TaskForgeLinkPlugin.LinkState.LINKED) {
             plugin.debugDeath("pending offers withheld player=" + player.getName() + "/" + player.getUniqueId()
@@ -913,27 +1199,67 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         deaths.values().stream()
             .filter(r -> r.playerId.equals(player.getUniqueId()))
             .filter(r -> !excludedDeathIds.contains(r.deathId))
-            .filter(r -> r.stage == Stage.WAITING_RESPAWN || r.stage == Stage.OFFER)
+            .filter(this::isOfferOpen)
             .sorted(Comparator.comparing(r -> r.createdAt))
-            .forEach(r -> {
-                r.stage = Stage.OFFER;
-                saveQuietly(r);
-                long left = Math.max(0, Duration.between(Instant.now(), r.offerExpiresAt).toSeconds());
-                Component line = Component.text("Смерть: ", NamedTextColor.GRAY)
-                    .append(button("[Координаты — " + coordinatesCost + "]", r, ACTION_COORDINATES, NamedTextColor.LIGHT_PURPLE))
-                    .append(Component.space())
-                    .append(button("[Сундук — " + chestCost + "]", r, ACTION_CHEST, NamedTextColor.GOLD))
-                    .append(Component.space())
-                    .append(button("[Вернуться — " + teleportCost + "]", r, ACTION_RETURN, NamedTextColor.AQUA))
-                    .append(Component.space())
-                    .append(button("[Сундук + возврат — " + (chestCost + teleportCost) + "]", r, ACTION_BOTH, NamedTextColor.GREEN))
-                    .append(Component.space())
-                    .append(button("[Обычный дроп]", r, ACTION_DROP, NamedTextColor.WHITE));
-                player.sendMessage(line);
-                player.sendMessage(Component.text("Выбор доступен ещё " + left + " сек.", NamedTextColor.GRAY));
-                plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getUniqueId()
-                    + " secondsLeft=" + left + " stage=" + r.stage);
-            });
+            .forEach(r -> showOffer(player, r, force, trigger));
+    }
+
+    private boolean isOfferOpen(DeathRecord record) {
+        return !record.offerClosed && record.offerExpiresAt != null && Instant.now().isBefore(record.offerExpiresAt)
+            && !(record.backendUnavailable && record.chestCreated);
+    }
+
+    private void showOffer(Player player, DeathRecord r, boolean force, String trigger) {
+        Instant now = Instant.now();
+        synchronized (r) {
+            if (!isOfferOpen(r)) return;
+            if (!force && r.lastOfferShownAt != null && Duration.between(r.lastOfferShownAt, now).compareTo(OFFER_DISPLAY_COOLDOWN) < 0) {
+                plugin.debugDeath("offer display suppressed deathId=" + r.deathId + " player=" + player.getUniqueId()
+                    + " trigger=" + trigger + " lastShownAt=" + r.lastOfferShownAt);
+                return;
+            }
+            r.lastOfferShownAt = now;
+            r.stage = Stage.OFFER;
+            saveQuietly(r);
+        }
+        long left = Math.max(0, Duration.between(Instant.now(), r.offerExpiresAt).toSeconds());
+        Component line = Component.text("Смерть: ", NamedTextColor.GRAY);
+        int buttons = 0;
+        if (!r.coordinatesGranted) {
+            line = line.append(button("[Координаты — " + coordinatesCost + "]", r, ACTION_COORDINATES, NamedTextColor.LIGHT_PURPLE)).append(Component.space());
+            buttons++;
+        }
+        if (!r.chestCreated && !r.chestPurchased && !r.itemsResolved) {
+            line = line.append(button("[Сундук — " + chestCost + "]", r, ACTION_CHEST, NamedTextColor.GOLD)).append(Component.space());
+            buttons++;
+        }
+        if (!r.returnPurchased && !r.rescueCompleted && !r.rescuePending && !rescues.containsKey(r.playerId)) {
+            line = line.append(button("[Вернуться — " + teleportCost + "]", r, ACTION_RETURN, NamedTextColor.AQUA)).append(Component.space());
+            buttons++;
+        }
+        boolean chestAvailable = !r.chestCreated && !r.chestPurchased && !r.itemsResolved;
+        boolean returnAvailable = !r.returnPurchased && !r.rescueCompleted && !r.rescuePending && !rescues.containsKey(r.playerId);
+        if (chestAvailable && returnAvailable) {
+            line = line.append(button("[Сундук + возврат — " + (chestCost + teleportCost) + "]", r, ACTION_BOTH, NamedTextColor.GREEN)).append(Component.space());
+            buttons++;
+        }
+        if (!r.itemsResolved) {
+            line = line.append(button("[Обычный дроп]", r, ACTION_DROP, NamedTextColor.WHITE));
+            buttons++;
+        }
+        if (buttons == 0) {
+            plugin.debugDeath("offer display skipped because no actions remain deathId=" + r.deathId
+                + " player=" + player.getUniqueId() + " trigger=" + trigger
+                + " returnPurchased=" + r.returnPurchased + " rescuePending=" + r.rescuePending
+                + " compensationPending=" + r.compensationPending);
+            return;
+        }
+        player.sendMessage(line);
+        player.sendMessage(Component.text("Можно выполнить несколько действий. Осталось " + left + " сек.", NamedTextColor.GRAY));
+        plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getUniqueId()
+            + " secondsLeft=" + left + " trigger=" + trigger + " force=" + force
+            + " coordinatesGranted=" + r.coordinatesGranted + " chestCreated=" + r.chestCreated
+            + " itemsResolved=" + r.itemsResolved + " rescueCompleted=" + r.rescueCompleted);
     }
 
     private Component button(String text, DeathRecord r, String action, NamedTextColor color) {
@@ -942,7 +1268,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void resumePaidRescues(Player player) {
         deaths.values().stream()
-            .filter(r -> r.playerId.equals(player.getUniqueId()) && r.paymentConfirmed && !r.compensated && r.rescuePending && !r.rescueCompleted)
+            .filter(r -> r.playerId.equals(player.getUniqueId()) && r.paymentConfirmed && r.rescuePending && !r.rescueCompleted)
             .findFirst().ifPresent(this::startRescueWhenOnline);
     }
 
@@ -987,35 +1313,27 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
             if (!record.playerId.equals(player.getUniqueId())) continue;
 
-            if (record.compensationPending && record.chargedAmount > 0 && claimCompensationRetry(record)) {
-                requestCompensation(record, record.chargedAmount);
+            if (record.compensationPending && record.compensationAmount > 0 && claimCompensationRetry(record)) {
+                requestCompensation(record,
+                    record.compensationAction == null || record.compensationAction.isBlank() ? record.action : record.compensationAction,
+                    record.compensationAmount);
                 continue;
             }
-
-            // Outage fallback always wins over compensation state: an ambiguous request may be
-            // refunded before the exact death world becomes available for the free chest.
             if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
                 continue;
             }
-
-            if (record.compensated && !record.itemsResolved && claimRetry(record)) {
-                if (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) {
-                    createCompensatedChest(record, "Платёж возвращён — вещи сохранены бесплатно в сундуке.");
-                } else {
-                    releaseDrops(record, "Платёж возвращён. Вещи выпали в месте смерти.");
-                }
-                continue;
+            if (record.coordinatesGranted && !record.coordinatesNotified) notifyDeathCoordinates(record);
+            if (record.chestCreated && !record.chestNotified) {
+                Optional<World> world = resolveWorld(record);
+                world.ifPresent(value -> notifyChest(record,
+                    new Location(value, record.chestX, record.chestY, record.chestZ),
+                    record.backendUnavailable || record.compensated,
+                    record.backendUnavailable || record.compensated
+                        ? "Вещи бесплатно сохранены в сундуке."
+                        : "Сундук смерти создан."));
             }
-
-            // A paid coordinate message is deliberately recoverable after a plugin/server restart.
-            if (ACTION_COORDINATES.equals(record.action) && record.paymentConfirmed && record.itemsResolved
-                && record.stage != Stage.COORDINATES_SENT && claimRetry(record)) {
-                notifyDeathCoordinates(record);
-                continue;
-            }
-
-            if (record.rescuePending && record.paymentConfirmed && !record.compensated && claimRetry(record)) {
+            if (record.rescuePending && record.paymentConfirmed && claimRetry(record)) {
                 if (!record.itemsResolved && ACTION_RETURN.equals(record.action)) {
                     releaseDrops(record, null, () -> startRescueWhenOnline(record));
                 } else {
@@ -1023,56 +1341,53 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
                 continue;
             }
-
-            if (record.stage == Stage.WAITING_RESPAWN || record.stage == Stage.OFFER || record.isTerminal()) continue;
-            if (resolveWorld(record).isEmpty()) {
-                record.stage = Stage.WORLD_UNAVAILABLE;
+            if (record.stage == Stage.WORLD_UNAVAILABLE && resolveWorld(record).isPresent()) {
+                record.stage = record.offerClosed ? Stage.RESOLVING : Stage.OFFER;
                 saveQuietly(record);
-                continue;
             }
-            if (!claimRetry(record)) continue;
+            if (record.stage != Stage.RESOLVING || !claimRetry(record)) continue;
+
+            plugin.debugDeath("resume unresolved deathId=" + record.deathId + " action=" + record.action
+                + " paymentConfirmed=" + record.paymentConfirmed + " chestPurchased=" + record.chestPurchased
+                + " returnPurchased=" + record.returnPurchased + " coordinatesGranted=" + record.coordinatesGranted
+                + " itemsResolved=" + record.itemsResolved + " offerClosed=" + record.offerClosed);
 
             if (ACTION_COORDINATES.equals(record.action)) {
-                record.stage = Stage.RESOLVING;
-                saveQuietly(record);
-                if (record.paymentConfirmed) {
-                    if (!record.itemsResolved) releaseDrops(record, null, () -> notifyDeathCoordinates(record));
-                    else notifyDeathCoordinates(record);
+                if (record.coordinatesGranted) {
+                    notifyDeathCoordinates(record);
+                    completeAction(record, ACTION_COORDINATES);
                 } else {
+                    record.actionsInFlight.add(ACTION_COORDINATES);
                     purchaseCoordinates(player, record);
                 }
                 continue;
             }
-
-            if (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) {
-                record.stage = Stage.RESOLVING;
-                saveQuietly(record);
+            if ((ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) && !record.itemsResolved) {
+                record.actionsInFlight.add(record.action);
                 prepareChestAndPurchase(player, record, ACTION_BOTH.equals(record.action));
                 continue;
             }
-
-            if (ACTION_RETURN.equals(record.action)) {
-                record.stage = Stage.RESOLVING;
-                saveQuietly(record);
-                if (record.paymentConfirmed) {
+            if (ACTION_RETURN.equals(record.action) && !record.rescueCompleted) {
+                if (record.returnPurchased) {
+                    record.rescuePending = true;
+                    saveQuietly(record);
                     if (!record.itemsResolved) releaseDrops(record, null, () -> startRescueWhenOnline(record));
                     else startRescueWhenOnline(record);
                 } else {
+                    record.actionsInFlight.add(ACTION_RETURN);
                     purchaseAndReturn(player, record);
                 }
                 continue;
             }
-
-            if (ACTION_DROP.equals(record.action) || "expired".equals(record.action)) {
-                health(record.playerId).thenAccept(healthy -> {
-                    if (healthy) releaseDrops(record, "Вещи выпали в месте смерти.");
-                    else createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-                });
+            if ((ACTION_DROP.equals(record.action) || "expired".equals(record.action)) && !record.itemsResolved) {
+                releaseDrops(record, "Вещи выпали в месте смерти.");
                 continue;
             }
-
-            // Unknown intermediate state: fail safely by preserving the captured items in a chest.
-            createCompensatedChest(record, "Операция смерти восстановлена после перезапуска — вещи сохранены бесплатно.");
+            if (!record.offerClosed) {
+                record.stage = Stage.OFFER;
+                record.actionsInFlight.clear();
+                saveQuietly(record);
+            }
         }
     }
 
@@ -1119,10 +1434,14 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             catch (IllegalArgumentException ex) { r.stage = Stage.OFFER; }
             r.action = text(json, "action", "");
             String purchaseId = text(json, "purchaseRequestId", "");
-            r.requestId = purchaseId.isBlank() ? UUID.randomUUID() : UUID.fromString(purchaseId);
+            try { r.requestId = purchaseId.isBlank() ? UUID.randomUUID() : UUID.fromString(purchaseId); }
+            catch (IllegalArgumentException ignored) { r.requestId = UUID.randomUUID(); }
             r.chargedAmount = integer(json, "chargedAmount", 0);
             String paymentStatus = text(json, "paymentStatus", "none");
             r.paymentConfirmed = "confirmed".equalsIgnoreCase(paymentStatus) || "compensated".equalsIgnoreCase(paymentStatus);
+            if (r.paymentConfirmed && ACTION_COORDINATES.equals(r.action)) r.coordinatesGranted = true;
+            if (r.paymentConfirmed && (ACTION_CHEST.equals(r.action) || ACTION_BOTH.equals(r.action))) r.chestPurchased = true;
+            if (r.paymentConfirmed && (ACTION_RETURN.equals(r.action) || ACTION_BOTH.equals(r.action))) r.returnPurchased = true;
             r.paymentErrorCode = text(json, "paymentErrorCode", "");
             r.dropsReleased = bool(json, "dropsReleased");
             r.chestSpotReserved = bool(json, "chestSpotReserved");
@@ -1140,6 +1459,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             r.lastError = text(json, "lastError", "");
             r.revision = longNumber(json, "revision", 0L);
             r.updatedAt = instant(json, "updatedAtUtc", r.createdAt);
+            r.offerClosed = r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt);
             return r;
         } catch (RuntimeException ex) {
             plugin.getLogger().log(Level.WARNING, "Invalid backend death recovery row", ex);
@@ -1164,6 +1484,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         if (remote.requestId != null) local.requestId = remote.requestId;
         local.chargedAmount = Math.max(local.chargedAmount, remote.chargedAmount);
         local.paymentConfirmed |= remote.paymentConfirmed;
+        local.coordinatesGranted |= remote.coordinatesGranted;
+        local.chestPurchased |= remote.chestPurchased;
+        local.returnPurchased |= remote.returnPurchased;
         local.paymentErrorCode = remote.paymentErrorCode;
         local.dropsReleased |= remote.dropsReleased;
         local.chestSpotReserved |= remote.chestSpotReserved;
@@ -1322,8 +1645,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             session.record.finalZ = destination.getZ();
             session.record.rescuePending = false;
             session.record.rescueCompleted = true;
+            String completedAction = ACTION_BOTH.equals(session.record.action) ? ACTION_BOTH : ACTION_RETURN;
+            completeAction(session.record, completedAction);
             finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
-            player.sendMessage(Component.text("Возврат завершён.", NamedTextColor.GREEN));
+            player.sendMessage(Component.text(returnCompletionMessage(session.record), NamedTextColor.GREEN));
+            showOffer(player, session.record, true, "return-completed");
         }, 1L));
     }
 
@@ -1339,9 +1665,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             session.record.rescuePending = false;
             session.record.rescueCompleted = true;
             session.record.lastError = Boolean.TRUE.equals(ok) && err == null ? "safe-location-not-found" : "fallback-teleport-failed";
+            String completedAction = ACTION_BOTH.equals(session.record.action) ? ACTION_BOTH : ACTION_RETURN;
+            completeAction(session.record, completedAction);
             finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
             player.sendMessage(Component.text(message, NamedTextColor.YELLOW));
+            player.sendMessage(Component.text(returnCompletionMessage(session.record), NamedTextColor.GREEN));
+            showOffer(player, session.record, true, "return-fallback-completed");
         }, 1L));
+    }
+
+    private String returnCompletionMessage(DeathRecord record) {
+        if (ACTION_BOTH.equals(record.action)) {
+            return "Возврат завершён. Сундук и возврат оплачены общей операцией; дополнительного списания не было.";
+        }
+        return "Возврат завершён. Списано " + teleportCost + ". Координаты смерти всё ещё можно получить отдельно до конца времени выбора.";
     }
 
     private void restoreInterruptedSpectator(Player player) {
@@ -1917,6 +2254,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 endChestSearch(record);
                 if (placed) {
                     plugin.debugDeath("guaranteed chest resolved deathId=" + record.deathId + " backendOutage=" + backendOutage);
+                    record.offerClosed = true;
                     notifyChest(record, spot.get().first, backendOutage, reason);
                     finish(record, Stage.FREE_CHEST_CREATED);
                 } else {
@@ -1964,17 +2302,17 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private void notifyDeathCoordinates(DeathRecord record) {
         Player player = plugin.findOnlinePlayer(record.playerId);
         synchronized (record) {
-            if (record.userNotified || record.notificationDispatchPending) return;
+            if (record.coordinatesNotified || record.coordinatesNotificationDispatchPending) return;
             if (player == null || !player.isOnline() || player.isDead()) {
                 plugin.debugDeath("coordinates notification deferred deathId=" + record.deathId
                     + " playerPresent=" + (player != null) + " online=" + (player != null && player.isOnline())
                     + " dead=" + (player != null && player.isDead()));
                 return;
             }
-            record.notificationDispatchPending = true;
+            record.coordinatesNotificationDispatchPending = true;
         }
         onPlayer(player, () -> {
-            synchronized (record) { record.notificationDispatchPending = false; }
+            synchronized (record) { record.coordinatesNotificationDispatchPending = false; }
             if (!player.isOnline() || player.isDead()) {
                 plugin.debugDeath("coordinates notification scheduler ran but player unavailable deathId=" + record.deathId);
                 return;
@@ -1982,13 +2320,18 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             int x = (int) Math.floor(record.x);
             int y = (int) Math.floor(record.y);
             int z = (int) Math.floor(record.z);
-            player.sendMessage(Component.text("Координаты смерти: " + record.worldKey + " / " + record.worldName
+            player.sendMessage(Component.text("Координаты получены. Списано " + coordinatesCost + ".", NamedTextColor.GREEN));
+            player.sendMessage(Component.text("Место смерти: " + record.worldKey + " / " + record.worldName
                 + " — " + x + " " + y + " " + z, NamedTextColor.LIGHT_PURPLE));
-            record.userNotified = true;
+            synchronized (record) {
+                record.coordinatesGranted = true;
+                record.coordinatesNotified = true;
+                record.updatedAt = Instant.now();
+                saveQuietly(record);
+            }
             plugin.debugDeath("coordinates notification delivered deathId=" + record.deathId + " player=" + record.playerId);
-            finish(record, Stage.COORDINATES_SENT);
         }, () -> {
-            synchronized (record) { record.notificationDispatchPending = false; }
+            synchronized (record) { record.coordinatesNotificationDispatchPending = false; }
             plugin.debugDeath("coordinates notification scheduler retired deathId=" + record.deathId);
         }, 1L);
     }
@@ -2000,7 +2343,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private void notifyChest(DeathRecord record, Location at, boolean free, String reason) {
         Player player = plugin.findOnlinePlayer(record.playerId);
         synchronized (record) {
-            if (record.userNotified || record.notificationDispatchPending) return;
+            if (record.chestNotified || record.chestNotificationDispatchPending) return;
             if (player == null || !player.isOnline() || player.isDead()) {
                 plugin.debugDeath("chest notification deferred deathId=" + record.deathId
                     + " playerPresent=" + (player != null) + " online=" + (player != null && player.isOnline())
@@ -2008,10 +2351,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ());
                 return;
             }
-            record.notificationDispatchPending = true;
+            record.chestNotificationDispatchPending = true;
         }
         onPlayer(player, () -> {
-            synchronized (record) { record.notificationDispatchPending = false; }
+            synchronized (record) { record.chestNotificationDispatchPending = false; }
             if (!player.isOnline() || player.isDead()) {
                 plugin.debugDeath("chest notification scheduler ran but player unavailable deathId=" + record.deathId);
                 return;
@@ -2023,19 +2366,23 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             player.sendMessage(Component.text(reason, free ? NamedTextColor.YELLOW : NamedTextColor.GREEN));
             player.sendMessage(Component.text("Сундук: " + record.worldKey + " / " + record.worldName + " "
                 + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ(), NamedTextColor.AQUA));
-            record.userNotified = true;
+            synchronized (record) {
+                record.chestNotified = true;
+                record.userNotified = record.coordinatesNotified && record.chestNotified;
+                record.updatedAt = Instant.now();
+                saveQuietly(record);
+            }
             plugin.debugDeath("chest notification delivered deathId=" + record.deathId + " player=" + record.playerId
                 + " free=" + free + " chest=" + record.worldKey + " " + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ());
-            saveQuietly(record);
         }, () -> {
-            synchronized (record) { record.notificationDispatchPending = false; }
+            synchronized (record) { record.chestNotificationDispatchPending = false; }
             plugin.debugDeath("chest notification scheduler retired deathId=" + record.deathId);
         }, 1L);
     }
 
     private void notifyUnseenChests(Player player) {
         for (DeathRecord record : new ArrayList<>(deaths.values())) {
-            if (!record.playerId.equals(player.getUniqueId()) || !record.chestCreated || record.userNotified) continue;
+            if (!record.playerId.equals(player.getUniqueId()) || !record.chestCreated || record.chestNotified) continue;
             Optional<World> world = resolveWorld(record);
             if (world.isEmpty()) continue;
             Location at = new Location(world.get(), record.chestX, record.chestY, record.chestZ);
@@ -2152,36 +2499,53 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             && type != Material.POINTED_DRIPSTONE;
     }
 
-    private CompletableFuture<PurchaseOutcome> purchase(DeathRecord record, String action, int amount) {
+    private CompletableFuture<PurchaseResult> purchase(DeathRecord record, String action, int amount) {
+        String actionRequestId = actionRequestId(record, action);
         String body = json(Map.of(
             "playerUuid", record.playerId.toString(),
             "playerName", record.playerName,
-            "requestId", record.requestId.toString(),
+            "requestId", actionRequestId,
             "action", action,
             "amount", amount));
+        plugin.debugDeath("purchase started deathId=" + record.deathId + " action=" + action
+            + " amount=" + amount + " requestId=" + actionRequestId);
         return request("POST", API_PATH + "/" + record.deathId + "/purchase", body).thenApply(response -> {
-            if (response == null || response.statusCode() >= 500) return PurchaseOutcome.UNAVAILABLE;
-            if (response.statusCode() == 409 && response.body() != null
-                && response.body().toLowerCase(Locale.ROOT).contains("not-linked")) {
-                return PurchaseOutcome.UNLINKED;
-            }
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                try {
-                    JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
-                    if (payload.has("revision")) {
-                        synchronized (record) {
-                            record.revision = Math.max(record.revision, payload.get("revision").getAsLong());
-                        }
-                    }
-                    return payload.has("success") && payload.get("success").getAsBoolean()
-                        ? PurchaseOutcome.CONFIRMED
-                        : PurchaseOutcome.DENIED;
-                } catch (RuntimeException ex) {
-                    return PurchaseOutcome.UNAVAILABLE;
+            if (response == null || response.statusCode() >= 500) return PurchaseResult.unavailable("backend-unavailable");
+            String reason = "";
+            int balance = -1;
+            int cost = amount;
+            int charged = amount;
+            try {
+                JsonObject payload = response.body() == null || response.body().isBlank()
+                    ? new JsonObject() : JsonParser.parseString(response.body()).getAsJsonObject();
+                if (payload.has("revision")) {
+                    synchronized (record) { record.revision = Math.max(record.revision, payload.get("revision").getAsLong()); }
                 }
+                if (payload.has("reason")) reason = payload.get("reason").getAsString();
+                if (payload.has("balance")) balance = payload.get("balance").getAsInt();
+                if (payload.has("cost")) cost = payload.get("cost").getAsInt();
+                if (payload.has("charged")) charged = payload.get("charged").getAsInt();
+                if (response.statusCode() >= 200 && response.statusCode() < 300
+                    && payload.has("success") && payload.get("success").getAsBoolean()) {
+                    plugin.debugDeath("purchase confirmed deathId=" + record.deathId + " action=" + action
+                        + " amount=" + amount + " requestId=" + actionRequestId
+                        + " duplicate=" + (payload.has("duplicate") && payload.get("duplicate").getAsBoolean()));
+                    return PurchaseResult.confirmed(charged > 0 ? charged : amount);
+                }
+            } catch (RuntimeException ex) {
+                plugin.getLogger().log(Level.WARNING, "Cannot parse purchase response deathId=" + record.deathId
+                    + " action=" + action + " status=" + response.statusCode(), ex);
+                if (response.statusCode() >= 200 && response.statusCode() < 300) return PurchaseResult.unavailable("invalid-response");
             }
-            return PurchaseOutcome.DENIED;
-        }).exceptionally(ex -> PurchaseOutcome.UNAVAILABLE);
+            if (response.statusCode() == 409 && "not-linked".equals(reason)) return PurchaseResult.unlinked(reason);
+            plugin.debugDeath("purchase denied deathId=" + record.deathId + " action=" + action
+                + " status=" + response.statusCode() + " reason=" + reason + " balance=" + balance + " cost=" + cost);
+            return PurchaseResult.denied(reason.isBlank() ? "purchase-denied" : reason, balance, cost);
+        }).exceptionally(ex -> PurchaseResult.unavailable("request-failed"));
+    }
+
+    private String actionRequestId(DeathRecord record, String action) {
+        return "death:" + record.deathId + ":" + action;
     }
 
     private CompletableFuture<BackendResult> syncCreate(DeathRecord record) {
@@ -2227,33 +2591,38 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             .exceptionally(ex -> false);
     }
 
-    private void requestCompensation(DeathRecord record, int amount) {
+    private void requestCompensation(DeathRecord record, String action, int amount) {
+        String sourceRequestId = actionRequestId(record, action);
         synchronized (record) {
+            record.compensationAction = action;
+            record.compensationAmount = amount;
             record.compensationPending = true;
             record.compensationRetryAfter = Instant.now().plusSeconds(15);
         }
         saveQuietly(record);
         String body = json(Map.of(
-            "requestId", record.requestId.toString(),
+            "requestId", sourceRequestId,
             "amount", amount,
-            "reason", "fulfillment-failed"));
+            "reason", "fulfillment-failed:" + action));
+        plugin.debugDeath("compensation requested deathId=" + record.deathId + " action=" + action
+            + " amount=" + amount + " requestId=" + sourceRequestId);
         request("POST", API_PATH + "/" + record.deathId + "/compensate", body).thenAccept(response -> {
             if (response == null || response.statusCode() < 200 || response.statusCode() >= 300) return;
             try {
                 JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
                 if (!payload.has("success") || !payload.get("success").getAsBoolean()) return;
                 boolean noCharge = payload.has("noCharge") && payload.get("noCharge").getAsBoolean();
+                int refunded = payload.has("refunded") ? payload.get("refunded").getAsInt() : 0;
                 synchronized (record) {
                     record.compensationPending = false;
-                    record.compensated = true;
-                    if (noCharge) {
-                        record.paymentConfirmed = false;
-                        record.chargedAmount = 0;
-                    }
-                    if (payload.has("revision")) {
-                        record.revision = Math.max(record.revision, payload.get("revision").getAsLong());
-                    }
+                    record.compensationAction = "";
+                    record.compensationAmount = 0;
+                    if (!noCharge && refunded > 0) record.chargedAmount = Math.max(0, record.chargedAmount - refunded);
+                    record.compensated = record.chargedAmount == 0;
+                    if (payload.has("revision")) record.revision = Math.max(record.revision, payload.get("revision").getAsLong());
                 }
+                plugin.debugDeath("compensation completed deathId=" + record.deathId + " action=" + action
+                    + " noCharge=" + noCharge + " refunded=" + refunded + " remainingCharged=" + record.chargedAmount);
                 saveQuietly(record);
             } catch (RuntimeException ex) {
                 plugin.getLogger().log(Level.WARNING, "Cannot parse death compensation response", ex);
@@ -2361,8 +2730,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     // Never prune an offline player's chest coordinates before they were shown.
                     // The physical chest may live forever, so losing this journal row would make it
                     // impossible to fulfil the promised notification on the next join.
-                    boolean notificationOwed = !r.userNotified
-                        && (r.chestCreated || ACTION_COORDINATES.equals(r.action));
+                    boolean notificationOwed = (r.chestCreated && !r.chestNotified)
+                        || (r.coordinatesGranted && !r.coordinatesNotified);
                     boolean canPrune = oldTerminal && !notificationOwed;
                     if (canPrune) {
                         Files.deleteIfExists(path);
@@ -2371,7 +2740,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                         deaths.put(r.deathId, r);
                         plugin.debugJournal("loaded deathId=" + r.deathId + " player=" + r.playerId
                             + " stage=" + r.stage + " chestCreated=" + r.chestCreated
-                            + " userNotified=" + r.userNotified + " revision=" + r.revision);
+                            + " coordinatesGranted=" + r.coordinatesGranted
+                            + " coordinatesNotified=" + r.coordinatesNotified
+                            + " chestNotified=" + r.chestNotified
+                            + " offerClosed=" + r.offerClosed + " revision=" + r.revision);
                     }
                 } catch (Exception ex) { plugin.getLogger().log(Level.SEVERE, "Cannot load " + path, ex); }
             });
@@ -2396,7 +2768,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
                 plugin.debugJournal("persisted deathId=" + record.deathId + " stage=" + record.stage
                     + " revision=" + record.revision + " itemsResolved=" + record.itemsResolved
-                    + " chestCreated=" + record.chestCreated + " userNotified=" + record.userNotified
+                    + " chestCreated=" + record.chestCreated + " coordinatesNotified=" + record.coordinatesNotified
+                    + " chestNotified=" + record.chestNotified + " offerClosed=" + record.offerClosed
                     + " path=" + target);
                 return true;
             } catch (IOException ex) {
@@ -2427,7 +2800,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         m.put("rescueEndsAtUtc", r.rescueEndsAt == null ? null : r.rescueEndsAt.toString());
         m.put("stage", r.stage == null ? Stage.OFFER.name() : r.stage.name());
         m.put("action", blankToNull(r.action));
-        m.put("purchaseRequestId", r.requestId == null ? null : r.requestId.toString());
+        m.put("purchaseRequestId", null);
         m.put("chargedAmount", r.chargedAmount);
         m.put("paymentStatus", r.compensated ? "compensated" : (r.paymentConfirmed ? "confirmed" : (r.compensationPending ? "pending" : "none")));
         m.put("paymentErrorCode", blankToNull(r.paymentErrorCode));
@@ -2465,6 +2838,25 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private enum BackendResult { AVAILABLE, UNAVAILABLE, UNLINKED }
     private enum PurchaseOutcome { CONFIRMED, DENIED, UNAVAILABLE, UNLINKED }
+
+    private static final class PurchaseResult {
+        final PurchaseOutcome outcome;
+        final String reason;
+        final int balance;
+        final int cost;
+        final int charged;
+        private PurchaseResult(PurchaseOutcome outcome, String reason, int balance, int cost, int charged) {
+            this.outcome = outcome;
+            this.reason = reason == null ? "" : reason;
+            this.balance = balance;
+            this.cost = cost;
+            this.charged = charged;
+        }
+        static PurchaseResult confirmed(int charged) { return new PurchaseResult(PurchaseOutcome.CONFIRMED, "", -1, -1, charged); }
+        static PurchaseResult denied(String reason, int balance, int cost) { return new PurchaseResult(PurchaseOutcome.DENIED, reason, balance, cost, 0); }
+        static PurchaseResult unavailable(String reason) { return new PurchaseResult(PurchaseOutcome.UNAVAILABLE, reason, -1, -1, 0); }
+        static PurchaseResult unlinked(String reason) { return new PurchaseResult(PurchaseOutcome.UNLINKED, reason, -1, -1, 0); }
+    }
     private enum Stage {
         WAITING_RESPAWN, OFFER, RESOLVING, WORLD_UNAVAILABLE, RESCUE_PENDING, RESCUE_ACTIVE,
         DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, COORDINATES_SENT, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED;
@@ -2521,18 +2913,23 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private static final class DeathRecord {
         UUID deathId, playerId, worldUuid, requestId;
         String playerName, worldKey, worldName, itemsBase64, action, previousGameMode;
-        String paymentErrorCode, lastError;
+        String paymentErrorCode, lastError, compensationAction;
         double x, y, z, finalX, finalY, finalZ; float yaw, pitch;
-        int chestX, chestY, chestZ, chestSecondX, chestSecondY, chestSecondZ, chargedAmount;
+        int chestX, chestY, chestZ, chestSecondX, chestSecondY, chestSecondZ, chargedAmount, compensationAmount;
         Instant createdAt, offerExpiresAt, updatedAt, rescueEndsAt;
         transient volatile Instant retryAfter = Instant.EPOCH;
         transient volatile Instant compensationRetryAfter = Instant.EPOCH;
         transient volatile boolean chestSearchInFlight;
+        transient volatile Instant lastOfferShownAt = Instant.EPOCH;
+        transient final Set<String> actionsInFlight = ConcurrentHashMap.newKeySet();
         Stage stage; boolean paymentConfirmed, dropsReleased, chestSpotReserved, chestCreated, itemsResolved, rescuePending, rescueCompleted;
         boolean backendUnavailable, compensationPending, compensated, userNotified;
+        boolean offerClosed, coordinatesGranted, coordinatesNotified, chestPurchased, chestNotified, returnPurchased;
         volatile boolean notificationDispatchPending;
+        volatile boolean coordinatesNotificationDispatchPending;
+        volatile boolean chestNotificationDispatchPending;
         long revision;
-        boolean isTerminal() { return stage == Stage.DROPS_RELEASED || stage == Stage.CHEST_CREATED || stage == Stage.FREE_CHEST_CREATED || stage == Stage.COORDINATES_SENT || stage == Stage.RESCUE_COMPLETED || stage == Stage.CHEST_AND_RESCUE_COMPLETED; }
+        boolean isTerminal() { return offerClosed && itemsResolved && !compensationPending && !rescuePending; }
         Properties toProperties() {
             Properties p = new Properties();
             put(p,"deathId",deathId); put(p,"playerId",playerId); put(p,"playerName",playerName); put(p,"worldUuid",worldUuid); put(p,"worldKey",worldKey); put(p,"worldName",worldName);
@@ -2541,6 +2938,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             put(p,"stage",stage); put(p,"action",action); put(p,"requestId",requestId); put(p,"previousGameMode",previousGameMode);
             put(p,"chargedAmount",chargedAmount); put(p,"paymentConfirmed",paymentConfirmed); put(p,"dropsReleased",dropsReleased); put(p,"chestSpotReserved",chestSpotReserved); put(p,"chestCreated",chestCreated); put(p,"itemsResolved",itemsResolved);
             put(p,"rescuePending",rescuePending); put(p,"rescueCompleted",rescueCompleted); put(p,"backendUnavailable",backendUnavailable); put(p,"compensationPending",compensationPending); put(p,"compensated",compensated); put(p,"userNotified",userNotified);
+            put(p,"offerClosed",offerClosed); put(p,"coordinatesGranted",coordinatesGranted); put(p,"coordinatesNotified",coordinatesNotified); put(p,"chestPurchased",chestPurchased); put(p,"chestNotified",chestNotified); put(p,"returnPurchased",returnPurchased);
+            put(p,"compensationAction",compensationAction); put(p,"compensationAmount",compensationAmount);
             put(p,"chestX",chestX); put(p,"chestY",chestY); put(p,"chestZ",chestZ); put(p,"chestSecondX",chestSecondX); put(p,"chestSecondY",chestSecondY); put(p,"chestSecondZ",chestSecondZ);
             put(p,"finalX",finalX); put(p,"finalY",finalY); put(p,"finalZ",finalZ);
             put(p,"paymentErrorCode",paymentErrorCode); put(p,"lastError",lastError); put(p,"revision",revision); return p;
@@ -2555,6 +2954,22 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             r.action=p.getProperty("action",""); r.requestId=UUID.fromString(p.getProperty("requestId",UUID.randomUUID().toString())); r.previousGameMode=p.getProperty("previousGameMode","");
             r.chargedAmount=n(p,"chargedAmount"); r.paymentConfirmed=b(p,"paymentConfirmed"); r.dropsReleased=b(p,"dropsReleased"); r.chestSpotReserved=b(p,"chestSpotReserved"); r.chestCreated=b(p,"chestCreated"); r.itemsResolved=b(p,"itemsResolved");
             r.rescuePending=b(p,"rescuePending"); r.rescueCompleted=b(p,"rescueCompleted"); r.backendUnavailable=b(p,"backendUnavailable"); r.compensationPending=b(p,"compensationPending"); r.compensated=b(p,"compensated"); r.userNotified=b(p,"userNotified");
+            boolean hasCoordinatesGranted = p.containsKey("coordinatesGranted");
+            boolean hasCoordinatesNotified = p.containsKey("coordinatesNotified");
+            boolean hasChestPurchased = p.containsKey("chestPurchased");
+            boolean hasChestNotified = p.containsKey("chestNotified");
+            boolean hasReturnPurchased = p.containsKey("returnPurchased");
+            r.offerClosed=b(p,"offerClosed"); r.coordinatesGranted=b(p,"coordinatesGranted"); r.coordinatesNotified=b(p,"coordinatesNotified"); r.chestPurchased=b(p,"chestPurchased"); r.chestNotified=b(p,"chestNotified"); r.returnPurchased=b(p,"returnPurchased");
+            r.compensationAction=p.getProperty("compensationAction",""); r.compensationAmount=n(p,"compensationAmount");
+            // Legacy inference is only allowed when the field did not exist at all. New journal rows
+            // deliberately persist false values per action. Treating an explicit false as "missing"
+            // would let an earlier coordinates payment make a later chest/return look paid after restart.
+            if (!hasCoordinatesGranted && !r.coordinatesGranted && ACTION_COORDINATES.equals(r.action) && (r.stage == Stage.COORDINATES_SENT || r.paymentConfirmed)) r.coordinatesGranted=true;
+            if (!hasCoordinatesNotified && !r.coordinatesNotified && r.coordinatesGranted && r.userNotified) r.coordinatesNotified=true;
+            if (!hasChestPurchased && !r.chestPurchased && r.paymentConfirmed && (ACTION_CHEST.equals(r.action) || ACTION_BOTH.equals(r.action))) r.chestPurchased=true;
+            if (!hasChestNotified && !r.chestNotified && r.chestCreated && r.userNotified) r.chestNotified=true;
+            if (!hasReturnPurchased && !r.returnPurchased && r.paymentConfirmed && (ACTION_RETURN.equals(r.action) || ACTION_BOTH.equals(r.action))) r.returnPurchased=true;
+            if (!r.offerClosed && r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt)) r.offerClosed=true;
             r.chestX=n(p,"chestX"); r.chestY=n(p,"chestY"); r.chestZ=n(p,"chestZ"); r.chestSecondX=n(p,"chestSecondX"); r.chestSecondY=n(p,"chestSecondY"); r.chestSecondZ=n(p,"chestSecondZ");
             r.finalX=d(p,"finalX"); r.finalY=d(p,"finalY"); r.finalZ=d(p,"finalZ");
             r.paymentErrorCode=p.getProperty("paymentErrorCode",""); r.lastError=p.getProperty("lastError",""); r.revision=l(p,"revision"); return r;
