@@ -1,5 +1,5 @@
 name: TaskForgeLink
-version: 1.8.0
+version: 1.8.2
 main: com.taskforge.folia.TaskForgeLinkPlugin
 api-version: '26.1.2'
 folia-supported: true

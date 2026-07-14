@@ -79,3 +79,9 @@ Both retained Minecraft plugins must support applying `config.yml` changes witho
 - `CustomMobTweaks`: `/cmt reload` (full component reload: unregister listeners, cancel tracked Folia tasks, reread config, reconstruct all modules).
 
 A reload must not duplicate listeners or periodic tasks. It must emit detailed start/stop/result logs. New config-backed functionality should participate in the corresponding full reload lifecycle.
+
+## Minecraft runtime invariants added in 2026-07
+
+- TaskForgeLink death offers are delivered from Folia/Paper `PlayerPostRespawnEvent`, with `PlayerJoinEvent`, confirmed link transitions and hot-reload recovery as explicit secondary triggers. Never restore a global alive-player heartbeat scan for unseen offers.
+- CustomMobTweaks sniper-arrow guidance must stop immediately on every projectile/entity impact, including cancelled shield blocks. Never allow a homing scheduler to keep moving an arrow after impact.
+- The maintained Minecraft plugins are exactly `TaskForgeLink` and `CustomMobTweaks`; do not reintroduce WorldLoaderFolia or DefaultGroupAssigner.

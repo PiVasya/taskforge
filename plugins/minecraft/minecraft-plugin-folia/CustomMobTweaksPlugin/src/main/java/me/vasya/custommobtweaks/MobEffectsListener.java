@@ -39,12 +39,18 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 
-public final class MobEffectsListener implements Listener {
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class MobEffectsListener implements Listener, PluginComponent {
 
     private final CustomMobTweaksPlugin plugin;
     private final NamespacedKey pillagerPierceArrowKey;
     private final NamespacedKey harderBreezeChargeKey;
+    private final Map<UUID, ScheduledTask> homingTasks = new ConcurrentHashMap<>();
 
     public MobEffectsListener(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
@@ -75,6 +81,9 @@ public final class MobEffectsListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onProjectileHit(ProjectileHitEvent event) {
+        if (event.getEntity() instanceof AbstractArrow arrow) {
+            stopArrowHoming(arrow, "projectile-hit");
+        }
         Entity hit = event.getHitEntity();
         if (!(hit instanceof LivingEntity target)) {
             return;
@@ -82,6 +91,18 @@ public final class MobEffectsListener implements Listener {
 
         handleBreezeWindCharge(event.getEntity(), target);
         handleDrownedTrident(event.getEntity(), target);
+    }
+
+    /**
+     * Shield blocks and protection plugins may reduce/cancel damage without removing the arrow.
+     * Stop guidance at MONITOR even for a cancelled damage event so a blocked arrow cannot keep
+     * accelerating inside the shield and hit the player later when the shield is lowered.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onArrowDamageResolved(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof AbstractArrow arrow) {
+            stopArrowHoming(arrow, event.isCancelled() ? "damage-cancelled-or-shielded" : "entity-impact");
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -511,35 +532,38 @@ public final class MobEffectsListener implements Listener {
             return;
         }
 
+        stopArrowHoming(arrow, "reschedule");
+
         double turnRate = clamp(cfg.getDouble("skeleton-sniper.homing-turn-rate", 0.35D), 0.05D, 0.95D);
         double maxTrackDistance = cfg.getDouble("skeleton-sniper.max-track-distance", 40.0D);
         double maxTrackDistanceSquared = maxTrackDistance * maxTrackDistance;
         boolean aimAtBody = cfg.getBoolean("skeleton-sniper.aim-at-body", true);
         double leadFactor = cfg.getDouble("skeleton-sniper.homing-lead-factor", 0.35D);
         int[] remainingTicks = {homingTicks};
+        UUID arrowId = arrow.getUniqueId();
 
-        arrow.getScheduler().runAtFixedRate(plugin, task -> {
+        ScheduledTask scheduled = arrow.getScheduler().runAtFixedRate(plugin, task -> {
             if (!arrow.isValid() || arrow.isDead()) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "arrow-invalid");
                 return;
             }
             if (remainingTicks[0]-- <= 0) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "duration-finished");
                 return;
             }
             if (!target.isValid() || target.isDead()) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "target-invalid");
                 return;
             }
             if (!arrow.getWorld().equals(target.getWorld())) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "different-world");
                 return;
             }
 
             Location arrowLocation = arrow.getLocation();
             Location targetLocation = getAimLocation(target, aimAtBody);
             if (arrowLocation.distanceSquared(targetLocation) > maxTrackDistanceSquared) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "out-of-range");
                 return;
             }
 
@@ -547,7 +571,7 @@ public final class MobEffectsListener implements Listener {
                     .add(target.getVelocity().clone().multiply(leadFactor))
                     .subtract(arrowLocation.toVector());
             if (desired.lengthSquared() < 0.0001D) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "no-direction");
                 return;
             }
 
@@ -557,12 +581,49 @@ public final class MobEffectsListener implements Listener {
                     .add(desiredVelocity.multiply(turnRate));
 
             if (newVelocity.lengthSquared() < 0.0001D) {
-                task.cancel();
+                finishArrowHoming(arrowId, task, "zero-velocity");
                 return;
             }
 
             arrow.setVelocity(newVelocity);
-        }, null, 1L, 1L);
+        }, () -> {
+            homingTasks.remove(arrowId);
+            debug("Skeleton sniper homing retired arrow=" + arrowId);
+        }, 1L, 1L);
+
+        if (scheduled != null) {
+            homingTasks.put(arrowId, scheduled);
+            debug("Skeleton sniper homing started arrow=" + arrowId + " target=" + target.getUniqueId()
+                    + " ticks=" + homingTicks + " turnRate=" + turnRate + " lead=" + leadFactor);
+        }
+    }
+
+    private void finishArrowHoming(UUID arrowId, ScheduledTask task, String reason) {
+        homingTasks.remove(arrowId, task);
+        task.cancel();
+        debug("Skeleton sniper homing finished arrow=" + arrowId + " reason=" + reason);
+    }
+
+    private void stopArrowHoming(AbstractArrow arrow, String reason) {
+        ScheduledTask task = homingTasks.remove(arrow.getUniqueId());
+        if (task == null) {
+            return;
+        }
+        task.cancel();
+        debug("Skeleton sniper homing stopped arrow=" + arrow.getUniqueId() + " reason=" + reason);
+    }
+
+    @Override
+    public void shutdown() {
+        int count = homingTasks.size();
+        for (ScheduledTask task : homingTasks.values()) {
+            try {
+                task.cancel();
+            } catch (RuntimeException ignored) {
+            }
+        }
+        homingTasks.clear();
+        debug("Skeleton sniper homing tasks cancelled during runtime reload count=" + count);
     }
 
     private Location getAimLocation(LivingEntity target, boolean aimAtBody) {

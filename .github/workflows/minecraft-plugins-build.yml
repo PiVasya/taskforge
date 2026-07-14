@@ -31,6 +31,9 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
+      - name: Check Minecraft plugin runtime invariants
+        run: bash scripts/ci/check-minecraft-plugin-runtime-invariants.sh
+
       - name: Build TaskForgeLink
         working-directory: plugins/minecraft/minecraft-plugin-folia/TaskForgeFoliaPlugin
         run: gradle --no-daemon clean build

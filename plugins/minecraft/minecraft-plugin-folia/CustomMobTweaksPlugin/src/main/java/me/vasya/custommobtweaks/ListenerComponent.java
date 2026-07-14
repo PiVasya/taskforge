@@ -21,5 +21,8 @@ public final class ListenerComponent implements PluginComponent {
     @Override
     public void shutdown() {
         HandlerList.unregisterAll(listener);
+        if (listener instanceof PluginComponent component) {
+            component.shutdown();
+        }
     }
 }

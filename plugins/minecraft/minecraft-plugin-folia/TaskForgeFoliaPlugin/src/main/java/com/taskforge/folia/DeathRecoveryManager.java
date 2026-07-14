@@ -71,7 +71,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.player.PlayerRespawnEvent;
+import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -345,27 +345,28 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    public void onRespawn(PlayerRespawnEvent event) {
+    public void onPostRespawn(PlayerPostRespawnEvent event) {
         Player player = event.getPlayer();
         Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
-        plugin.debugDeath("PlayerRespawnEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
+        plugin.debugDeath("PlayerPostRespawnEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
             + " localRecords=" + knownBeforePull.size() + " pendingVanillaNotice="
             + vanillaDeathNotices.containsKey(player.getUniqueId()) + " " + plugin.linkStateDebug(player.getUniqueId()));
 
-        deliverVanillaDeathNotice(player, "respawn-event");
+        deliverVanillaDeathNotice(player, "post-respawn-event");
 
-        // Local delivery must never wait for the backend. A chest is commonly created while the
-        // player is still dead, so the first safe delivery point is the player scheduler after respawn.
+        // PlayerPostRespawnEvent is emitted after Paper/Folia has completed the respawn reset.
+        // Queue one entity-owned task for the next tick so menu delivery stays on the player's region
+        // without periodically polling all open deaths.
         onPlayer(player, () -> {
             restoreInterruptedSpectator(player);
             showPendingOffers(player);
             notifyUnseenChests(player);
             resumeUnresolved(player);
             resumePaidRescues(player);
-        }, 2L);
+        }, 1L);
 
         pullPending(player).whenComplete((ignored, error) -> {
-            if (error != null) plugin.debugDeath("pending pull after respawn failed player=" + player.getUniqueId() + " error=" + error);
+            if (error != null) plugin.debugDeath("pending pull after post-respawn failed player=" + player.getUniqueId() + " error=" + error);
             onPlayer(player, () -> {
                 showPendingOffersExcluding(player, knownBeforePull);
                 notifyUnseenChests(player);

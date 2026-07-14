@@ -1,212 +1,237 @@
-# CustomMobTweaks 2.1.0
-# After editing this file, run /custommobtweaks reload (or /cmt reload).
+# CustomMobTweaks 2.1.1
 # Target: Folia 26.1.2 / Java 25.
-# Chances accept either 0.0-1.0 or percentages greater than 1 (for example 2 = 2%).
+# 20 ticks = 1 second.
+# Damage is measured in health points: 2.0 = one heart.
+# Chances use fractions: 0.05 = 5%, 0.50 = 50%, 1.0 = 100%.
 
 # -----------------------------------------------------------------------------
-# Existing CustomMobTweaks mechanics
+# Blaze: real lightning, longer burning, richer loot.
 # -----------------------------------------------------------------------------
 blaze-fireball-lightning:
   enabled: true
-  effect-only: true
-  fire-ticks: 0
+  effect-only: false
+  fire-ticks: 100
 
+# -----------------------------------------------------------------------------
+# Bogged: Wither II arrows plus poison/bleeding puddles that empower mobs.
+# -----------------------------------------------------------------------------
 bogged-arrow-wither:
   enabled: true
-  duration-ticks: 40
-  amplifier: 0
+  duration-ticks: 100
+  amplifier: 1
 
+harder-bogged:
+  enabled: true
+  bleeding-duration-ticks: 160
+  poison-duration-ticks: 80
+  particle-spawn-interval-ticks: 8
+  blood-particle-duration-ticks: 160
+  puddle-check-period-ticks: 4
+  puddle-trigger-radius: 1.5
+  mob-buff-duration-ticks: 300
+  mob-size-multiplier: 1.5
+  mob-damage-multiplier: 2.0
+
+# -----------------------------------------------------------------------------
+# Wither skeleton: hard three-second stun with weakness and darkness.
+# -----------------------------------------------------------------------------
 wither-skeleton-stun:
   enabled: true
-  duration-ticks: 30
+  duration-ticks: 60
   slowness-amplifier: 10
   apply-weakness: true
   apply-darkness: true
 
+# -----------------------------------------------------------------------------
+# Snow golem: every hit slows, plus one point of bonus damage.
+# -----------------------------------------------------------------------------
 snow-golem-snowball:
   enabled: true
-  damage: 0.5
-  slowness-chance: 0.15
-  slowness-duration-ticks: 20
-  slowness-amplifier: 0
+  damage: 1.0
+  slowness-chance: 1.0
+  slowness-duration-ticks: 40
+  slowness-amplifier: 1
 
+# -----------------------------------------------------------------------------
+# Breeze: maximum pressure and control, but only moderate direct damage.
+# -----------------------------------------------------------------------------
 breeze-wind-charge:
   enabled: true
   bonus-damage: 1.0
-  vertical-knockback: 0.35
+  vertical-knockback: 0.8
   spawn-cloud-particles: true
 
 breeze-fireball-primary:
   enabled: true
-  projectile-speed-multiplier: 1.15
+  projectile-speed-multiplier: 1.4
   bonus-damage: 1.0
-  fire-ticks: 40
+  fire-ticks: 80
   incendiary: false
 
-# Applied when a drowned-thrown trident hits something.
+harder-breeze:
+  enabled: true
+  attack-cooldown-ticks: 6
+  attack-range: 32.0
+  projectile-speed: 2.0
+  require-line-of-sight: true
+
+  projectile-rain-amount: 10
+  projectile-rain-radius: 5.0
+  projectile-rain-height: 12.0
+  projectile-rain-speed: 0.8
+  projectile-rain-duration-ticks: 100
+  projectile-rain-period-ticks: 8
+
+  explosion-radius: 5.0
+  explosion-knockback: 3.5
+  explosion-damage: 1.0
+
+  radiation-zone:
+    enabled: true
+    chance: 0.25
+    radius: 7.5
+    knockback: 3.0
+    fire-duration-ticks: 160
+    duration-ticks: 240
+    check-period-ticks: 4
+    item-drop-interval-ticks: 40
+    drop-random-inventory-items: true
+    particle-density: 80
+
+# -----------------------------------------------------------------------------
+# Drowned: two minutes of glowing after a trident hit.
+# -----------------------------------------------------------------------------
 drowned-trident-glow:
   enabled: true
-  duration-ticks: 80
+  duration-ticks: 2400
   amplifier: 0
 
+# -----------------------------------------------------------------------------
+# Pillager: full armor/protection penetration, no bonus damage.
+# -----------------------------------------------------------------------------
 pillager-armor-pierce:
   enabled: true
   ignore-armor: true
   ignore-protection-enchants: true
-  bonus-damage: 0.6
+  bonus-damage: 0.0
 
+# -----------------------------------------------------------------------------
+# Stray: 1.5 seconds of strong chill and one half-heart maximum-health loss.
+# The maximum health is restored when the effect ends.
+# -----------------------------------------------------------------------------
 stray-chill:
   enabled: true
-  duration-ticks: 60
-  amplifier: 0
+  duration-ticks: 30
+  amplifier: 3
 
+harder-stray:
+  enabled: true
+  freeze-duration-ticks: 30
+  freeze-damage-interval-ticks: 30
+  slowness-amplifier: 4
+  particle-density: 20
+  use-max-health-reduction: true
+  max-health-reduction-per-interval: 1.0
+  direct-damage-per-interval: 0.0
+
+# -----------------------------------------------------------------------------
+# Skeleton sniper: 30% vanilla arrow speed, no bonus damage, extreme homing.
+# A shield can still block the arrow.
+# -----------------------------------------------------------------------------
 skeleton-sniper:
   enabled: true
   include-strays: true
   include-bogged: false
-  follow-range: 56.0
-  minimum-distance: 9.0
-  preferred-distance: 24.0
+  follow-range: 64.0
+  minimum-distance: 0.0
+  preferred-distance: 32.0
   retreat-when-close: true
-  retreat-strength: 0.28
-  speed-multiplier: 1.22
+  retreat-strength: 0.45
+  speed-multiplier: 0.3
   base-damage-bonus: 0.0
-  far-shot-damage-bonus: 0.35
-  prediction-factor: 0.7
+  far-shot-damage-bonus: 0.0
+  prediction-factor: 1.0
   require-line-of-sight: true
   disable-arrow-gravity: true
   critical: false
   aim-at-body: true
   continuous-homing: true
-  homing-ticks: 18
-  homing-turn-rate: 0.35
-  homing-lead-factor: 0.35
-  max-track-distance: 40.0
+  homing-ticks: 200
+  homing-turn-rate: 0.90
+  homing-lead-factor: 0.95
+  max-track-distance: 96.0
 
 # -----------------------------------------------------------------------------
-# Mechanics ported and rebuilt from CreakingPerks
+# Creaking: much faster, lethal melee hit, large darkness aura.
 # -----------------------------------------------------------------------------
 harder-creaking:
   enabled: true
-  # Potion amplifier, 9 means Speed X.
-  speed-amplifier: 9
-  hit-damage: 20.0
-  blindness-duration-ticks: 100
-  darkness-radius: 10.0
-  darkness-duration-ticks: 50
-  darkness-check-period-ticks: 20
+  speed-amplifier: 14
+  hit-damage: 28.0
+  blindness-duration-ticks: 160
+  darkness-radius: 20.0
+  darkness-duration-ticks: 80
+  darkness-check-period-ticks: 10
 
-harder-breeze:
-  enabled: true
-
-  # A Breeze shoots an additional wind charge at the closest visible player.
-  attack-cooldown-ticks: 10
-  attack-range: 16.0
-  projectile-speed: 1.5
-  require-line-of-sight: true
-
-  # Taking damage from the Breeze starts a rain of wind charges over the player.
-  projectile-rain-amount: 5
-  projectile-rain-radius: 3.0
-  projectile-rain-height: 8.0
-  projectile-rain-speed: 0.5
-  projectile-rain-duration-ticks: 60
-  projectile-rain-period-ticks: 10
-
-  # Every Breeze wind charge creates a visual blast and pushes nearby entities.
-  explosion-radius: 3.0
-  explosion-knockback: 1.5
-  explosion-damage: 0.0
-
-  # CreakingPerks used a 5% radiation-zone chance for Breeze charges.
-  radiation-zone:
-    enabled: true
-    chance: 0.05
-    radius: 5.0
-    knockback: 2.0
-    fire-duration-ticks: 100
-    duration-ticks: 120
-    check-period-ticks: 5
-    item-drop-interval-ticks: 60
-    drop-random-inventory-items: true
-    particle-density: 50
-
-harder-bogged:
-  enabled: true
-  bleeding-duration-ticks: 100
-  poison-duration-ticks: 20
-  particle-spawn-interval-ticks: 5
-
-  # Green blood puddles remain on the ground and empower the first hostile mob
-  # that steps into them. Bogged themselves are not buffed.
-  blood-particle-duration-ticks: 100
-  puddle-check-period-ticks: 5
-  puddle-trigger-radius: 1.0
-  mob-buff-duration-ticks: 200
-  mob-size-multiplier: 1.25
-  mob-damage-multiplier: 1.5
-
+# -----------------------------------------------------------------------------
+# Armadillo: very large and powerful defensive sphere.
+# -----------------------------------------------------------------------------
 harder-armadillo:
   enabled: true
-  base-sphere-radius: 10.0
-  radius-per-20-percent-health-loss: 5.0
-  sphere-duration-ticks: 100
-  check-period-ticks: 5
-  particle-density: 20
-  push-force: 1.5
+  base-sphere-radius: 16.0
+  radius-per-20-percent-health-loss: 8.0
+  sphere-duration-ticks: 240
+  check-period-ticks: 2
+  particle-density: 50
+  push-force: 4.0
 
-harder-stray:
-  enabled: true
-  freeze-duration-ticks: 100
-  freeze-damage-interval-ticks: 20
-  slowness-amplifier: 1
-  particle-density: 10
-
-  # true: temporarily removes maximum health every interval, then restores it.
-  # false: deals direct damage instead.
-  use-max-health-reduction: true
-  max-health-reduction-per-interval: 0.5
-  direct-damage-per-interval: 16.0
-
+# -----------------------------------------------------------------------------
+# Illusioner: 1% replacement chance and 1% periodic chance per check/player.
+# -----------------------------------------------------------------------------
 illusioner-spawn:
   enabled: true
-  # No custom/purple name is assigned.
   replace-natural-hostile-mobs: true
-  replacement-chance: 0.001
+  replacement-chance: 0.01
   give-bow: true
-  health-multiplier: 1.0
-
-  # Additional Folia-safe spawn attempts around online players.
+  health-multiplier: 2.0
   periodic-check-interval-ticks: 600
   periodic-spawn:
     enabled: true
-    chance-per-check: 0.001
+    chance-per-check: 0.01
     min-radius: 24
-    max-radius: 48
+    max-radius: 56
     max-block-light: 7
-    no-other-illusioner-radius: 48.0
+    no-other-illusioner-radius: 64.0
 
-# A new configurable elite zombie variant requested for this update.
+# -----------------------------------------------------------------------------
+# Trident zombie: three times the normal health and stronger ranged pressure.
+# -----------------------------------------------------------------------------
 trident-zombie:
   enabled: true
   spawn-chance: 0.03
-  health-multiplier: 1.5
-  damage-multiplier: 1.35
-  speed-multiplier: 1.10
-  attack-range: 18.0
-  attack-cooldown-ticks: 50
-  trident-speed: 1.35
+  health-multiplier: 3.0
+  damage-multiplier: 1.5
+  speed-multiplier: 1.15
+  attack-range: 24.0
+  attack-cooldown-ticks: 35
+  trident-speed: 1.6
   trident-damage: 8.0
   require-line-of-sight: true
 
+# -----------------------------------------------------------------------------
+# Every snowball fully stops its target for half a second.
+# -----------------------------------------------------------------------------
 freezing-snowball:
   enabled: true
   players-only: false
-  freeze-duration-ticks: 60
-  slowness-amplifier: 2
-  mining-fatigue-amplifier: 1
-  particle-density: 15
+  freeze-duration-ticks: 10
+  slowness-amplifier: 10
+  mining-fatigue-amplifier: 3
+  particle-density: 20
 
+# -----------------------------------------------------------------------------
+# Lava and armor: unchanged.
+# -----------------------------------------------------------------------------
 lava-damage:
   enabled: true
   check-period-ticks: 10
@@ -218,32 +243,39 @@ lava-damage:
   particle-density: 15
   notify-item-melt: true
 
+# -----------------------------------------------------------------------------
+# Dry weapon: always consumes exactly one ammo item.
+# Other values are tuned for a powerful but not instant-kill utility weapon.
+# -----------------------------------------------------------------------------
 dry-weapon:
   enabled: true
-  weapon-durability: 150
-  long-range-damage: 2.0
-  short-range-damage: 1.0
-  max-range: 10.0
-  ray-size: 0.45
+  weapon-durability: 250
+  long-range-damage: 3.0
+  short-range-damage: 1.5
+  max-range: 14.0
+  ray-size: 0.35
   min-ammo-cost: 1
-  max-ammo-cost: 10
+  max-ammo-cost: 1
   craft-fail-chance: 0.05
-  min-fire-rate: 1
-  max-fire-rate: 3
-  leaf-hit-tracking-duration-ticks: 1200
-  tornado-minimum-hits: 5
-  tornado-chance: 0.2
-  tornado-lift-per-2-hits: 1
-  tornado-max-lift-blocks: 50
-  fire-effect-chance: 0.2
-  fire-effect-duration-ticks: 60
-  splinter-effect-chance: 0.2
-  splinter-effect-duration-ticks: 100
-  durability-damage-chance: 0.2
-  item-durability-damage: 5
+  min-fire-rate: 2
+  max-fire-rate: 4
+  leaf-hit-tracking-duration-ticks: 800
+  tornado-minimum-hits: 4
+  tornado-chance: 0.25
+  tornado-lift-per-2-hits: 2
+  tornado-max-lift-blocks: 35
+  fire-effect-chance: 0.20
+  fire-effect-duration-ticks: 80
+  splinter-effect-chance: 0.25
+  splinter-effect-duration-ticks: 120
+  durability-damage-chance: 0.20
+  item-durability-damage: 6
 
+# -----------------------------------------------------------------------------
+# Happy ghast bomber: disabled completely.
+# -----------------------------------------------------------------------------
 happy-ghast-bomber:
-  enabled: true
+  enabled: false
   slow-drop-interval-ticks: 20
   fast-drop-interval-ticks: 20
   fast-mode-min-tnt: 10
@@ -263,9 +295,7 @@ happy-ghast-bomber:
     particle-density: 50
 
 # -----------------------------------------------------------------------------
-# Extra loot
-# Each enhanced mob has an independent switch and an arbitrary number of drops.
-# chance: 0.02 means 2%; chance: 2 also means 2%.
+# Extra loot.
 # -----------------------------------------------------------------------------
 extra-loot:
   breeze:
@@ -275,12 +305,12 @@ extra-loot:
       breeze-rods:
         material: BREEZE_ROD
         chance: 1.0
-        min-amount: 1
-        max-amount: 100
+        min-amount: 4
+        max-amount: 12
       elytra:
         material: ELYTRA
-        chance: 0.02
-        looting-bonus-per-level: 0.0025
+        chance: 0.05
+        looting-bonus-per-level: 0.0
         min-amount: 1
         max-amount: 1
       netherite-scrap:
@@ -296,7 +326,7 @@ extra-loot:
     drops:
       trident:
         material: TRIDENT
-        chance: 0.12
+        chance: 0.15
         looting-bonus-per-level: 0.02
         min-amount: 1
         max-amount: 1
@@ -312,13 +342,19 @@ extra-loot:
     drops:
       resin:
         material: RESIN_CLUMP
-        chance: 0.65
-        looting-bonus-per-level: 0.05
+        chance: 1.0
+        looting-bonus-per-level: 0.0
+        min-amount: 8
+        max-amount: 16
+      pale-oak-logs:
+        material: PALE_OAK_LOG
+        chance: 0.75
+        looting-bonus-per-level: 0.03
         min-amount: 2
-        max-amount: 8
+        max-amount: 6
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.025
+        chance: 0.03
         min-amount: 1
         max-amount: 1
 
@@ -328,9 +364,9 @@ extra-loot:
     drops:
       spore-blossom:
         material: SPORE_BLOSSOM
-        chance: 0.12
+        chance: 0.25
         min-amount: 1
-        max-amount: 1
+        max-amount: 2
       netherite-scrap:
         material: NETHERITE_SCRAP
         chance: 0.025
@@ -343,24 +379,24 @@ extra-loot:
     drops:
       blue-ice:
         material: BLUE_ICE
-        chance: 0.20
+        chance: 0.25
         min-amount: 1
-        max-amount: 3
+        max-amount: 4
       echo-shard:
         material: ECHO_SHARD
-        chance: 0.035
+        chance: 0.04
         min-amount: 1
         max-amount: 1
 
   armadillo:
-    enabled: false
+    enabled: true
     killed-by-player-only: true
     drops:
       scutes:
         material: ARMADILLO_SCUTE
-        chance: 0.30
-        min-amount: 1
-        max-amount: 3
+        chance: 0.70
+        min-amount: 2
+        max-amount: 5
       netherite-scrap:
         material: NETHERITE_SCRAP
         chance: 0.01
@@ -371,22 +407,20 @@ extra-loot:
     enabled: true
     killed-by-player-only: true
     drops:
-      enchanted-golden-apple:
-        material: ENCHANTED_GOLDEN_APPLE
+      golden-apple:
+        material: GOLDEN_APPLE
         chance: 1.0
-        looting-bonus-per-level: 0.01
         min-amount: 1
         max-amount: 1
-      totem:
-        material: TOTEM_OF_UNDYING
-        chance: 0.08
+      # The current extra-loot engine can only create a bare Material ItemStack.
+      # A real Potion of Invisibility needs potion metadata and therefore a code update.
+      # Do not enable a plain POTION here: it would only be a water bottle.
+      invisibility-potion-placeholder:
+        enabled: false
+        material: POTION
+        chance: 1.0
         min-amount: 1
         max-amount: 1
-      netherite-scrap:
-        material: NETHERITE_SCRAP
-        chance: 0.05
-        min-amount: 1
-        max-amount: 2
 
   drowned:
     enabled: true
@@ -394,7 +428,7 @@ extra-loot:
     drops:
       trident:
         material: TRIDENT
-        chance: 0.05
+        chance: 0.08
         looting-bonus-per-level: 0.01
         min-amount: 1
         max-amount: 1
@@ -405,10 +439,16 @@ extra-loot:
     drops:
       blaze-rods:
         material: BLAZE_ROD
-        chance: 0.35
+        chance: 0.70
         looting-bonus-per-level: 0.03
+        min-amount: 5
+        max-amount: 5
+      fire-charge:
+        material: FIRE_CHARGE
+        chance: 0.50
+        looting-bonus-per-level: 0.02
         min-amount: 1
-        max-amount: 4
+        max-amount: 1
       netherite-scrap:
         material: NETHERITE_SCRAP
         chance: 0.02
@@ -421,13 +461,13 @@ extra-loot:
     drops:
       skull:
         material: WITHER_SKELETON_SKULL
-        chance: 0.04
+        chance: 0.08
         looting-bonus-per-level: 0.01
         min-amount: 1
         max-amount: 1
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.035
+        chance: 0.04
         min-amount: 1
         max-amount: 1
 
@@ -492,4 +532,4 @@ extra-loot:
         max-amount: 1
 
 messages:
-  debug: false
+  debug: true
