@@ -18,12 +18,16 @@ for file in "$taskforge" "$cmt" "$cmt_listener" "$cmt_config"; do
 done
 
 mapfile -t top_dirs < <(find "$plugins_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-[ "${#top_dirs[@]}" -eq 1 ] && [ "${top_dirs[0]}" = 'minecraft-plugin-folia' ] \
-  || fail 'retired top-level Minecraft plugin projects returned'
+expected_top=('minecraft-plugin-folia')
+if [ "${top_dirs[*]}" != "${expected_top[*]}" ]; then
+  fail "retired top-level Minecraft plugin projects returned; found: ${top_dirs[*]:-(none)}"
+fi
 
 mapfile -t plugin_dirs < <(find "$folia_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 expected=('CustomMobTweaksPlugin' 'TaskForgeFoliaPlugin')
-[ "${plugin_dirs[*]}" = "${expected[*]}" ] || fail 'maintained plugin set is not exactly TaskForgeLink + CustomMobTweaks'
+if [ "${plugin_dirs[*]}" != "${expected[*]}" ]; then
+  fail "maintained plugin set is not exactly TaskForgeLink + CustomMobTweaks; found: ${plugin_dirs[*]:-(none)}"
+fi
 
 grep -Fq 'PlayerPostRespawnEvent' "$taskforge" \
   || fail 'death offer is not driven by PlayerPostRespawnEvent'
