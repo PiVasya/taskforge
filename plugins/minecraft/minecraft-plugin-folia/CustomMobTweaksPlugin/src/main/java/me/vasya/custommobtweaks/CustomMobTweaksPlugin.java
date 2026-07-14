@@ -106,18 +106,16 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
 
         getLogger().info("[reload] starting runtime reason=" + reason);
         try {
-            RadiationManager radiationManager = new RadiationManager(this);
-            HappyGhastBomberListener newBomberListener = new HappyGhastBomberListener(this, radiationManager);
+            HappyGhastBomberListener newBomberListener = new HappyGhastBomberListener(this);
             bomberListener = newBomberListener;
 
             registerComponent(new ListenerComponent(this, new MobEffectsListener(this)));
-            registerComponent(new LegacyEnhancementsListener(this, radiationManager));
+            registerComponent(new LegacyEnhancementsListener(this));
             registerComponent(new IllusionerSpawner(this));
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
             registerComponent(newBomberListener);
-            registerComponent(radiationManager);
 
             runtimeStarted = true;
             logModuleState(reason);
@@ -156,6 +154,11 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
                 "lava-damage", "dry-weapon", "freezing-snowball")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
+        getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);
+        getLogger().info("[reload] skeleton-sniper target=vanilla-skeleton-only old-variant-config-keys-ignored=true reason=" + reason);
+        getLogger().info("[reload] breeze-elytra chance="
+                + getConfig().getDouble("extra-loot.breeze.drops.elytra.chance", 0.05D)
+                + " forced=false reason=" + reason);
     }
 
     private void sendCommandMessage(CommandSender sender, String message) {

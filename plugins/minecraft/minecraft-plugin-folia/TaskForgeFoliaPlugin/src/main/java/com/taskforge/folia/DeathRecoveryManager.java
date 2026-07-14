@@ -583,63 +583,77 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             + " coordinatesGranted=" + record.coordinatesGranted + " chestCreated=" + record.chestCreated
             + " rescueCompleted=" + record.rescueCompleted + " rescuePending=" + record.rescuePending
             + " inFlight=" + record.actionsInFlight + " " + plugin.linkStateDebug(player.getUniqueId()));
-        if (currentLinkState != TaskForgeLinkPlugin.LinkState.LINKED) {
-            player.sendMessage(Component.text("TaskForge не подтверждён. Вещи будут выпущены обычным способом.", NamedTextColor.YELLOW));
-            handleBackendUnlinked(record, "action-click-link-state-" + currentLinkState.name().toLowerCase(Locale.ROOT));
+
+        boolean expired = false;
+        synchronized (record) {
+            if (record.offerClosed) {
+                player.sendMessage(Component.text("Для этой смерти действие уже выбрано. Повторный выбор недоступен.", NamedTextColor.YELLOW));
+                plugin.debugDeath("death action ignored because single-choice offer is already closed deathId="
+                    + record.deathId + " requested=" + action + " selected=" + record.action
+                    + " stage=" + record.stage + " itemsResolved=" + record.itemsResolved);
+                return;
+            }
+            if (record.offerExpiresAt == null || Instant.now().isAfter(record.offerExpiresAt)) {
+                expired = true;
+            } else {
+                String unavailable = actionUnavailableReason(record, action);
+                if (unavailable != null) {
+                    player.sendMessage(Component.text(unavailable, NamedTextColor.YELLOW));
+                    plugin.debugDeath("death action unavailable before selection deathId=" + record.deathId
+                        + " requested=" + action + " reason=" + unavailable);
+                    return;
+                }
+                if (!record.actionsInFlight.isEmpty() || record.chestSearchInFlight || record.compensationPending
+                    || record.rescuePending || rescues.containsKey(record.playerId)) {
+                    String active = activeOperationDescription(record);
+                    player.sendMessage(Component.text("Сейчас уже выполняется: " + active + ".", NamedTextColor.YELLOW));
+                    plugin.debugDeath("death action rejected because another operation is active deathId=" + record.deathId
+                        + " requested=" + action + " active=" + active + " inFlight=" + record.actionsInFlight
+                        + " chestSearch=" + record.chestSearchInFlight + " compensation=" + record.compensationPending
+                        + " rescuePending=" + record.rescuePending + " rescueActive=" + rescues.containsKey(record.playerId));
+                    return;
+                }
+
+                // The death menu is deliberately single-choice. Persist and close it before any
+                // backend request so double-clicks, reconnects and backend pending pulls cannot
+                // offer or charge a second action for the same death.
+                record.offerClosed = true;
+                record.actionsInFlight.add(action);
+                record.action = action;
+                record.stage = Stage.RESOLVING;
+                record.updatedAt = Instant.now();
+                deferRetry(record);
+                saveQuietly(record);
+            }
+        }
+
+        if (expired) {
+            player.sendMessage(Component.text("Время выбора уже истекло.", NamedTextColor.RED));
+            expire(record);
             return;
         }
-        synchronized (record) {
-            if (record.offerClosed || Instant.now().isAfter(record.offerExpiresAt)) {
-                player.sendMessage(Component.text("Время выбора уже истекло.", NamedTextColor.RED));
-                expire(record);
-                return;
-            }
-            String unavailable = actionUnavailableReason(record, action);
-            if (unavailable != null) {
-                player.sendMessage(Component.text(unavailable, NamedTextColor.YELLOW));
-                showOffer(player, record, true, "unavailable-action");
-                return;
-            }
-            if (!record.actionsInFlight.isEmpty() || record.chestSearchInFlight || record.compensationPending || record.rescuePending || rescues.containsKey(record.playerId)) {
-                String active = activeOperationDescription(record);
-                player.sendMessage(Component.text(
-                    "Сейчас уже выполняется: " + active + ". Дождитесь результата, затем можно выбрать следующее действие.",
-                    NamedTextColor.YELLOW));
-                plugin.debugDeath("death action rejected because another operation is active deathId=" + record.deathId
-                    + " requested=" + action + " active=" + active + " inFlight=" + record.actionsInFlight
-                    + " chestSearch=" + record.chestSearchInFlight + " compensation=" + record.compensationPending
-                    + " rescuePending=" + record.rescuePending + " rescueActive=" + rescues.containsKey(record.playerId));
-                return;
-            }
-            record.actionsInFlight.add(action);
-            record.action = action;
-            record.stage = Stage.RESOLVING;
-            record.updatedAt = Instant.now();
-            deferRetry(record);
-            saveQuietly(record);
+
+        cancelTask(offerExpirationTasks, record.deathId);
+        plugin.debugDeath("offer consumed by single-choice selection deathId=" + record.deathId
+            + " player=" + player.getName() + "/" + player.getUniqueId() + " action=" + action
+            + " linkState=" + currentLinkState + " offerClosed=" + record.offerClosed);
+
+        if (currentLinkState != TaskForgeLinkPlugin.LinkState.LINKED) {
+            player.sendMessage(Component.text("TaskForge не подтверждён. Вещи будут выпущены обычным способом.", NamedTextColor.YELLOW));
+            completeAction(record, action);
+            handleBackendUnlinked(record, "action-click-link-state-" + currentLinkState.name().toLowerCase(Locale.ROOT));
+            return;
         }
 
         player.sendMessage(Component.text(actionStartMessage(action, record), NamedTextColor.AQUA));
         switch (action) {
             case ACTION_COORDINATES -> purchaseCoordinates(player, record);
-            case ACTION_DROP -> {
-                health(record.playerId).thenAccept(healthy -> {
-                    if (healthy) {
-                        releaseDrops(record, null, () -> {
-                            completeAction(record, ACTION_DROP);
-                            onPlayer(player, () -> {
-                                player.sendMessage(Component.text(
-                                    "Обычный дроп выполнен: вещи выброшены в точке смерти. Координаты и возврат всё ещё доступны до конца времени выбора.",
-                                    NamedTextColor.GREEN));
-                                showOffer(player, record, true, "drop-completed");
-                            }, 1L);
-                        });
-                    } else {
-                        completeAction(record, ACTION_DROP);
-                        createFreeChest(record, "Сервис рейтинга недоступен — вместо дропа вещи бесплатно сохранены в сундуке.");
-                    }
-                });
-            }
+            case ACTION_DROP -> releaseDrops(record, null, () -> {
+                completeAction(record, ACTION_DROP);
+                onPlayer(player, () -> player.sendMessage(Component.text(
+                    "Обычный дроп выполнен: вещи выброшены в точке смерти. Выбор для этой смерти завершён.",
+                    NamedTextColor.GREEN)), 1L);
+            });
             case ACTION_CHEST -> prepareChestAndPurchase(player, record, false);
             case ACTION_RETURN -> purchaseAndReturn(player, record);
             case ACTION_BOTH -> prepareBoth(player, record);
@@ -713,12 +727,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             boolean chestDone = record.chestCreated;
             boolean returnDone = record.returnPurchased || record.rescueCompleted || record.rescuePending || rescues.containsKey(record.playerId);
             if (record.chestPurchased && !record.chestCreated)
-                return "Сундук уже оплачен и создаётся. Дождитесь результата; возврат после этого останется доступен отдельно.";
+                return "Сундук уже оплачен и создаётся. Повторный выбор недоступен.";
             if (chestDone && returnDone) return "Сундук и возврат для этой смерти уже выполнены.";
             if (!chestDone && record.itemsResolved) {
                 return returnDone
                     ? "Сундук уже нельзя создать: вещи ранее были выброшены, а возврат уже выполнен."
-                    : "Сундук уже нельзя создать: вещи ранее были выброшены. Можно отдельно выбрать возврат.";
+                    : "Сундук уже нельзя создать: вещи ранее были выброшены.";
             }
         }
         return null;
@@ -731,13 +745,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 record.actionsInFlight.remove(ACTION_CHEST);
                 record.actionsInFlight.remove(ACTION_RETURN);
             }
-            record.updatedAt = Instant.now();
-            if (record.itemsResolved && record.coordinatesGranted && record.rescueCompleted) {
+            // Any recorded action is a consumed single-choice offer. Never transition it back to OFFER.
+            if ((record.action != null && !record.action.isBlank()) || (action != null && !action.isBlank())) {
                 record.offerClosed = true;
             }
-            if (!record.offerClosed && Instant.now().isBefore(record.offerExpiresAt)) {
-                record.stage = Stage.OFFER;
-            }
+            record.updatedAt = Instant.now();
             saveQuietly(record);
             plugin.debugDeath("death action completed deathId=" + record.deathId + " action=" + action
                 + " offerClosed=" + record.offerClosed + " itemsResolved=" + record.itemsResolved
@@ -750,28 +762,41 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private void failAction(Player player, DeathRecord record, String action, PurchaseResult result, String title) {
         synchronized (record) {
             record.actionsInFlight.remove(action);
+            if (ACTION_BOTH.equals(action)) {
+                record.actionsInFlight.remove(ACTION_CHEST);
+                record.actionsInFlight.remove(ACTION_RETURN);
+            }
+            record.offerClosed = true;
             record.paymentErrorCode = result.reason;
-            record.lastError = result.reason;
-            if (!record.offerClosed && Instant.now().isBefore(record.offerExpiresAt)) record.stage = Stage.OFFER;
+            record.lastError = "selected-action-failed:" + action + ":" + result.reason;
+            record.stage = Stage.RESOLVING;
+            record.updatedAt = Instant.now();
             saveQuietly(record);
         }
-        plugin.debugDeath("death action failed deathId=" + record.deathId + " action=" + action
-            + " title=" + title + " outcome=" + result.outcome + " reason=" + result.reason
-            + " balance=" + result.balance + " cost=" + result.cost + " charged=" + result.charged
-            + " itemsResolved=" + record.itemsResolved + " offerClosed=" + record.offerClosed);
-        String message;
+        plugin.debugDeath("death selected action failed; falling back to ordinary drop deathId=" + record.deathId
+            + " selectedAction=" + action + " title=" + title + " outcome=" + result.outcome
+            + " reason=" + result.reason + " balance=" + result.balance + " cost=" + result.cost
+            + " charged=" + result.charged + " itemsResolved=" + record.itemsResolved
+            + " offerClosed=" + record.offerClosed);
+
+        String reasonText;
         if ("not-enough-rating".equals(result.reason)) {
             String balance = result.balance >= 0 ? String.valueOf(result.balance) : "неизвестно";
             String cost = result.cost > 0 ? String.valueOf(result.cost) : "неизвестно";
-            message = title + " не выполнено: недостаточно баланса. Нужно " + cost + ", доступно " + balance + ". Можно выбрать другое действие.";
+            reasonText = "недостаточно баланса: нужно " + cost + ", доступно " + balance;
         } else {
-            message = title + " не выполнено: " + purchaseReasonText(result.reason) + ". Можно выбрать другое действие.";
+            reasonText = purchaseReasonText(result.reason);
         }
-        onPlayer(player, () -> {
-            player.sendMessage(Component.text(message, NamedTextColor.RED));
-            showOffer(player, record, true, "action-denied-" + action);
-        }, 1L);
+        String message = title + " не выполнено: " + reasonText
+            + ". Повторный выбор для этой смерти недоступен; вещи будут выброшены в месте смерти.";
+        onPlayer(player, () -> player.sendMessage(Component.text(message, NamedTextColor.RED)), 1L);
+        if (!record.itemsResolved) {
+            releaseDrops(record, null);
+        } else {
+            finish(record, record.stage);
+        }
     }
+
 
     private String purchaseReasonText(String reason) {
         if (reason == null || reason.isBlank()) return "покупка отклонена";
@@ -787,6 +812,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             case "request-id-collision" -> "обнаружен конфликт идентификатора операции; списание остановлено";
             case "purchase-denied" -> "сайт отклонил покупку без дополнительной причины";
             case "bad-request" -> "сайт отклонил параметры операции";
+            case "death-action-not-selected" -> "сайт не получил выбранное действие";
+            case "death-action-already-selected" -> "для этой смерти уже выбрано другое действие";
             default -> "сайт вернул причину «" + reason + "»";
         };
     }
@@ -834,10 +861,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         if (deserializeItems(record.itemsBase64).size() > 54) {
             endChestSearch(record);
             completeAction(record, action);
-            onPlayer(player, () -> {
-                player.sendMessage(Component.text("Сундук не создан: предметов больше, чем помещается в двойной сундук. Баланс не списан.", NamedTextColor.RED));
-                showOffer(player, record, true, "chest-too-many-items");
-            }, 1L);
+            synchronized (record) {
+                record.lastError = "selected-chest-too-many-items";
+                record.stage = Stage.RESOLVING;
+                saveQuietly(record);
+            }
+            onPlayer(player, () -> player.sendMessage(Component.text(
+                "Сундук не создан: предметов больше, чем помещается в двойной сундук. Баланс не списан. Вещи будут выброшены в месте смерти.",
+                NamedTextColor.RED)), 1L);
+            releaseDrops(record, null);
             return;
         }
         findAnyChestSpot(record, result -> {
@@ -845,12 +877,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 endChestSearch(record);
                 record.lastError = "death-chest-location-not-found";
                 completeAction(record, action);
-                onPlayer(player, () -> {
-                    player.sendMessage(Component.text(
-                        "Сундук не создан: свободное место пока не найдено. Баланс не списан. Можно повторить попытку или выбрать другое действие.",
-                        NamedTextColor.YELLOW));
-                    showOffer(player, record, true, "chest-location-not-found");
-                }, 1L);
+                synchronized (record) {
+                    record.lastError = "selected-chest-location-not-found";
+                    record.stage = Stage.RESOLVING;
+                    saveQuietly(record);
+                }
+                onPlayer(player, () -> player.sendMessage(Component.text(
+                    "Сундук не создан: свободное место не найдено. Баланс не списан. Вещи будут выброшены в месте смерти.",
+                    NamedTextColor.YELLOW)), 1L);
+                releaseDrops(record, null);
                 return;
             }
             ChestSpot spot = result.get();
@@ -922,10 +957,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                                     startRescueWhenOnline(record);
                                 } else {
                                     notifyChest(record, spot.first, false,
-                                        "Сундук создан. Списано " + confirmedCharge + ". Координаты и возврат всё ещё можно выбрать отдельно.");
+                                        "Сундук создан. Списано " + confirmedCharge + ". Выбор для этой смерти завершён.");
                                     completeAction(record, action);
                                     finish(record, Stage.CHEST_CREATED);
-                                    onPlayer(player, () -> showOffer(player, record, true, "chest-completed"), 2L);
                                 }
                             }
                         });
@@ -989,7 +1023,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                     }
                     notifyDeathCoordinates(record);
                     completeAction(record, ACTION_COORDINATES);
-                    onPlayer(player, () -> showOffer(player, record, true, "coordinates-completed"), 2L);
+                    if (!record.itemsResolved) {
+                        releaseDrops(record, "Вещи выброшены в точке смерти. Выбор для этой смерти завершён.");
+                    }
                 } else if (result.outcome == PurchaseOutcome.UNLINKED) {
                     completeAction(record, ACTION_COORDINATES);
                     plugin.markLinkStateUnlinked(record.playerId, "purchase");
@@ -1460,7 +1496,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private boolean isOfferOpen(DeathRecord record) {
-        return !record.offerClosed && record.offerExpiresAt != null && Instant.now().isBefore(record.offerExpiresAt)
+        return !record.offerClosed
+            && (record.action == null || record.action.isBlank())
+            && record.offerExpiresAt != null
+            && Instant.now().isBefore(record.offerExpiresAt)
             && !(record.backendUnavailable && record.chestCreated);
     }
 
@@ -1518,7 +1557,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             saveQuietly(r);
         }
         player.sendMessage(line);
-        player.sendMessage(Component.text("Можно выполнить несколько действий. Осталось " + left + " сек.", NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Выберите одно действие. После выбора предложение закроется. Осталось " + left + " сек.", NamedTextColor.GRAY));
         plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getName() + "/" + player.getUniqueId()
             + " secondsLeft=" + left + " trigger=" + trigger + " force=" + force + " buttons=" + buttons
             + " coordinatesGranted=" + r.coordinatesGranted + " chestCreated=" + r.chestCreated
@@ -1611,6 +1650,14 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             }
             if (record.stage != Stage.RESOLVING || !claimRetry(record)) continue;
 
+            if (record.offerClosed && !record.paymentConfirmed && !record.itemsResolved
+                && record.lastError != null && record.lastError.startsWith("selected-")) {
+                plugin.debugDeath("resume selected-action fallback as ordinary drop deathId=" + record.deathId
+                    + " selectedAction=" + record.action + " lastError=" + record.lastError);
+                releaseDrops(record, "Выбранное действие не удалось завершить. Вещи выпали в месте смерти.");
+                continue;
+            }
+
             plugin.debugDeath("resume unresolved deathId=" + record.deathId + " action=" + record.action
                 + " paymentConfirmed=" + record.paymentConfirmed + " chestPurchased=" + record.chestPurchased
                 + " returnPurchased=" + record.returnPurchased + " coordinatesGranted=" + record.coordinatesGranted
@@ -1620,6 +1667,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 if (record.coordinatesGranted) {
                     notifyDeathCoordinates(record);
                     completeAction(record, ACTION_COORDINATES);
+                    if (record.offerClosed && !record.itemsResolved) {
+                        releaseDrops(record, "Вещи выброшены в точке смерти. Выбор для этой смерти завершён.");
+                    }
                 } else {
                     record.actionsInFlight.add(ACTION_COORDINATES);
                     purchaseCoordinates(player, record);
@@ -1679,6 +1729,41 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
     }
 
+    private boolean normalizeSingleChoiceState(DeathRecord record, String source) {
+        if (record == null || record.action == null || record.action.isBlank()) return false;
+        boolean changed = false;
+        synchronized (record) {
+            if (!record.offerClosed) {
+                record.offerClosed = true;
+                changed = true;
+            }
+            if (!record.itemsResolved && !record.rescuePending && !record.compensationPending) {
+                boolean selectedActionFailed = !record.paymentConfirmed && !record.backendUnavailable
+                    && ((record.paymentErrorCode != null && !record.paymentErrorCode.isBlank())
+                        || (record.lastError != null && (record.lastError.startsWith("selected-")
+                            || "death-chest-location-not-found".equals(record.lastError))));
+                if (selectedActionFailed && (record.lastError == null || !record.lastError.startsWith("selected-"))) {
+                    record.lastError = "selected-legacy-fallback:" + record.action + ":"
+                        + (record.paymentErrorCode == null || record.paymentErrorCode.isBlank()
+                            ? String.valueOf(record.lastError)
+                            : record.paymentErrorCode);
+                    changed = true;
+                }
+                if (record.stage != Stage.RESOLVING && record.stage != Stage.WORLD_UNAVAILABLE) {
+                    record.stage = Stage.RESOLVING;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            plugin.debugDeath("single-choice state normalized deathId=" + record.deathId
+                + " source=" + source + " action=" + record.action + " stage=" + record.stage
+                + " offerClosed=" + record.offerClosed + " itemsResolved=" + record.itemsResolved
+                + " paymentConfirmed=" + record.paymentConfirmed + " lastError=" + record.lastError);
+        }
+        return changed;
+    }
+
     private DeathRecord fromBackend(JsonObject json) {
         try {
             DeathRecord r = new DeathRecord();
@@ -1723,7 +1808,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             r.lastError = text(json, "lastError", "");
             r.revision = longNumber(json, "revision", 0L);
             r.updatedAt = instant(json, "updatedAtUtc", r.createdAt);
-            r.offerClosed = r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt);
+            r.offerClosed = (r.action != null && !r.action.isBlank())
+                || (r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt));
+            normalizeSingleChoiceState(r, "backend-row");
             return r;
         } catch (RuntimeException ex) {
             plugin.getLogger().log(Level.WARNING, "Invalid backend death recovery row", ex);
@@ -1744,14 +1831,16 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         local.offerExpiresAt = remote.offerExpiresAt;
         local.rescueEndsAt = remote.rescueEndsAt;
         local.stage = remote.stage;
-        local.action = remote.action;
+        if (remote.action != null && !remote.action.isBlank()) local.action = remote.action;
+        local.offerClosed |= remote.offerClosed || (remote.action != null && !remote.action.isBlank());
         if (remote.requestId != null) local.requestId = remote.requestId;
         local.chargedAmount = Math.max(local.chargedAmount, remote.chargedAmount);
         local.paymentConfirmed |= remote.paymentConfirmed;
         local.coordinatesGranted |= remote.coordinatesGranted;
         local.chestPurchased |= remote.chestPurchased;
         local.returnPurchased |= remote.returnPurchased;
-        local.paymentErrorCode = remote.paymentErrorCode;
+        if (remote.paymentErrorCode != null && !remote.paymentErrorCode.isBlank())
+            local.paymentErrorCode = remote.paymentErrorCode;
         local.dropsReleased |= remote.dropsReleased;
         local.chestSpotReserved |= remote.chestSpotReserved;
         local.chestCreated |= remote.chestCreated;
@@ -1767,9 +1856,11 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             local.chestSecondX = remote.chestSecondX; local.chestSecondY = remote.chestSecondY; local.chestSecondZ = remote.chestSecondZ;
         }
         local.finalX = remote.finalX; local.finalY = remote.finalY; local.finalZ = remote.finalZ;
-        local.lastError = remote.lastError;
+        if (remote.lastError != null && !remote.lastError.isBlank())
+            local.lastError = remote.lastError;
         local.revision = remote.revision;
         local.updatedAt = remote.updatedAt;
+        normalizeSingleChoiceState(local, "backend-merge");
     }
 
     private String text(JsonObject json, String key, String fallback) {
@@ -1941,7 +2032,6 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             completeAction(session.record, completedAction);
             finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
             player.sendMessage(Component.text(returnCompletionMessage(session.record), NamedTextColor.GREEN));
-            showOffer(player, session.record, true, "return-completed");
         }, 1L));
     }
 
@@ -1962,7 +2052,6 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             finish(session.record, session.record.chestCreated ? Stage.CHEST_AND_RESCUE_COMPLETED : Stage.RESCUE_COMPLETED);
             player.sendMessage(Component.text(message, NamedTextColor.YELLOW));
             player.sendMessage(Component.text(returnCompletionMessage(session.record), NamedTextColor.GREEN));
-            showOffer(player, session.record, true, "return-fallback-completed");
         }, 1L));
     }
 
@@ -1970,7 +2059,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         if (ACTION_BOTH.equals(record.action)) {
             return "Возврат завершён. Сундук и возврат оплачены общей операцией; дополнительного списания не было.";
         }
-        return "Возврат завершён. Списано " + teleportCost + ". Координаты смерти всё ещё можно получить отдельно до конца времени выбора.";
+        return "Возврат завершён. Списано " + teleportCost + ". Выбор для этой смерти завершён.";
     }
 
     private void restoreInterruptedSpectator(Player player) {
@@ -3043,6 +3132,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             stream.filter(p -> p.getFileName().toString().endsWith(".properties")).forEach(path -> {
                 try (InputStream in = Files.newInputStream(path)) {
                     Properties p = new Properties(); p.load(in); DeathRecord r = DeathRecord.from(p);
+                    boolean normalizedSingleChoice = normalizeSingleChoiceState(r, "local-journal");
                     boolean oldTerminal = r.isTerminal()
                         && Duration.between(r.updatedAt, Instant.now()).toDays() > 7;
                     // Never prune an offline player's chest coordinates before they were shown.
@@ -3056,6 +3146,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                         plugin.debugJournal("pruned old terminal record path=" + path + " deathId=" + r.deathId);
                     } else {
                         deaths.put(r.deathId, r);
+                        if (normalizedSingleChoice) persistLocal(r);
                         plugin.debugJournal("loaded deathId=" + r.deathId + " player=" + r.playerId
                             + " stage=" + r.stage + " chestCreated=" + r.chestCreated
                             + " coordinatesGranted=" + r.coordinatesGranted
@@ -3291,6 +3382,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             if (!hasChestPurchased && !r.chestPurchased && r.paymentConfirmed && (ACTION_CHEST.equals(r.action) || ACTION_BOTH.equals(r.action))) r.chestPurchased=true;
             if (!hasChestNotified && !r.chestNotified && r.chestCreated && r.userNotified) r.chestNotified=true;
             if (!hasReturnPurchased && !r.returnPurchased && r.paymentConfirmed && (ACTION_RETURN.equals(r.action) || ACTION_BOTH.equals(r.action))) r.returnPurchased=true;
+            if (!r.offerClosed && r.action != null && !r.action.isBlank()) r.offerClosed=true;
             if (!r.offerClosed && r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt)) r.offerClosed=true;
             r.chestX=n(p,"chestX"); r.chestY=n(p,"chestY"); r.chestZ=n(p,"chestZ"); r.chestSecondX=n(p,"chestSecondX"); r.chestSecondY=n(p,"chestSecondY"); r.chestSecondZ=n(p,"chestSecondZ");
             r.finalX=d(p,"finalX"); r.finalY=d(p,"finalY"); r.finalZ=d(p,"finalZ");

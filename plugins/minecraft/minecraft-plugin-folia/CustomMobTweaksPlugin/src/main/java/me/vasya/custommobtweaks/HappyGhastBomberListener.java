@@ -28,13 +28,11 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class HappyGhastBomberListener implements Listener, PluginComponent {
     private final CustomMobTweaksPlugin plugin;
-    private final RadiationManager radiationManager;
     private final NamespacedKey bomberProjectileKey;
     private final Map<UUID, ScheduledTask> activeBombers = new ConcurrentHashMap<>();
 
-    public HappyGhastBomberListener(CustomMobTweaksPlugin plugin, RadiationManager radiationManager) {
+    public HappyGhastBomberListener(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
-        this.radiationManager = radiationManager;
         this.bomberProjectileKey = new NamespacedKey(plugin, "happy_ghast_bomber_projectile");
     }
 
@@ -136,7 +134,6 @@ public final class HappyGhastBomberListener implements Listener, PluginComponent
         Location location = projectile.getLocation().clone();
         location.getWorld().spawnParticle(Particle.EXPLOSION, location, 4, 0.5D, 0.5D, 0.5D, 0.1D);
         location.getWorld().playSound(location, Sound.ENTITY_GENERIC_EXPLODE, 1.2F, 0.7F);
-        radiationManager.createZone(location, "happy-ghast-bomber.radiation-zone");
     }
 
     @EventHandler

@@ -15,6 +15,7 @@ import org.bukkit.entity.Breeze;
 import org.bukkit.entity.BreezeWindCharge;
 import org.bukkit.entity.Drowned;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Monster;
 import org.bukkit.entity.Pillager;
@@ -425,7 +426,7 @@ public final class MobEffectsListener implements Listener, PluginComponent {
         if (!(shooter instanceof AbstractSkeleton skeleton)) {
             return;
         }
-        if (!isEligibleSniperSkeleton(skeleton, cfg)) {
+        if (!isEligibleSniperSkeleton(skeleton)) {
             return;
         }
 
@@ -497,7 +498,7 @@ public final class MobEffectsListener implements Listener, PluginComponent {
         if (!cfg.getBoolean("skeleton-sniper.enabled")) {
             return;
         }
-        if (!isEligibleSniperSkeleton(skeleton, cfg)) {
+        if (!isEligibleSniperSkeleton(skeleton)) {
             return;
         }
 
@@ -508,17 +509,10 @@ public final class MobEffectsListener implements Listener, PluginComponent {
         }
     }
 
-    private boolean isEligibleSniperSkeleton(AbstractSkeleton skeleton, FileConfiguration cfg) {
-        boolean allowStrays = cfg.getBoolean("skeleton-sniper.include-strays", true);
-        boolean allowBogged = cfg.getBoolean("skeleton-sniper.include-bogged", false);
-
-        if (!allowStrays && skeleton instanceof Stray) {
-            return false;
-        }
-        if (!allowBogged && skeleton instanceof Bogged) {
-            return false;
-        }
-        return !(skeleton instanceof WitherSkeleton);
+    private boolean isEligibleSniperSkeleton(AbstractSkeleton skeleton) {
+        // Intentionally hard-coded to the vanilla Skeleton entity.
+        // Old server configs may still contain include-strays/include-bogged, but those keys are ignored.
+        return skeleton.getType() == EntityType.SKELETON;
     }
 
     private void scheduleArrowHoming(AbstractArrow arrow, LivingEntity target) {

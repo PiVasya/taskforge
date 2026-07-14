@@ -44,8 +44,8 @@ Type-specific fields:
 - Ответы backend с `itemsPayload` нельзя печатать целиком. Разрешены HTTP status, длина тела и безопасные скалярные поля.
 - Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
 - В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.
-- Текущая ветка `CustomMobTweaks` — версия `2.1.1` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
-- Текущая ветка `TaskForgeLink` — версия `1.8.3` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
+- Текущая ветка `CustomMobTweaks` — версия `2.1.3` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
+- Текущая ветка `TaskForgeLink` — версия `1.8.4` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
 - Minecraft link codes are delivery-only: the website must never display, copy, or return a fallback/backup code to the browser. A generated code must be sent directly to the online Minecraft player through the authenticated webhook. If delivery fails, invalidate the generated code and return a clear error.
 - Production defaults for direct site-to-Minecraft delivery are `http://mc.taskforge.by:25566` and `/taskforge/link/send`; health is `http://mc.taskforge.by:25566/health`. Do not blank these defaults unless the user explicitly changes the deployment topology.
 - Keep detailed safe logs for link-code generation and delivery: resolved URL/path, request ID, HTTP status, elapsed time, response preview, exception type/message, and secret presence/length/fingerprint. Never log the raw code or secret.
@@ -64,12 +64,11 @@ Type-specific fields:
 - One exact Minecraft UUID may have only one active owner. Re-linking an already active UUID must be rejected, including when it already belongs to the same TaskForge account, so duplicate rows cannot appear.
 - Minecraft balance is one shared user-level ledger keyed only by TaskForge `UserId`; all linked Minecraft profiles spend from the same balance. Adding, removing, renaming, unlinking, or re-linking Minecraft profiles must never create, delete, rewrite, reset, refund, or restore `MinecraftRatingTransactions`.
 - Remove the `Minecraft` feature role only when the user's last active Minecraft link is removed. Per-link unlink must preserve the role while any other active link remains.
-- A single death offer may execute several actions sequentially. Coordinates are independent from item handling; after buying coordinates the player may still buy a chest, return, or choose ordinary drops while the offer is open.
-- Never execute two paid death actions concurrently for the same death. Queue only one active action at a time and tell the player which action is currently running. This protects per-action idempotency and compensation state.
-- A denied action, including insufficient balance, must not resolve items, close the offer, or block later choices. Show the exact reason, required cost and available balance when supplied by the backend, then show the remaining actions once.
-- Ordinary drops resolve only the item-storage choice. Coordinates and return may remain available. A paid return releases unresolved items at the exact death point before spectator rescue, so a chest is no longer available afterward.
-- Every paid death action uses its own deterministic idempotency key derived from `deathId + action`. Compensation must target only that action. Never use link/unlink or another action's refund to restore the whole shared Minecraft balance.
-- Do not implement periodic link-status refreshes. Show death offers on respawn/link transition/join, after an explicit action result, or after reconnect.
+- Every death offer is single-choice. The first valid button click atomically stores the selected action and closes the offer before any backend request. Reconnects, backend pulls and double-clicks must never show or charge a second action for the same death.
+- Coordinates are a complete choice: after successful purchase the coordinates are shown and the captured items are released at the death point. Chest, return, chest+return and ordinary drop are also terminal choices for that offer.
+- A denied selected action, including insufficient balance, must not reopen the menu. Show the exact reason, then release unresolved items at the death point without charging.
+- Every paid death action uses a deterministic idempotency key derived from `deathId + action`. The backend must reject a purchase whose action differs from the action already stored on the death row. Compensation targets only that selected action.
+- Do not implement periodic link-status refreshes. Show an unclaimed death offer only on respawn, confirmed link transition, join, hot reload recovery, or the finite per-death watchdog.
 
 
 ## Minecraft plugin config reload rule
@@ -84,5 +83,7 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 ## Minecraft runtime invariants added in 2026-07
 
 - TaskForgeLink death offers are delivered from standard `PlayerRespawnEvent` and Paper/Folia `PlayerPostRespawnEvent`, deduplicated per player. `PlayerJoinEvent`, confirmed link transitions and hot-reload recovery are secondary triggers. A small finite per-death watchdog may cover a missing event, but never restore a global alive-player heartbeat scan or periodic polling.
-- CustomMobTweaks sniper-arrow guidance must stop immediately on every projectile/entity impact, including cancelled shield blocks. Never allow a homing scheduler to keep moving an arrow after impact.
+- CustomMobTweaks sniper-arrow speed, aiming and homing apply only to the normal vanilla `SKELETON` entity. Never extend them to Stray, Bogged or Wither Skeleton. Guidance must stop immediately on every projectile/entity impact, including cancelled shield blocks.
+- Radioactive zones are retired from CustomMobTweaks. Do not reintroduce `RadiationManager`, `radiation-zone` config sections, repeated zone knockback, forced fire, or random inventory item ejection.
+- Breeze Elytra remains chance-based through `extra-loot.breeze.drops.elytra.chance` (default `0.05` = 5%); never force it to 100%. Preserve direct, projectile, and short delayed-death player attribution and event-driven `[loot]` roll diagnostics.
 - The maintained Minecraft plugins are exactly `TaskForgeLink` and `CustomMobTweaks`; do not reintroduce WorldLoaderFolia or DefaultGroupAssigner.

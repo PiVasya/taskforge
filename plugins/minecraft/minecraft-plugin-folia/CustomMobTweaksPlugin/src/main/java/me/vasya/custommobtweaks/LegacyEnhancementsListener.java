@@ -46,6 +46,7 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
@@ -66,13 +67,14 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class LegacyEnhancementsListener implements Listener, PluginComponent {
     private final CustomMobTweaksPlugin plugin;
-    private final RadiationManager radiationManager;
-
     private final NamespacedKey tridentZombieKey;
     private final NamespacedKey boggedBuffKey;
     private final NamespacedKey originalScaleKey;
     private final NamespacedKey harderBreezeChargeKey;
     private final NamespacedKey tridentZombieProjectileKey;
+    private final NamespacedKey lootShooterUuidKey;
+    private final NamespacedKey lootShooterNameKey;
+    private final NamespacedKey lootShooterLootingKey;
 
     private final Set<UUID> breezeTasks = ConcurrentHashMap.newKeySet();
     private final Set<UUID> creakingTasks = ConcurrentHashMap.newKeySet();
@@ -83,15 +85,20 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     private final Map<UUID, Double> strayOriginalMaxHealth = new ConcurrentHashMap<>();
     private final Map<UUID, ScheduledTask> armadilloSphereTasks = new ConcurrentHashMap<>();
     private final Map<UUID, ScheduledTask> tridentZombieTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, LootAttribution> lastPlayerDamage = new ConcurrentHashMap<>();
 
-    public LegacyEnhancementsListener(CustomMobTweaksPlugin plugin, RadiationManager radiationManager) {
+    private static final long LOOT_ATTRIBUTION_TTL_MILLIS = 30_000L;
+
+    public LegacyEnhancementsListener(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
-        this.radiationManager = radiationManager;
         this.tridentZombieKey = new NamespacedKey(plugin, "trident_zombie");
         this.boggedBuffKey = new NamespacedKey(plugin, "bogged_buffed");
         this.originalScaleKey = new NamespacedKey(plugin, "bogged_original_scale");
         this.harderBreezeChargeKey = new NamespacedKey(plugin, "harder_breeze_charge");
         this.tridentZombieProjectileKey = new NamespacedKey(plugin, "trident_zombie_projectile");
+        this.lootShooterUuidKey = new NamespacedKey(plugin, "loot_shooter_uuid");
+        this.lootShooterNameKey = new NamespacedKey(plugin, "loot_shooter_name");
+        this.lootShooterLootingKey = new NamespacedKey(plugin, "loot_shooter_looting");
     }
 
     @Override
@@ -111,6 +118,7 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
         breezeTasks.clear();
         creakingTasks.clear();
         strayOriginalMaxHealth.clear();
+        lastPlayerDamage.clear();
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -179,11 +187,42 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onLootAttributionDamage(EntityDamageByEntityEvent event) {
+        if (event.getEntity() instanceof LivingEntity target) {
+            rememberLootAttribution(event, target);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onArmadilloDamage(EntityDamageEvent event) {
         if (!plugin.enabled("harder-armadillo") || !(event.getEntity() instanceof Armadillo armadillo)) {
             return;
         }
         startArmadilloSphere(armadillo, event.getFinalDamage());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onProjectileLaunch(ProjectileLaunchEvent event) {
+        Projectile projectile = event.getEntity();
+        if (!(projectile.getShooter() instanceof Player player)) {
+            return;
+        }
+        int looting = player.getInventory().getItemInMainHand().getEnchantmentLevel(Enchantment.LOOTING);
+        projectile.getPersistentDataContainer().set(
+                lootShooterUuidKey,
+                PersistentDataType.STRING,
+                player.getUniqueId().toString()
+        );
+        projectile.getPersistentDataContainer().set(
+                lootShooterNameKey,
+                PersistentDataType.STRING,
+                player.getName()
+        );
+        projectile.getPersistentDataContainer().set(
+                lootShooterLootingKey,
+                PersistentDataType.INTEGER,
+                Math.max(0, looting)
+        );
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -200,19 +239,13 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
         Location impact = projectile.getLocation().clone();
         createBreezeExplosion(impact, projectile);
 
-        if (plugin.getConfig().getBoolean("harder-breeze.radiation-zone.enabled", true)) {
-            double chance = normalizeChance(plugin.getConfig().getDouble("harder-breeze.radiation-zone.chance", 0.05D));
-            if (ThreadLocalRandom.current().nextDouble() < chance) {
-                radiationManager.createZone(impact, "harder-breeze.radiation-zone");
-            }
-        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(EntityDeathEvent event) {
         LivingEntity entity = event.getEntity();
-        cleanupEntity(entity);
         addConfiguredLoot(event);
+        cleanupEntity(entity);
     }
 
     private void enhanceCreaking(LivingEntity creaking) {
@@ -822,26 +855,42 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
             return;
         }
         ConfigurationSection section = plugin.getConfig().getConfigurationSection("extra-loot." + key);
-        if (section == null || !section.getBoolean("enabled", false)) {
+        if (section == null) {
+            lootDebug("skipped mob=" + key + " entity=" + event.getEntity().getUniqueId()
+                    + " reason=missing-mob-section");
             return;
         }
-        if (section.getBoolean("killed-by-player-only", true) && event.getEntity().getKiller() == null) {
+        if (!section.getBoolean("enabled", false)) {
+            lootDebug("skipped mob=" + key + " entity=" + event.getEntity().getUniqueId()
+                    + " reason=mob-loot-disabled");
+            return;
+        }
+        LootAttribution attribution = resolveLootAttribution(event.getEntity());
+        if (section.getBoolean("killed-by-player-only", true) && attribution == null) {
+            lootDebug("skipped mob=" + key + " entity=" + event.getEntity().getUniqueId()
+                    + " reason=no-player-attribution");
             return;
         }
 
         ConfigurationSection drops = section.getConfigurationSection("drops");
         if (drops == null) {
+            lootDebug("skipped mob=" + key + " entity=" + event.getEntity().getUniqueId()
+                    + " reason=missing-drops-section");
             return;
         }
-        int looting = 0;
-        Player killer = event.getEntity().getKiller();
-        if (killer != null) {
-            looting = killer.getInventory().getItemInMainHand().getEnchantmentLevel(Enchantment.LOOTING);
-        }
+        int looting = attribution == null ? 0 : attribution.lootingLevel();
+        String killer = attribution == null ? "none" : attribution.playerName() + "/" + attribution.playerUuid();
+        lootDebug("processing mob=" + key + " entity=" + event.getEntity().getUniqueId()
+                + " killer=" + killer + " looting=" + looting + " configuredDrops=" + drops.getKeys(false).size());
 
         for (String dropKey : drops.getKeys(false)) {
             ConfigurationSection drop = drops.getConfigurationSection(dropKey);
-            if (drop == null || !drop.getBoolean("enabled", true)) {
+            if (drop == null) {
+                lootDebug("skipped mob=" + key + " drop=" + dropKey + " reason=invalid-drop-section");
+                continue;
+            }
+            if (!drop.getBoolean("enabled", true)) {
+                lootDebug("skipped mob=" + key + " drop=" + dropKey + " reason=drop-disabled");
                 continue;
             }
             Material material = Material.matchMaterial(drop.getString("material", "AIR"));
@@ -849,16 +898,25 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
                 plugin.getLogger().warning("Invalid extra-loot material at extra-loot." + key + ".drops." + dropKey);
                 continue;
             }
-            double chance = normalizeChance(drop.getDouble("chance", 0.0D));
+            double configuredChance = drop.getDouble("chance", 0.0D);
+            double chance = normalizeChance(configuredChance);
             chance += normalizeChance(drop.getDouble("looting-bonus-per-level", 0.0D)) * looting;
             chance = Math.min(1.0D, chance);
-            if (ThreadLocalRandom.current().nextDouble() >= chance) {
+
+            double roll = ThreadLocalRandom.current().nextDouble();
+            if (roll >= chance) {
+                lootDebug("roll mob=" + key + " drop=" + dropKey + " material=" + material
+                        + " configuredChance=" + configuredChance + " effectiveChance=" + chance
+                        + " roll=" + roll + " result=MISS");
                 continue;
             }
             int min = Math.max(1, drop.getInt("min-amount", 1));
             int max = Math.max(min, drop.getInt("max-amount", min));
             int amount = ThreadLocalRandom.current().nextInt(min, max + 1);
             addDropStacks(event, material, amount);
+            lootDebug("roll mob=" + key + " drop=" + dropKey + " material=" + material
+                    + " configuredChance=" + configuredChance + " effectiveChance=" + chance
+                    + " roll=" + roll + " amount=" + amount + " result=DROP");
         }
     }
 
@@ -903,6 +961,98 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
         cancel(armadilloSphereTasks.remove(uuid));
         cancel(tridentZombieTasks.remove(uuid));
         strayOriginalMaxHealth.remove(uuid);
+        lastPlayerDamage.remove(uuid);
+    }
+
+    private void rememberLootAttribution(EntityDamageByEntityEvent event, LivingEntity target) {
+        if (lootKey(target) == null) {
+            return;
+        }
+        LootAttribution attribution = resolveDamageAttribution(event.getDamager());
+        if (attribution == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        lastPlayerDamage.put(target.getUniqueId(), new LootAttribution(
+                attribution.playerUuid(),
+                attribution.playerName(),
+                attribution.lootingLevel(),
+                now
+        ));
+        if (lastPlayerDamage.size() > 4096) {
+            lastPlayerDamage.entrySet().removeIf(entry ->
+                    now - entry.getValue().recordedAtMillis() > LOOT_ATTRIBUTION_TTL_MILLIS);
+        }
+    }
+
+    private LootAttribution resolveDamageAttribution(Entity damager) {
+        long now = System.currentTimeMillis();
+        if (damager instanceof Player player) {
+            int looting = player.getInventory().getItemInMainHand().getEnchantmentLevel(Enchantment.LOOTING);
+            return new LootAttribution(
+                    player.getUniqueId(),
+                    player.getName(),
+                    Math.max(0, looting),
+                    now
+            );
+        }
+        if (!(damager instanceof Projectile projectile)) {
+            return null;
+        }
+
+        String uuidValue = projectile.getPersistentDataContainer().get(lootShooterUuidKey, PersistentDataType.STRING);
+        String name = projectile.getPersistentDataContainer().get(lootShooterNameKey, PersistentDataType.STRING);
+        Integer looting = projectile.getPersistentDataContainer().get(lootShooterLootingKey, PersistentDataType.INTEGER);
+        if (uuidValue != null && name != null) {
+            try {
+                return new LootAttribution(
+                        UUID.fromString(uuidValue),
+                        name,
+                        Math.max(0, looting == null ? 0 : looting),
+                        now
+                );
+            } catch (IllegalArgumentException invalidUuid) {
+                lootDebug("ignored projectile attribution projectile=" + projectile.getUniqueId()
+                        + " reason=invalid-player-uuid");
+            }
+        }
+
+        if (projectile.getShooter() instanceof Player player) {
+            return new LootAttribution(player.getUniqueId(), player.getName(), 0, now);
+        }
+        return null;
+    }
+
+    private LootAttribution resolveLootAttribution(LivingEntity entity) {
+        LootAttribution cached = lastPlayerDamage.get(entity.getUniqueId());
+        if (cached != null
+                && System.currentTimeMillis() - cached.recordedAtMillis() <= LOOT_ATTRIBUTION_TTL_MILLIS) {
+            return cached;
+        }
+        if (cached != null) {
+            lastPlayerDamage.remove(entity.getUniqueId(), cached);
+        }
+
+        Player directKiller = entity.getKiller();
+        if (directKiller != null) {
+            return new LootAttribution(
+                    directKiller.getUniqueId(),
+                    directKiller.getName(),
+                    0,
+                    System.currentTimeMillis()
+            );
+        }
+
+        return null;
+    }
+
+    private void lootDebug(String message) {
+        if (plugin.getConfig().getBoolean("messages.debug", false)) {
+            plugin.getLogger().info("[loot] " + message);
+        }
+    }
+
+    private record LootAttribution(UUID playerUuid, String playerName, int lootingLevel, long recordedAtMillis) {
     }
 
     private double normalizeChance(double value) {

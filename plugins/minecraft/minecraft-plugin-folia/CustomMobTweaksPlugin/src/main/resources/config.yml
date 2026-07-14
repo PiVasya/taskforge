@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.1.1
+# CustomMobTweaks 2.1.3
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -86,17 +86,6 @@ harder-breeze:
   explosion-knockback: 3.5
   explosion-damage: 1.0
 
-  radiation-zone:
-    enabled: true
-    chance: 0.25
-    radius: 7.5
-    knockback: 3.0
-    fire-duration-ticks: 160
-    duration-ticks: 240
-    check-period-ticks: 4
-    item-drop-interval-ticks: 40
-    drop-random-inventory-items: true
-    particle-density: 80
 
 # -----------------------------------------------------------------------------
 # Drowned: two minutes of glowing after a trident hit.
@@ -135,13 +124,12 @@ harder-stray:
   direct-damage-per-interval: 0.0
 
 # -----------------------------------------------------------------------------
-# Skeleton sniper: 30% vanilla arrow speed, no bonus damage, extreme homing.
+# Skeleton sniper: applies ONLY to the normal vanilla SKELETON.
+# Strays, Bogged and Wither Skeletons keep their vanilla arrow speed/trajectory.
 # A shield can still block the arrow.
 # -----------------------------------------------------------------------------
 skeleton-sniper:
   enabled: true
-  include-strays: true
-  include-bogged: false
   follow-range: 64.0
   minimum-distance: 0.0
   preferred-distance: 32.0
@@ -284,15 +272,6 @@ happy-ghast-bomber:
   projectile-count: 5
   projectile-spread: 2.0
   projectile-speed: 0.8
-  radiation-zone:
-    radius: 5.0
-    knockback: 2.0
-    fire-duration-ticks: 100
-    duration-ticks: 120
-    check-period-ticks: 5
-    item-drop-interval-ticks: 60
-    drop-random-inventory-items: true
-    particle-density: 50
 
 # -----------------------------------------------------------------------------
 # Extra loot.
@@ -307,6 +286,7 @@ extra-loot:
         chance: 1.0
         min-amount: 4
         max-amount: 12
+      # 5% chance for every player-attributed Breeze kill.
       elytra:
         material: ELYTRA
         chance: 0.05

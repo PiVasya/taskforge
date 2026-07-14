@@ -610,7 +610,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String name = command.getName().toLowerCase(Locale.ROOT);
         if ("tfback".equals(name)) {
-            sender.sendMessage("TaskForge: после смерти используй кнопки [Координаты], [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
+            sender.sendMessage("TaskForge: после смерти выбери одно действие: [Координаты], [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
             return true;
         }
         if (!"taskforgelink".equals(name)) return false;

@@ -36,17 +36,19 @@ gradle clean build
 Event-driven link-status checks always send the exact UUID together with the current nickname. UUID-bound links are resolved strictly by UUID. A nickname may bind an UUID only when exactly one active UUID-less link exists for that exact nickname.
 
 
-## Multi-action death offers
+## Single-choice death offers
 
-A death offer remains open until its timer expires or every remaining option is exhausted. Actions are sequential, never concurrent:
+Each death shows one button line and accepts exactly one action. The first valid click closes the offer before any HTTP request, so double-clicks, reconnects and backend synchronization cannot create a second choice or charge.
 
-- coordinates do not resolve the items, so a chest, return, or ordinary drop may be selected afterwards;
-- a denied purchase keeps the captured items and the remaining buttons available;
-- ordinary drop resolves the items but leaves coordinates and return available;
-- return releases unresolved items at the death point before the spectator rescue, so a chest cannot be selected afterwards;
-- every paid action has its own deterministic request id and its own compensation marker, preventing duplicate charges and accidental whole-balance restoration.
+- coordinates: charge once, show the death coordinates, then release the captured items at the death point;
+- chest: charge once and create the death chest;
+- return: charge once, release unresolved items at the death point, then start spectator return;
+- chest + return: charge once for the bundle, create the chest, then start return;
+- ordinary drop: release the captured items without a rating request.
 
-There is no periodic link-state refresh. A button line is sent only after an explicit action result, a real link-state transition, respawn, reconnect, or a finite per-death fallback check.
+If a paid action is denied, the menu stays closed and unresolved items fall back to the ordinary death-point drop. Existing multi-action journal/backend rows are normalized on load: any non-empty action means the choice was already consumed.
+
+There is no periodic link-state refresh and no action-completion re-offer. The initial line is delivered only from respawn, reconnect/link recovery, hot reload recovery, or the finite per-death fallback checks.
 
 
 ## Config hot reload

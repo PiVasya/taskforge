@@ -13,9 +13,10 @@ taskforge_main="$folia_root/TaskForgeFoliaPlugin/src/main/java/com/taskforge/fol
 taskforge_config="$folia_root/TaskForgeFoliaPlugin/src/main/resources/config.yml"
 cmt="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/MobEffectsListener.java"
 cmt_listener="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/ListenerComponent.java"
+cmt_legacy="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/LegacyEnhancementsListener.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -71,6 +72,23 @@ grep -Fq 'connectivityProbeSeconds: 0' "$taskforge_config" \
   || fail 'background connectivity probing must stay disabled by default'
 grep -Fq 'MAX_MAINTENANCE_ATTEMPTS = 5' "$taskforge" \
   || fail 'death-recovery maintenance retries are not bounded'
+grep -Fq 'offer consumed by single-choice selection' "$taskforge" \
+  || fail 'death offer is not atomically consumed by the first selected action'
+grep -Fq 'Выберите одно действие. После выбора предложение закроется.' "$taskforge" \
+  || fail 'single-choice death-offer message is missing'
+if grep -Fq 'Можно выполнить несколько действий' "$taskforge"; then
+  fail 'multi-action death offer returned'
+fi
+if grep -Eq 'showOffer\(player, (record|session\.record), true, "(coordinates|chest|return|drop|action)-' "$taskforge"; then
+  fail 'death menu is re-offered after a selected action'
+fi
+grep -Fq 'death-action-already-selected' 'services/minecraft/api/Endpoints/DeathRecovery/DeathRecoveryEndpoints.cs' \
+  || fail 'backend single-choice purchase guard is missing'
+grep -Fq 'record.action == null || record.action.isBlank()' "$taskforge" \
+  || fail 'selected death action can still be considered an open offer'
+if grep -Fq 'incomingAction == "drop"' 'services/minecraft/api/Endpoints/DeathRecovery/DeathRecoveryEndpoints.cs'; then
+  fail 'backend still allows rewriting the selected death action to drop'
+fi
 
 grep -Fq 'damage-cancelled-or-shielded' "$cmt" \
   || fail 'shield/cancelled damage does not stop sniper homing'
@@ -80,6 +98,33 @@ grep -Fq 'implements Listener, PluginComponent' "$cmt" \
   || fail 'sniper homing tasks are not reload-managed'
 grep -Fq 'component.shutdown();' "$cmt_listener" \
   || fail 'listener-owned tasks are not cancelled during reload'
+
+if grep -RIEq 'RadiationManager|radiation-zone|createZone\(' "$folia_root/CustomMobTweaksPlugin/src/main"; then
+  fail 'radioactive-zone runtime or configuration returned'
+fi
+if grep -Fq 'guaranteedBreezeElytra' "$cmt_legacy"; then
+  fail 'Breeze Elytra was forced back to a guaranteed drop'
+fi
+grep -Fq 'configuredChance = drop.getDouble("chance", 0.0D)' "$cmt_legacy" \
+  || fail 'extra-loot chance is not read from configuration'
+grep -Fq 'effectiveChance=' "$cmt_legacy" \
+  || fail 'extra-loot roll diagnostics do not expose the effective chance'
+if ! grep -A4 -F '      elytra:' "$cmt_config" | grep -Fq 'chance: 0.05'; then
+  fail 'default Breeze Elytra chance is not 5%'
+fi
+grep -Fq 'rememberLootAttribution' "$cmt_legacy" \
+  || fail 'indirect player kill attribution for extra loot is missing'
+grep -Fq 'result=DROP' "$cmt_legacy" \
+  || fail 'event-driven extra-loot diagnostics are missing'
+
+grep -Fq 'return skeleton.getType() == EntityType.SKELETON;' "$cmt" \
+  || fail 'skeleton sniper is not restricted to the normal vanilla Skeleton'
+if grep -Eq 'skeleton-sniper\.include-(strays|bogged)' "$cmt"; then
+  fail 'legacy sniper variant switches can still enable Stray or Bogged modifications'
+fi
+if grep -Eq '^[[:space:]]+include-(strays|bogged):' "$cmt_config"; then
+  fail 'legacy sniper variant switches remain in the bundled config'
+fi
 
 grep -Fq 'homing-turn-rate: 0.90' "$cmt_config" \
   || fail 'expected slightly reduced homing turn rate is missing'

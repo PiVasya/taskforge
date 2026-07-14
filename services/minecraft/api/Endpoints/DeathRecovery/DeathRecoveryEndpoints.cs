@@ -221,7 +221,23 @@ internal static partial class MinecraftApiEndpoints
             if (!IsTerminalDeathStage(entity.Stage) || IsTerminalDeathStage(requestedStage))
                 entity.Stage = requestedStage;
 
-            entity.Action = NullIfBlank(request.Action, 32) ?? entity.Action;
+            var incomingAction = NullIfBlank(request.Action, 32)?.ToLowerInvariant();
+            if (incomingAction is not null)
+            {
+                var storedAction = NullIfBlank(entity.Action, 32)?.ToLowerInvariant();
+                if (storedAction is null || storedAction == incomingAction)
+                {
+                    entity.Action = incomingAction;
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Death recovery ignored action rewrite after single-choice selection: deathId={DeathId} storedAction={StoredAction} incomingAction={IncomingAction}",
+                        deathId,
+                        storedAction,
+                        incomingAction);
+                }
+            }
 
             var incomingPaymentStatus = Limit(request.PaymentStatus ?? "none", 32);
             if (PaymentStatusRank(incomingPaymentStatus) >= PaymentStatusRank(entity.PaymentStatus))
@@ -392,6 +408,22 @@ internal static partial class MinecraftApiEndpoints
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "player-mismatch" });
                 }
+                var selectedAction = (death.Action ?? string.Empty).Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(selectedAction) || selectedAction != action)
+                {
+                    await transaction.RollbackAsync(ct);
+                    logger.LogWarning(
+                        "Minecraft death purchase rejected by single-choice guard: death={DeathId} selectedAction={SelectedAction} requestedAction={RequestedAction}",
+                        deathId,
+                        selectedAction,
+                        action);
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new
+                    {
+                        success = false,
+                        reason = string.IsNullOrWhiteSpace(selectedAction) ? "death-action-not-selected" : "death-action-already-selected",
+                        selectedAction = string.IsNullOrWhiteSpace(selectedAction) ? null : selectedAction
+                    });
+                }
                 if ((action is "chest" or "both") && !death.ChestSpotReserved)
                 {
                     await transaction.RollbackAsync(ct);
@@ -425,6 +457,22 @@ internal static partial class MinecraftApiEndpoints
                 {
                     await transaction.RollbackAsync(ct);
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { success = false, reason = "linked-user-mismatch" });
+                }
+                selectedAction = (death.Action ?? string.Empty).Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(selectedAction) || selectedAction != action)
+                {
+                    await transaction.RollbackAsync(ct);
+                    logger.LogWarning(
+                        "Minecraft death purchase rejected after lock by single-choice guard: death={DeathId} selectedAction={SelectedAction} requestedAction={RequestedAction}",
+                        deathId,
+                        selectedAction,
+                        action);
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new
+                    {
+                        success = false,
+                        reason = string.IsNullOrWhiteSpace(selectedAction) ? "death-action-not-selected" : "death-action-already-selected",
+                        selectedAction = string.IsNullOrWhiteSpace(selectedAction) ? null : selectedAction
+                    });
                 }
                 if ((action is "chest" or "both") && !death.ChestSpotReserved)
                 {
