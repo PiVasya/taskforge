@@ -9,6 +9,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -20,6 +22,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -42,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -100,6 +104,13 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private boolean debugHeartbeat;
     private int debugConnectivityProbeSeconds;
     private final AtomicLong httpSequence = new AtomicLong();
+    private final AtomicBoolean reloadInProgress = new AtomicBoolean(false);
+    private final Object runtimeLock = new Object();
+    private volatile boolean runtimeStarted;
+    private volatile boolean runtimeHttpStarted;
+    private volatile String runtimeHttpHost = "<not-started>";
+    private volatile int runtimeHttpPort = -1;
+    private volatile String runtimeHttpPath = "<not-started>";
 
     // Игроки-исключения: без запросов в API и игровых сообщений TaskForge.
     private final Set<String> exemptNicksLower = ConcurrentHashMap.newKeySet();
@@ -258,11 +269,22 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
 
-        // Backward/typo compatibility:
-        // Some configs may contain wrong-cased keys like `taskforgekey`.
-        // We read both and auto-migrate to the canonical camelCase keys.
-        migrateConfigKeys();
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            trackOnline(online);
+        }
+        Bukkit.getPluginManager().registerEvents(new TfListener(this), this);
 
+        synchronized (runtimeLock) {
+            reloadConfig();
+            migrateConfigKeys();
+            if (!startReloadableRuntime("plugin-enable")) {
+                getLogger().severe("[TaskForgeLink] Runtime started in degraded mode. Fix config.yml and run /tflink reload.");
+            }
+        }
+        getLogger().info("[TaskForgeLink] enabled; trackedOnlinePlayers=" + onlinePlayerCount());
+    }
+
+    private RuntimeSettings loadRuntimeConfiguration() {
         debugEnabled = getConfig().getBoolean("debug.enabled", true);
         debugHttp = getConfig().getBoolean("debug.http", true);
         debugHttpBodies = getConfig().getBoolean("debug.httpBodies", true);
@@ -275,25 +297,28 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         String host = getConfig().getString("http.host", "0.0.0.0");
         int port = getConfig().getInt("http.port", 25566);
         String path = getConfig().getString("http.path", "/taskforge/link/send");
+        if (isBlank(path) || !path.startsWith("/")) {
+            throw new IllegalArgumentException("http.path must start with '/'");
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalArgumentException("http.port must be between 1 and 65535");
+        }
 
-        String key = firstNonBlank(
+        String webhookKey = firstNonBlank(
                 getConfig().getString("security.taskforgeKey", ""),
                 getConfig().getString("security.taskforgekey", "")
         );
-        if (key == null) key = "";
-
-        List<String> allowedIps = getConfig().getStringList("security.allowedIps");
+        List<String> allowedIps = List.copyOf(getConfig().getStringList("security.allowedIps"));
 
         taskForgeBaseUrl = firstNonBlank(
                 Optional.ofNullable(getConfig().getString("taskforge.apiBaseUrl")).orElse("").trim(),
                 Optional.ofNullable(getConfig().getString("taskforge.apibaseUrl")).orElse("").trim()
         );
-
         taskForgeKey = firstNonBlank(
                 Optional.ofNullable(getConfig().getString("taskforge.pluginKey")).orElse("").trim(),
                 Optional.ofNullable(getConfig().getString("taskforge.pluginkey")).orElse("").trim()
         );
-        taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 4));
+        taskForgeTimeoutSeconds = Math.max(1, getConfig().getInt("taskforge.timeoutSeconds", 5));
         chatEnabled = getConfig().getBoolean("chat.enabled", true);
         chatPollIntervalSeconds = Math.max(5, getConfig().getInt("chat.pollIntervalSeconds", 12));
         chatPollOnlyWhenPlayersOnline = getConfig().getBoolean("chat.pollOnlyWhenPlayersOnline", true);
@@ -303,31 +328,37 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         chatIncludeRecipeAdvancements = getConfig().getBoolean("chat.includeRecipeAdvancements", false);
         chatIncludeRootAdvancements = getConfig().getBoolean("chat.includeRootAdvancements", false);
         chatSitePrefix = getConfig().getString("chat.sitePrefix", "§d[TaskForge]§r ");
-        chatCursorUtc = Instant.now();
+        if (Instant.EPOCH.equals(chatCursorUtc)) chatCursorUtc = Instant.now();
         deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
         linkStatusRefreshSeconds = Math.max(5, getConfig().getInt("deathRecovery.linkStatusRefreshSeconds", 5));
 
-        getLogger().info("[TaskForgeLink] development diagnostics enabled=" + debugEnabled
+        runtimeHttpHost = host;
+        runtimeHttpPort = port;
+        runtimeHttpPath = path;
+
+        getLogger().info("[TaskForgeLink][reload] config loaded diagnostics=" + debugEnabled
                 + " http=" + debugHttp + " httpBodies=" + debugHttpBodies
                 + " deathRecovery=" + debugDeathRecovery + " scheduler=" + debugScheduler
                 + " journal=" + debugJournal + " heartbeat=" + debugHeartbeat);
-        getLogger().info("[TaskForgeLink] backend baseUrl=" + (taskForgeBaseUrl.isBlank() ? "<missing>" : taskForgeBaseUrl)
+        getLogger().info("[TaskForgeLink][reload] HTTP " + host + ":" + port + " path=" + path
+                + " allowedIps=" + allowedIps.size() + " webhookKey=" + keyFingerprint(webhookKey)
+                + " len=" + webhookKey.length());
+        getLogger().info("[TaskForgeLink][reload] backend baseUrl=" + (taskForgeBaseUrl.isBlank() ? "<missing>" : taskForgeBaseUrl)
                 + " pluginKey=" + keyFingerprint(taskForgeKey) + " len=" + taskForgeKey.length()
-                + " webhookKey=" + keyFingerprint(key) + " len=" + key.length()
                 + " timeoutSeconds=" + taskForgeTimeoutSeconds);
-        getLogger().info("[TaskForgeLink] death costs coordinates=" + deathCoordinatesCost
+        getLogger().info("[TaskForgeLink][reload] death costs coordinates=" + deathCoordinatesCost
                 + " chest=" + deathChestCost + " teleport=" + deathTeleportCost
                 + " linkStatusRefreshSeconds=" + linkStatusRefreshSeconds);
+
         if (!canCallTaskForge()) {
             getLogger().warning("[TaskForgeLink] Minecraft -> TaskForge calls are disabled because apiBaseUrl or pluginKey is empty.");
         }
-        if ("CHANGE_ME".equals(key) || "CHANGE_ME".equals(taskForgeKey)) {
+        if ("CHANGE_ME".equals(webhookKey) || "CHANGE_ME".equals(taskForgeKey)) {
             getLogger().severe("[TaskForgeLink] CHANGE_ME is still present in a security key. Replace it before exposing the server.");
         }
 
-        // exemptions
         exemptNicksLower.clear();
         exemptUuidsLower.clear();
         for (String n : getConfig().getStringList("exemptions.nicks")) {
@@ -336,116 +367,287 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         for (String u : getConfig().getStringList("exemptions.uuids")) {
             if (u != null && !u.trim().isEmpty()) exemptUuidsLower.add(u.trim().toLowerCase(Locale.ROOT));
         }
+        getLogger().info("[TaskForgeLink][reload] exemptions nicks=" + exemptNicksLower.size()
+                + " uuids=" + exemptUuidsLower.size());
 
-        httpClient = buildHttpClient();
+        return new RuntimeSettings(host, port, path, webhookKey, allowedIps);
+    }
 
+    private boolean startReloadableRuntime(String reason) {
+        RuntimeSettings settings;
         try {
-            InetAddress addr = InetAddress.getByName(host);
-            server = HttpServer.create(new InetSocketAddress(addr, port), 0);
-            server.createContext(path, new SendCodeHandler(this, key, allowedIps));
-            // Простая проверка доступности (без ключей)
-            server.createContext("/health", ex -> {
-                int onlinePlayerCount = onlinePlayerCount();
-                debug("http-in", "health request ip=" + ex.getRemoteAddress() + " method=" + ex.getRequestMethod()
-                        + " onlinePlayers=" + onlinePlayerCount);
-                String resp = "{\"ok\":true,\"onlinePlayers\":" + onlinePlayerCount + "}";
-                ex.getResponseHeaders().add("Content-Type", "application/json");
-                ex.getResponseHeaders().add("Connection", "close");
-                ex.sendResponseHeaders(200, resp.getBytes(StandardCharsets.UTF_8).length);
-                try (OutputStream os = ex.getResponseBody()) {
-                    os.write(resp.getBytes(StandardCharsets.UTF_8));
-                }
-            });
-            serverExecutor = Executors.newFixedThreadPool(8, r -> {
-                Thread t = new Thread(r, "taskforge-link-http-server");
+            settings = loadRuntimeConfiguration();
+        } catch (Exception ex) {
+            getLogger().log(java.util.logging.Level.SEVERE,
+                    "[TaskForgeLink][reload] Cannot load runtime configuration reason=" + reason, ex);
+            runtimeStarted = false;
+            return false;
+        }
+
+        boolean httpStarted = false;
+        try {
+            httpClient = buildHttpClient();
+            if (tfExecutor == null || tfExecutor.isShutdown()) {
+                tfExecutor = Executors.newFixedThreadPool(2, r -> {
+                    Thread t = new Thread(r, "taskforge-link-http");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
+
+            try {
+                InetAddress addr = InetAddress.getByName(settings.host());
+                server = HttpServer.create(new InetSocketAddress(addr, settings.port()), 0);
+                server.createContext(settings.path(), new SendCodeHandler(this, settings.webhookKey(), settings.allowedIps()));
+                server.createContext("/health", ex -> {
+                    int onlinePlayerCount = onlinePlayerCount();
+                    debug("http-in", "health request ip=" + ex.getRemoteAddress() + " method=" + ex.getRequestMethod()
+                            + " onlinePlayers=" + onlinePlayerCount + " runtimeStarted=" + runtimeStarted);
+                    String resp = "{\"ok\":true,\"onlinePlayers\":" + onlinePlayerCount + "}";
+                    ex.getResponseHeaders().add("Content-Type", "application/json");
+                    ex.getResponseHeaders().add("Connection", "close");
+                    ex.sendResponseHeaders(200, resp.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = ex.getResponseBody()) {
+                        os.write(resp.getBytes(StandardCharsets.UTF_8));
+                    }
+                });
+                serverExecutor = Executors.newFixedThreadPool(8, r -> {
+                    Thread t = new Thread(r, "taskforge-link-http-server");
+                    t.setDaemon(true);
+                    return t;
+                });
+                server.setExecutor(serverExecutor);
+                server.start();
+                httpStarted = true;
+                runtimeHttpStarted = true;
+                getLogger().info("[TaskForgeLink][reload] HTTP server started reason=" + reason + " address="
+                        + settings.host() + ":" + settings.port() + " path=" + settings.path());
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.SEVERE,
+                        "[TaskForgeLink][reload] Failed to start HTTP server reason=" + reason
+                                + " address=" + settings.host() + ":" + settings.port(), ex);
+                stopHttpServerOnly();
+            }
+
+            for (Player online : onlinePlayersSnapshot()) {
+                linkStates.put(online.getUniqueId(), new LinkStateSnapshot(
+                        LinkState.UNKNOWN, Instant.EPOCH, Instant.now(), "runtime-" + reason, "awaiting-refresh"));
+            }
+
+            deathRecoveryManager = new DeathRecoveryManager(this);
+            deathRecoveryManager.enable();
+
+            for (Player online : onlinePlayersSnapshot()) {
+                refreshPlayerLinkState(online, "runtime-" + reason);
+            }
+
+            janitor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "taskforge-link-janitor");
                 t.setDaemon(true);
                 return t;
             });
-            server.setExecutor(serverExecutor);
-            server.start();
+            janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
+            if (canCallTaskForge()) {
+                janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe, 0, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
+                janitor.scheduleAtFixedRate(this::refreshOnlineLinkStatesSafe, 1, linkStatusRefreshSeconds, TimeUnit.SECONDS);
+            }
+            if (chatEnabled && canCallTaskForge()) {
+                janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
+            }
 
-            getLogger().info("TaskForgeLink HTTP server started on " + host + ":" + port + " path=" + path);
-        } catch (Exception ex) {
-            getLogger().severe("Failed to start HTTP server: " + ex.getMessage());
-            // Если не подняли HTTP — лучше выключить плагин, чтобы не было иллюзий что всё работает.
-            Bukkit.getPluginManager().disablePlugin(this);
-            return;
+            runtimeStarted = true;
+            getLogger().info("[TaskForgeLink][reload] runtime started reason=" + reason
+                    + " httpStarted=" + httpStarted + " trackedOnlinePlayers=" + onlinePlayerCount()
+                    + " connectivityProbeSeconds=" + debugConnectivityProbeSeconds
+                    + " chatEnabled=" + chatEnabled + " deathRecoveryEnabled="
+                    + getConfig().getBoolean("deathRecovery.enabled", true));
+            return httpStarted;
+        } catch (Throwable error) {
+            getLogger().log(java.util.logging.Level.SEVERE,
+                    "[TaskForgeLink][reload] runtime startup failed; rolling back partial runtime reason=" + reason, error);
+            stopReloadableRuntime("startup-rollback");
+            return false;
         }
-
-        // Listener: plugin -> TaskForge
-        tfExecutor = Executors.newFixedThreadPool(2, r -> {
-            Thread t = new Thread(r, "taskforge-link-http");
-            t.setDaemon(true);
-            return t;
-        });
-
-        for (Player online : Bukkit.getOnlinePlayers()) {
-            trackOnline(online);
-        }
-        Bukkit.getPluginManager().registerEvents(new TfListener(this), this);
-        deathRecoveryManager = new DeathRecoveryManager(this);
-        deathRecoveryManager.enable();
-
-        // Hot reloads do not emit PlayerJoinEvent. Prime the authoritative link cache for every
-        // already-online player before death recovery is allowed to intercept future drops.
-        for (Player online : onlinePlayersSnapshot()) {
-            refreshPlayerLinkState(online, "plugin-enable");
-        }
-
-        // Очистка кеша requestId, чтобы не рос бесконечно
-        janitor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "taskforge-link-janitor");
-            t.setDaemon(true);
-            return t;
-        });
-        janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
-        if (canCallTaskForge()) {
-            janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe, 0, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
-            janitor.scheduleAtFixedRate(this::refreshOnlineLinkStatesSafe, 1, linkStatusRefreshSeconds, TimeUnit.SECONDS);
-        }
-        if (chatEnabled && canCallTaskForge()) {
-            janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
-        }
-        getLogger().info("[TaskForgeLink] enabled; trackedOnlinePlayers=" + onlinePlayerCount()
-                + " connectivityProbeSeconds=" + debugConnectivityProbeSeconds);
     }
 
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!"tfback".equalsIgnoreCase(command.getName())) return false;
-        sender.sendMessage("TaskForge: после смерти используй кнопки [Координаты], [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
-        return true;
-    }
-
-    @Override
-    public void onDisable() {
-        getLogger().info("[TaskForgeLink] disabling; onlinePlayers=" + onlinePlayerCount()
-                + " seenRequestIds=" + seenRequestIds.size());
-        if (deathRecoveryManager != null) {
-            deathRecoveryManager.disable();
-            deathRecoveryManager = null;
-        }
+    private void stopHttpServerOnly() {
+        runtimeHttpStarted = false;
         if (server != null) {
-            server.stop(0);
+            try {
+                server.stop(0);
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING, "[TaskForgeLink][reload] HTTP stop failed", ex);
+            }
             server = null;
         }
         if (serverExecutor != null) {
             serverExecutor.shutdownNow();
             serverExecutor = null;
         }
+    }
+
+    private void stopReloadableRuntime(String reason) {
+        runtimeStarted = false;
+        getLogger().info("[TaskForgeLink][reload] stopping runtime reason=" + reason
+                + " onlinePlayers=" + onlinePlayerCount() + " inFlightLinkRefreshes=" + linkRefreshInFlight.size());
+
+        if (deathRecoveryManager != null) {
+            try {
+                deathRecoveryManager.disable();
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING,
+                        "[TaskForgeLink][reload] death recovery shutdown failed", ex);
+            }
+            deathRecoveryManager = null;
+        }
+        stopHttpServerOnly();
         if (janitor != null) {
             janitor.shutdownNow();
             janitor = null;
         }
-        if (tfExecutor != null) {
+        if ("plugin-disable".equals(reason) && tfExecutor != null) {
             tfExecutor.shutdownNow();
             tfExecutor = null;
+        }
+        linkRefreshInFlight.clear();
+        getLogger().info("[TaskForgeLink][reload] runtime stopped reason=" + reason);
+    }
+
+    private void validateConfigFileBeforeReload() throws IOException, InvalidConfigurationException {
+        File file = new File(getDataFolder(), "config.yml");
+        YamlConfiguration candidate = new YamlConfiguration();
+        candidate.load(file);
+
+        String path = candidate.getString("http.path", "/taskforge/link/send");
+        int port = candidate.getInt("http.port", 25566);
+        if (isBlank(path) || !path.startsWith("/")) {
+            throw new InvalidConfigurationException("http.path must start with '/'");
+        }
+        if (port < 1 || port > 65535) {
+            throw new InvalidConfigurationException("http.port must be between 1 and 65535");
+        }
+        String baseUrl = firstNonBlank(
+                candidate.getString("taskforge.apiBaseUrl", ""),
+                candidate.getString("taskforge.apibaseUrl", ""));
+        if (!isBlank(baseUrl)) {
+            URI parsed = URI.create(baseUrl);
+            if (parsed.getScheme() == null || parsed.getHost() == null) {
+                throw new InvalidConfigurationException("taskforge.apiBaseUrl must be an absolute http/https URL");
+            }
+            String scheme = parsed.getScheme().toLowerCase(Locale.ROOT);
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                throw new InvalidConfigurationException("taskforge.apiBaseUrl must use http or https");
+            }
+        }
+        getLogger().info("[TaskForgeLink][reload] config preflight passed file=" + file.getAbsolutePath()
+                + " http=" + candidate.getString("http.host", "0.0.0.0") + ":" + port + path);
+    }
+
+    private void requestRuntimeReload(CommandSender sender) {
+        if (!reloadInProgress.compareAndSet(false, true)) {
+            sendCommandMessage(sender, "§eTaskForgeLink: перезагрузка уже выполняется.");
+            return;
+        }
+        sendCommandMessage(sender, "§eTaskForgeLink: перечитываю config.yml и перезапускаю HTTP, чат, кеш привязок и восстановление смертей...");
+        getLogger().info("[TaskForgeLink][reload] requested by=" + sender.getName());
+
+        Bukkit.getGlobalRegionScheduler().execute(this, () -> {
+            boolean ok = false;
+            try {
+                validateConfigFileBeforeReload();
+                synchronized (runtimeLock) {
+                    stopReloadableRuntime("command-reload");
+                    reloadConfig();
+                    migrateConfigKeys();
+                    ok = startReloadableRuntime("command-reload");
+                }
+                if (ok) {
+                    sendCommandMessage(sender, "§aTaskForgeLink: конфигурация полностью применена без перезапуска сервера.");
+                } else {
+                    sendCommandMessage(sender, "§cTaskForgeLink: конфиг перечитан, но HTTP-сервер не поднялся. Смотри подробный stack trace в консоли и повтори /tflink reload.");
+                }
+            } catch (Throwable error) {
+                getLogger().log(java.util.logging.Level.SEVERE, "[TaskForgeLink][reload] reload failed", error);
+                sendCommandMessage(sender, "§cTaskForgeLink: перезагрузка завершилась ошибкой: "
+                        + error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
+            } finally {
+                reloadInProgress.set(false);
+            }
+        });
+    }
+
+    private void sendCommandMessage(CommandSender sender, String message) {
+        if (sender instanceof Player player) {
+            player.getScheduler().run(this, task -> {
+                if (player.isOnline()) player.sendMessage(message);
+            }, () -> getLogger().info("[TaskForgeLink][reload] command sender retired before message delivery uuid="
+                    + player.getUniqueId()));
+            return;
+        }
+        sender.sendMessage(message);
+    }
+
+    private Executor callbackExecutor() {
+        ExecutorService current = tfExecutor;
+        if (current != null && !current.isShutdown()) return current;
+        return Runnable::run;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        String name = command.getName().toLowerCase(Locale.ROOT);
+        if ("tfback".equals(name)) {
+            sender.sendMessage("TaskForge: после смерти используй кнопки [Координаты], [Сундук], [Вернуться], [Сундук + возврат] или [Обычный дроп].");
+            return true;
+        }
+        if (!"taskforgelink".equals(name)) return false;
+
+        if (args.length == 1 && ("reload".equalsIgnoreCase(args[0]) || "refresh".equalsIgnoreCase(args[0]))) {
+            if (!sender.hasPermission("taskforge.link.reload")) {
+                sender.sendMessage("§cНет права taskforge.link.reload.");
+                return true;
+            }
+            requestRuntimeReload(sender);
+            return true;
+        }
+        if (args.length == 1 && "status".equalsIgnoreCase(args[0])) {
+            if (!sender.hasPermission("taskforge.link.reload")) {
+                sender.sendMessage("§cНет права taskforge.link.reload.");
+                return true;
+            }
+            sender.sendMessage("§eTaskForgeLink " + getDescription().getVersion()
+                    + "§7: runtime=" + (runtimeStarted ? "§aON" : "§cOFF")
+                    + "§7, HTTP=" + (runtimeHttpStarted ? "§aON" : "§cOFF")
+                    + "§7(§f" + runtimeHttpHost + ":" + runtimeHttpPort + runtimeHttpPath + "§7)"
+                    + "§7, backend=" + (canCallTaskForge() ? "§aON" : "§cOFF")
+                    + "§7, online=§f" + onlinePlayerCount());
+            return true;
+        }
+        sender.sendMessage("§eИспользование: /" + label + " <reload|refresh|status>");
+        return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!"taskforgelink".equalsIgnoreCase(command.getName()) || args.length != 1) return List.of();
+        String prefix = args[0].toLowerCase(Locale.ROOT);
+        return List.of("reload", "refresh", "status").stream().filter(value -> value.startsWith(prefix)).toList();
+    }
+
+    @Override
+    public void onDisable() {
+        synchronized (runtimeLock) {
+            stopReloadableRuntime("plugin-disable");
         }
         seenRequestIds.clear();
         onlinePlayers.clear();
         onlinePlayersByName.clear();
         linkStates.clear();
         linkRefreshInFlight.clear();
+        getLogger().info("[TaskForgeLink] disabled");
+    }
+
+    private record RuntimeSettings(String host, int port, String path, String webhookKey, List<String> allowedIps) {
     }
 
     private void cleanupRequestCache() {
@@ -981,7 +1183,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 int returnCost = st.deathTeleportCost > 0 ? st.deathTeleportCost : plugin.deathTeleportCost;
                 plugin.sendChat(p, "§eTaskForge: §7Minecraft-баланс: §e" + balance
                         + "§7. Координаты: §e" + coordinatesCost + "§7, сундук: §e" + chestCost + "§7, возврат: §e" + returnCost + "§7.");
-            }, plugin.tfExecutor);
+            }, plugin.callbackExecutor());
         }
 
         @EventHandler

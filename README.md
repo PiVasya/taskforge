@@ -191,3 +191,12 @@ Production sends account-link codes directly from `minecraft-api` to `http://mc.
 ## Minecraft multiple links and balance
 
 A TaskForge account can keep any number of active Minecraft profiles. Each exact Minecraft UUID can belong to only one TaskForge account and cannot be linked twice. All profiles on the same TaskForge account share one Minecraft balance based on the account `UserId`; link and unlink operations never reset or restore the rating ledger. Individual profiles can be removed without affecting the other profiles or the shared balance.
+
+## Minecraft plugin hot reload
+
+After editing the plugin configs, a full Minecraft restart is not required:
+
+- `TaskForgeLink`: `/tflink reload` (or `/taskforgelink refresh`). It reloads keys, URLs, HTTP listener, chat polling, link-status schedules, exemptions, debug options and the death-recovery manager.
+- `CustomMobTweaks`: `/cmt reload` (or `/custommobtweaks refresh`). It unregisters the old listeners, cancels tracked Folia tasks, rereads the file and reconstructs every module.
+
+Both commands are OP-only by default. Check the current state with `/tflink status` and `/cmt modules`.

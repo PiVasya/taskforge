@@ -14,11 +14,9 @@ import java.util.Locale;
 
 public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
     private final CustomMobTweaksPlugin plugin;
-    private final HappyGhastBomberListener bomberListener;
 
-    public MobTweaksCommand(CustomMobTweaksPlugin plugin, HappyGhastBomberListener bomberListener) {
+    public MobTweaksCommand(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
-        this.bomberListener = bomberListener;
     }
 
     @Override
@@ -29,20 +27,20 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
         }
 
         switch (args[0].toLowerCase(Locale.ROOT)) {
-            case "reload" -> {
+            case "reload", "refresh" -> {
                 if (!sender.hasPermission("custommobtweaks.admin")) {
                     sender.sendMessage("§cНет права custommobtweaks.admin.");
                     return true;
                 }
-                plugin.reloadPluginConfig();
-                sender.sendMessage("§aКонфигурация CustomMobTweaks перезагружена.");
+                plugin.requestReload(sender);
             }
-            case "modules" -> {
+            case "modules", "status" -> {
                 if (!sender.hasPermission("custommobtweaks.admin")) {
                     sender.sendMessage("§cНет права custommobtweaks.admin.");
                     return true;
                 }
-                sender.sendMessage("§6Модули CustomMobTweaks:");
+                sender.sendMessage("§6Модули CustomMobTweaks §7(runtime="
+                        + (plugin.runtimeStarted() ? "§aON" : "§cOFF") + "§7):");
                 for (String module : List.of(
                         "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                         "harder-stray", "illusioner-spawn", "trident-zombie", "happy-ghast-bomber",
@@ -65,6 +63,11 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("§cНет права custommobtweaks.bomber.");
             return;
         }
+        HappyGhastBomberListener bomberListener = plugin.bomberListener();
+        if (bomberListener == null || !plugin.runtimeStarted()) {
+            sender.sendMessage("§eCustomMobTweaks сейчас перезагружается. Повторите команду через секунду.");
+            return;
+        }
         if (args.length < 2) {
             sender.sendMessage("§eИспользование: /custommobtweaks bomber <on|off|status>");
             return;
@@ -80,9 +83,9 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelp(CommandSender sender, String label) {
-        sender.sendMessage("§6CustomMobTweaks 2.0.0");
+        sender.sendMessage("§6CustomMobTweaks " + plugin.getDescription().getVersion());
         sender.sendMessage("§e/" + label + " modules §7— список модулей");
-        sender.sendMessage("§e/" + label + " reload §7— перезагрузить config.yml");
+        sender.sendMessage("§e/" + label + " reload §7— перечитать config.yml и перезапустить все модули");
         sender.sendMessage("§e/" + label + " bomber <on|off|status> §7— счастливый гаст-бомбардировщик");
     }
 
@@ -90,7 +93,7 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
     public @Nullable List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command,
                                                  @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
-            return filter(List.of("reload", "modules", "bomber"), args[0]);
+            return filter(List.of("reload", "refresh", "modules", "status", "bomber"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("bomber")) {
             return filter(List.of("on", "off", "status"), args[1]);

@@ -47,3 +47,11 @@ A death offer remains open until its timer expires or every remaining option is 
 - every paid action has its own deterministic request id and its own compensation marker, preventing duplicate charges and accidental whole-balance restoration.
 
 Periodic link-state refreshes do not repeat the offer. A refreshed button line is sent only after an explicit action result, a real link-state transition, respawn, or reconnect.
+
+
+## Config hot reload
+
+- TaskForgeLink: `/taskforgelink reload` or `/tflink reload` (`taskforge.link.reload`, OP by default). This restarts the embedded HTTP server, backend client, chat polling, link cache schedules and death-recovery manager without restarting Minecraft.
+- CustomMobTweaks: `/custommobtweaks reload` or `/cmt reload` (`custommobtweaks.admin`, OP by default). This stops old listeners/tasks, rereads `config.yml`, and reconstructs every module.
+
+Use `/tflink status` and `/custommobtweaks modules` to inspect the current runtime after reload.

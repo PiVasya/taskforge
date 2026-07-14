@@ -24,14 +24,15 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class IllusionerSpawner implements Listener, PluginComponent {
     private final CustomMobTweaksPlugin plugin;
-    private final Set<UUID> scheduledPlayers = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, ScheduledTask> scheduledPlayers = new ConcurrentHashMap<>();
 
     public IllusionerSpawner(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
@@ -48,6 +49,9 @@ public final class IllusionerSpawner implements Listener, PluginComponent {
     @Override
     public void shutdown() {
         HandlerList.unregisterAll(this);
+        for (ScheduledTask task : scheduledPlayers.values()) {
+            if (task != null && !task.isCancelled()) task.cancel();
+        }
         scheduledPlayers.clear();
     }
 
@@ -78,18 +82,21 @@ public final class IllusionerSpawner implements Listener, PluginComponent {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        scheduledPlayers.remove(event.getPlayer().getUniqueId());
+        ScheduledTask task = scheduledPlayers.remove(event.getPlayer().getUniqueId());
+        if (task != null && !task.isCancelled()) task.cancel();
     }
 
     private void schedulePeriodicCheck(Player player) {
-        if (!scheduledPlayers.add(player.getUniqueId())) {
+        UUID playerId = player.getUniqueId();
+        if (scheduledPlayers.containsKey(playerId)) {
             return;
         }
         long interval = Math.max(20L, plugin.getConfig().getLong("illusioner-spawn.periodic-check-interval-ticks", 600L));
-        player.getScheduler().runAtFixedRate(plugin, task -> {
+        AtomicReference<ScheduledTask> taskRef = new AtomicReference<>();
+        ScheduledTask task = player.getScheduler().runAtFixedRate(plugin, scheduledTask -> {
             if (!player.isOnline()) {
-                scheduledPlayers.remove(player.getUniqueId());
-                task.cancel();
+                scheduledPlayers.remove(playerId, scheduledTask);
+                scheduledTask.cancel();
                 return;
             }
             if (!plugin.enabled("illusioner-spawn")
@@ -101,7 +108,21 @@ public final class IllusionerSpawner implements Listener, PluginComponent {
                 return;
             }
             queuePeriodicSpawn(player);
-        }, () -> scheduledPlayers.remove(player.getUniqueId()), interval, interval);
+        }, () -> {
+            ScheduledTask retired = taskRef.get();
+            if (retired == null) scheduledPlayers.remove(playerId);
+            else scheduledPlayers.remove(playerId, retired);
+        }, interval, interval);
+        if (task == null) {
+            return;
+        }
+        taskRef.set(task);
+        ScheduledTask previous = scheduledPlayers.putIfAbsent(playerId, task);
+        if (previous != null) {
+            if (!task.isCancelled()) task.cancel();
+            return;
+        }
+        if (task.isCancelled()) scheduledPlayers.remove(playerId, task);
     }
 
     private void queuePeriodicSpawn(Player player) {

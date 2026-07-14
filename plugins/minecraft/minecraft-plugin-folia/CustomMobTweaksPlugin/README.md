@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.0.0
+# CustomMobTweaks 2.1.0
 
 Единый Folia-плагин усиления мобов для Minecraft/Folia **26.1.2** и Java **25**.
 В проект перенесены и переработаны механики `CreakingPerks 1.0`, при этом сохранены старые возможности `CustomMobTweaks`.
@@ -99,6 +99,8 @@ max-amount: 1
 
 Сокращения: `/cmt`, `/mobtweaks`.
 
+`/cmt reload` — полноценная горячая перезагрузка: старые слушатели снимаются, отслеживаемые Folia-задачи отменяются, `config.yml` перечитывается, после чего все модули создаются заново. Перезапуск Minecraft-сервера не требуется.
+
 Права:
 
 ```text
@@ -117,7 +119,7 @@ gradle clean build
 Результат:
 
 ```text
-build/libs/CustomMobTweaks-2.0.0.jar
+build/libs/CustomMobTweaks-2.1.0.jar
 ```
 
 После первого запуска рабочий конфиг появится здесь:

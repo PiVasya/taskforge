@@ -1,3 +1,4 @@
+# After editing this file, run /tflink reload. A full Minecraft restart is not required.
 http:
   host: 0.0.0.0
   port: 25566

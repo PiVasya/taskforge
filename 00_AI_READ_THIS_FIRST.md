@@ -43,7 +43,8 @@ Type-specific fields:
 - Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
 - Не отключать и не уменьшать эти логи, пока пользователь явно не попросит изменить политику логирования.
 - В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.
-- Текущая ветка `CustomMobTweaks` — версия `2.0.0` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
+- Текущая ветка `CustomMobTweaks` — версия `2.1.0` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
+- Текущая ветка `TaskForgeLink` — версия `1.8.0` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
 - Minecraft link codes are delivery-only: the website must never display, copy, or return a fallback/backup code to the browser. A generated code must be sent directly to the online Minecraft player through the authenticated webhook. If delivery fails, invalidate the generated code and return a clear error.
 - Production defaults for direct site-to-Minecraft delivery are `http://mc.taskforge.by:25566` and `/taskforge/link/send`; health is `http://mc.taskforge.by:25566/health`. Do not blank these defaults unless the user explicitly changes the deployment topology.
 - Keep detailed safe logs for link-code generation and delivery: resolved URL/path, request ID, HTTP status, elapsed time, response preview, exception type/message, and secret presence/length/fingerprint. Never log the raw code or secret.
@@ -68,3 +69,13 @@ Type-specific fields:
 - Ordinary drops resolve only the item-storage choice. Coordinates and return may remain available. A paid return releases unresolved items at the exact death point before spectator rescue, so a chest is no longer available afterward.
 - Every paid death action uses its own deterministic idempotency key derived from `deathId + action`. Compensation must target only that action. Never use link/unlink or another action's refund to restore the whole shared Minecraft balance.
 - Do not reprint death offers on unchanged periodic link-status refreshes. Show on respawn/link transition/join, after an explicit action result, or after reconnect; repeated background refreshes must be suppressed.
+
+
+## Minecraft plugin config reload rule
+
+Both retained Minecraft plugins must support applying `config.yml` changes without a full server restart. Do not remove or weaken these commands unless the user explicitly requests it:
+
+- `TaskForgeLink`: `/tflink reload` (full runtime reload: HTTP listener, keys/URLs, chat poller, link cache schedules, death recovery settings and manager).
+- `CustomMobTweaks`: `/cmt reload` (full component reload: unregister listeners, cancel tracked Folia tasks, reread config, reconstruct all modules).
+
+A reload must not duplicate listeners or periodic tasks. It must emit detailed start/stop/result logs. New config-backed functionality should participate in the corresponding full reload lifecycle.

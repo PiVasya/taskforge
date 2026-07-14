@@ -41,6 +41,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -63,6 +64,7 @@ import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
@@ -105,6 +107,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final NamespacedKey chestStateKey;
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private final AtomicLong backendRequestSequence = new AtomicLong();
+    private volatile ScheduledTask heartbeatTask;
 
     private final int offerSeconds;
     private final int spectatorSeconds;
@@ -164,7 +167,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         } else {
             plugin.getLogger().severe("Command tfdeath is missing from plugin.yml; death offer buttons cannot work");
         }
-        Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> heartbeat(), 20L, 20L);
+        heartbeatTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> heartbeat(), 20L, 20L);
         plugin.debugDeath("listeners registered; heartbeat scheduled every 20 ticks; loadedRecords=" + deaths.size());
         // Reconcile journal records with the backend without delaying plugin enable.  Older
         // builds may have captured a death for a player who was not actually linked.  Treat
@@ -205,7 +208,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     public void disable() {
-        stopped.set(true);
+        if (!stopped.compareAndSet(false, true)) {
+            return;
+        }
+        ScheduledTask task = heartbeatTask;
+        heartbeatTask = null;
+        if (task != null) {
+            try {
+                task.cancel();
+            } catch (Exception ex) {
+                plugin.getLogger().log(Level.WARNING, "Cannot cancel death-recovery heartbeat", ex);
+            }
+        }
+        HandlerList.unregisterAll(this);
+        plugin.debugDeath("listeners unregistered; heartbeat cancelled; preparing journal for shutdown/reload");
         for (RescueSession session : new ArrayList<>(rescues.values())) {
             session.record.rescuePending = true;
             session.record.rescueCompleted = false;
@@ -437,6 +453,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) return true;
+        if (stopped.get()) {
+            player.sendMessage(Component.text("TaskForgeLink сейчас применяет новый config.yml. Повторите действие через секунду.", NamedTextColor.YELLOW));
+            return true;
+        }
         if (args.length != 2) {
             player.sendMessage(Component.text("Эта команда используется кнопками предложения смерти.", NamedTextColor.YELLOW));
             return true;

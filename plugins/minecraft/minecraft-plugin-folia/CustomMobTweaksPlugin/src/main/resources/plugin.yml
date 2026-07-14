@@ -1,5 +1,5 @@
 name: CustomMobTweaks
-version: 2.0.0
+version: 2.1.0
 main: me.vasya.custommobtweaks.CustomMobTweaksPlugin
 api-version: '26.1.2'
 folia-supported: true
@@ -9,7 +9,7 @@ description: Folia-safe hostile mob upgrades, CreakingPerks mechanics and config
 commands:
   custommobtweaks:
     description: CustomMobTweaks administration and Happy Ghast bomber controls
-    usage: /custommobtweaks <reload|modules|bomber>
+    usage: /custommobtweaks <reload|refresh|modules|status|bomber>
     aliases: [cmt, mobtweaks]
 
 permissions:
