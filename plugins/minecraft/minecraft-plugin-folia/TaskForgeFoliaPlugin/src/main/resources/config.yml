@@ -25,9 +25,8 @@ deathRecovery:
   chestCost: 50
   teleportCost: 100
   backendTimeoutMillis: 5000
-  # Link status is refreshed while players are online. Only confirmed LINKED players have drops intercepted.
-  # UNLINKED or UNKNOWN players always keep completely vanilla death behavior.
-  linkStatusRefreshSeconds: 5
+  # Link state is checked on join/reload and updated by authoritative backend responses.
+  # There is no periodic status polling while a player is online.
   # Optional overrides. Empty values reuse taskforge.apiBaseUrl and taskforge.pluginKey.
   apiBaseUrl: ""
   serverToken: ""
@@ -48,12 +47,16 @@ chat:
   sitePrefix: "§d[TaskForge]§r "
   minecraftPrefix: "[MC] "
 
+# Normal diagnostics: detailed death-flow logs only.
+# Verbose HTTP bodies, scheduler internals and journal writes are disabled by default.
 debug:
   enabled: true
-  http: true
-  httpBodies: true
   deathRecovery: true
-  scheduler: true
-  journal: true
-  heartbeat: true
-  connectivityProbeSeconds: 30
+  verboseHttp: false
+  verboseHttpBodies: false
+  verboseScheduler: false
+  verboseJournal: false
+
+# Optional network probe for manual diagnostics. 0 means disabled.
+diagnostics:
+  connectivityProbeSeconds: 0

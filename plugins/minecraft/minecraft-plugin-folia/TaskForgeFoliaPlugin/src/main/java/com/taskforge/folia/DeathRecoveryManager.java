@@ -71,6 +71,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
@@ -95,6 +96,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private static final String ACTION_BOTH = "both";
     private static final String ACTION_DROP = "drop";
     private static final Duration OFFER_DISPLAY_COOLDOWN = Duration.ofSeconds(30);
+    private static final int MAX_MAINTENANCE_ATTEMPTS = 5;
 
     private final TaskForgeLinkPlugin plugin;
     private final HttpClient http;
@@ -107,7 +109,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final NamespacedKey chestStateKey;
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private final AtomicLong backendRequestSequence = new AtomicLong();
-    private volatile ScheduledTask heartbeatTask;
+    private final Map<UUID, ScheduledTask> offerExpirationTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, ScheduledTask> maintenanceTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, ScheduledTask> rescueTickerTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> respawnDispatchGeneration = new ConcurrentHashMap<>();
 
     private final int offerSeconds;
     private final int spectatorSeconds;
@@ -167,13 +172,21 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         } else {
             plugin.getLogger().severe("Command tfdeath is missing from plugin.yml; death offer buttons cannot work");
         }
-        heartbeatTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> heartbeat(), 20L, 20L);
-        plugin.debugDeath("listeners registered; heartbeat scheduled every 20 ticks; loadedRecords=" + deaths.size());
+        int respawnListeners = PlayerRespawnEvent.getHandlerList().getRegisteredListeners().length;
+        int postRespawnListeners = PlayerPostRespawnEvent.getHandlerList().getRegisteredListeners().length;
+        plugin.debugDeath("listeners registered eventDriven=true loadedRecords=" + deaths.size()
+            + " PlayerRespawnEventListeners=" + respawnListeners
+            + " PlayerPostRespawnEventListeners=" + postRespawnListeners);
+        for (DeathRecord record : deaths.values()) {
+            scheduleOfferExpiration(record, "plugin-enable");
+            scheduleMaintenanceIfNeeded(record, "plugin-enable");
+        }
         // Reconcile journal records with the backend without delaying plugin enable.  Older
         // builds may have captured a death for a player who was not actually linked.  Treat
         // an authoritative backend rejection exactly like the live-death path: release the
         // stored items instead of leaving the record stuck until the next cache refresh.
         for (DeathRecord record : deaths.values()) {
+            if (record.isTerminal()) continue;
             syncCreate(record).thenAccept(result -> {
                 plugin.debugDeath("startup backend reconciliation deathId=" + record.deathId
                     + " player=" + record.playerId + " stage=" + record.stage + " result=" + result);
@@ -193,17 +206,27 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
             onPlayer(player, () -> {
                 restoreInterruptedSpectator(player);
-                showPendingOffers(player);
+                int delivered = showPendingOffers(player, "hot-reload-local");
                 notifyUnseenChests(player);
                 resumeUnresolved(player);
                 resumePaidRescues(player);
+                plugin.debugDeath("hot-reload local recovery player=" + player.getUniqueId()
+                    + " offersDelivered=" + delivered + " openOffers=" + countOpenOffers(player.getUniqueId()));
             }, 20L);
-            pullPending(player).whenComplete((ignored, error) -> onPlayer(player, () -> {
-                showPendingOffersExcluding(player, knownBeforePull);
-                notifyUnseenChests(player);
-                resumeUnresolved(player);
-                resumePaidRescues(player);
-            }, 1L));
+            pullPending(player).whenComplete((ignored, error) -> {
+                if (error != null) {
+                    plugin.debugDeath("pending pull after hot reload failed player=" + player.getUniqueId()
+                        + " error=" + unwrapMessage(error));
+                }
+                onPlayer(player, () -> {
+                    int delivered = showPendingOffersExcluding(player, knownBeforePull, false, "hot-reload-backend-pull");
+                    notifyUnseenChests(player);
+                    resumeUnresolved(player);
+                    resumePaidRescues(player);
+                    plugin.debugDeath("hot-reload backend recovery player=" + player.getUniqueId()
+                        + " newlyDelivered=" + delivered + " openOffers=" + countOpenOffers(player.getUniqueId()));
+                }, 1L);
+            });
         }
     }
 
@@ -211,17 +234,12 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         if (!stopped.compareAndSet(false, true)) {
             return;
         }
-        ScheduledTask task = heartbeatTask;
-        heartbeatTask = null;
-        if (task != null) {
-            try {
-                task.cancel();
-            } catch (Exception ex) {
-                plugin.getLogger().log(Level.WARNING, "Cannot cancel death-recovery heartbeat", ex);
-            }
-        }
+        cancelTasks(offerExpirationTasks, "offer-expiration");
+        cancelTasks(maintenanceTasks, "maintenance");
+        cancelTasks(rescueTickerTasks, "rescue-ticker");
+        respawnDispatchGeneration.clear();
         HandlerList.unregisterAll(this);
-        plugin.debugDeath("listeners unregistered; heartbeat cancelled; preparing journal for shutdown/reload");
+        plugin.debugDeath("listeners unregistered; event-driven tasks cancelled; preparing journal for shutdown/reload");
         for (RescueSession session : new ArrayList<>(rescues.values())) {
             session.record.rescuePending = true;
             session.record.rescueCompleted = false;
@@ -315,6 +333,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             return;
         }
         deaths.put(record.deathId, record);
+        scheduleOfferExpiration(record, "death-captured");
+        scheduleRespawnWatchdogs(record);
         int interceptedCount = event.getDrops().size();
         event.getDrops().clear();
         plugin.debugDeath("vanilla drops suppressed deathId=" + record.deathId + " player=" + record.playerId
@@ -337,48 +357,120 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 fallbackUnclaimedOffer(record, "Сервис рейтинга временно недоступен.");
                 return;
             }
-            health(record.playerId).thenAccept(healthy -> {
-                plugin.debugDeath("post-create health deathId=" + record.deathId + " available=" + healthy);
-                if (!healthy) fallbackUnclaimedOffer(record, "Сервис рейтинга временно недоступен.");
-            });
+            plugin.debugDeath("initial backend synchronization accepted deathId=" + record.deathId
+                + " no-extra-health-probe=true");
         });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        Location respawnAt = event.getRespawnLocation();
+        plugin.debugDeath("PlayerRespawnEvent observed player=" + player.getName() + "/" + player.getUniqueId()
+            + " reason=" + event.getRespawnReason() + " bed=" + event.isBedSpawn()
+            + " anchor=" + event.isAnchorSpawn() + " missingBlock=" + event.isMissingRespawnBlock()
+            + " respawnWorld=" + (respawnAt.getWorld() == null ? "<null>" : respawnAt.getWorld().getKey())
+            + " respawnXYZ=" + respawnAt.getX() + "," + respawnAt.getY() + "," + respawnAt.getZ()
+            + " deadNow=" + player.isDead() + " online=" + player.isOnline());
+        queueRespawnProcessing(player, "player-respawn-event:" + event.getRespawnReason().name().toLowerCase(Locale.ROOT), 2L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPostRespawn(PlayerPostRespawnEvent event) {
         Player player = event.getPlayer();
-        Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
-        plugin.debugDeath("PlayerPostRespawnEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
-            + " localRecords=" + knownBeforePull.size() + " pendingVanillaNotice="
-            + vanillaDeathNotices.containsKey(player.getUniqueId()) + " " + plugin.linkStateDebug(player.getUniqueId()));
+        Location respawnAt = event.getRespawnLocation();
+        plugin.debugDeath("PlayerPostRespawnEvent observed player=" + player.getName() + "/" + player.getUniqueId()
+            + " reason=" + event.getRespawnReason()
+            + " respawnWorld=" + (respawnAt.getWorld() == null ? "<null>" : respawnAt.getWorld().getKey())
+            + " respawnXYZ=" + respawnAt.getX() + "," + respawnAt.getY() + "," + respawnAt.getZ()
+            + " deadNow=" + player.isDead() + " online=" + player.isOnline());
+        queueRespawnProcessing(player, "player-post-respawn-event", 1L);
+    }
 
-        deliverVanillaDeathNotice(player, "post-respawn-event");
+    private void queueRespawnProcessing(Player observedPlayer, String trigger, long delayTicks) {
+        UUID playerId = observedPlayer.getUniqueId();
+        long generation = respawnDispatchGeneration.merge(playerId, 1L, Long::sum);
+        Set<UUID> knownBeforePull = deathIdsFor(playerId);
+        plugin.debugDeath("respawn processing queued player=" + observedPlayer.getName() + "/" + playerId
+            + " trigger=" + trigger + " generation=" + generation + " delayTicks=" + delayTicks
+            + " localRecords=" + knownBeforePull.size() + " openOffers=" + countOpenOffers(playerId)
+            + " scheduler=player-entity " + plugin.linkStateDebug(playerId));
 
-        // PlayerPostRespawnEvent is emitted after Paper/Folia has completed the respawn reset.
-        // Queue one entity-owned task for the next tick so menu delivery stays on the player's region
-        // without periodically polling all open deaths.
-        onPlayer(player, () -> {
-            restoreInterruptedSpectator(player);
-            showPendingOffers(player);
-            notifyUnseenChests(player);
-            resumeUnresolved(player);
-            resumePaidRescues(player);
-        }, 1L);
+        onPlayer(observedPlayer, () -> {
+            if (stopped.get()) {
+                respawnDispatchGeneration.remove(playerId, generation);
+                return;
+            }
+            long currentGeneration = respawnDispatchGeneration.getOrDefault(playerId, 0L);
+            if (currentGeneration != generation) {
+                plugin.debugDeath("respawn processing superseded player=" + playerId + " trigger=" + trigger
+                    + " generation=" + generation + " currentGeneration=" + currentGeneration);
+                return;
+            }
+            if (!observedPlayer.isOnline()) {
+                respawnDispatchGeneration.remove(playerId, generation);
+                plugin.debugDeath("respawn processing aborted player=" + playerId + " trigger=" + trigger
+                    + " reason=player-offline");
+                return;
+            }
+            if (observedPlayer.isDead()) {
+                respawnDispatchGeneration.remove(playerId, generation);
+                plugin.debugDeath("respawn processing deferred player=" + playerId + " trigger=" + trigger
+                    + " reason=player-still-dead boundedWatchdogWillRetry=true");
+                return;
+            }
 
-        pullPending(player).whenComplete((ignored, error) -> {
-            if (error != null) plugin.debugDeath("pending pull after post-respawn failed player=" + player.getUniqueId() + " error=" + error);
-            onPlayer(player, () -> {
-                showPendingOffersExcluding(player, knownBeforePull);
-                notifyUnseenChests(player);
-                resumeUnresolved(player);
-                resumePaidRescues(player);
-            }, 1L);
-        });
+            deliverVanillaDeathNotice(observedPlayer, trigger);
+            int before = countOpenOffers(playerId);
+            plugin.debugDeath("respawn processing executing player=" + observedPlayer.getName() + "/" + playerId
+                + " trigger=" + trigger + " openOffersBefore=" + before
+                + " gameMode=" + observedPlayer.getGameMode() + " entityThread=true");
+            restoreInterruptedSpectator(observedPlayer);
+            int delivered = showPendingOffers(observedPlayer, trigger);
+            notifyUnseenChests(observedPlayer);
+            resumeUnresolved(observedPlayer);
+            resumePaidRescues(observedPlayer);
+            plugin.debugDeath("respawn processing local phase complete player=" + playerId + " trigger=" + trigger
+                + " offersDelivered=" + delivered + " openOffersAfter=" + countOpenOffers(playerId));
+
+            pullPending(observedPlayer).whenComplete((ignored, error) -> {
+                if (error != null) {
+                    plugin.debugDeath("pending pull after respawn failed player=" + playerId + " trigger=" + trigger
+                        + " error=" + unwrapMessage(error));
+                }
+                onPlayer(observedPlayer, () -> {
+                    long activeGeneration = respawnDispatchGeneration.getOrDefault(playerId, 0L);
+                    if (activeGeneration != generation) {
+                        plugin.debugDeath("respawn backend phase superseded player=" + playerId + " trigger=" + trigger
+                            + " generation=" + generation + " currentGeneration=" + activeGeneration);
+                        return;
+                    }
+                    int backendDelivered = showPendingOffersExcluding(
+                        observedPlayer, knownBeforePull, false, trigger + ":backend-pull");
+                    notifyUnseenChests(observedPlayer);
+                    resumeUnresolved(observedPlayer);
+                    resumePaidRescues(observedPlayer);
+                    boolean cleared = respawnDispatchGeneration.remove(playerId, generation);
+                    plugin.debugDeath("respawn processing backend phase complete player=" + playerId
+                        + " trigger=" + trigger + " newlyDelivered=" + backendDelivered
+                        + " openOffers=" + countOpenOffers(playerId) + " dispatchCleared=" + cleared);
+                }, () -> {
+                    boolean cleared = respawnDispatchGeneration.remove(playerId, generation);
+                    plugin.debugDeath("respawn backend entity scheduler retired player=" + playerId
+                        + " trigger=" + trigger + " dispatchCleared=" + cleared);
+                }, 1L);
+            });
+        }, () -> {
+            boolean cleared = respawnDispatchGeneration.remove(playerId, generation);
+            plugin.debugDeath("respawn entity scheduler retired player=" + playerId
+                + " trigger=" + trigger + " dispatchCleared=" + cleared);
+        }, Math.max(1L, delayTicks));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        resetMaintenanceForPlayer(player.getUniqueId(), "join-event");
         Set<UUID> knownBeforePull = deathIdsFor(player.getUniqueId());
         plugin.debugDeath("PlayerJoinEvent player=" + player.getName() + " uuid=" + player.getUniqueId()
             + " localRecords=" + knownBeforePull.size() + " pendingVanillaNotice="
@@ -388,19 +480,26 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
         onPlayer(player, () -> {
             restoreInterruptedSpectator(player);
-            showPendingOffers(player);
+            int delivered = showPendingOffers(player, "join-local");
             notifyUnseenChests(player);
             resumeUnresolved(player);
             resumePaidRescues(player);
+            plugin.debugDeath("join local recovery player=" + player.getUniqueId()
+                + " offersDelivered=" + delivered + " openOffers=" + countOpenOffers(player.getUniqueId()));
         }, 20L);
 
         pullPending(player).whenComplete((ignored, error) -> {
-            if (error != null) plugin.debugDeath("pending pull after join failed player=" + player.getUniqueId() + " error=" + error);
+            if (error != null) {
+                plugin.debugDeath("pending pull after join failed player=" + player.getUniqueId()
+                    + " error=" + unwrapMessage(error));
+            }
             onPlayer(player, () -> {
-                showPendingOffersExcluding(player, knownBeforePull);
+                int delivered = showPendingOffersExcluding(player, knownBeforePull, false, "join-backend-pull");
                 notifyUnseenChests(player);
                 resumeUnresolved(player);
                 resumePaidRescues(player);
+                plugin.debugDeath("join backend recovery player=" + player.getUniqueId()
+                    + " newlyDelivered=" + delivered + " openOffers=" + countOpenOffers(player.getUniqueId()));
             }, 1L);
         });
     }
@@ -411,7 +510,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         for (DeathRecord record : deaths.values()) {
             if (record.playerId.equals(leavingPlayerId)) record.lastOfferShownAt = Instant.EPOCH;
         }
-        RescueSession session = rescues.remove(leavingPlayerId);
+        RescueSession session = removeRescueSession(leavingPlayerId, "player-quit");
         if (session != null) {
             session.record.rescueEndsAt = Instant.now().plusSeconds(Math.max(1, session.secondsRemaining()));
             restoreGameMode(event.getPlayer(), session.record);
@@ -968,16 +1067,21 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         plugin.debugDeath("link-state callback player=" + playerId + " state=" + state + " source=" + source
             + " records=" + deaths.values().stream().filter(r -> r.playerId.equals(playerId)).count());
         if (state == TaskForgeLinkPlugin.LinkState.LINKED) {
+            resetMaintenanceForPlayer(playerId, "link-confirmed:" + source);
             Player player = plugin.findOnlinePlayer(playerId);
             if (player != null && player.isOnline() && !player.isDead()) {
                 onPlayer(player, () -> {
-                    showPendingOffers(player);
+                    int delivered = showPendingOffers(player, "link-confirmed:" + source);
                     notifyUnseenChests(player);
                     resumeUnresolved(player);
                     resumePaidRescues(player);
+                    plugin.debugDeath("link-confirmed local recovery player=" + playerId
+                        + " source=" + source + " offersDelivered=" + delivered
+                        + " openOffers=" + countOpenOffers(playerId));
                 }, 1L);
                 pullPending(player).exceptionally(error -> {
-                    plugin.debugDeath("pending pull after link confirmation failed player=" + playerId + " error=" + error);
+                    plugin.debugDeath("pending pull after link confirmation failed player=" + playerId
+                        + " source=" + source + " error=" + unwrapMessage(error));
                     return null;
                 });
             }
@@ -1111,67 +1215,175 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }, 2L);
     }
 
-    private void heartbeat() {
-        if (stopped.get()) return;
-        Instant now = Instant.now();
-        int notificationOwed = 0;
-        int unresolved = 0;
-        int compensationPending = 0;
-        int vanillaNoticesPending = vanillaDeathNotices.size();
-        for (PendingVanillaDeathNotice notice : new ArrayList<>(vanillaDeathNotices.values())) {
-            Player noticePlayer = plugin.findOnlinePlayer(notice.playerId);
-            if (noticePlayer != null && noticePlayer.isOnline() && !noticePlayer.isDead()) {
-                deliverVanillaDeathNotice(noticePlayer, "heartbeat");
+    private void cancelTasks(Map<UUID, ScheduledTask> tasks, String taskType) {
+        for (Map.Entry<UUID, ScheduledTask> entry : new ArrayList<>(tasks.entrySet())) {
+            ScheduledTask task = entry.getValue();
+            try {
+                if (task != null) task.cancel();
+            } catch (Exception ex) {
+                plugin.getLogger().log(Level.WARNING, "Cannot cancel death-recovery " + taskType
+                    + " task for " + entry.getKey(), ex);
             }
         }
-        for (DeathRecord record : new ArrayList<>(deaths.values())) {
-            Player notificationPlayer = plugin.findOnlinePlayer(record.playerId);
-            if (record.coordinatesGranted && !record.coordinatesNotified) {
-                notificationOwed++;
-                if (notificationPlayer != null && notificationPlayer.isOnline() && !notificationPlayer.isDead()) notifyDeathCoordinates(record);
+        tasks.clear();
+    }
+
+    private void cancelTask(Map<UUID, ScheduledTask> tasks, UUID key) {
+        ScheduledTask task = tasks.remove(key);
+        if (task == null) return;
+        try { task.cancel(); }
+        catch (Exception ignored) { }
+    }
+
+    private void scheduleOfferExpiration(DeathRecord record, String trigger) {
+        if (record == null || stopped.get()) return;
+        if (record.offerClosed || record.offerExpiresAt == null) {
+            cancelTask(offerExpirationTasks, record.deathId);
+            return;
+        }
+        if (offerExpirationTasks.containsKey(record.deathId)) return;
+        long millis = Math.max(1L, Duration.between(Instant.now(), record.offerExpiresAt).toMillis());
+        long delayTicks = Math.max(1L, (millis + 49L) / 50L);
+        ScheduledTask scheduled = Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
+            offerExpirationTasks.remove(record.deathId, task);
+            if (stopped.get() || record.offerClosed) return;
+            plugin.debugDeath("offer expiration timer fired deathId=" + record.deathId
+                + " player=" + record.playerId + " stage=" + record.stage + " trigger=" + trigger);
+            expire(record);
+        }, delayTicks);
+        ScheduledTask existing = offerExpirationTasks.putIfAbsent(record.deathId, scheduled);
+        if (existing != null) {
+            scheduled.cancel();
+            return;
+        }
+        plugin.debugDeath("offer expiration scheduled deathId=" + record.deathId + " player=" + record.playerId
+            + " trigger=" + trigger + " delayTicks=" + delayTicks + " expiresAt=" + record.offerExpiresAt);
+    }
+
+    private void scheduleRespawnWatchdogs(DeathRecord record) {
+        plugin.debugDeath("bounded respawn watchdogs scheduled deathId=" + record.deathId
+            + " player=" + record.playerId + " attempts=1s,4s polling=false");
+        scheduleRespawnWatchdog(record, 20L, "death-watchdog-1s");
+        scheduleRespawnWatchdog(record, 80L, "death-watchdog-4s");
+    }
+
+    private void scheduleRespawnWatchdog(DeathRecord record, long delayTicks, String trigger) {
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
+            if (stopped.get() || !isOfferOpen(record)) return;
+            if (record.lastOfferShownAt != null && !Instant.EPOCH.equals(record.lastOfferShownAt)) {
+                plugin.debugDeath("bounded respawn watchdog skipped deathId=" + record.deathId
+                    + " trigger=" + trigger + " reason=offer-already-shown shownAt=" + record.lastOfferShownAt);
+                return;
             }
-            if (record.chestCreated && !record.chestNotified) {
-                notificationOwed++;
-                if (notificationPlayer != null && notificationPlayer.isOnline() && !notificationPlayer.isDead()) {
-                    Optional<World> notificationWorld = resolveWorld(record);
-                    if (notificationWorld.isPresent()) {
-                        Location chestAt = new Location(notificationWorld.get(), record.chestX, record.chestY, record.chestZ);
-                        boolean free = record.backendUnavailable || record.compensated;
-                        notifyChest(record, chestAt, free, free
-                            ? "Сервис рейтинга был недоступен — вещи бесплатно сохранены в сундуке."
-                            : "Сундук смерти создан.");
-                    }
-                }
+            Player player = plugin.findOnlinePlayer(record.playerId);
+            if (player == null) {
+                plugin.debugDeath("bounded respawn watchdog observed deathId=" + record.deathId
+                    + " trigger=" + trigger + " result=player-not-tracked");
+                return;
             }
-            if (!record.offerClosed || record.compensationPending || record.rescuePending || (record.backendUnavailable && !record.itemsResolved)) unresolved++;
-            if (record.compensationPending) compensationPending++;
-            if (!record.offerClosed && now.isAfter(record.offerExpiresAt)) expire(record);
-            if (record.compensationPending && record.compensationAmount > 0 && claimCompensationRetry(record)) {
+            plugin.debugDeath("bounded respawn watchdog dispatching player-owned check deathId=" + record.deathId
+                + " player=" + record.playerName + "/" + record.playerId + " trigger=" + trigger);
+            queueRespawnProcessing(player, trigger, 1L);
+        }, delayTicks);
+    }
+
+    private boolean hasMaintenanceWork(DeathRecord record) {
+        if (record == null || record.isTerminal()) return false;
+        return record.compensationPending
+            || (record.backendUnavailable && !record.itemsResolved)
+            || (record.compensated && !record.itemsResolved
+                && (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)))
+            || (record.rescuePending && !rescues.containsKey(record.playerId))
+            || record.stage == Stage.RESOLVING
+            || record.stage == Stage.WORLD_UNAVAILABLE;
+    }
+
+
+    private void resetMaintenanceForPlayer(UUID playerId, String trigger) {
+        if (playerId == null) return;
+        for (DeathRecord record : deaths.values()) {
+            if (!record.playerId.equals(playerId) || !hasMaintenanceWork(record)) continue;
+            if (record.maintenanceAttempt >= MAX_MAINTENANCE_ATTEMPTS) {
+                record.maintenanceAttempt = 0;
+                plugin.debugDeath("record maintenance retry budget reset deathId=" + record.deathId
+                    + " player=" + playerId + " trigger=" + trigger);
+            }
+            scheduleMaintenanceIfNeeded(record, trigger);
+        }
+    }
+
+    private void scheduleMaintenanceIfNeeded(DeathRecord record, String reason) {
+        if (record == null || stopped.get()) return;
+        if (!hasMaintenanceWork(record)) {
+            cancelTask(maintenanceTasks, record.deathId);
+            record.maintenanceAttempt = 0;
+            return;
+        }
+        if (maintenanceTasks.containsKey(record.deathId)) return;
+        int attempt = Math.max(0, record.maintenanceAttempt);
+        if (attempt >= MAX_MAINTENANCE_ATTEMPTS) {
+            plugin.debugDeath("record maintenance paused deathId=" + record.deathId + " player=" + record.playerId
+                + " reason=" + reason + " attempts=" + attempt
+                + " retryPolicy=next-join-link-transition-or-reload");
+            return;
+        }
+        long delaySeconds = Math.min(240L, 15L << Math.min(attempt, 4));
+        record.maintenanceAttempt = attempt + 1;
+        long delayTicks = delaySeconds * 20L;
+        ScheduledTask scheduled = Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
+            maintenanceTasks.remove(record.deathId, task);
+            if (stopped.get() || !hasMaintenanceWork(record)) return;
+            plugin.debugDeath("record maintenance executing deathId=" + record.deathId + " player=" + record.playerId
+                + " reason=" + reason + " attempt=" + record.maintenanceAttempt + " stage=" + record.stage
+                + " compensationPending=" + record.compensationPending
+                + " backendUnavailable=" + record.backendUnavailable + " rescuePending=" + record.rescuePending);
+
+            Instant now = Instant.now();
+            if (record.compensationPending && record.compensationAmount > 0
+                && (record.compensationRetryAfter == null || !now.isBefore(record.compensationRetryAfter))) {
                 requestCompensation(record,
                     record.compensationAction == null || record.compensationAction.isBlank() ? record.action : record.compensationAction,
                     record.compensationAmount);
-            }
-            if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
+            } else if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
                 createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
-                continue;
-            }
-            if (record.compensated && !record.itemsResolved
+            } else if (record.compensated && !record.itemsResolved
                 && (ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) && claimRetry(record)) {
                 createCompensatedChest(record, "Платёж возвращён — вещи сохранены бесплатно в сундуке.");
-                continue;
             }
-            if (notificationPlayer != null && notificationPlayer.isOnline()
-                && (record.compensationPending || record.rescuePending || record.stage == Stage.RESOLVING || record.stage == Stage.WORLD_UNAVAILABLE)) {
-                resumeUnresolved(notificationPlayer);
+
+            Player player = plugin.findOnlinePlayer(record.playerId);
+            if (player != null) {
+                onPlayer(player, () -> {
+                    if (!player.isOnline() || player.isDead()) {
+                        plugin.debugDeath("record maintenance player phase skipped deathId=" + record.deathId
+                            + " player=" + record.playerId + " online=" + player.isOnline()
+                            + " dead=" + player.isDead());
+                        return;
+                    }
+                    resumeUnresolved(player);
+                    resumePaidRescues(player);
+                }, 1L);
             }
+            scheduleMaintenanceIfNeeded(record, "retry-after:" + reason);
+        }, delayTicks);
+        ScheduledTask existing = maintenanceTasks.putIfAbsent(record.deathId, scheduled);
+        if (existing != null) {
+            scheduled.cancel();
+            return;
         }
-        for (RescueSession session : new ArrayList<>(rescues.values())) tickRescue(session, now);
-        if (plugin.debugHeartbeat() && (!deaths.isEmpty() || plugin.onlinePlayersSnapshot().size() > 0)) {
-            plugin.debug("heartbeat", "records=" + deaths.size() + " unresolved=" + unresolved
-                + " notificationOwed=" + notificationOwed + " vanillaNoticesPending=" + vanillaNoticesPending
-                + " compensationPending=" + compensationPending + " activeRescues=" + rescues.size()
-                + " onlinePlayers=" + plugin.onlinePlayersSnapshot().size() + " linkCache={" + plugin.linkStateCounts() + "}");
+        plugin.debugDeath("record maintenance scheduled deathId=" + record.deathId + " player=" + record.playerId
+            + " reason=" + reason + " delaySeconds=" + delaySeconds + " stage=" + record.stage);
+    }
+
+    private static String unwrapMessage(Throwable error) {
+        Throwable current = error;
+        while (current != null && current.getCause() != null
+            && (current instanceof java.util.concurrent.CompletionException
+                || current instanceof java.util.concurrent.ExecutionException)) {
+            current = current.getCause();
         }
+        if (current == null) return "unknown";
+        return current.getClass().getSimpleName() + ":" + String.valueOf(current.getMessage());
     }
 
     private void expire(DeathRecord record) {
@@ -1202,27 +1414,49 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         return ids;
     }
 
-    private void showPendingOffers(Player player) {
-        showPendingOffersExcluding(player, Set.of(), false, "generic");
+    private int countOpenOffers(UUID playerId) {
+        int count = 0;
+        for (DeathRecord record : deaths.values()) {
+            if (record.playerId.equals(playerId) && isOfferOpen(record)) count++;
+        }
+        return count;
     }
 
-    private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds) {
-        showPendingOffersExcluding(player, excludedDeathIds, false, "backend-pull");
+    private int showPendingOffers(Player player) {
+        return showPendingOffers(player, "generic");
     }
 
-    private void showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds, boolean force, String trigger) {
+    private int showPendingOffers(Player player, String trigger) {
+        return showPendingOffersExcluding(player, Set.of(), false, trigger);
+    }
+
+    private int showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds) {
+        return showPendingOffersExcluding(player, excludedDeathIds, false, "backend-pull");
+    }
+
+    private int showPendingOffersExcluding(Player player, Set<UUID> excludedDeathIds, boolean force, String trigger) {
         TaskForgeLinkPlugin.LinkState linkState = plugin.linkState(player.getUniqueId());
         if (linkState != TaskForgeLinkPlugin.LinkState.LINKED) {
             plugin.debugDeath("pending offers withheld player=" + player.getName() + "/" + player.getUniqueId()
-                + " reason=link-not-confirmed " + plugin.linkStateDebug(player.getUniqueId()));
-            return;
+                + " trigger=" + trigger + " reason=link-not-confirmed " + plugin.linkStateDebug(player.getUniqueId()));
+            return 0;
         }
-        deaths.values().stream()
+        List<DeathRecord> candidates = deaths.values().stream()
             .filter(r -> r.playerId.equals(player.getUniqueId()))
             .filter(r -> !excludedDeathIds.contains(r.deathId))
             .filter(this::isOfferOpen)
             .sorted(Comparator.comparing(r -> r.createdAt))
-            .forEach(r -> showOffer(player, r, force, trigger));
+            .toList();
+        plugin.debugDeath("offer scan player=" + player.getName() + "/" + player.getUniqueId()
+            + " trigger=" + trigger + " candidates=" + candidates.size()
+            + " excluded=" + excludedDeathIds.size() + " force=" + force);
+        int delivered = 0;
+        for (DeathRecord record : candidates) {
+            if (showOffer(player, record, force, trigger)) delivered++;
+        }
+        plugin.debugDeath("offer scan complete player=" + player.getUniqueId() + " trigger=" + trigger
+            + " candidates=" + candidates.size() + " delivered=" + delivered);
+        return delivered;
     }
 
     private boolean isOfferOpen(DeathRecord record) {
@@ -1230,18 +1464,20 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             && !(record.backendUnavailable && record.chestCreated);
     }
 
-    private void showOffer(Player player, DeathRecord r, boolean force, String trigger) {
+    private boolean showOffer(Player player, DeathRecord r, boolean force, String trigger) {
         Instant now = Instant.now();
         synchronized (r) {
-            if (!isOfferOpen(r)) return;
+            if (!isOfferOpen(r)) {
+                plugin.debugDeath("offer display skipped deathId=" + r.deathId + " player=" + player.getUniqueId()
+                    + " trigger=" + trigger + " reason=offer-not-open stage=" + r.stage
+                    + " offerClosed=" + r.offerClosed + " expiresAt=" + r.offerExpiresAt);
+                return false;
+            }
             if (!force && r.lastOfferShownAt != null && Duration.between(r.lastOfferShownAt, now).compareTo(OFFER_DISPLAY_COOLDOWN) < 0) {
                 plugin.debugDeath("offer display suppressed deathId=" + r.deathId + " player=" + player.getUniqueId()
-                    + " trigger=" + trigger + " lastShownAt=" + r.lastOfferShownAt);
-                return;
+                    + " trigger=" + trigger + " reason=cooldown lastShownAt=" + r.lastOfferShownAt);
+                return false;
             }
-            r.lastOfferShownAt = now;
-            r.stage = Stage.OFFER;
-            saveQuietly(r);
         }
         long left = Math.max(0, Duration.between(Instant.now(), r.offerExpiresAt).toSeconds());
         Component line = Component.text("Смерть: ", NamedTextColor.GRAY);
@@ -1273,14 +1509,21 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 + " player=" + player.getUniqueId() + " trigger=" + trigger
                 + " returnPurchased=" + r.returnPurchased + " rescuePending=" + r.rescuePending
                 + " compensationPending=" + r.compensationPending);
-            return;
+            return false;
+        }
+        synchronized (r) {
+            if (!isOfferOpen(r)) return false;
+            r.lastOfferShownAt = now;
+            r.stage = Stage.OFFER;
+            saveQuietly(r);
         }
         player.sendMessage(line);
         player.sendMessage(Component.text("Можно выполнить несколько действий. Осталось " + left + " сек.", NamedTextColor.GRAY));
-        plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getUniqueId()
-            + " secondsLeft=" + left + " trigger=" + trigger + " force=" + force
+        plugin.debugDeath("offer delivered deathId=" + r.deathId + " player=" + player.getName() + "/" + player.getUniqueId()
+            + " secondsLeft=" + left + " trigger=" + trigger + " force=" + force + " buttons=" + buttons
             + " coordinatesGranted=" + r.coordinatesGranted + " chestCreated=" + r.chestCreated
             + " itemsResolved=" + r.itemsResolved + " rescueCompleted=" + r.rescueCompleted);
+        return true;
     }
 
     private Component button(String text, DeathRecord r, String action, NamedTextColor color) {
@@ -1597,7 +1840,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             player.teleportAsync(center).whenComplete((ok, err) -> onPlayer(player, () -> {
                 session.internalTeleport = false;
                 if (err != null || !Boolean.TRUE.equals(ok)) {
-                    rescues.remove(player.getUniqueId());
+                    removeRescueSession(player.getUniqueId(), "initial-teleport-failed");
                     restoreGameMode(player, record);
                     record.stage = Stage.RESCUE_PENDING;
                     record.rescuePending = true;
@@ -1608,14 +1851,42 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 player.setGameMode(GameMode.SPECTATOR);
                 player.showTitle(Title.title(Component.text("Найдите точку появления", NamedTextColor.AQUA),
                     Component.text(Integer.toString(spectatorSeconds), NamedTextColor.WHITE)));
+                startRescueTicker(session);
             }, 1L));
         }, 1L);
     }
 
+    private void startRescueTicker(RescueSession session) {
+        UUID playerId = session.record.playerId;
+        cancelTask(rescueTickerTasks, playerId);
+        ScheduledTask ticker = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> {
+            if (stopped.get() || rescues.get(playerId) != session) {
+                rescueTickerTasks.remove(playerId, task);
+                task.cancel();
+                return;
+            }
+            tickRescue(session, Instant.now());
+        }, 20L, 20L);
+        rescueTickerTasks.put(playerId, ticker);
+        plugin.debugDeath("rescue ticker started deathId=" + session.record.deathId
+            + " player=" + playerId + " durationSeconds=" + spectatorSeconds);
+    }
+
+    private RescueSession removeRescueSession(UUID playerId, String reason) {
+        cancelTask(rescueTickerTasks, playerId);
+        RescueSession removed = rescues.remove(playerId);
+        if (removed != null) {
+            plugin.debugDeath("rescue ticker stopped deathId=" + removed.record.deathId
+                + " player=" + playerId + " reason=" + reason);
+        }
+        return removed;
+    }
+
     private void tickRescue(RescueSession session, Instant now) {
         Player player = plugin.findOnlinePlayer(session.record.playerId);
-        if (player == null || !player.isOnline()) return;
+        if (player == null) return;
         onPlayer(player, () -> {
+            if (!player.isOnline()) return;
             if (!player.getWorld().getUID().equals(session.record.worldUuid)) {
                 teleportInternal(session, player, session.center);
                 return;
@@ -1634,7 +1905,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 return;
             }
 
-            rescues.remove(player.getUniqueId());
+            removeRescueSession(player.getUniqueId(), "selection-finished");
             findSafeLocation(session.record, player.getLocation(), found -> {
                 if (found.isPresent()) {
                     completeRescue(session, player, found.get());
@@ -2679,11 +2950,37 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                         + error.getClass().getName() + ": " + error.getMessage(), error);
                     return;
                 }
-                String responseBody = response == null || response.body() == null ? "" : response.body().replace('\n', ' ').replace('\r', ' ');
-                if (responseBody.length() > 1000) responseBody = responseBody.substring(0, 1000) + "...<truncated>";
-                plugin.debugDeath("backend-http #" + requestNumber + " <- requestId=" + requestId + " status="
-                    + (response == null ? "null" : response.statusCode()) + " body=" + (responseBody.isEmpty() ? "<empty>" : responseBody));
+                plugin.debugDeath("backend-http #" + requestNumber + " <- requestId=" + requestId
+                    + " " + summarizeBackendResponse(path, response));
             });
+    }
+
+    private String summarizeBackendResponse(String path, HttpResponse<String> response) {
+        if (response == null) return "status=null path=" + path;
+        String body = response.body() == null ? "" : response.body();
+        StringBuilder summary = new StringBuilder("status=").append(response.statusCode())
+            .append(" path=").append(path).append(" bodyLen=").append(body.length());
+        if (body.isBlank()) return summary.append(" body=<empty>").toString();
+        try {
+            JsonElement parsed = JsonParser.parseString(body);
+            if (parsed.isJsonArray()) {
+                return summary.append(" json=array count=").append(parsed.getAsJsonArray().size()).toString();
+            }
+            if (!parsed.isJsonObject()) return summary.append(" json=scalar").toString();
+            JsonObject object = parsed.getAsJsonObject();
+            summary.append(" json=object");
+            for (String key : List.of("deathId", "stage", "action", "linked", "available", "success",
+                "error", "code", "charged", "refunded", "noCharge", "revision")) {
+                JsonElement value = object.get(key);
+                if (value == null || value.isJsonNull() || value.isJsonArray() || value.isJsonObject()) continue;
+                String text = value.getAsString();
+                if (text.length() > 120) text = text.substring(0, 120) + "...";
+                summary.append(' ').append(key).append('=').append(text);
+            }
+            return summary.toString();
+        } catch (RuntimeException ignored) {
+            return summary.append(" json=unparseable").toString();
+        }
     }
 
     private void finish(DeathRecord record, Stage stage) {
@@ -2802,7 +3099,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private void saveQuietly(DeathRecord record) {
         boolean saved = persistLocal(record);
-        if (saved && !apiBaseUrl.isBlank() && !stopped.get()) syncState(record);
+        if (!saved || stopped.get()) return;
+        scheduleOfferExpiration(record, "state-update");
+        scheduleMaintenanceIfNeeded(record, "state-update");
+        if (!apiBaseUrl.isBlank()) syncState(record);
     }
 
     private String recordJson(DeathRecord r) {
@@ -2940,6 +3240,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         Instant createdAt, offerExpiresAt, updatedAt, rescueEndsAt;
         transient volatile Instant retryAfter = Instant.EPOCH;
         transient volatile Instant compensationRetryAfter = Instant.EPOCH;
+        transient volatile int maintenanceAttempt;
         transient volatile boolean chestSearchInFlight;
         transient volatile Instant lastOfferShownAt = Instant.EPOCH;
         transient final Set<String> actionsInFlight = ConcurrentHashMap.newKeySet();

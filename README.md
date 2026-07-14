@@ -196,7 +196,7 @@ A TaskForge account can keep any number of active Minecraft profiles. Each exact
 
 After editing the plugin configs, a full Minecraft restart is not required:
 
-- `TaskForgeLink`: `/tflink reload` (or `/taskforgelink refresh`). It reloads keys, URLs, HTTP listener, chat polling, link-status schedules, exemptions, debug options and the death-recovery manager.
+- `TaskForgeLink`: `/tflink reload` (or `/taskforgelink refresh`). It reloads keys, URLs, HTTP listener, chat polling, the event-driven link cache, exemptions, debug options and the death-recovery manager.
 - `CustomMobTweaks`: `/cmt reload` (or `/custommobtweaks refresh`). It unregisters the old listeners, cancels tracked Folia tasks, rereads the file and reconstructs every module.
 
 Both commands are OP-only by default. Check the current state with `/tflink status` and `/cmt modules`.

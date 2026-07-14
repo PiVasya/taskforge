@@ -92,7 +92,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int deathCoordinatesCost;
     private int deathChestCost;
     private int deathTeleportCost;
-    private int linkStatusRefreshSeconds;
     private DeathRecoveryManager deathRecoveryManager;
 
     private boolean debugEnabled;
@@ -101,7 +100,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private boolean debugDeathRecovery;
     private boolean debugScheduler;
     private boolean debugJournal;
-    private boolean debugHeartbeat;
     private int debugConnectivityProbeSeconds;
     private final AtomicLong httpSequence = new AtomicLong();
     private final AtomicBoolean reloadInProgress = new AtomicBoolean(false);
@@ -143,9 +141,25 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             changed = true;
         }
 
+        // Older debug builds shipped noisy legacy keys. Remove them from existing configs;
+        // focused death-flow logging remains enabled through debug.deathRecovery.
+        for (String legacyPath : List.of(
+                "debug.http",
+                "debug.httpBodies",
+                "debug.scheduler",
+                "debug.journal",
+                "debug.heartbeat",
+                "debug.connectivityProbeSeconds",
+                "deathRecovery.linkStatusRefreshSeconds")) {
+            if (getConfig().contains(legacyPath)) {
+                getConfig().set(legacyPath, null);
+                changed = true;
+            }
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Config keys were migrated to canonical names (camelCase). Re-check plugins/TaskForgeLink/config.yml if you edited it manually.");
+            getLogger().info("Config keys/defaults were normalized; noisy legacy diagnostics and polling probes are disabled.");
         }
     }
 
@@ -165,7 +179,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     boolean debugDeathRecovery() { return debugEnabled && debugDeathRecovery; }
     boolean debugScheduler() { return debugEnabled && debugScheduler; }
     boolean debugJournal() { return debugEnabled && debugJournal; }
-    boolean debugHeartbeat() { return debugEnabled && debugHeartbeat; }
 
     void debug(String area, String message) {
         if (!debugEnabled) return;
@@ -286,13 +299,12 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
 
     private RuntimeSettings loadRuntimeConfiguration() {
         debugEnabled = getConfig().getBoolean("debug.enabled", true);
-        debugHttp = getConfig().getBoolean("debug.http", true);
-        debugHttpBodies = getConfig().getBoolean("debug.httpBodies", true);
+        debugHttp = getConfig().getBoolean("debug.verboseHttp", false);
+        debugHttpBodies = getConfig().getBoolean("debug.verboseHttpBodies", false);
         debugDeathRecovery = getConfig().getBoolean("debug.deathRecovery", true);
-        debugScheduler = getConfig().getBoolean("debug.scheduler", true);
-        debugJournal = getConfig().getBoolean("debug.journal", true);
-        debugHeartbeat = getConfig().getBoolean("debug.heartbeat", true);
-        debugConnectivityProbeSeconds = Math.max(10, getConfig().getInt("debug.connectivityProbeSeconds", 30));
+        debugScheduler = getConfig().getBoolean("debug.verboseScheduler", false);
+        debugJournal = getConfig().getBoolean("debug.verboseJournal", false);
+        debugConnectivityProbeSeconds = Math.max(0, getConfig().getInt("diagnostics.connectivityProbeSeconds", 0));
 
         String host = getConfig().getString("http.host", "0.0.0.0");
         int port = getConfig().getInt("http.port", 25566);
@@ -332,16 +344,16 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
-        linkStatusRefreshSeconds = Math.max(5, getConfig().getInt("deathRecovery.linkStatusRefreshSeconds", 5));
 
         runtimeHttpHost = host;
         runtimeHttpPort = port;
         runtimeHttpPath = path;
 
         getLogger().info("[TaskForgeLink][reload] config loaded diagnostics=" + debugEnabled
-                + " http=" + debugHttp + " httpBodies=" + debugHttpBodies
-                + " deathRecovery=" + debugDeathRecovery + " scheduler=" + debugScheduler
-                + " journal=" + debugJournal + " heartbeat=" + debugHeartbeat);
+                + " deathRecovery=" + debugDeathRecovery
+                + " verboseHttp=" + debugHttp + " verboseHttpBodies=" + debugHttpBodies
+                + " verboseScheduler=" + debugScheduler + " verboseJournal=" + debugJournal
+                + " connectivityProbeSeconds=" + debugConnectivityProbeSeconds);
         getLogger().info("[TaskForgeLink][reload] HTTP " + host + ":" + port + " path=" + path
                 + " allowedIps=" + allowedIps.size() + " webhookKey=" + keyFingerprint(webhookKey)
                 + " len=" + webhookKey.length());
@@ -350,7 +362,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 + " timeoutSeconds=" + taskForgeTimeoutSeconds);
         getLogger().info("[TaskForgeLink][reload] death costs coordinates=" + deathCoordinatesCost
                 + " chest=" + deathChestCost + " teleport=" + deathTeleportCost
-                + " linkStatusRefreshSeconds=" + linkStatusRefreshSeconds);
+                + " linkStatusRefresh=event-driven");
 
         if (!canCallTaskForge()) {
             getLogger().warning("[TaskForgeLink] Minecraft -> TaskForge calls are disabled because apiBaseUrl or pluginKey is empty.");
@@ -447,9 +459,9 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 return t;
             });
             janitor.scheduleAtFixedRate(this::cleanupRequestCache, 5, 5, TimeUnit.MINUTES);
-            if (canCallTaskForge()) {
-                janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe, 0, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
-                janitor.scheduleAtFixedRate(this::refreshOnlineLinkStatesSafe, 1, linkStatusRefreshSeconds, TimeUnit.SECONDS);
+            if (canCallTaskForge() && debugConnectivityProbeSeconds > 0) {
+                janitor.scheduleAtFixedRate(this::probeTaskForgeConnectivitySafe,
+                        debugConnectivityProbeSeconds, debugConnectivityProbeSeconds, TimeUnit.SECONDS);
             }
             if (chatEnabled && canCallTaskForge()) {
                 janitor.scheduleAtFixedRate(this::pollSiteChatSafe, chatPollIntervalSeconds, chatPollIntervalSeconds, TimeUnit.SECONDS);
@@ -459,6 +471,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
             getLogger().info("[TaskForgeLink][reload] runtime started reason=" + reason
                     + " httpStarted=" + httpStarted + " trackedOnlinePlayers=" + onlinePlayerCount()
                     + " connectivityProbeSeconds=" + debugConnectivityProbeSeconds
+                    + " linkStatusRefresh=join/reload/backend-events-only"
                     + " chatEnabled=" + chatEnabled + " deathRecoveryEnabled="
                     + getConfig().getBoolean("deathRecovery.enabled", true));
             return httpStarted;
@@ -946,16 +959,6 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     + " source=" + source + " result=" + (status == null ? "null" : status.linked)
                     + " " + linkStateDebug(playerId));
         });
-    }
-
-    private void refreshOnlineLinkStatesSafe() {
-        try {
-            List<Player> players = onlinePlayersSnapshot();
-            debug("link-cache", "periodic refresh tick players=" + players.size() + " " + linkStateCounts());
-            for (Player player : players) refreshPlayerLinkState(player, "periodic");
-        } catch (Throwable error) {
-            getLogger().log(java.util.logging.Level.SEVERE, "Periodic Minecraft link-state refresh failed", error);
-        }
     }
 
     private static String encodeQuery(String value) {

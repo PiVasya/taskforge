@@ -9,7 +9,7 @@ No world loader or default-group plugin is maintained here.
 
 ## Development logging policy
 
-During development, verbose diagnostics are mandatory. Do not disable `debug.enabled`, HTTP, death-recovery, scheduler, journal, heartbeat, or link-cache logging unless the user explicitly requests a logging-policy change.
+`debug.enabled` and `debug.deathRecovery` stay enabled so each death can be traced from capture to menu delivery and action completion. Idle heartbeat logs, periodic link-status requests, full HTTP bodies, scheduler internals and journal-write spam are disabled by default. Optional verbose diagnostics can be enabled temporarily in `config.yml`.
 
 ## Death recovery safety
 
@@ -33,7 +33,7 @@ gradle clean build
 
 ## Link identity synchronization
 
-The online status probe always sends the exact UUID together with the current nickname. UUID-bound links are resolved strictly by UUID. A nickname may bind an UUID only when exactly one active UUID-less link exists for that exact nickname.
+Event-driven link-status checks always send the exact UUID together with the current nickname. UUID-bound links are resolved strictly by UUID. A nickname may bind an UUID only when exactly one active UUID-less link exists for that exact nickname.
 
 
 ## Multi-action death offers
@@ -46,12 +46,12 @@ A death offer remains open until its timer expires or every remaining option is 
 - return releases unresolved items at the death point before the spectator rescue, so a chest cannot be selected afterwards;
 - every paid action has its own deterministic request id and its own compensation marker, preventing duplicate charges and accidental whole-balance restoration.
 
-Periodic link-state refreshes do not repeat the offer. A refreshed button line is sent only after an explicit action result, a real link-state transition, respawn, or reconnect.
+There is no periodic link-state refresh. A button line is sent only after an explicit action result, a real link-state transition, respawn, reconnect, or a finite per-death fallback check.
 
 
 ## Config hot reload
 
-- TaskForgeLink: `/taskforgelink reload` or `/tflink reload` (`taskforge.link.reload`, OP by default). This restarts the embedded HTTP server, backend client, chat polling, link cache schedules and death-recovery manager without restarting Minecraft.
+- TaskForgeLink: `/taskforgelink reload` or `/tflink reload` (`taskforge.link.reload`, OP by default). This restarts the embedded HTTP server, backend client, chat polling, event-driven link cache and death-recovery manager without restarting Minecraft.
 - CustomMobTweaks: `/custommobtweaks reload` or `/cmt reload` (`custommobtweaks.admin`, OP by default). This stops old listeners/tasks, rereads `config.yml`, and reconstructs every module.
 
 Use `/tflink status` and `/custommobtweaks modules` to inspect the current runtime after reload.
