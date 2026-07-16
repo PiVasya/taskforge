@@ -3372,6 +3372,9 @@ html.dark .changelog-empty {
   position: relative;
   overflow: hidden;
   display: grid;
+  content-visibility: auto;
+  contain: layout paint style;
+  contain-intrinsic-size: 25rem 34rem;
   grid-template-columns: 11rem minmax(0, 1fr);
   min-height: 25rem;
   border-radius: 1.55rem;
@@ -3412,8 +3415,10 @@ html.dark .changelog-empty {
   height: 9.5rem;
   transform: translate(-50%, -58%);
   object-fit: contain;
-  image-rendering: auto;
+  image-rendering: pixelated;
   filter: drop-shadow(0 18px 20px rgba(0 0 0 / 0.22));
+  pointer-events: none;
+  user-select: none;
 }
 
 .changelog-mob-index {

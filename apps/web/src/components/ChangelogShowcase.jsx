@@ -147,63 +147,124 @@ function DeathActions({ section }) {
   );
 }
 
+function MobCard({ mob }) {
+  const cardRef = React.useRef(null);
+  const [animationFailed, setAnimationFailed] = React.useState(false);
+  const [staticImage, setStaticImage] = React.useState(mob.image);
+  const [imageVisible, setImageVisible] = React.useState(true);
+  const [cardVisible, setCardVisible] = React.useState(false);
+  const [pageVisible, setPageVisible] = React.useState(
+    typeof document === 'undefined' || document.visibilityState === 'visible'
+  );
+
+  React.useEffect(() => {
+    if (!mob.animatedImage || !cardRef.current || typeof IntersectionObserver === 'undefined') {
+      setCardVisible(Boolean(mob.animatedImage));
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setCardVisible(entry.isIntersecting),
+      { rootMargin: '0px', threshold: 0.01 }
+    );
+
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [mob.animatedImage]);
+
+  React.useEffect(() => {
+    if (!mob.animatedImage || typeof document === 'undefined') return undefined;
+
+    const updatePageVisibility = () => {
+      setPageVisible(!document.hidden);
+    };
+    const pausePageAnimation = () => setPageVisible(false);
+
+    updatePageVisibility();
+    document.addEventListener('visibilitychange', updatePageVisibility);
+    window.addEventListener('pagehide', pausePageAnimation);
+    window.addEventListener('pageshow', updatePageVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', updatePageVisibility);
+      window.removeEventListener('pagehide', pausePageAnimation);
+      window.removeEventListener('pageshow', updatePageVisibility);
+    };
+  }, [mob.animatedImage]);
+
+  const showAnimation = Boolean(mob.animatedImage && !animationFailed && cardVisible && pageVisible);
+  const imageSource = showAnimation ? mob.animatedImage : staticImage;
+
+  const handleImageError = () => {
+    if (showAnimation) {
+      setAnimationFailed(true);
+      return;
+    }
+
+    if (mob.fallbackImage && staticImage !== mob.fallbackImage) {
+      setStaticImage(mob.fallbackImage);
+      return;
+    }
+
+    setImageVisible(false);
+  };
+
+  return (
+    <article ref={cardRef} className="changelog-mob-card">
+      <div className="changelog-mob-visual" aria-hidden="true">
+        <div className="changelog-mob-glow" />
+        {imageVisible ? (
+          <img
+            src={imageSource}
+            alt=""
+            className="changelog-mob-image"
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            draggable="false"
+            referrerPolicy="no-referrer"
+            onError={handleImageError}
+          />
+        ) : null}
+        <span className="changelog-mob-index">{mob.index}</span>
+      </div>
+      <div className="changelog-mob-body">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-xl font-semibold">{mob.name}</h3>
+          {mob.label ? <span className="changelog-mob-label">{mob.label}</span> : null}
+        </div>
+        <p className="mt-2 text-sm leading-6 text-[rgb(var(--text-muted))]">{mob.summary}</p>
+
+        <div className="mt-5 space-y-2.5">
+          {(mob.changes || []).map((change) => (
+            <div key={change} className="changelog-mob-change">
+              <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[rgb(var(--accent))]" />
+              <span>{change}</span>
+            </div>
+          ))}
+        </div>
+
+        {(mob.loot || []).length > 0 ? (
+          <div className="changelog-loot-box mt-5">
+            <div className="changelog-loot-title">Дополнительный лут</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {mob.loot.map((drop) => <span key={drop} className="changelog-loot-chip">{drop}</span>)}
+            </div>
+          </div>
+        ) : null}
+
+        {mob.note ? <p className="mt-4 text-xs leading-5 text-[rgb(var(--text-muted))]">{mob.note}</p> : null}
+      </div>
+    </article>
+  );
+}
+
 function MobGrid({ section }) {
   return (
     <section className="changelog-section changelog-mobs-section">
       <SectionHeading section={section} />
       <div className="changelog-mob-grid mt-8">
-        {(section.items || []).map((mob) => (
-          <article key={mob.id} className="changelog-mob-card">
-            <div className="changelog-mob-visual" aria-hidden="true">
-              <div className="changelog-mob-glow" />
-              <img
-                src={mob.image}
-                alt=""
-                className="changelog-mob-image"
-                loading="lazy"
-                decoding="async"
-                referrerPolicy="no-referrer"
-                onError={(event) => {
-                  const image = event.currentTarget;
-                  if (mob.fallbackImage && image.dataset.fallbackApplied !== 'true') {
-                    image.dataset.fallbackApplied = 'true';
-                    image.src = mob.fallbackImage;
-                    return;
-                  }
-                  image.style.display = 'none';
-                }}
-              />
-              <span className="changelog-mob-index">{mob.index}</span>
-            </div>
-            <div className="changelog-mob-body">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-xl font-semibold">{mob.name}</h3>
-                {mob.label ? <span className="changelog-mob-label">{mob.label}</span> : null}
-              </div>
-              <p className="mt-2 text-sm leading-6 text-[rgb(var(--text-muted))]">{mob.summary}</p>
-
-              <div className="mt-5 space-y-2.5">
-                {(mob.changes || []).map((change) => (
-                  <div key={change} className="changelog-mob-change">
-                    <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[rgb(var(--accent))]" />
-                    <span>{change}</span>
-                  </div>
-                ))}
-              </div>
-
-              {(mob.loot || []).length > 0 ? (
-                <div className="changelog-loot-box mt-5">
-                  <div className="changelog-loot-title">Дополнительный лут</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {mob.loot.map((drop) => <span key={drop} className="changelog-loot-chip">{drop}</span>)}
-                  </div>
-                </div>
-              ) : null}
-
-              {mob.note ? <p className="mt-4 text-xs leading-5 text-[rgb(var(--text-muted))]">{mob.note}</p> : null}
-            </div>
-          </article>
-        ))}
+        {(section.items || []).map((mob) => <MobCard key={mob.id} mob={mob} />)}
       </div>
       {section.source ? (
         <div className="changelog-source-note mt-6">

@@ -159,7 +159,7 @@
           "index": "01 / 13",
           "name": "Ифрит",
           "label": "Огонь и молния",
-          "image": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/5/5a/Blaze.gif/revision/latest?cb=20230214143150",
+          "image": "/updates/media/mobs/blaze.png",
           "summary": "Огненные шары ифрита теперь сопровождаются ударом молнии и дольше поджигают цель.",
           "changes": [
             "При попадании огненного шара в цель ударяет настоящая молния.",
@@ -170,14 +170,14 @@
             "Огненный заряд — 50%",
             "Незеритовый лом — 2%"
           ],
-          "fallbackImage": "/updates/media/mobs/blaze.png"
+          "animatedImage": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/5/5a/Blaze.gif/revision/latest?cb=20230214143150"
         },
         {
           "id": "bogged",
           "index": "02 / 13",
           "name": "Болотник",
           "label": "Яд, иссушение и лужи",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/bogged/spin.webp",
+          "image": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp",
           "summary": "Его стрелы запускают продолжительный набор отрицательных эффектов и оставляют опасную область.",
           "changes": [
             "Стрела накладывает Иссушение II на 5 секунд.",
@@ -190,15 +190,14 @@
             "8 видов стрел с эффектами — по 5% каждая",
             "Споровый цветок 1–2 — 25%",
             "Незеритовый лом — 1%"
-          ],
-          "fallbackImage": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp"
+          ]
         },
         {
           "id": "wither-skeleton",
           "index": "03 / 13",
           "name": "Скелет-иссушитель",
           "label": "Жёсткое оглушение",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/wither_skeleton/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/wither_skeleton/headshot.png",
           "summary": "Ближний удар на короткое время практически лишает игрока возможности нормально отвечать.",
           "changes": [
             "Удар оглушает игрока на 3 секунды.",
@@ -208,29 +207,27 @@
           "loot": [
             "Череп — 8%",
             "Незеритовый лом — 1,5%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/wither_skeleton/headshot.png"
+          ]
         },
         {
           "id": "snow-golem",
           "index": "04 / 13",
           "name": "Снежный голем",
           "label": "Боевые снежки",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/snow_golem/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/snow_golem/headshot.png",
           "summary": "Снежки снежного голема теперь действительно мешают противнику двигаться.",
           "changes": [
             "Каждый снежок наносит половину сердца дополнительного урона.",
             "Каждое попадание замедляет цель на 2 секунды."
           ],
-          "loot": [],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/snow_golem/headshot.png"
+          "loot": []
         },
         {
           "id": "breeze",
           "index": "05 / 13",
           "name": "Вихрь",
           "label": "Серия воздушных атак",
-          "image": "https://minecraft.wiki/w/Special:Redirect/file/Breeze_JE1.gif",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/breeze/headshot.png",
           "summary": "Вихрь стал полноценным дальнобойным противником с несколькими типами давления.",
           "changes": [
             "Атакует каждые 12 тиков (0,6 секунды) на дистанции до 32 блоков при прямой видимости.",
@@ -244,14 +241,14 @@
             "Элитры — 5%",
             "Незеритовый лом 1–2 — 8%"
           ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/breeze/spin.webp"
+          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Breeze_JE1.gif"
         },
         {
           "id": "drowned",
           "index": "06 / 13",
           "name": "Утопленник",
           "label": "Метка трезубцем",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/drowned/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/drowned/headshot.png",
           "summary": "Попадание трезубца надолго раскрывает положение игрока.",
           "changes": [
             "Трезубец накладывает свечение на 120 секунд.",
@@ -259,15 +256,14 @@
           ],
           "loot": [
             "Трезубец — 8%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/drowned/headshot.png"
+          ]
         },
         {
           "id": "pillager",
           "index": "07 / 13",
           "name": "Разбойник",
           "label": "Пробитие защиты",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/pillager/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/pillager/headshot.png",
           "summary": "Арбалет разбойника опасен даже для полностью экипированного игрока.",
           "changes": [
             "Выстрелы разбойника пробивают броню.",
@@ -276,15 +272,14 @@
           "loot": [
             "Изумруды 1–5 — 20%",
             "Тотем бессмертия — 1%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/pillager/headshot.png"
+          ]
         },
         {
           "id": "stray",
           "index": "08 / 13",
           "name": "Зимогор",
           "label": "Глубокая заморозка",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/stray/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/stray/headshot.png",
           "summary": "Его стрела не только замедляет, но и временно уменьшает запас здоровья.",
           "changes": [
             "Стрела сильно замедляет цель на 1,5 секунды.",
@@ -301,15 +296,14 @@
             "Снежные блоки 4–12 — 75%",
             "Ведро рыхлого снега — 10%",
             "Осколок эха — 4%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/stray/headshot.png"
+          ]
         },
         {
           "id": "skeleton",
           "index": "09 / 13",
           "name": "Обычный скелет",
           "label": "Снайпер",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/skeleton/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/skeleton/headshot.png",
           "summary": "Обычный скелет стал дальнобойным стрелком, который удерживает дистанцию и корректирует полёт стрелы.",
           "changes": [
             "Замечает цель на расстоянии до 64 блоков и старается держаться примерно в 32 блоках.",
@@ -322,15 +316,14 @@
             "Обычные стрелы 3–9 — 65%",
             "Спектральные стрелы 4–14 — 40%",
             "Незеритовый лом — 0,5%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/skeleton/headshot.png"
+          ]
         },
         {
           "id": "creaking",
           "index": "10 / 13",
           "name": "Скрипун",
           "label": "Смертельная охота",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/creaking/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/creaking/headshot.png",
           "summary": "Скрипун стал очень быстрым противником с тяжёлым ударом и большой зоной тьмы.",
           "changes": [
             "Скрипун двигается значительно быстрее обычного.",
@@ -342,15 +335,14 @@
             "Сгустки смолы 8–16 — 100%",
             "Брёвна бледного дуба 2–6 — 75%",
             "Незеритовый лом — 3%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/creaking/headshot.png"
+          ]
         },
         {
           "id": "armadillo",
           "index": "11 / 13",
           "name": "Броненосец",
           "label": "Защитная сфера",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/armadillo/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/armadillo/headshot.png",
           "summary": "После получения урона броненосец создаёт вокруг себя большую отталкивающую область.",
           "changes": [
             "Базовый радиус сферы — 16 блоков.",
@@ -361,8 +353,7 @@
           "loot": [
             "Щитки броненосца 2–5 — 70%",
             "Незеритовый лом — 1%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/armadillo/headshot.png"
+          ]
         },
         {
           "id": "illusioner",
@@ -390,7 +381,7 @@
           "index": "13 / 13",
           "name": "Зомби с трезубцем",
           "label": "Редкий стрелок",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/zombie/spin.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/zombie/headshot.png",
           "summary": "Три процента зомби превращаются в отдельный усиленный дальнобойный вариант.",
           "changes": [
             "Примерно 3% зомби появляются с трезубцем.",
@@ -401,8 +392,7 @@
           "loot": [
             "Трезубец — 15%",
             "Незеритовый лом — 1%"
-          ],
-          "fallbackImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/zombie/headshot.png"
+          ]
         }
       ]
     },
