@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.2.0
+# CustomMobTweaks 2.2.2
 
 Единый Folia-плагин усиления мобов для Minecraft/Folia **26.1.2** и Java **25**.
 В проект перенесены и переработаны механики `CreakingPerks 1.0`, при этом сохранены старые возможности `CustomMobTweaks`.
@@ -108,7 +108,7 @@ min-amount: 1
 max-amount: 1
 ```
 
-`chance` можно задавать как долю (`0.02` = 2%) или процент (`2` = 2%).
+`chance` можно задавать как долю (`0.02` = 2%) или процент (`2` = 2%). Для `POTION`, `SPLASH_POTION`, `LINGERING_POTION` и `TIPPED_ARROW` можно дополнительно указать `potion-type`, например `POISON`, `LONG_SLOWNESS` или `STRONG_SLOWNESS`.
 Элитра вихря проходит через тот же механизм вероятности, что и остальные предметы. В стартовом конфиге установлен шанс `0.05` (5%), без принудительной гарантии.
 Любой список можно расширять собственными подразделами с материалами Minecraft.
 
@@ -146,7 +146,7 @@ gradle clean build
 Результат:
 
 ```text
-build/libs/CustomMobTweaks-2.2.0.jar
+build/libs/CustomMobTweaks-2.2.2.jar
 ```
 
 После первого запуска рабочий конфиг появится здесь:

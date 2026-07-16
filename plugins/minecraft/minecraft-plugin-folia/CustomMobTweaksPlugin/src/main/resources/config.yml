@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.2.0
+# CustomMobTweaks 2.2.2
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -70,9 +70,9 @@ breeze-fireball-primary:
 
 harder-breeze:
   enabled: true
-  attack-cooldown-ticks: 6
+  attack-cooldown-ticks: 12
   attack-range: 32.0
-  projectile-speed: 2.0
+  projectile-speed: 1.0
   require-line-of-sight: true
 
   projectile-rain-amount: 10
@@ -83,13 +83,9 @@ harder-breeze:
   projectile-rain-period-ticks: 8
 
   explosion-radius: 5.0
-  explosion-knockback: 3.5
+  explosion-knockback: 1.5
   explosion-damage: 1.0
 
-
-# -----------------------------------------------------------------------------
-# Drowned: two minutes of glowing after a trident hit.
-# -----------------------------------------------------------------------------
 drowned-trident-glow:
   enabled: true
   duration-ticks: 2400
@@ -111,7 +107,7 @@ pillager-armor-pierce:
 stray-chill:
   enabled: true
   duration-ticks: 30
-  amplifier: 3
+  amplifier: 10
 
 harder-stray:
   enabled: true
@@ -124,8 +120,7 @@ harder-stray:
   direct-damage-per-interval: 0.0
 
 # -----------------------------------------------------------------------------
-# Skeleton sniper: applies ONLY to the normal vanilla SKELETON.
-# Strays, Bogged and Wither Skeletons keep their vanilla arrow speed/trajectory.
+# Skeleton sniper: 30% vanilla arrow speed, no bonus damage, extreme homing.
 # A shield can still block the arrow.
 # -----------------------------------------------------------------------------
 skeleton-sniper:
@@ -192,9 +187,7 @@ illusioner-spawn:
     no-other-illusioner-radius: 64.0
 
 # -----------------------------------------------------------------------------
-# Illusioner recursive clones. Each shot creates one one-health copy.
-# Generation lifetimes: 15, 13, 11, 9, 7, 5 and 3 seconds.
-# The whole family is hard-capped at 30 active copies per original.
+# Illusioner recursive clones: 30 active copies, shorter life each generation.
 # -----------------------------------------------------------------------------
 illusioner-clones:
   enabled: true
@@ -301,7 +294,7 @@ happy-ghast-bomber:
   projectile-speed: 0.8
 
 # -----------------------------------------------------------------------------
-# Extra loot.
+# Additional loot. Potion-compatible drops may use potion-type.
 # -----------------------------------------------------------------------------
 extra-loot:
   breeze:
@@ -313,7 +306,6 @@ extra-loot:
         chance: 1.0
         min-amount: 4
         max-amount: 12
-      # 5% chance for every player-attributed Breeze kill.
       elytra:
         material: ELYTRA
         chance: 0.05
@@ -339,7 +331,7 @@ extra-loot:
         max-amount: 1
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.03
+        chance: 0.01
         min-amount: 1
         max-amount: 1
 
@@ -369,6 +361,59 @@ extra-loot:
     enabled: true
     killed-by-player-only: true
     drops:
+      plain-arrows:
+        material: ARROW
+        chance: 1.0
+        min-amount: 1
+        max-amount: 2
+      poison-arrow:
+        material: TIPPED_ARROW
+        potion-type: POISON
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      long-poison-arrow:
+        material: TIPPED_ARROW
+        potion-type: LONG_POISON
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      strong-poison-arrow:
+        material: TIPPED_ARROW
+        potion-type: STRONG_POISON
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      slowness-arrow:
+        material: TIPPED_ARROW
+        potion-type: SLOWNESS
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      long-slowness-arrow:
+        material: TIPPED_ARROW
+        potion-type: LONG_SLOWNESS
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      strong-slowness-arrow:
+        material: TIPPED_ARROW
+        potion-type: STRONG_SLOWNESS
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      weakness-arrow:
+        material: TIPPED_ARROW
+        potion-type: WEAKNESS
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
+      long-weakness-arrow:
+        material: TIPPED_ARROW
+        potion-type: LONG_WEAKNESS
+        chance: 0.05
+        min-amount: 1
+        max-amount: 1
       spore-blossom:
         material: SPORE_BLOSSOM
         chance: 0.25
@@ -376,7 +421,7 @@ extra-loot:
         max-amount: 2
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.025
+        chance: 0.01
         min-amount: 1
         max-amount: 1
 
@@ -384,11 +429,49 @@ extra-loot:
     enabled: true
     killed-by-player-only: true
     drops:
+      slowness-arrows:
+        material: TIPPED_ARROW
+        potion-type: SLOWNESS
+        chance: 0.6
+        min-amount: 4
+        max-amount: 10
+      long-slowness-arrows:
+        material: TIPPED_ARROW
+        potion-type: LONG_SLOWNESS
+        chance: 0.25
+        min-amount: 2
+        max-amount: 5
+      strong-slowness-arrows:
+        material: TIPPED_ARROW
+        potion-type: STRONG_SLOWNESS
+        chance: 0.15
+        min-amount: 1
+        max-amount: 3
+      ice:
+        material: ICE
+        chance: 0.85
+        min-amount: 4
+        max-amount: 12
+      packed-ice:
+        material: PACKED_ICE
+        chance: 0.65
+        min-amount: 3
+        max-amount: 9
       blue-ice:
         material: BLUE_ICE
-        chance: 0.25
+        chance: 0.4
+        min-amount: 2
+        max-amount: 6
+      snow-blocks:
+        material: SNOW_BLOCK
+        chance: 0.75
+        min-amount: 4
+        max-amount: 12
+      powder-snow-bucket:
+        material: POWDER_SNOW_BUCKET
+        chance: 0.1
         min-amount: 1
-        max-amount: 4
+        max-amount: 1
       echo-shard:
         material: ECHO_SHARD
         chance: 0.04
@@ -419,12 +502,10 @@ extra-loot:
         chance: 1.0
         min-amount: 1
         max-amount: 1
-      # The current extra-loot engine can only create a bare Material ItemStack.
-      # A real Potion of Invisibility needs potion metadata and therefore a code update.
-      # Do not enable a plain POTION here: it would only be a water bottle.
-      invisibility-potion-placeholder:
+      invisibility-potion:
         enabled: false
         material: POTION
+        potion-type: INVISIBILITY
         chance: 1.0
         min-amount: 1
         max-amount: 1
@@ -474,7 +555,7 @@ extra-loot:
         max-amount: 1
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.04
+        chance: 0.015
         min-amount: 1
         max-amount: 1
 
@@ -527,16 +608,24 @@ extra-loot:
     enabled: true
     killed-by-player-only: true
     drops:
+      arrows:
+        material: ARROW
+        chance: 0.65
+        min-amount: 3
+        max-amount: 9
       spectral-arrows:
         material: SPECTRAL_ARROW
-        chance: 0.30
-        min-amount: 2
-        max-amount: 10
+        chance: 0.4
+        min-amount: 4
+        max-amount: 14
       netherite-scrap:
         material: NETHERITE_SCRAP
-        chance: 0.015
+        chance: 0.005
         min-amount: 1
         max-amount: 1
 
+# -----------------------------------------------------------------------------
+# Plugin messages and debug output.
+# -----------------------------------------------------------------------------
 messages:
   debug: true

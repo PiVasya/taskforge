@@ -49,9 +49,11 @@ import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.PotionMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.potion.PotionType;
 import org.bukkit.projectiles.ProjectileSource;
 import org.bukkit.util.Vector;
 
@@ -914,22 +916,56 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
                         + " roll=" + roll + " result=MISS");
                 continue;
             }
+            String configPath = "extra-loot." + key + ".drops." + dropKey;
+            ItemStack prototype = createConfiguredDrop(material, drop, configPath);
+            if (prototype == null) {
+                lootDebug("skipped mob=" + key + " drop=" + dropKey + " reason=invalid-item-metadata");
+                continue;
+            }
+
             int min = Math.max(1, drop.getInt("min-amount", 1));
             int max = Math.max(min, drop.getInt("max-amount", min));
             int amount = ThreadLocalRandom.current().nextInt(min, max + 1);
-            addDropStacks(event, material, amount);
+            addDropStacks(event, prototype, amount);
+            String potionType = drop.getString("potion-type");
             lootDebug("roll mob=" + key + " drop=" + dropKey + " material=" + material
+                    + (potionType == null || potionType.isBlank() ? "" : " potionType=" + potionType)
                     + " configuredChance=" + configuredChance + " effectiveChance=" + chance
                     + " roll=" + roll + " amount=" + amount + " result=DROP");
         }
     }
 
-    private void addDropStacks(EntityDeathEvent event, Material material, int totalAmount) {
-        int maxStack = Math.max(1, material.getMaxStackSize());
+    private ItemStack createConfiguredDrop(Material material, ConfigurationSection drop, String configPath) {
+        ItemStack item = new ItemStack(material);
+        String potionTypeName = drop.getString("potion-type");
+        if (potionTypeName == null || potionTypeName.isBlank()) {
+            return item;
+        }
+
+        if (!(item.getItemMeta() instanceof PotionMeta potionMeta)) {
+            plugin.getLogger().warning("Configured potion-type requires potion-compatible material at " + configPath);
+            return null;
+        }
+
+        try {
+            PotionType potionType = PotionType.valueOf(potionTypeName.trim().toUpperCase(Locale.ROOT));
+            potionMeta.setBasePotionType(potionType);
+            item.setItemMeta(potionMeta);
+            return item;
+        } catch (IllegalArgumentException exception) {
+            plugin.getLogger().warning("Invalid potion-type at " + configPath + ": " + potionTypeName);
+            return null;
+        }
+    }
+
+    private void addDropStacks(EntityDeathEvent event, ItemStack prototype, int totalAmount) {
+        int maxStack = Math.max(1, prototype.getType().getMaxStackSize());
         int remaining = totalAmount;
         while (remaining > 0) {
             int amount = Math.min(maxStack, remaining);
-            event.getDrops().add(new ItemStack(material, amount));
+            ItemStack stack = prototype.clone();
+            stack.setAmount(amount);
+            event.getDrops().add(stack);
             remaining -= amount;
         }
     }

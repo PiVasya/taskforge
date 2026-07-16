@@ -163,7 +163,15 @@ function MobGrid({ section }) {
                 loading="lazy"
                 decoding="async"
                 referrerPolicy="no-referrer"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                onError={(event) => {
+                  const image = event.currentTarget;
+                  if (mob.fallbackImage && image.dataset.fallbackApplied !== 'true') {
+                    image.dataset.fallbackApplied = 'true';
+                    image.src = mob.fallbackImage;
+                    return;
+                  }
+                  image.style.display = 'none';
+                }}
               />
               <span className="changelog-mob-index">{mob.index}</span>
             </div>

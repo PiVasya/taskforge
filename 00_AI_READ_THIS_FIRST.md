@@ -44,7 +44,7 @@ Type-specific fields:
 - Ответы backend с `itemsPayload` нельзя печатать целиком. Разрешены HTTP status, длина тела и безопасные скалярные поля.
 - Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
 - В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.
-- Текущая ветка `CustomMobTweaks` — версия `2.1.3` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
+- Текущая ветка `CustomMobTweaks` — версия `2.2.2` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
 - Текущая ветка `TaskForgeLink` — версия `1.8.5` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
 - Minecraft link codes are delivery-only: the website must never display, copy, or return a fallback/backup code to the browser. A generated code must be sent directly to the online Minecraft player through the authenticated webhook. If delivery fails, invalidate the generated code and return a clear error.
 - Production defaults for direct site-to-Minecraft delivery are `http://mc.taskforge.by:25566` and `/taskforge/link/send`; health is `http://mc.taskforge.by:25566/health`. Do not blank these defaults unless the user explicitly changes the deployment topology.
