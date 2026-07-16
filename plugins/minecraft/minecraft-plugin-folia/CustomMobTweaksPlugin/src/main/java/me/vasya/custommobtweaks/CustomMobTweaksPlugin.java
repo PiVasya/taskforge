@@ -156,7 +156,6 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
         getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);
-        getLogger().info("[reload] skeleton-sniper target=vanilla-skeleton-only old-variant-config-keys-ignored=true reason=" + reason);
         getLogger().info("[reload] breeze-elytra chance="
                 + getConfig().getDouble("extra-loot.breeze.drops.elytra.chance", 0.05D)
                 + " forced=false reason=" + reason);
@@ -168,7 +167,9 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
                 + getConfig().getLong("illusioner-clones.base-lifetime-ticks", 300L)
                 + " minimumTicks="
                 + getConfig().getLong("illusioner-clones.minimum-lifetime-ticks", 60L)
-                + " globalPolling=false reason=" + reason);
+                + " verboseLogs="
+                + getConfig().getBoolean("illusioner-clones.verbose-logs", true)
+                + " appliesToAllIllusioners=true globalPolling=false reason=" + reason);
     }
 
     private void sendCommandMessage(CommandSender sender, String message) {

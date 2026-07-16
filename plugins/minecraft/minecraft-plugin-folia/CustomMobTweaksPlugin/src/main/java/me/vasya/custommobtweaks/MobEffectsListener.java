@@ -490,7 +490,6 @@ public final class MobEffectsListener implements Listener, PluginComponent {
         }
 
         scheduleArrowHoming(arrow, target);
-        debug("Skeleton sniper upgraded arrow at distance " + distance);
     }
 
     private void applySkeletonSniperAttributes(AbstractSkeleton skeleton) {
@@ -582,20 +581,16 @@ public final class MobEffectsListener implements Listener, PluginComponent {
             arrow.setVelocity(newVelocity);
         }, () -> {
             homingTasks.remove(arrowId);
-            debug("Skeleton sniper homing retired arrow=" + arrowId);
         }, 1L, 1L);
 
         if (scheduled != null) {
             homingTasks.put(arrowId, scheduled);
-            debug("Skeleton sniper homing started arrow=" + arrowId + " target=" + target.getUniqueId()
-                    + " ticks=" + homingTicks + " turnRate=" + turnRate + " lead=" + leadFactor);
         }
     }
 
     private void finishArrowHoming(UUID arrowId, ScheduledTask task, String reason) {
         homingTasks.remove(arrowId, task);
         task.cancel();
-        debug("Skeleton sniper homing finished arrow=" + arrowId + " reason=" + reason);
     }
 
     private void stopArrowHoming(AbstractArrow arrow, String reason) {
@@ -604,7 +599,6 @@ public final class MobEffectsListener implements Listener, PluginComponent {
             return;
         }
         task.cancel();
-        debug("Skeleton sniper homing stopped arrow=" + arrow.getUniqueId() + " reason=" + reason);
     }
 
     @Override
@@ -617,7 +611,6 @@ public final class MobEffectsListener implements Listener, PluginComponent {
             }
         }
         homingTasks.clear();
-        debug("Skeleton sniper homing tasks cancelled during runtime reload count=" + count);
     }
 
     private Location getAimLocation(LivingEntity target, boolean aimAtBody) {

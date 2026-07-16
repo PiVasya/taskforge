@@ -198,7 +198,7 @@ illusioner-spawn:
 # -----------------------------------------------------------------------------
 illusioner-clones:
   enabled: true
-  verbose-logs: false
+  verbose-logs: true
   clones-per-shot: 1
   max-active-per-original: 30
   max-generation: 7

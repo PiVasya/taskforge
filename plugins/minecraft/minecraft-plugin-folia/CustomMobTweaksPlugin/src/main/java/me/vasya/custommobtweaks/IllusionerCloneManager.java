@@ -139,6 +139,14 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
         }
 
         int parentGeneration = shooterIsClone ? readGeneration(shooter) : 0;
+        UUID rootId = shooterIsClone ? readRootId(shooter) : shooter.getUniqueId();
+        diagnostic("Illusioner fired shooter=" + shooter.getUniqueId()
+                + " root=" + rootId
+                + " type=" + (shooterIsClone ? "clone" : "original")
+                + " generation=" + parentGeneration
+                + " active=" + (rootId == null ? 0 : activeCount(rootId))
+                + "/" + maxActive());
+
         int maxGeneration = Math.max(1,
                 plugin.getConfig().getInt("illusioner-clones.max-generation", 7));
         if (parentGeneration >= maxGeneration) {
@@ -146,8 +154,9 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
             return;
         }
 
-        UUID rootId = shooterIsClone ? readRootId(shooter) : shooter.getUniqueId();
         if (rootId == null || retiredRoots.contains(rootId)) {
+            diagnostic("Illusioner shot ignored shooter=" + shooter.getUniqueId()
+                    + " reason=" + (rootId == null ? "missing-root" : "root-retired"));
             return;
         }
 
@@ -161,7 +170,8 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
                 logActiveLimit(rootId, shooter);
                 return;
             }
-            spawnClone(shooter, rootId, parentGeneration + 1);
+            int childGeneration = parentGeneration + 1;
+            spawnClone(shooter, rootId, childGeneration);
         }
     }
 
@@ -187,7 +197,7 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
             event.setDroppedExp(0);
             UUID rootId = readRootId(illusioner);
             cleanupClone(illusioner.getUniqueId(), rootId);
-            debug("Illusioner clone died clone=" + illusioner.getUniqueId()
+            diagnostic("Illusioner clone died clone=" + illusioner.getUniqueId()
                     + " root=" + rootId
                     + " generation=" + readGeneration(illusioner)
                     + " cause=" + illusioner.getLastDamageCause());
@@ -313,7 +323,7 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
             scheduleRetirement(clone, rootId, lifetimeTicks, "lifetime-expired");
             playSpawnEffect(clone);
 
-            debug("Illusioner clone spawned root=" + rootId
+            diagnostic("Illusioner clone spawned root=" + rootId
                     + " parent=" + parentId
                     + " clone=" + clone.getUniqueId()
                     + " generation=" + generation
@@ -454,7 +464,7 @@ public final class IllusionerCloneManager implements Listener, PluginComponent {
         }
 
         cleanupClone(cloneId, rootId);
-        debug("Illusioner clone dissolved root=" + rootId
+        diagnostic("Illusioner clone dissolved root=" + rootId
                 + " clone=" + cloneId
                 + " generation=" + generation
                 + " reason=" + reason
