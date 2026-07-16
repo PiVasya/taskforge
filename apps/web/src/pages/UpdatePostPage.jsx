@@ -1,28 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card, Badge, Button } from '../components/ui';
-import { ArrowLeft, Calendar, Tag, ExternalLink } from 'lucide-react';
+import { Badge } from '../components/ui';
+import { ArrowLeft, ExternalLink, Tag } from 'lucide-react';
 import StatementViewer from '../components/tiptap/StatementViewer';
+import ChangelogShowcase from '../components/ChangelogShowcase';
 import { getUpdatesIndex, getUpdatePost } from '../api/updates';
-
-function fmtDate(iso) {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso || '';
-    return d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: '2-digit' });
-  } catch {
-    return iso || '';
-  }
-}
 
 export default function UpdatePostPage() {
   const { postId } = useParams();
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
   const [meta, setMeta] = useState(null);
+  const [postData, setPostData] = useState(null);
   const [contentJson, setContentJson] = useState('');
 
   useEffect(() => {
@@ -31,19 +21,17 @@ export default function UpdatePostPage() {
         setLoading(true);
         setError(null);
 
-        const idx = await getUpdatesIndex();
-        const m = idx.find((x) => String(x.id) === String(postId));
-        if (!m) {
+        const index = await getUpdatesIndex();
+        const currentMeta = index.find((item) => String(item.id) === String(postId));
+        if (!currentMeta) {
           setError('Пост не найден');
           return;
         }
-        setMeta(m);
+        setMeta(currentMeta);
 
-        const dto = await getUpdatePost(m.file);
-        
-        
-        
-        
+        const dto = await getUpdatePost(currentMeta.file);
+        setPostData(dto || null);
+
         let nextValue = '';
         const rawContent = dto?.contentJson ?? dto?.content;
         if (typeof rawContent === 'string') {
@@ -54,11 +42,9 @@ export default function UpdatePostPage() {
           } catch {
             nextValue = '';
           }
-        } else {
-          nextValue = '';
         }
         setContentJson(nextValue);
-      } catch (e) {
+      } catch {
         setError('Не удалось загрузить пост');
       } finally {
         setLoading(false);
@@ -70,74 +56,76 @@ export default function UpdatePostPage() {
     const links = meta?.links;
     if (!Array.isArray(links)) return [];
     return links
-      .map((x) => ({ title: x?.title || x?.url, url: x?.url }))
-      .filter((x) => x.url);
+      .map((item) => ({ title: item?.title || item?.url, url: item?.url }))
+      .filter((item) => item.url);
   }, [meta]);
+
+  const isShowcase = postData?.layout === 'showcase';
 
   return (
     <Layout>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <Link to="/news" className="btn-outline">
+      <div className="mx-auto flex max-w-[1540px] flex-col gap-5 pb-10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Link to="/news" className="btn-outline self-start">
             <ArrowLeft size={18} />
-            <span className="ml-2">Назад</span>
+            <span>Назад в ленту</span>
           </Link>
 
-          <Link to="/courses" className="btn-outline">
+          <Link to="/courses" className="btn-outline self-start sm:self-auto">
             Перейти к курсам
           </Link>
         </div>
 
-        {loading && <div className="text-neutral-500">Загрузка…</div>}
-        {error && <div className="text-red-500">{error}</div>}
+        {loading ? <div className="text-neutral-500">Загрузка…</div> : null}
+        {error ? <div className="text-red-500">{error}</div> : null}
 
-        {!loading && !error && meta && (
+        {!loading && !error && meta && isShowcase ? (
+          <ChangelogShowcase data={postData} meta={meta} />
+        ) : null}
+
+        {!loading && !error && meta && !isShowcase ? (
           <>
-            <Card>
+            <div className="card p-5">
               <div className="flex flex-col gap-3">
-                <div className="text-2xl font-semibold">{meta.title}</div>
+                <div className="text-2xl font-semibold sm:text-3xl">{meta.title}</div>
 
-                <div className="flex flex-wrap gap-2 items-center text-sm text-neutral-500 dark:text-neutral-400">
-                  <span className="inline-flex items-center gap-2">
-                    <Calendar size={16} /> {fmtDate(meta.date)}
-                  </span>
+                {meta.summary ? (
+                  <div className="max-w-4xl text-neutral-700 dark:text-neutral-200">
+                    {meta.summary}
+                  </div>
+                ) : null}
 
-                  {meta?.pinned && <Badge variant="outline">Закреп</Badge>}
-                </div>
-
-                {meta.summary && <div className="text-neutral-700 dark:text-neutral-200">{meta.summary}</div>}
-
-                {(meta.tags || []).length > 0 && (
+                {(meta.tags || []).length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {(meta.tags || []).map((t) => (
-                      <Badge key={t} variant="secondary">
-                        <Tag size={14} className="mr-1" />#{t}
+                    {(meta.tags || []).map((tag) => (
+                      <Badge key={tag} variant="secondary">
+                        <Tag size={14} className="mr-1" />#{tag}
                       </Badge>
                     ))}
                   </div>
-                )}
+                ) : null}
 
-                {extraLinks.length > 0 && (
+                {extraLinks.length > 0 ? (
                   <div className="flex flex-col gap-1">
                     <div className="text-sm font-semibold opacity-80">Ссылки</div>
                     <div className="flex flex-wrap gap-2">
-                      {extraLinks.map((l) => (
-                        <a key={l.url} className="btn-outline" href={l.url} target="_blank" rel="noreferrer">
+                      {extraLinks.map((link) => (
+                        <a key={link.url} className="btn-outline" href={link.url} target="_blank" rel="noreferrer">
                           <ExternalLink size={18} />
-                          <span className="ml-2">{l.title}</span>
+                          <span>{link.title}</span>
                         </a>
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
-            </Card>
+            </div>
 
-            <Card>
+            <div className="card p-5">
               <StatementViewer value={contentJson || ''} />
-            </Card>
+            </div>
           </>
-        )}
+        ) : null}
       </div>
     </Layout>
   );

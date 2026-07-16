@@ -1,45 +1,118 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { Card, Badge, Button, Input } from '../components/ui';
-import { Newspaper, ArrowRight, Search, Flame, BookOpen, Trophy, Pin } from 'lucide-react';
+import { Badge, Button } from '../components/ui';
+import {
+  ArrowRight,
+  BookOpen,
+  Flame,
+  Gamepad2,
+  Newspaper,
+  Server,
+  Sparkles,
+  Trophy,
+  Zap,
+} from 'lucide-react';
 import { getUpdatesIndex } from '../api/updates';
 import { getProfile } from '../api/profile';
 
-function fmtDate(iso) {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso || '';
-    return d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'short', day: '2-digit' });
-  } catch {
-    return iso || '';
-  }
+const toneStyles = {
+  pink: {
+    glow: 'from-pink-500/20 via-fuchsia-500/8 to-violet-500/12',
+    line: 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500',
+    label: 'text-pink-600 dark:text-pink-300',
+    icon: 'bg-pink-500/12 text-pink-600 dark:text-pink-300',
+  },
+  emerald: {
+    glow: 'from-emerald-500/18 via-lime-500/7 to-cyan-500/12',
+    line: 'bg-gradient-to-r from-emerald-500 via-lime-400 to-cyan-500',
+    label: 'text-emerald-700 dark:text-emerald-300',
+    icon: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+  },
+};
+
+function UpdateCard({ item, index }) {
+  const tone = toneStyles[item.tone] || toneStyles.pink;
+
+  return (
+    <article className="group relative overflow-hidden rounded-[30px] border border-black/5 bg-white/70 p-6 shadow-soft backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:shadow-2xl dark:border-white/10 dark:bg-white/[0.035] sm:p-8 lg:p-10">
+      <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${tone.glow}`} />
+      <div className={`absolute inset-x-0 bottom-0 h-1 ${tone.line}`} />
+
+      <div className="relative z-10 grid gap-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <div className="flex items-start gap-4">
+            <span className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tone.icon}`}>
+              {item.tone === 'emerald' ? <Gamepad2 size={22} /> : <Zap size={22} />}
+            </span>
+            <div>
+              <div className={`text-xs font-bold uppercase tracking-[0.22em] ${tone.label}`}>
+                {item.eyebrow || 'Большое обновление'}
+              </div>
+              {item.featuredLabel ? (
+                <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{item.featuredLabel}</div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-6 text-xs font-semibold text-neutral-400 dark:text-neutral-500">
+            ОБНОВЛЕНИЕ {String(index + 1).padStart(2, '0')}
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-tight sm:text-4xl">{item.title}</h2>
+          {item.summary ? (
+            <p className="mt-4 max-w-4xl text-sm leading-7 text-neutral-700 dark:text-neutral-200 sm:text-base sm:leading-8">
+              {item.summary}
+            </p>
+          ) : null}
+
+          {(item.highlights || []).length > 0 ? (
+            <div className="mt-6 grid gap-2 sm:grid-cols-2">
+              {item.highlights.map((highlight) => (
+                <div
+                  key={highlight}
+                  className="rounded-2xl border border-black/5 bg-white/45 px-4 py-3 text-sm leading-6 text-neutral-700 dark:border-white/10 dark:bg-black/15 dark:text-neutral-200"
+                >
+                  {highlight}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-6 flex flex-wrap gap-2">
+            {(item.tags || []).map((tag) => (
+              <Badge key={tag} variant="secondary">#{tag}</Badge>
+            ))}
+          </div>
+        </div>
+
+        <Link to={`/news/${item.id}`} className="btn-primary self-start lg:self-end">
+          Читать полностью
+          <ArrowRight size={18} />
+        </Link>
+      </div>
+    </article>
+  );
 }
 
 export default function NewsPage() {
   const nav = useNavigate();
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
-
   const [profile, setProfile] = useState(null);
-
-  const [q, setQ] = useState('');
-  const [tag, setTag] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const [idx, prof] = await Promise.all([
-          getUpdatesIndex().catch(() => []),
+        const [index, currentProfile] = await Promise.all([
+          getUpdatesIndex(),
           getProfile().catch(() => null),
         ]);
-        setItems(idx);
-        setProfile(prof);
-      } catch (e) {
+        setItems(index);
+        setProfile(currentProfile);
+      } catch {
         setError('Не удалось загрузить ленту');
       } finally {
         setLoading(false);
@@ -47,186 +120,74 @@ export default function NewsPage() {
     })();
   }, []);
 
-  const tags = useMemo(() => {
-    const set = new Set();
-    for (const it of items) {
-      const t = it?.tags;
-      if (Array.isArray(t)) t.forEach((x) => x && set.add(String(x)));
-    }
-    return [''].concat([...set].sort((a, b) => a.localeCompare(b, 'ru')));
-  }, [items]);
-
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    return items.filter((it) => {
-      if (tag) {
-        const t = Array.isArray(it?.tags) ? it.tags.map(String) : [];
-        if (!t.includes(tag)) return false;
-      }
-      if (!qq) return true;
-      const hay = `${it?.title || ''} ${it?.summary || ''} ${(it?.tags || []).join(' ')}`.toLowerCase();
-      return hay.includes(qq);
-    });
-  }, [items, q, tag]);
-
-  const pinned = filtered.filter((x) => x?.pinned);
-  const rest = filtered.filter((x) => !x?.pinned);
-
   const score = profile?.score ?? profile?.rating ?? profile?.points;
-
-  
   const fio = `${profile?.lastName || ''} ${profile?.firstName || ''}`.trim();
   const displayName = fio || profile?.displayName || profile?.login || profile?.username || profile?.email || '';
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6">
-        
-        <Card className="relative overflow-hidden">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-                <Newspaper size={16} />
-                <span>Лента обновлений</span>
+      <div className="mx-auto flex max-w-[1280px] flex-col gap-6 pb-10">
+        <section className="relative overflow-hidden rounded-[32px] border border-black/5 bg-white/70 p-6 shadow-soft backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] sm:p-9 lg:p-11">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(var(--accent)/0.22),transparent_38%),radial-gradient(circle_at_95%_25%,rgba(var(--accent2)/0.18),transparent_35%)]" />
+          <div className="relative z-10 grid gap-7 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div className="max-w-4xl">
+              <div className="flex items-center gap-2 text-sm font-medium text-neutral-500 dark:text-neutral-300">
+                <Newspaper size={17} />
+                <span>Лента</span>
               </div>
-              <div className="mt-1 text-2xl font-semibold leading-tight break-words sm:text-3xl">
-                {displayName ? `Привет, ${displayName}!` : 'TaskForge'}
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-black/5 bg-white/55 px-3 py-1.5 text-xs font-semibold dark:border-white/10 dark:bg-black/15">
+                <Sparkles size={14} className="text-pink-500" />
+                Главные изменения TaskForge
               </div>
-              <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300 max-w-2xl">
-                Новости платформы, новые курсы и важные объявления — всё в одном месте.
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {score != null && (
-                  <Badge variant="outline">
-                    <Flame size={14} className="mr-1" />
-                    Рейтинг: <b className="ml-1">{score}</b>
+              <h1 className="mt-4 text-3xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
+                {displayName ? `${displayName}, история развития TaskForge` : 'История больших обновлений TaskForge'}
+              </h1>
+              <p className="mt-5 max-w-3xl text-sm leading-7 text-neutral-600 dark:text-neutral-300 sm:text-lg sm:leading-8">
+                Здесь собраны только крупные изменения платформы. Без технического шума, дат и мелких правок — только понятное описание того, что стало доступно пользователям.
+              </p>
+              {score != null ? (
+                <div className="mt-6 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="!px-3 !py-2">
+                    <Flame size={15} className="mr-1" />
+                    Ваш рейтинг: <b className="ml-1">{score}</b>
                   </Badge>
-                )}
-              </div>
+                  <Badge variant="outline" className="!px-3 !py-2">
+                    <Server size={15} className="mr-1" />
+                    mc.taskforge.by
+                  </Badge>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex flex-col gap-2 sm:min-w-[220px] sm:max-w-[240px]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[250px] lg:grid-cols-1">
               <Button className="w-full" onClick={() => nav('/courses')}>
                 <BookOpen size={18} />
-                <span className="ml-2">Открыть курсы</span>
+                <span>Открыть курсы</span>
               </Button>
               <Button variant="outline" className="w-full" onClick={() => nav('/leaderboard')}>
                 <Trophy size={18} />
-                <span className="ml-2">Топ студентов</span>
+                <span>Топ студентов</span>
               </Button>
             </div>
           </div>
-        </Card>
+        </section>
 
-        
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Поиск по новостям…"
-                className="pl-9 w-full "
-              />
-            </div>
+        {loading ? <div className="text-neutral-500">Загрузка…</div> : null}
+        {error ? <div className="text-red-500">{error}</div> : null}
 
-            <select
-              className="select w-full sm:w-[180px]"
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
-              title="Фильтр по тегу"
-            >
-              {tags.map((t) => (
-                <option key={t || 'all'} value={t}>
-                  {t ? `#${t}` : 'Все'}
-                </option>
-              ))}
-            </select>
+        {!loading && !error && items.length === 0 ? (
+          <div className="rounded-3xl border border-black/5 bg-white/60 p-6 dark:border-white/10 dark:bg-white/[0.035]">
+            В ленте пока нет обновлений.
           </div>
+        ) : null}
 
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">
-            {filtered.length} пост(ов)
-          </div>
-        </div>
-
-        
-        {loading && <div className="text-neutral-500">Загрузка…</div>}
-        {error && <div className="text-red-500">{error}</div>}
-
-        {!loading && !error && filtered.length === 0 && (
-          <Card>
-            <div className="text-neutral-700 dark:text-neutral-200">Пока нет новостей по выбранному фильтру.</div>
-            <div className="text-sm text-neutral-500 mt-2">Попробуйте снять фильтр или зайти позже.</div>
-          </Card>
-        )}
-
-        {!loading && !error && pinned.length > 0 && (
-          <div className="flex flex-col gap-3">
-            <div className="text-sm font-semibold opacity-80">Закреплено</div>
-            {pinned.map((it) => (
-              <Card key={it.id} className="border border-brand-600/30">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-lg font-semibold truncate">{it.title}</div>
-                      <div className="text-sm text-neutral-500 dark:text-neutral-400">{fmtDate(it.date)}</div>
-                    </div>
-                    <Badge variant="outline">
-                      <Pin size={14} className="mr-1" />
-                      Закреп
-                    </Badge>
-                  </div>
-
-                  {it.summary && <div className="text-neutral-700 dark:text-neutral-200">{it.summary}</div>}
-
-                  <div className="flex flex-wrap gap-2 items-center justify-between">
-                    <div className="flex flex-wrap gap-2">
-                      {(it.tags || []).map((t) => (
-                        <Badge key={t} variant="secondary">#{t}</Badge>
-                      ))}
-                    </div>
-                    <Link to={`/news/${it.id}`} className="btn-outline">
-                      Читать <ArrowRight size={18} className="ml-2" />
-                    </Link>
-                  </div>
-                </div>
-              </Card>
+        {!loading && !error && items.length > 0 ? (
+          <div className="grid gap-6">
+            {items.map((item, index) => (
+              <UpdateCard key={item.id} item={item} index={index} />
             ))}
           </div>
-        )}
-
-        {!loading && !error && rest.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {rest.map((it) => (
-              <Card key={it.id} className="hover:shadow-soft transition-shadow">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-lg font-semibold truncate">{it.title}</div>
-                      <div className="text-sm text-neutral-500 dark:text-neutral-400">{fmtDate(it.date)}</div>
-                    </div>
-                  </div>
-
-                  {it.summary && <div className="text-neutral-700 dark:text-neutral-200">{it.summary}</div>}
-
-                  <div className="flex flex-wrap gap-2 items-center justify-between">
-                    <div className="flex flex-wrap gap-2">
-                      {(it.tags || []).slice(0, 4).map((t) => (
-                        <Badge key={t} variant="secondary">#{t}</Badge>
-                      ))}
-                      {(it.tags || []).length > 4 && <Badge variant="outline">+{(it.tags || []).length - 4}</Badge>}
-                    </div>
-                    <Link to={`/news/${it.id}`} className="btn-outline">
-                      Читать <ArrowRight size={18} className="ml-2" />
-                    </Link>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
+        ) : null}
       </div>
     </Layout>
   );

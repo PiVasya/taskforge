@@ -85,7 +85,7 @@ const pageMetaRules = [
   {
     path: '/news',
     title: 'лента обновлений',
-    description: 'Новости TaskForge: свежие изменения платформы, новые возможности и улучшения интерфейса.',
+    description: 'Лента крупных обновлений TaskForge: изменения платформы, новые возможности и запуск Minecraft-сервера.',
   },
   {
     path: '/courses/:courseId/edit',

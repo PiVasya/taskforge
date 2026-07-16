@@ -320,7 +320,7 @@ export default function Layout({
     {
       to: "/news",
       label: "Лента",
-      subtitle: "Новости и обновления",
+      subtitle: "Главные обновления",
       icon: House,
       active: isActive("/news"),
     },
