@@ -40,8 +40,16 @@ grep -Fq 'respawn processing queued' "$taskforge" \
   || fail 'respawn delivery diagnostics are missing'
 grep -Fq 'offer delivered' "$taskforge" \
   || fail 'death-offer delivery diagnostic is missing'
-grep -Fq 'bounded respawn watchdogs scheduled' "$taskforge" \
-  || fail 'finite per-death respawn fallback is missing'
+grep -Fq 'respawn wait started' "$taskforge" \
+  || fail 'local per-death respawn watcher is missing'
+grep -Fq 'networkRequestsWhileWaiting=false globalPolling=false' "$taskforge" \
+  || fail 'respawn watcher must stay local and network-free while waiting'
+grep -Fq 'backendPullSkipped=true reason=local-offer-delivered' "$taskforge" \
+  || fail 'respawn path still performs an unnecessary backend pending pull after local delivery'
+grep -Fq 'saveBackendSnapshot(remote)' "$taskforge" \
+  || fail 'backend pending snapshots are echoed back instead of being stored locally only'
+grep -Fq 'record.actionsInFlight.remove(ACTION_DROP)' "$taskforge" \
+  || fail 'ordinary drop does not finish atomically with its final DROPS_RELEASED state'
 grep -Fq 'summarizeBackendResponse' "$taskforge" \
   || fail 'death backend responses may expose full item payloads'
 if grep -Fq 'alive-heartbeat-fallback' "$taskforge"; then
@@ -49,6 +57,9 @@ if grep -Fq 'alive-heartbeat-fallback' "$taskforge"; then
 fi
 if grep -Fq 'queueInitialOfferFallback' "$taskforge"; then
   fail 'one-second death-menu polling fallback returned'
+fi
+if grep -Fq 'death-watchdog-1s' "$taskforge" || grep -Fq 'death-watchdog-4s' "$taskforge"; then
+  fail 'fixed 1s/4s respawn watchdog returned'
 fi
 if grep -Eq 'private[[:space:]]+void[[:space:]]+heartbeat[[:space:]]*\(' "$taskforge"; then
   fail 'global one-second death-recovery heartbeat returned'

@@ -3055,3 +3055,252 @@ html.dark .bg-fx__blob {
     transform: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Static changelog. All accents come from the active TaskForge theme.
+   -------------------------------------------------------------------------- */
+.changelog-hero,
+.changelog-card,
+.changelog-post-hero,
+.changelog-section,
+.changelog-callout,
+.changelog-stat,
+.changelog-empty {
+  color: rgb(var(--text));
+  border: 1px solid rgba(var(--border) / 0.72);
+  background-color: rgba(var(--card) / 0.92);
+  box-shadow: 0 18px 52px rgba(15 23 42 / 0.07);
+}
+
+html.dark .changelog-hero,
+html.dark .changelog-card,
+html.dark .changelog-post-hero,
+html.dark .changelog-section,
+html.dark .changelog-callout,
+html.dark .changelog-stat,
+html.dark .changelog-empty {
+  box-shadow: 0 22px 58px rgba(0 0 0 / 0.22);
+}
+
+.changelog-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 32px;
+  padding: 2.75rem;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(var(--accent) / 0.13), transparent 34%),
+    radial-gradient(circle at 92% 16%, rgba(var(--accent2) / 0.10), transparent 30%),
+    rgba(var(--card) / 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.changelog-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 30px;
+  padding: 2.5rem;
+  background:
+    linear-gradient(135deg, rgba(var(--accent) / 0.045), transparent 38%),
+    rgba(var(--card) / 0.92);
+  backdrop-filter: blur(18px);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 220ms ease,
+              box-shadow 220ms ease;
+}
+
+.changelog-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(var(--accent) / 0.38);
+  box-shadow: 0 24px 62px rgba(var(--accent) / 0.10);
+}
+
+.changelog-card__line {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, rgb(var(--accent)), rgb(var(--accent2)));
+}
+
+.changelog-icon,
+.changelog-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(var(--accent) / 0.22);
+  background: rgba(var(--accent) / 0.10);
+  color: color-mix(in srgb, rgb(var(--text)) 70%, rgb(var(--accent)) 30%);
+}
+
+.changelog-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 1rem;
+}
+
+.changelog-number {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.changelog-kicker {
+  color: color-mix(in srgb, rgb(var(--text)) 60%, rgb(var(--accent)) 40%);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.changelog-pill,
+.changelog-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(var(--accent) / 0.24);
+  background: rgba(var(--accent) / 0.08);
+  color: color-mix(in srgb, rgb(var(--text)) 74%, rgb(var(--accent)) 26%);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.changelog-pill {
+  border-radius: 999px;
+  padding: 0.42rem 0.78rem;
+}
+
+.changelog-badge {
+  border-radius: 999px;
+  padding: 0.42rem 0.75rem;
+}
+
+.changelog-highlight,
+.changelog-bullet {
+  border: 1px solid rgba(var(--border) / 0.65);
+  background: rgba(var(--muted) / 0.50);
+  color: color-mix(in srgb, rgb(var(--text)) 86%, rgb(var(--text-muted)) 14%);
+}
+
+.changelog-highlight {
+  border-radius: 1rem;
+  padding: 0.8rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.5rem;
+}
+
+.changelog-bullet {
+  display: flex;
+  gap: 0.75rem;
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.changelog-empty {
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+}
+
+.changelog-post-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 32px;
+  padding: 3rem;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(var(--accent) / 0.14), transparent 36%),
+    radial-gradient(circle at 95% 30%, rgba(var(--accent2) / 0.09), transparent 32%),
+    rgba(var(--card) / 0.94);
+}
+
+.changelog-post-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgb(var(--accent)), rgb(var(--accent2)), transparent 88%);
+}
+
+.changelog-primary-value {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  border: 1px solid rgba(var(--accent) / 0.24);
+  border-radius: 1rem;
+  background: rgba(var(--accent) / 0.08);
+  padding: 1rem 1.25rem;
+}
+
+.changelog-stat {
+  border-radius: 1.35rem;
+  padding: 1.25rem;
+  background: rgba(var(--card) / 0.96);
+  backdrop-filter: blur(18px);
+}
+
+.changelog-section {
+  margin-bottom: 1rem;
+  border-radius: 26px;
+  padding: 2rem;
+  background: rgba(var(--card) / 0.78);
+  box-shadow: none;
+}
+
+.changelog-feature-list {
+  overflow: hidden;
+  border: 1px solid rgba(var(--border) / 0.70);
+  border-radius: 1.4rem;
+  background: rgba(var(--muted) / 0.34);
+}
+
+.changelog-feature-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1.35rem;
+}
+
+.changelog-feature-row + .changelog-feature-row {
+  border-top: 1px solid rgba(var(--border) / 0.62);
+}
+
+.changelog-callout {
+  position: relative;
+  overflow: hidden;
+  margin-top: 1rem;
+  border-radius: 26px;
+  padding: 2rem;
+  background:
+    linear-gradient(135deg, rgba(var(--accent) / 0.11), rgba(var(--accent2) / 0.055)),
+    rgba(var(--card) / 0.90);
+}
+
+@media (max-width: 640px) {
+  .changelog-hero,
+  .changelog-card,
+  .changelog-post-hero,
+  .changelog-section,
+  .changelog-callout {
+    border-radius: 22px;
+    padding: 1.35rem;
+  }
+
+  .changelog-card__line {
+    inset: 0 0 auto;
+    width: auto;
+    height: 3px;
+    background: linear-gradient(90deg, rgb(var(--accent)), rgb(var(--accent2)));
+  }
+
+  .changelog-feature-row {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    padding: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .changelog-card,
+  .changelog-card:hover {
+    transform: none;
+    transition: none;
+  }
+}
