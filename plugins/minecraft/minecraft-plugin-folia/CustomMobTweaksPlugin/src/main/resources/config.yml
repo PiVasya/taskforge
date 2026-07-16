@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.1.3
+# CustomMobTweaks 2.2.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -190,6 +190,33 @@ illusioner-spawn:
     max-radius: 56
     max-block-light: 7
     no-other-illusioner-radius: 64.0
+
+# -----------------------------------------------------------------------------
+# Illusioner recursive clones. Each shot creates one one-health copy.
+# Generation lifetimes: 15, 13, 11, 9, 7, 5 and 3 seconds.
+# The whole family is hard-capped at 30 active copies per original.
+# -----------------------------------------------------------------------------
+illusioner-clones:
+  enabled: true
+  verbose-logs: false
+  clones-per-shot: 1
+  max-active-per-original: 30
+  max-generation: 7
+
+  max-health: 1.0
+  damage-multiplier: 0.35
+
+  base-lifetime-ticks: 300
+  lifetime-reduction-per-generation-ticks: 40
+  minimum-lifetime-ticks: 60
+
+  spawn-min-radius: 1.5
+  spawn-max-radius: 3.5
+  spawn-location-attempts: 10
+  spawn-particles: 30
+  dissolve-particles: 24
+
+  original-death-delay-ticks: 40
 
 # -----------------------------------------------------------------------------
 # Trident zombie: three times the normal health and stronger ranged pressure.

@@ -112,6 +112,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new ListenerComponent(this, new MobEffectsListener(this)));
             registerComponent(new LegacyEnhancementsListener(this));
             registerComponent(new IllusionerSpawner(this));
+            registerComponent(new IllusionerCloneManager(this));
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
@@ -150,7 +151,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     private void logModuleState(String reason) {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
-                "harder-stray", "illusioner-spawn", "trident-zombie", "happy-ghast-bomber",
+                "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
                 "lava-damage", "dry-weapon", "freezing-snowball")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
@@ -159,6 +160,15 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         getLogger().info("[reload] breeze-elytra chance="
                 + getConfig().getDouble("extra-loot.breeze.drops.elytra.chance", 0.05D)
                 + " forced=false reason=" + reason);
+        getLogger().info("[reload] illusioner-clones maxActive="
+                + getConfig().getInt("illusioner-clones.max-active-per-original", 30)
+                + " maxGeneration="
+                + getConfig().getInt("illusioner-clones.max-generation", 7)
+                + " lifetimeTicks="
+                + getConfig().getLong("illusioner-clones.base-lifetime-ticks", 300L)
+                + " minimumTicks="
+                + getConfig().getLong("illusioner-clones.minimum-lifetime-ticks", 60L)
+                + " globalPolling=false reason=" + reason);
     }
 
     private void sendCommandMessage(CommandSender sender, String message) {

@@ -75,6 +75,7 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     private final NamespacedKey lootShooterUuidKey;
     private final NamespacedKey lootShooterNameKey;
     private final NamespacedKey lootShooterLootingKey;
+    private final NamespacedKey illusionerCloneKey;
 
     private final Set<UUID> breezeTasks = ConcurrentHashMap.newKeySet();
     private final Set<UUID> creakingTasks = ConcurrentHashMap.newKeySet();
@@ -99,6 +100,7 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
         this.lootShooterUuidKey = new NamespacedKey(plugin, "loot_shooter_uuid");
         this.lootShooterNameKey = new NamespacedKey(plugin, "loot_shooter_name");
         this.lootShooterLootingKey = new NamespacedKey(plugin, "loot_shooter_looting");
+        this.illusionerCloneKey = new NamespacedKey(plugin, "illusioner_clone");
     }
 
     @Override
@@ -244,7 +246,9 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(EntityDeathEvent event) {
         LivingEntity entity = event.getEntity();
-        addConfiguredLoot(event);
+        if (!entity.getPersistentDataContainer().has(illusionerCloneKey, PersistentDataType.BYTE)) {
+            addConfiguredLoot(event);
+        }
         cleanupEntity(entity);
     }
 

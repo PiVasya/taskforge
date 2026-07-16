@@ -4,6 +4,7 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -23,6 +24,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Map;
 import java.util.UUID;
@@ -32,10 +34,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class IllusionerSpawner implements Listener, PluginComponent {
     private final CustomMobTweaksPlugin plugin;
+    private final NamespacedKey illusionerCloneKey;
     private final Map<UUID, ScheduledTask> scheduledPlayers = new ConcurrentHashMap<>();
 
     public IllusionerSpawner(CustomMobTweaksPlugin plugin) {
         this.plugin = plugin;
+        this.illusionerCloneKey = new NamespacedKey(plugin, "illusioner_clone");
     }
 
     @Override
@@ -144,7 +148,8 @@ public final class IllusionerSpawner implements Listener, PluginComponent {
             }
             double nearbyRadius = Math.max(8.0D, plugin.getConfig().getDouble("illusioner-spawn.periodic-spawn.no-other-illusioner-radius", 48.0D));
             for (Entity nearby : world.getNearbyEntities(location, nearbyRadius, nearbyRadius, nearbyRadius)) {
-                if (nearby.getType() == EntityType.ILLUSIONER) {
+                if (nearby.getType() == EntityType.ILLUSIONER
+                        && !nearby.getPersistentDataContainer().has(illusionerCloneKey, PersistentDataType.BYTE)) {
                     return;
                 }
             }

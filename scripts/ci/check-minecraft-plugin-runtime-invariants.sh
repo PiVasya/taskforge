@@ -14,9 +14,10 @@ taskforge_config="$folia_root/TaskForgeFoliaPlugin/src/main/resources/config.yml
 cmt="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/MobEffectsListener.java"
 cmt_listener="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/ListenerComponent.java"
 cmt_legacy="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/LegacyEnhancementsListener.java"
+cmt_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/IllusionerCloneManager.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -141,5 +142,37 @@ grep -Fq 'homing-turn-rate: 0.90' "$cmt_config" \
   || fail 'expected slightly reduced homing turn rate is missing'
 grep -Fq 'homing-lead-factor: 0.95' "$cmt_config" \
   || fail 'expected slightly reduced homing lead is missing'
+
+grep -Fq 'EntityShootBowEvent' "$cmt_clones" \
+  || fail 'Illusioner clone creation is not tied to bow shots'
+grep -Fq 'max-active-per-original", 30' "$cmt_clones" \
+  || fail 'Illusioner clone family is not capped at 30 by default'
+grep -Fq 'max-generation", 7' "$cmt_clones" \
+  || fail 'Illusioner clone generation cap is missing'
+grep -Fq 'minimum-lifetime-ticks", 60L' "$cmt_clones" \
+  || fail 'Illusioner clone lifetime can fall below three seconds'
+grep -Fq 'lifetime-reduction-per-generation-ticks", 40L' "$cmt_clones" \
+  || fail 'Illusioner clone lifetimes do not decrease by generation'
+grep -Fq 'clone.getScheduler().runDelayed' "$cmt_clones" \
+  || fail 'Illusioner clones are not retired on their Folia entity scheduler'
+grep -Fq 'Bukkit.getRegionScheduler().execute' "$cmt_clones" \
+  || fail 'Illusioner clone spawning is not dispatched to the owning Folia region'
+grep -Fq 'pending=' "$cmt_clones" \
+  || fail 'pending Illusioner clone spawns are not accounted for when the root dies'
+grep -Fq 'illusioner_clone_generation' "$cmt_clones" \
+  || fail 'Illusioner clone generation is not persisted in PDC'
+grep -Fq 'event.getDrops().clear();' "$cmt_clones" \
+  || fail 'Illusioner clones may drop vanilla loot'
+grep -Fq 'entity.getPersistentDataContainer().has(illusionerCloneKey' "$cmt_legacy" \
+  || fail 'Illusioner clones may receive configured extra loot'
+if grep -Eq 'runAtFixedRate|GlobalRegionScheduler' "$cmt_clones"; then
+  fail 'Illusioner clone runtime introduced global polling'
+fi
+if ! grep -A8 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'max-active-per-original: 30'; then
+  fail 'bundled Illusioner clone cap is not 30'
+fi
+if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'minimum-lifetime-ticks: 60'; then
+  fail 'bundled Illusioner clone minimum lifetime is not three seconds'
+fi
 
 echo 'minecraft plugin runtime invariants ok'
