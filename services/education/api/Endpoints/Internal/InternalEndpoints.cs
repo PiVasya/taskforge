@@ -56,7 +56,7 @@ internal static partial class EducationApiEndpoints
         app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
             var rows = await db.Courses.AsNoTracking()
-                .Select(x => new { x.Id, x.ParentCourseId })
+                .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.Sort))
                 .ToListAsync(ct);
 
             if (!rows.Any(x => x.Id == courseId)) return Microsoft.AspNetCore.Http.Results.NotFound();
@@ -64,9 +64,11 @@ internal static partial class EducationApiEndpoints
             var children = rows
                 .Where(x => x.ParentCourseId.HasValue)
                 .GroupBy(x => x.ParentCourseId!.Value)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(x => x.Sort).ThenBy(x => x.Title).Select(x => x.Id).ToList());
 
-            var result = new List<Guid>();
+            var courseIds = new List<Guid>();
             var seen = new HashSet<Guid>();
             var queue = new Queue<Guid>();
             queue.Enqueue(courseId);
@@ -75,12 +77,18 @@ internal static partial class EducationApiEndpoints
             {
                 var id = queue.Dequeue();
                 if (!seen.Add(id)) continue;
-                result.Add(id);
+                courseIds.Add(id);
                 if (!children.TryGetValue(id, out var directChildren)) continue;
                 foreach (var childId in directChildren) queue.Enqueue(childId);
             }
 
-            return Microsoft.AspNetCore.Http.Results.Ok(new { courseId, courseIds = result });
+            var courseIdSet = courseIds.ToHashSet();
+            var courses = rows
+                .Where(x => courseIdSet.Contains(x.Id))
+                .OrderBy(x => courseIds.IndexOf(x.Id))
+                .ToList();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseTreeResponse(courseId, courseIds.ToArray(), courses));
         });
 
         return app;

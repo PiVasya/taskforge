@@ -108,26 +108,77 @@ internal static partial class AssignmentApiEndpoints
                     : new CourseAssignmentProgressDto(id, 0, 0, 0, false)).ToList());
         });
 
-        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
+            var tree = await GetInternalAsync<CourseTreeResponse>(
+                clients,
+                cfg,
+                ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                $"/api/internal/courses/{courseId:D}/tree",
+                ct);
+
+            if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != courseId))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Не удалось получить дерево курса для экспорта.", code = "COURSE_TREE_UNAVAILABLE" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            var courseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
             var rows = await db.Assignments.AsNoTracking()
-                .Where(x => x.CourseId == courseId)
-                .OrderBy(x => x.Sort)
+                .Where(x => courseIds.Contains(x.CourseId))
+                .OrderBy(x => x.CourseId)
+                .ThenBy(x => x.Sort)
                 .ThenBy(x => x.CreatedAt)
                 .ToListAsync(ct);
 
+            var assignmentsByCourse = rows
+                .GroupBy(x => x.CourseId)
+                .ToDictionary(g => g.Key, g => g.Select(ToImportDto).Cast<object>().ToList());
+            var coursesById = tree.Courses.ToDictionary(x => x.Id);
+            var childrenByParent = tree.Courses
+                .Where(x => x.ParentCourseId.HasValue && coursesById.ContainsKey(x.ParentCourseId.Value))
+                .GroupBy(x => x.ParentCourseId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(x => x.Sort).ThenBy(x => x.Title).Select(x => x.Id).ToList());
+
+            CourseAssignmentExportNode BuildCourseNode(Guid id)
+            {
+                var source = coursesById[id];
+                var node = new CourseAssignmentExportNode
+                {
+                    Id = source.Id,
+                    ParentCourseId = id == courseId ? null : source.ParentCourseId,
+                    Title = source.Title,
+                    Description = source.Description,
+                    IsPublic = source.IsPublic,
+                    Sort = source.Sort,
+                    Assignments = assignmentsByCourse.TryGetValue(id, out var assignments) ? assignments : new List<object>()
+                };
+
+                if (childrenByParent.TryGetValue(id, out var childIds))
+                {
+                    node.Courses = childIds.Select(BuildCourseNode).ToList();
+                }
+
+                return node;
+            }
+
+            var rootAssignments = assignmentsByCourse.TryGetValue(courseId, out var rootItems) ? rootItems : new List<object>();
             return Microsoft.AspNetCore.Http.Results.Json(new
             {
                 schemaVersion = 2,
                 format = "taskforge-course-assignment-import",
                 courseId,
                 exportedAt = DateTimeOffset.UtcNow,
-                assignments = rows.Select(ToImportDto).ToList()
+                assignments = rootAssignments,
+                courseCount = courseIds.Length,
+                assignmentCount = rows.Count,
+                courseTree = BuildCourseNode(courseId)
             }, JsonOptions());
         });
 

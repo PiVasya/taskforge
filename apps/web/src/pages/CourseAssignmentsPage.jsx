@@ -1232,17 +1232,20 @@ export default function CourseAssignmentsPage() {
         .toLowerCase()
         .replace(/[^a-zа-яё0-9]+/gi, "-")
         .replace(/^-+|-+$/g, "") || "course";
+      const includesNestedCourses = Number(data?.courseCount || 0) > 1;
       const blob = new Blob([text], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `taskforge-${safeTitle}-assignments.json`;
+      a.download = `taskforge-${safeTitle}-${includesNestedCourses ? "course-tree" : "assignments"}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      handleJsonImportTextChange(text);
-      notify.success("JSON экспортирован и загружен в редактор импорта");
+      if (!includesNestedCourses) handleJsonImportTextChange(text);
+      notify.success(includesNestedCourses
+        ? `JSON скачан: ${data.courseCount} курсов и ${data.assignmentCount || 0} заданий`
+        : "JSON экспортирован и загружен в редактор импорта");
     } catch (e) {
       handleApiError(e, notify, "Не удалось экспортировать JSON");
     } finally {

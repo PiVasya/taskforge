@@ -21,6 +21,35 @@ public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid Cours
 
 public sealed record CourseAssignmentProgressDto(Guid CourseId, int Total, int Solved, int Percent, bool IsComplete);
 
+public sealed class CourseTreeResponse
+{
+    public Guid CourseId { get; set; }
+    public Guid[] CourseIds { get; set; } = Array.Empty<Guid>();
+    public List<CourseTreeCourseDto> Courses { get; set; } = new();
+}
+
+public sealed class CourseTreeCourseDto
+{
+    public Guid Id { get; set; }
+    public Guid? ParentCourseId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsPublic { get; set; }
+    public int Sort { get; set; }
+}
+
+public sealed class CourseAssignmentExportNode
+{
+    public Guid Id { get; set; }
+    public Guid? ParentCourseId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsPublic { get; set; }
+    public int Sort { get; set; }
+    public List<object> Assignments { get; set; } = new();
+    public List<CourseAssignmentExportNode> Courses { get; set; } = new();
+}
+
 public sealed class CourseSummaryDto
 {
     public Guid Id { get; set; }

@@ -13,4 +13,8 @@ public sealed record CourseDto(Guid Id, string Title, string? Description, bool 
 
 public sealed record CourseMetadataDto(Guid Id, Guid CourseId, string Title, string CourseTitle, string? Description, bool IsPublic);
 
+public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string Title, string? Description, bool IsPublic, int Sort);
+
+public sealed record CourseTreeResponse(Guid CourseId, Guid[] CourseIds, List<CourseTreeCourseDto> Courses);
+
 public sealed record PagedResult<T>(List<T> Items, int Page, int PageSize, int Total, bool HasMore);

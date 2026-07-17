@@ -177,7 +177,7 @@
           "index": "02 / 13",
           "name": "Болотник",
           "label": "Яд, иссушение и лужи",
-          "image": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/bogged/headshot.png",
           "summary": "Его стрелы запускают продолжительный набор отрицательных эффектов и оставляют опасную область.",
           "changes": [
             "Стрела накладывает Иссушение II на 5 секунд.",
@@ -190,7 +190,8 @@
             "8 видов стрел с эффектами — по 5% каждая",
             "Споровый цветок 1–2 — 25%",
             "Незеритовый лом — 1%"
-          ]
+          ],
+          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp"
         },
         {
           "id": "wither-skeleton",
@@ -335,7 +336,8 @@
             "Сгустки смолы 8–16 — 100%",
             "Брёвна бледного дуба 2–6 — 75%",
             "Незеритовый лом — 3%"
-          ]
+          ],
+          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Creaking_BE1_JE2_Sway_Animation.gif"
         },
         {
           "id": "armadillo",
@@ -353,7 +355,8 @@
           "loot": [
             "Щитки броненосца 2–5 — 70%",
             "Незеритовый лом — 1%"
-          ]
+          ],
+          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Armadillo_Peek_JE1_BE1.gif"
         },
         {
           "id": "illusioner",
