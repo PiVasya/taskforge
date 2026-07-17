@@ -2,7 +2,15 @@ name: minecraft plugin jars
 
 on:
   push:
+    paths:
+      - "plugins/minecraft/**"
+      - "scripts/ci/check-minecraft-plugin-runtime-invariants.sh"
+      - ".github/workflows/minecraft-plugins-build.yml"
   pull_request:
+    paths:
+      - "plugins/minecraft/**"
+      - "scripts/ci/check-minecraft-plugin-runtime-invariants.sh"
+      - ".github/workflows/minecraft-plugins-build.yml"
   workflow_dispatch:
 
 concurrency:
