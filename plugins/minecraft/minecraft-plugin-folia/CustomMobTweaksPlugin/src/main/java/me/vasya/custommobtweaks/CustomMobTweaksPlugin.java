@@ -1,5 +1,7 @@
 package me.vasya.custommobtweaks;
 
+import me.vasya.custommobtweaks.dragon.EnderDragonRework;
+
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -116,6 +118,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
+            registerComponent(new EnderDragonRework(this));
             registerComponent(newBomberListener);
 
             runtimeStarted = true;
@@ -152,7 +155,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                 "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
-                "lava-damage", "dry-weapon", "freezing-snowball")) {
+                "lava-damage", "dry-weapon", "freezing-snowball", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
         getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);

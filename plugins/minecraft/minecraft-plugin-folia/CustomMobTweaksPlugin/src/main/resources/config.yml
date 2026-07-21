@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.2.2
+# CustomMobTweaks 2.3.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -292,6 +292,39 @@ happy-ghast-bomber:
   projectile-count: 5
   projectile-spread: 2.0
   projectile-speed: 0.8
+
+# -----------------------------------------------------------------------------
+# Ender Dragon: vanilla primary fight plus a real 3D fire stream and scaled
+# EnderDragon copies created once per completed portal landing.
+# -----------------------------------------------------------------------------
+ender-dragon-rework:
+  enabled: true
+
+  fire-stream:
+    enabled: true
+    length: 48.0
+    speed-blocks-per-tick: 3.0
+    slices-per-tick: 2
+    minimum-radius: 0.45
+    maximum-radius: 3.2
+    vertical-radius-multiplier: 0.75
+    damage: 8.0
+    fire-ticks: 80
+    orange-flame-particles-per-slice: 8
+    purple-flame-particles-per-slice: 5
+    dragon-breath-particles-per-slice: 5
+    smoke-particles-per-slice: 2
+
+  dragonling:
+    scale: 0.25
+    health: 40.0
+    maximum-active: 2
+    charge-cooldown-min-ticks: 40
+    charge-cooldown-max-ticks: 80
+    target-range: 72.0
+    collision-damage: 6.0
+    controller-period-ticks: 5
+    charge-duration-ticks: 50
 
 # -----------------------------------------------------------------------------
 # Additional loot. Potion-compatible drops may use potion-type.

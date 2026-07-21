@@ -44,7 +44,7 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
                 for (String module : List.of(
                         "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                         "harder-stray", "illusioner-spawn", "trident-zombie", "happy-ghast-bomber",
-                        "lava-damage", "dry-weapon", "freezing-snowball")) {
+                        "lava-damage", "dry-weapon", "freezing-snowball", "ender-dragon-rework")) {
                     sender.sendMessage("§7- §f" + module + ": " + (plugin.enabled(module) ? "§aON" : "§cOFF"));
                 }
             }

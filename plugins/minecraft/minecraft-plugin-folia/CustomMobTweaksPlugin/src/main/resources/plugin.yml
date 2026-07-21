@@ -1,10 +1,10 @@
 name: CustomMobTweaks
-version: 2.2.2
+version: 2.3.0
 main: me.vasya.custommobtweaks.CustomMobTweaksPlugin
 api-version: '26.1.2'
 folia-supported: true
 authors: [Vasya]
-description: Folia-safe hostile mob upgrades, CreakingPerks mechanics and configurable extra loot.
+description: Folia-safe hostile mob upgrades, Ender Dragon rework and configurable extra loot.
 
 commands:
   custommobtweaks:

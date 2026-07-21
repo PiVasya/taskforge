@@ -15,9 +15,15 @@ cmt="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/Mo
 cmt_listener="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/ListenerComponent.java"
 cmt_legacy="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/LegacyEnhancementsListener.java"
 cmt_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/IllusionerCloneManager.java"
+cmt_dragon_root="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/dragon"
+cmt_dragon="$cmt_dragon_root/EnderDragonRework.java"
+cmt_dragon_breath="$cmt_dragon_root/DragonBreathAttack.java"
+cmt_dragonlings="$cmt_dragon_root/DragonlingManager.java"
+cmt_dragonling_ai="$cmt_dragon_root/DragonlingAttackController.java"
+cmt_main="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/CustomMobTweaksPlugin.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragonlings" "$cmt_dragonling_ai" "$cmt_main" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -173,6 +179,43 @@ if ! grep -A8 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'max-active-per-o
 fi
 if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'minimum-lifetime-ticks: 60'; then
   fail 'bundled Illusioner clone minimum lifetime is not three seconds'
+fi
+
+grep -Fq 'registerComponent(new EnderDragonRework(this));' "$cmt_main"   || fail 'Ender Dragon rework is not part of the CustomMobTweaks component lifecycle'
+grep -Fq 'EnderDragonShootFireballEvent' "$cmt_dragon"   || fail 'primary Ender Dragon fireball replacement event is missing'
+grep -Fq 'EnderDragonFireballHitEvent' "$cmt_dragon"   || fail 'dragonling fireball cloud cancellation guard is missing'
+grep -Fq 'EnderDragonFlameEvent' "$cmt_dragon"   || fail 'dragonling perched flame cancellation guard is missing'
+grep -Fq 'event.setCancelled(true);' "$cmt_dragon"   || fail 'vanilla dragon fireball is not cancelled before the stream starts'
+grep -Fq 'Particle.FLAME' "$cmt_dragon_breath"   || fail 'orange fire particles are missing from the dragon stream'
+grep -Fq 'Particle.DUST_COLOR_TRANSITION' "$cmt_dragon_breath"   || fail 'purple fire particles are missing from the dragon stream'
+grep -Fq 'Particle.DRAGON_BREATH' "$cmt_dragon_breath"   || fail 'vanilla dragon-breath particles are missing from the dragon stream'
+grep -Fq 'Particle.SMOKE' "$cmt_dragon_breath"   || fail 'edge smoke is missing from the dragon stream'
+grep -Fq 'Bukkit.getRegionScheduler().execute' "$cmt_dragon_breath"   || fail 'dragon stream rendering is not dispatched to Folia region schedulers'
+grep -Fq 'player.getScheduler().run' "$cmt_dragon_breath"   || fail 'dragon stream player damage is not dispatched to player entity schedulers'
+grep -Fq 'new NamespacedKey("taskforge", "dragonling")' "$cmt_dragonlings"   || fail 'taskforge:dragonling PDC marker is missing'
+grep -Fq 'new NamespacedKey("taskforge", "dragonling_owner")' "$cmt_dragonlings"   || fail 'taskforge:dragonling_owner PDC marker is missing'
+grep -Fq 'EntityType.ENDER_DRAGON' "$cmt_dragonlings"   || fail 'dragonlings are not real EnderDragon entities'
+grep -Fq 'Attribute.SCALE' "$cmt_dragonlings"   || fail 'dragonling server-side scale attribute is missing'
+grep -Fq 'EnderDragon.Phase.CHARGE_PLAYER' "$cmt_dragonling_ai"   || fail 'dragonling charge controller is missing'
+grep -Fq 'dragon.getTrackedBy()' "$cmt_dragonling_ai"   || fail 'dragonling target selection does not stay local to tracking players'
+grep -Fq 'candidate.getScheduler().run' "$cmt_dragonling_ai"   || fail 'dragonling candidate validation is not dispatched to player entity schedulers'
+if grep -RIEq 'Bukkit\.getScheduler\(|GlobalRegionScheduler|ItemDisplay|EntityType\.PHANTOM|taskforge:dragonling' "$cmt_dragon_root"; then
+  fail 'dragon rework contains a global Bukkit scheduler, display/phantom carrier, or string-only PDC shortcut'
+fi
+if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'scale: 0.25'; then
+  fail 'default dragonling scale is not 0.25'
+fi
+if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 40.0'; then
+  fail 'default dragonling health is not 40.0'
+fi
+if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 2'; then
+  fail 'default maximum active dragonlings is not 2'
+fi
+if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-min-ticks: 40'; then
+  fail 'default minimum dragonling charge cooldown is not 40 ticks'
+fi
+if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-max-ticks: 80'; then
+  fail 'default maximum dragonling charge cooldown is not 80 ticks'
 fi
 
 echo 'minecraft plugin runtime invariants ok'
