@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import BgFxNeuralWebgl from './BgFxNeuralWebgl';
+import BgFxSolarWebgl from './BgFxSolarWebgl';
 
 
 
@@ -77,14 +78,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
   const preset = useMemo(() => {
     if (variant === 'random') {
       
-      return Math.floor(Math.random() * 8);
+      return Math.floor(Math.random() * 9);
     }
     const v = Number(variant);
     return Number.isFinite(v) ? v : 0;
   }, [variant]);
 
   useEffect(() => {
-    if (!enabled || preset === 2) return;
+    if (!enabled || preset === 2 || preset === 8) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1109,6 +1110,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
   if (preset === 2) {
     return <BgFxNeuralWebgl enabled={enabled} intensity={intensity} uiRev={uiRev} />;
+  }
+
+  if (preset === 8) {
+    return <BgFxSolarWebgl enabled={enabled} intensity={intensity} uiRev={uiRev} />;
   }
 
   return (

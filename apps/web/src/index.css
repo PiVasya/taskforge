@@ -698,6 +698,16 @@ select.input {
   mix-blend-mode: multiply;
 }
 
+.bgfx-canvas--solar {
+  opacity: 0.9;
+  mix-blend-mode: normal;
+}
+
+:not(.dark) .bgfx-canvas--solar {
+  opacity: 0.72;
+  mix-blend-mode: normal;
+}
+
 
 .bg-fx__dna {
   opacity: 0.55;

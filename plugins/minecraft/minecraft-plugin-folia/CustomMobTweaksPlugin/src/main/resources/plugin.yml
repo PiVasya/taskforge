@@ -1,5 +1,5 @@
 name: CustomMobTweaks
-version: 2.5.3
+version: 2.6.0
 main: me.vasya.custommobtweaks.CustomMobTweaksPlugin
 api-version: '26.1.2'
 folia-supported: true

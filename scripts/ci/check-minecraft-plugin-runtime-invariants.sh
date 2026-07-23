@@ -15,6 +15,7 @@ cmt="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/Mo
 cmt_listener="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/ListenerComponent.java"
 cmt_legacy="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/LegacyEnhancementsListener.java"
 cmt_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/IllusionerCloneManager.java"
+cmt_phantom_dive_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/PhantomDiveCloneManager.java"
 cmt_dragon_root="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/dragon"
 cmt_dragon="$cmt_dragon_root/EnderDragonRework.java"
 cmt_dragon_breath="$cmt_dragon_root/DragonBreathAttack.java"
@@ -23,7 +24,7 @@ cmt_dragon_phantom_ai="$cmt_dragon_root/DragonPhantomAttackController.java"
 cmt_main="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/CustomMobTweaksPlugin.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragon_phantoms" "$cmt_dragon_phantom_ai" "$cmt_main" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_phantom_dive_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragon_phantoms" "$cmt_dragon_phantom_ai" "$cmt_main" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -179,6 +180,40 @@ if ! grep -A8 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'max-active-per-o
 fi
 if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'minimum-lifetime-ticks: 60'; then
   fail 'bundled Illusioner clone minimum lifetime is not three seconds'
+fi
+
+grep -Fq 'new PhantomDiveCloneManager(this)' "$cmt_main" \
+  || fail 'all-phantom dive clone manager is not constructed by CustomMobTweaks'
+grep -Fq 'registerComponent(newPhantomDiveCloneManager);' "$cmt_main" \
+  || fail 'all-phantom dive clone manager is not part of the reload lifecycle'
+grep -Fq 'VanillaGoal.PHANTOM_SWEEP_ATTACK' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive copies are not tied to the real vanilla sweep goal'
+grep -Fq 'Bukkit.getMobGoals().getRunningGoals(phantom)' "$cmt_phantom_dive_clones" \
+  || fail 'phantom sweep detection does not inspect running Paper goals'
+grep -Fq 'phantom.getScheduler().runAtFixedRate' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive monitoring is not attached to each phantom entity scheduler'
+grep -Fq 'new NamespacedKey(plugin, "phantom_dive_clone")' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive copies lack their recursion-prevention PDC marker'
+grep -Fq 'if (isDiveClone(phantom))' "$cmt_phantom_dive_clones" \
+  || fail 'generated phantom copies may recursively create further copies'
+grep -Fq 'setBaseAttribute(clone, Attribute.MAX_HEALTH, health)' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive copy health is not applied as an entity attribute'
+grep -Fq 'clone.setSize(size);' "$cmt_phantom_dive_clones" \
+  || fail 'small phantom dive copy size is not applied'
+grep -Fq 'event.getDrops().clear();' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive copies may drop vanilla loot'
+grep -Fq 'Bukkit.getRegionScheduler().execute' "$cmt_phantom_dive_clones" \
+  || fail 'phantom dive copy particles/startup scans are not region scheduled'
+if grep -Eq 'Bukkit\.getScheduler\(|GlobalRegionScheduler' "$cmt_phantom_dive_clones"; then
+  fail 'phantom dive clone manager introduced a legacy/global polling scheduler'
+fi
+grep -Fq 'phantom-dive-clones:' "$cmt_config" \
+  || fail 'phantom dive clone config section is missing'
+if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -Fq 'health: 1.0'; then
+  fail 'default phantom dive copy health is not 1 HP'
+fi
+if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -Fq 'size: 0'; then
+  fail 'default phantom dive copy is not the minimum phantom size'
 fi
 
 grep -Fq 'new EnderDragonRework(this)' "$cmt_main"   || fail 'Ender Dragon rework is not constructed by CustomMobTweaks'

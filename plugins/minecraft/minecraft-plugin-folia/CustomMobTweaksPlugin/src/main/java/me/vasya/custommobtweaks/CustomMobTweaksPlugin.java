@@ -23,6 +23,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     private final Object lifecycleLock = new Object();
     private final AtomicBoolean reloadInProgress = new AtomicBoolean(false);
     private volatile HappyGhastBomberListener bomberListener;
+    private volatile PhantomDiveCloneManager phantomDiveCloneManager;
     private volatile EnderDragonRework enderDragonRework;
     private volatile boolean runtimeStarted;
 
@@ -98,6 +99,11 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         return bomberListener;
     }
 
+    public String phantomDiveCloneDiagnostics() {
+        PhantomDiveCloneManager manager = phantomDiveCloneManager;
+        return manager == null ? "phantom-dive-clones=stopped" : manager.diagnosticsSummary();
+    }
+
     public String dragonDiagnostics() {
         EnderDragonRework rework = enderDragonRework;
         return rework == null ? "dragon-runtime=stopped" : rework.diagnosticsSummary();
@@ -124,6 +130,9 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
+            PhantomDiveCloneManager newPhantomDiveCloneManager = new PhantomDiveCloneManager(this);
+            phantomDiveCloneManager = newPhantomDiveCloneManager;
+            registerComponent(newPhantomDiveCloneManager);
             EnderDragonRework newEnderDragonRework = new EnderDragonRework(this);
             enderDragonRework = newEnderDragonRework;
             registerComponent(newEnderDragonRework);
@@ -156,6 +165,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         }
         components.clear();
         bomberListener = null;
+        phantomDiveCloneManager = null;
         enderDragonRework = null;
         getLogger().info("[reload] runtime stopped reason=" + reason);
     }
@@ -164,9 +174,18 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                 "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
-                "lava-damage", "dry-weapon", "freezing-snowball", "ender-dragon-rework")) {
+                "lava-damage", "dry-weapon", "freezing-snowball", "phantom-dive-clones", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
+        getLogger().info("[reload] phantomDiveClones enabled=" + enabled("phantom-dive-clones")
+                + " monitorPeriodTicks=" + getConfig().getLong("phantom-dive-clones.monitor-period-ticks", 1L)
+                + " cooldownTicks=" + getConfig().getLong("phantom-dive-clones.cooldown-ticks", 40L)
+                + " health=" + getConfig().getDouble("phantom-dive-clones.health", 1.0D)
+                + " size=" + getConfig().getInt("phantom-dive-clones.size", 0)
+                + " lifetimeTicks=" + getConfig().getLong("phantom-dive-clones.lifetime-ticks", 200L)
+                + " maximumActiveTotal=" + getConfig().getInt("phantom-dive-clones.maximum-active-total", 96)
+                + " recursiveCopies=false"
+                + " reason=" + reason);
         getLogger().info("[reload] dragon enabled=" + enabled("ender-dragon-rework")
                 + " debug=" + getConfig().getBoolean("ender-dragon-rework.debug", false)
                 + " fireStream=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
@@ -190,7 +209,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
                 + " crystalCountMax=" + getConfig().getInt("ender-dragon-rework.crystal-field.count-max", 24)
                 + " crystalMaximumActive=" + getConfig().getInt("ender-dragon-rework.crystal-field.maximum-active", 48)
                 + " dragonBreathCrystalProtection=true"
-                + " purpleAura=true ordinaryPhantomsUntouched=true"
+                + " purpleAura=true ordinaryPhantomAppearanceUntouched=true allPhantomsCloneOnDive=true"
                 + " reason=" + reason);
         getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);
         getLogger().info("[reload] breeze-elytra chance="

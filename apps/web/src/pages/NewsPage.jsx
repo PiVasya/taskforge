@@ -16,7 +16,7 @@ import { getUpdatesIndex } from '../api/updates';
 import { getProfile } from '../api/profile';
 
 function UpdateCard({ item, index }) {
-  const isMinecraft = item.id === 'minecraft-server';
+  const isMinecraft = String(item.id || '').startsWith('minecraft-');
   const Icon = isMinecraft ? Gamepad2 : Wrench;
 
   return (

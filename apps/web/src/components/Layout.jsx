@@ -136,7 +136,7 @@ export default function Layout({
     const palettes = ["blue", "pink", "apple", "red", "honey", "violet"];
     const palette = palettes.includes(nextColorTheme) ? nextColorTheme : "pink";
 
-    root.classList.remove("blue", "pink", "apple", "red", "honey");
+    root.classList.remove("blue", "pink", "apple", "red", "honey", "violet");
     root.classList.add(palette);
 
     if (nextMode === "dark") root.classList.add("dark");

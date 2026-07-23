@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.5.3
+# CustomMobTweaks 2.6.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -292,6 +292,28 @@ happy-ghast-bomber:
   projectile-count: 5
   projectile-spread: 2.0
   projectile-speed: 0.8
+
+# -----------------------------------------------------------------------------
+# Phantom: every ordinary or dragon-spawned phantom creates one small 1 HP copy
+# when its vanilla sweep attack begins. Generated copies never copy themselves,
+# preventing recursive growth.
+# -----------------------------------------------------------------------------
+phantom-dive-clones:
+  enabled: true
+  debug: true
+  monitor-period-ticks: 1
+  cooldown-ticks: 40
+  health: 1.0
+  size: 0
+  attack-damage: 2.0
+  lifetime-ticks: 200
+  maximum-active-total: 96
+  maximum-active-per-parent: 2
+  purple-aura:
+    period-ticks: 5
+    purple-dust-particles: 5
+    dragon-breath-particles: 3
+    portal-particles: 2
 
 # -----------------------------------------------------------------------------
 # Ender Dragon: sustained wide fire stream plus a purple Phantom flock
