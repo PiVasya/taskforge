@@ -158,6 +158,18 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
                 "lava-damage", "dry-weapon", "freezing-snowball", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
+        getLogger().info("[reload] dragon enabled=" + enabled("ender-dragon-rework")
+                + " debug=" + getConfig().getBoolean("ender-dragon-rework.debug", false)
+                + " fireStream=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                + " durationTicks=" + getConfig().getLong("ender-dragon-rework.fire-stream.duration-ticks", 140L)
+                + " length=" + getConfig().getDouble("ender-dragon-rework.fire-stream.length", 42.0D)
+                + " maxRadius=" + getConfig().getDouble("ender-dragon-rework.fire-stream.maximum-radius", 5.5D)
+                + " groundFire=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.ground.place-fire", true)
+                + " breathClouds=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.ground.create-dragon-breath-clouds", true)
+                + " dragonlingScale=" + getConfig().getDouble("ender-dragon-rework.dragonling.scale", 0.25D)
+                + " dragonlingHealth=" + getConfig().getDouble("ender-dragon-rework.dragonling.health", 40.0D)
+                + " dragonlingMaximumActive=" + getConfig().getInt("ender-dragon-rework.dragonling.maximum-active", 2)
+                + " reason=" + reason);
         getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);
         getLogger().info("[reload] breeze-elytra chance="
                 + getConfig().getDouble("extra-loot.breeze.drops.elytra.chance", 0.05D)

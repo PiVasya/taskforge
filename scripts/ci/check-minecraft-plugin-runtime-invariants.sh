@@ -192,9 +192,18 @@ grep -Fq 'Particle.DRAGON_BREATH' "$cmt_dragon_breath"   || fail 'vanilla dragon
 grep -Fq 'Particle.SMOKE' "$cmt_dragon_breath"   || fail 'edge smoke is missing from the dragon stream'
 grep -Fq 'Bukkit.getRegionScheduler().execute' "$cmt_dragon_breath"   || fail 'dragon stream rendering is not dispatched to Folia region schedulers'
 grep -Fq 'player.getScheduler().run' "$cmt_dragon_breath"   || fail 'dragon stream player damage is not dispatched to player entity schedulers'
+grep -Fq 'duration-ticks", 140L' "$cmt_dragon_breath"   || fail 'dragon fire stream is not a sustained seven-second attack by default'
+grep -Fq 'block.setType(Material.FIRE, true)' "$cmt_dragon_breath"   || fail 'dragon fire stream does not place real vanilla fire blocks'
+grep -Fq 'AreaEffectCloud.class' "$cmt_dragon_breath"   || fail 'dragon fire stream does not create real dragon-breath clouds'
+grep -Fq '[dragon][fire]' "$cmt_dragon_breath"   || fail 'dragon fire diagnostics are missing'
+grep -Fq 'landing cycle start' "$cmt_dragonlings"   || fail 'dragon landing diagnostics are missing'
+grep -Fq 'dragonling spawned' "$cmt_dragonlings"   || fail 'dragonling spawn diagnostics are missing'
 grep -Fq 'new NamespacedKey("taskforge", "dragonling")' "$cmt_dragonlings"   || fail 'taskforge:dragonling PDC marker is missing'
 grep -Fq 'new NamespacedKey("taskforge", "dragonling_owner")' "$cmt_dragonlings"   || fail 'taskforge:dragonling_owner PDC marker is missing'
-grep -Fq 'EntityType.ENDER_DRAGON' "$cmt_dragonlings"   || fail 'dragonlings are not real EnderDragon entities'
+if ! grep -Fq 'EntityType.ENDER_DRAGON' "$cmt_dragonlings" \
+    && ! grep -Fq 'EnderDragon.class' "$cmt_dragonlings"; then
+  fail 'dragonlings are not real EnderDragon entities'
+fi
 grep -Fq 'Attribute.SCALE' "$cmt_dragonlings"   || fail 'dragonling server-side scale attribute is missing'
 grep -Fq 'EnderDragon.Phase.CHARGE_PLAYER' "$cmt_dragonling_ai"   || fail 'dragonling charge controller is missing'
 grep -Fq 'dragon.getTrackedBy()' "$cmt_dragonling_ai"   || fail 'dragonling target selection does not stay local to tracking players'
@@ -202,19 +211,28 @@ grep -Fq 'candidate.getScheduler().run' "$cmt_dragonling_ai"   || fail 'dragonli
 if grep -RIEq 'Bukkit\.getScheduler\(|GlobalRegionScheduler|ItemDisplay|EntityType\.PHANTOM|taskforge:dragonling' "$cmt_dragon_root"; then
   fail 'dragon rework contains a global Bukkit scheduler, display/phantom carrier, or string-only PDC shortcut'
 fi
-if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'scale: 0.25'; then
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'duration-ticks: 140'; then
+  fail 'default dragon fire stream duration is not seven seconds'
+fi
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'place-fire: true'; then
+  fail 'real dragon ground fire is not enabled by default'
+fi
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'create-dragon-breath-clouds: true'; then
+  fail 'dragon-breath ground clouds are not enabled by default'
+fi
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'scale: 0.25'; then
   fail 'default dragonling scale is not 0.25'
 fi
-if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 40.0'; then
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 40.0'; then
   fail 'default dragonling health is not 40.0'
 fi
-if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 2'; then
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 2'; then
   fail 'default maximum active dragonlings is not 2'
 fi
-if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-min-ticks: 40'; then
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-min-ticks: 40'; then
   fail 'default minimum dragonling charge cooldown is not 40 ticks'
 fi
-if ! grep -A35 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-max-ticks: 80'; then
+if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-max-ticks: 80'; then
   fail 'default maximum dragonling charge cooldown is not 80 ticks'
 fi
 

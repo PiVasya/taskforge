@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.3.0
+# CustomMobTweaks 2.3.1
 
 Единый Folia-плагин усиления мобов для Minecraft/Folia **26.1.2** и Java **25**.
 В проект перенесены и переработаны механики `CreakingPerks 1.0`, при этом сохранены старые возможности `CustomMobTweaks`.
@@ -56,9 +56,10 @@
 
 - **Эндер-дракон**
   - основной ванильный дракон сохраняет стандартный бой и AI;
-  - его настоящий драконий шар заменяется длинным движущимся 3D-потоком огня по фактическому направлению снаряда;
-  - поток расширяется к середине и сужается к концу, использует оранжевое и фиолетовое пламя, `DRAGON_BREATH` и краевой дым;
-  - блоки огня не ставятся;
+  - его настоящий драконий шар заменяется непрерывной семисекундной 3D-струёй огня по фактическому направлению снаряда;
+  - это широкий объёмный конус, который прожигает большую область в сторону цели, а не тонкий лазер;
+  - в воздухе одновременно используются оранжевое и фиолетовое пламя, `DRAGON_BREATH` и краевой дым;
+  - под струёй на поверхности появляются настоящие блоки `FIRE`, способные сжигать выпавшие предметы, и настоящие облака драконьего дыхания;
   - каждая отдельная посадка основного дракона на центральный портал создаёт одну настоящую уменьшенную сущность `EnderDragon`, пока не достигнут лимит;
   - копия помечается PDC-ключами `taskforge:dragonling` и `taskforge:dragonling_owner`, не дышит, не стреляет шарами, не лечится от кристаллов, не показывает отдельный боссбар и не выдаёт боссовый лут/опыт;
   - копия регулярно выбирает живого отслеживающего игрока и переходит в частое `CHARGE_PLAYER`;
@@ -73,17 +74,35 @@
 ```yaml
 ender-dragon-rework:
   enabled: true
+  debug: true
   fire-stream:
     enabled: true
-    length: 48.0
-    speed-blocks-per-tick: 3.0
-    minimum-radius: 0.45
-    maximum-radius: 3.2
-    damage: 8.0
+    duration-ticks: 140
+    period-ticks: 2
+    ramp-up-ticks: 18
+    length: 42.0
+    slices-per-pulse: 10
+    rays-per-slice: 3
+    spread-angle-degrees: 10.0
+    minimum-radius: 0.75
+    maximum-radius: 5.5
+    damage: 3.0
+    damage-interval-ticks: 10
+    fire-ticks: 100
+    ground:
+      enabled: true
+      place-fire: true
+      fire-lifetime-ticks: 180
+      create-dragon-breath-clouds: true
+      cloud-radius: 3.5
+      cloud-duration-ticks: 100
   dragonling:
     scale: 0.25
     health: 40.0
     maximum-active: 2
+    spawn-radius: 7.0
+    spawn-height: 5.0
+    landing-monitor-period-ticks: 5
     charge-cooldown-min-ticks: 40
     charge-cooldown-max-ticks: 80
     target-range: 72.0
@@ -184,7 +203,7 @@ gradle clean build
 Результат:
 
 ```text
-build/libs/CustomMobTweaks-2.3.0.jar
+build/libs/CustomMobTweaks-2.3.1.jar
 ```
 
 После первого запуска рабочий конфиг появится здесь:

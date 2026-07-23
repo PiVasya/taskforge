@@ -59,6 +59,11 @@ public final class DragonlingAttackController {
         task = scheduled;
         if (scheduled == null) {
             running.set(false);
+            debug("controller scheduler rejected uuid=" + dragon.getUniqueId());
+        } else {
+            debug("controller started uuid=" + dragon.getUniqueId()
+                    + " periodTicks=" + period
+                    + " firstCooldownTicks=" + cooldownTicks);
         }
     }
 
@@ -70,6 +75,7 @@ public final class DragonlingAttackController {
         if (scheduled != null) {
             scheduled.cancel();
         }
+        debug("controller stopped uuid=" + dragon.getUniqueId());
     }
 
     private void tick(long period) {
@@ -116,6 +122,8 @@ public final class DragonlingAttackController {
         if (candidates.isEmpty()) {
             targetSelectionPending.set(false);
             cooldownTicks = Math.max(20L, randomCooldown() / 2L);
+            debug("target scan empty uuid=" + dragon.getUniqueId()
+                    + " trackedPlayers=0 nextCooldownTicks=" + cooldownTicks);
             return;
         }
 
@@ -196,9 +204,15 @@ public final class DragonlingAttackController {
 
         if (nearest == null) {
             cooldownTicks = Math.max(20L, randomCooldown() / 2L);
+            debug("target scan no-valid-target uuid=" + dragon.getUniqueId()
+                    + " candidates=" + targets.size()
+                    + " nextCooldownTicks=" + cooldownTicks);
             return;
         }
 
+        debug("charge start uuid=" + dragon.getUniqueId()
+                + " target=" + nearest.player().getName() + "/" + nearest.player().getUniqueId()
+                + " distance=" + String.format(java.util.Locale.ROOT, "%.2f", Math.sqrt(nearestDistanceSquared)));
         dragon.setPodium(nearest.location().clone());
         dragon.setTarget(nearest.player());
         dragon.setPhase(EnderDragon.Phase.CHARGE_PLAYER);
@@ -215,6 +229,8 @@ public final class DragonlingAttackController {
             dragon.setPhase(EnderDragon.Phase.CIRCLING);
         }
         cooldownTicks = randomCooldown();
+        debug("charge finish uuid=" + dragon.getUniqueId()
+                + " nextCooldownTicks=" + cooldownTicks);
     }
 
     private long randomCooldown() {
@@ -240,6 +256,17 @@ public final class DragonlingAttackController {
     private void hideBossBar() {
         if (dragon.getBossBar() != null) {
             dragon.getBossBar().setVisible(false);
+        }
+    }
+
+    private boolean debugEnabled() {
+        return plugin.getConfig().getBoolean("ender-dragon-rework.debug",
+                plugin.getConfig().getBoolean("messages.debug", false));
+    }
+
+    private void debug(String message) {
+        if (debugEnabled()) {
+            plugin.getLogger().info("[dragon][dragonling-ai] " + message);
         }
     }
 

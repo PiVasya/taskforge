@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.3.0
+# CustomMobTweaks 2.3.1
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -294,31 +294,74 @@ happy-ghast-bomber:
   projectile-speed: 0.8
 
 # -----------------------------------------------------------------------------
-# Ender Dragon: vanilla primary fight plus a real 3D fire stream and scaled
-# EnderDragon copies created once per completed portal landing.
+# Ender Dragon: sustained wide fire stream plus one real scaled EnderDragon copy
+# for each completed portal landing. Detailed event logs are enabled for testing.
 # -----------------------------------------------------------------------------
 ender-dragon-rework:
   enabled: true
+  debug: true
 
   fire-stream:
     enabled: true
-    length: 48.0
-    speed-blocks-per-tick: 3.0
-    slices-per-tick: 2
-    minimum-radius: 0.45
-    maximum-radius: 3.2
-    vertical-radius-multiplier: 0.75
-    damage: 8.0
-    fire-ticks: 80
-    orange-flame-particles-per-slice: 8
-    purple-flame-particles-per-slice: 5
-    dragon-breath-particles-per-slice: 5
-    smoke-particles-per-slice: 2
+
+    # Seven seconds of continuous flame. The stream grows during the first
+    # ramp-up ticks, then keeps burning the full cone until the attack ends.
+    duration-ticks: 140
+    period-ticks: 2
+    ramp-up-ticks: 18
+    length: 42.0
+
+    # A wide three-dimensional cone, not a thin laser.
+    slices-per-pulse: 10
+    rays-per-slice: 3
+    spread-angle-degrees: 10.0
+    minimum-radius: 0.75
+    maximum-radius: 5.5
+    vertical-radius-multiplier: 0.80
+
+    # Repeated contact damage while the player remains inside the stream.
+    damage: 3.0
+    damage-interval-ticks: 10
+    fire-ticks: 100
+
+    # Particle density per sampled point of the cone.
+    orange-flame-particles-per-point: 2
+    purple-flame-particles-per-point: 1
+    dragon-breath-particles-per-point: 2
+    smoke-particles-per-point: 1
+
+    ground:
+      enabled: true
+      sample-interval-ticks: 4
+      patches-per-sample: 4
+      minimum-distance: 6.0
+      search-depth: 192.0
+      lateral-spread-multiplier: 1.25
+
+      # Real FIRE blocks burn dropped items and are removed after the lifetime.
+      place-fire: true
+      fire-lifetime-ticks: 180
+
+      # Real AreaEffectCloud entities with DRAGON_BREATH and instant damage.
+      create-dragon-breath-clouds: true
+      cloud-interval-ticks: 20
+      cloud-radius: 3.5
+      cloud-duration-ticks: 100
+      cloud-wait-ticks: 0
+      cloud-reapplication-delay-ticks: 10
+      cloud-instant-damage-amplifier: 0
 
   dragonling:
     scale: 0.25
     health: 40.0
     maximum-active: 2
+    spawn-radius: 7.0
+    spawn-height: 5.0
+
+    # Per-primary-dragon entity monitor. It is a fallback in addition to phase
+    # events and guarantees one spawn attempt for every landing cycle.
+    landing-monitor-period-ticks: 5
+
     charge-cooldown-min-ticks: 40
     charge-cooldown-max-ticks: 80
     target-range: 72.0
