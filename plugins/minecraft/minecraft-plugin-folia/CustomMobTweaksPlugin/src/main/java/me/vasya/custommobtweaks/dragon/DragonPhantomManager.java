@@ -2,7 +2,6 @@ package me.vasya.custommobtweaks.dragon;
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import me.vasya.custommobtweaks.CustomMobTweaksPlugin;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
@@ -17,9 +16,6 @@ import org.bukkit.entity.Phantom;
 import org.bukkit.event.entity.EnderDragonChangePhaseEvent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
-import org.bukkit.scoreboard.Scoreboard;
-import org.bukkit.scoreboard.ScoreboardManager;
-import org.bukkit.scoreboard.Team;
 
 import java.util.Collection;
 import java.util.Map;
@@ -32,7 +28,6 @@ import java.util.logging.Level;
 
 /** Spawns and manages purple phantom flocks owned by the primary Ender Dragon. */
 public final class DragonPhantomManager {
-    private static final String GLOW_TEAM_NAME = "cmt_drgn_ph";
     private static final Set<EnderDragon.Phase> LANDING_FAMILY = Set.of(
             EnderDragon.Phase.FLY_TO_PORTAL,
             EnderDragon.Phase.LAND_ON_PORTAL,
@@ -57,13 +52,11 @@ public final class DragonPhantomManager {
     private final Map<UUID, Integer> pendingSpawnsByOwner = new ConcurrentHashMap<>();
     private final Map<UUID, Object> ownerLocks = new ConcurrentHashMap<>();
     private final Map<UUID, PrimaryMonitor> primaryMonitors = new ConcurrentHashMap<>();
-    private final Map<UUID, String> scoreboardEntries = new ConcurrentHashMap<>();
     private final Set<UUID> retiredOwners = ConcurrentHashMap.newKeySet();
     private final AtomicInteger startupScanTasks = new AtomicInteger();
     private final AtomicInteger startupPrimaryDragons = new AtomicInteger();
     private final AtomicInteger startupOrphanPhantoms = new AtomicInteger();
     private final AtomicInteger startupLegacyDragonlings = new AtomicInteger();
-    private volatile Team glowTeam;
     private volatile boolean running;
 
     public DragonPhantomManager(CustomMobTweaksPlugin plugin, DragonPortalAbilities portalAbilities) {
@@ -73,7 +66,7 @@ public final class DragonPhantomManager {
 
     public void start() {
         running = true;
-        prepareGlowTeam();
+        debug("purple appearance mode=particle-aura-only reason=Folia-scoreboard-api-unsupported");
         debug("manager start flockSize=" + configInt("flock-size-min", 5)
                 + "-" + configInt("flock-size-max", 6)
                 + " maximumActive=" + configInt("maximum-active", 12)
@@ -106,7 +99,6 @@ public final class DragonPhantomManager {
         pendingSpawnsByOwner.clear();
         retiredOwners.clear();
         ownerLocks.clear();
-        clearGlowTeam();
         debug("manager stopped");
     }
 
@@ -258,10 +250,10 @@ public final class DragonPhantomManager {
             if (controller == null) {
                 debug("orphan dragon phantom detected source=" + source
                         + " uuid=" + phantom.getUniqueId() + " action=remove");
-                removeScoreboardEntry(phantom.getUniqueId(), phantom.getScoreboardEntryName());
+                phantom.setGlowing(false);
                 phantom.remove();
             } else {
-                ensurePurpleAppearance(phantom);
+                preparePurpleAppearance(phantom);
                 controller.start();
             }
         }, () -> debug("dragon phantom retired before add inspection source=" + source
@@ -406,7 +398,7 @@ public final class DragonPhantomManager {
             phantom.setCustomNameVisible(false);
             phantom.setAnchorLocation(anchor);
             phantom.setTarget(null);
-            phantom.setGlowing(true);
+            phantom.setGlowing(false);
 
             DragonPhantomAttackController controller = new DragonPhantomAttackController(plugin, phantom, anchor);
             Object ownerLock = ownerLocks.computeIfAbsent(ownerId, ignored -> new Object());
@@ -422,7 +414,7 @@ public final class DragonPhantomManager {
                         .add(phantom.getUniqueId());
             }
 
-            ensurePurpleAppearance(phantom);
+            preparePurpleAppearance(phantom);
             debug("dragon phantom spawned uuid=" + phantom.getUniqueId()
                     + " owner=" + ownerId
                     + " cycle=" + landingCycle
@@ -465,78 +457,11 @@ public final class DragonPhantomManager {
         }
     }
 
-    private void ensurePurpleAppearance(Phantom phantom) {
-        phantom.setGlowing(true);
-        String entry = phantom.getScoreboardEntryName();
-        UUID phantomId = phantom.getUniqueId();
-        scoreboardEntries.put(phantomId, entry);
-        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
-            Team team = glowTeam;
-            if (!running || team == null || !controllers.containsKey(phantomId)) {
-                return;
-            }
-            team.addEntry(entry);
-        });
-    }
-
-    private void prepareGlowTeam() {
-        ScoreboardManager manager = Bukkit.getScoreboardManager();
-        if (manager == null) {
-            plugin.getLogger().warning("[dragon][phantoms] scoreboard manager unavailable; purple particles remain enabled");
-            return;
-        }
-        Scoreboard scoreboard = manager.getMainScoreboard();
-        Team team = scoreboard.getTeam(GLOW_TEAM_NAME);
-        if (team == null) {
-            team = scoreboard.registerNewTeam(GLOW_TEAM_NAME);
-        } else if (!team.getEntries().isEmpty()) {
-            team.removeEntries(Set.copyOf(team.getEntries()));
-        }
-        team.color(NamedTextColor.DARK_PURPLE);
-        team.setAllowFriendlyFire(false);
-        team.setCanSeeFriendlyInvisibles(true);
-        glowTeam = team;
-        debug("purple glow team ready name=" + GLOW_TEAM_NAME);
-    }
-
-    private void clearGlowTeam() {
-        Team team = glowTeam;
-        glowTeam = null;
-        if (team == null) {
-            scoreboardEntries.clear();
-            return;
-        }
-        Set<String> entries = Set.copyOf(scoreboardEntries.values());
-        scoreboardEntries.clear();
-        try {
-            if (!entries.isEmpty()) {
-                team.removeEntries(entries);
-            }
-            team.unregister();
-        } catch (IllegalStateException ignored) {
-            // Already unregistered by a concurrent shutdown/reload path.
-        }
-    }
-
-    private void removeScoreboardEntry(UUID phantomId, String fallbackEntry) {
-        String entry = scoreboardEntries.remove(phantomId);
-        if (entry == null) {
-            entry = fallbackEntry;
-        }
-        if (entry == null) {
-            return;
-        }
-        String finalEntry = entry;
-        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
-            Team team = glowTeam;
-            if (team != null) {
-                try {
-                    team.removeEntry(finalEntry);
-                } catch (IllegalStateException ignored) {
-                    // Team may have been unregistered during reload.
-                }
-            }
-        });
+    private void preparePurpleAppearance(Phantom phantom) {
+        // Folia explicitly considers the entire scoreboard API broken. A colored glowing
+        // outline requires scoreboard teams, so dragon phantoms use a dense purple particle
+        // aura instead. Keep the vanilla glowing flag disabled to avoid a white outline.
+        phantom.setGlowing(false);
     }
 
     private void removeOwnedPhantoms(UUID ownerId) {
@@ -584,7 +509,6 @@ public final class DragonPhantomManager {
         if (controller != null) {
             controller.stop();
         }
-        removeScoreboardEntry(phantomId, null);
     }
 
     private UUID ownerOf(Phantom phantom) {
@@ -605,16 +529,13 @@ public final class DragonPhantomManager {
     }
 
     private void removeOnEntityThread(Phantom phantom, String reason) {
-        String fallbackEntry = scoreboardEntries.get(phantom.getUniqueId());
         phantom.getScheduler().run(plugin, task -> {
             if (isDragonPhantom(phantom) && phantom.isValid()) {
                 debug("dragon phantom remove uuid=" + phantom.getUniqueId() + " reason=" + reason);
-                removeScoreboardEntry(phantom.getUniqueId(), phantom.getScoreboardEntryName());
+                phantom.setGlowing(false);
                 phantom.remove();
-            } else {
-                removeScoreboardEntry(phantom.getUniqueId(), fallbackEntry);
             }
-        }, () -> removeScoreboardEntry(phantom.getUniqueId(), fallbackEntry));
+        }, null);
     }
 
     private void removeLegacyDragonling(EnderDragon dragon, String source) {
@@ -655,7 +576,7 @@ public final class DragonPhantomManager {
                                     startupOrphanPhantoms.incrementAndGet();
                                     debug("startup orphan dragon phantom uuid=" + phantom.getUniqueId()
                                             + " action=remove");
-                                    removeScoreboardEntry(phantom.getUniqueId(), phantom.getScoreboardEntryName());
+                                    phantom.setGlowing(false);
                                     phantom.remove();
                                 }
                             }

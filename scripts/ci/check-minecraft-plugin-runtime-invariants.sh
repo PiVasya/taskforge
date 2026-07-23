@@ -212,8 +212,10 @@ grep -Fq 'new NamespacedKey("taskforge", "dragon_phantom_owner")' "$cmt_dragon_p
 grep -Fq 'Phantom.class' "$cmt_dragon_phantoms"   || fail 'dragon minions are not real Phantom entities'
 grep -Fq 'phantom.setSize(size);' "$cmt_dragon_phantoms"   || fail 'dragon phantom size configuration is not applied'
 grep -Fq 'phantom.setShouldBurnInDay(false);' "$cmt_dragon_phantoms"   || fail 'dragon phantoms still burn in daylight'
-grep -Fq 'NamedTextColor.DARK_PURPLE' "$cmt_dragon_phantoms"   || fail 'dark-purple glowing team is missing'
-grep -Fq 'phantom.setGlowing(true);' "$cmt_dragon_phantoms"   || fail 'dragon phantom glowing flag is missing'
+grep -Fq 'phantom.setGlowing(false);' "$cmt_dragon_phantoms"   || fail 'dragon phantoms may retain an uncolored white glow outline'
+if grep -RIEq 'org\.bukkit\.scoreboard|registerNewTeam|NamedTextColor\.DARK_PURPLE' "$cmt_dragon_root"; then
+  fail 'dragon rework uses Folia-unsupported scoreboard APIs'
+fi
 grep -Fq 'legacyDragonlingKey' "$cmt_dragon_phantoms"   || fail 'old dragonling entities are not cleaned up during upgrade'
 
 grep -Fq 'phantom.getTrackedBy()' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom target selection does not stay local to tracking players'

@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.5.2
+# CustomMobTweaks 2.5.3
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -435,8 +435,9 @@ ender-dragon-rework:
     target-refresh-period-ticks: 20
     target-range: 72.0
 
-    # Only marked dragon phantoms receive the dark-purple glowing team and this
-    # particle aura. Ordinary phantoms are not changed.
+    # Folia does not support scoreboard teams, so marked dragon phantoms use a
+    # dense purple particle aura instead of a colored glowing outline. Ordinary
+    # phantoms are never changed.
     aura:
       period-ticks: 5
       purple-dust-particles: 8

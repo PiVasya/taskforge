@@ -109,8 +109,9 @@ public final class DragonPhantomAttackController {
         if (phantom.getFireTicks() > 0) {
             phantom.setFireTicks(0);
         }
-        if (!phantom.isGlowing()) {
-            phantom.setGlowing(true);
+        if (phantom.isGlowing()) {
+            // Colored outlines require scoreboard teams, which Folia does not support.
+            phantom.setGlowing(false);
         }
 
         anchorResetTicks -= period;
