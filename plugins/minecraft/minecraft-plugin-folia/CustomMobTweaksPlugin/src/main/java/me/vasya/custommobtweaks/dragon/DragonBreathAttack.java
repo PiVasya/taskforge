@@ -129,6 +129,10 @@ public final class DragonBreathAttack {
         }
     }
 
+    public boolean isDragonBreathCloud(AreaEffectCloud cloud) {
+        return cloud.getPersistentDataContainer().has(cloudKey, PersistentDataType.BYTE);
+    }
+
     public void shutdown() {
         running.set(false);
         for (AttackState state : Set.copyOf(activeAttacks)) {

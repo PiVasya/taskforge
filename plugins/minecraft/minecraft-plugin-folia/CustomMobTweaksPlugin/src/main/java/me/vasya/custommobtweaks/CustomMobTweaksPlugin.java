@@ -166,9 +166,20 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
                 + " maxRadius=" + getConfig().getDouble("ender-dragon-rework.fire-stream.maximum-radius", 5.5D)
                 + " groundFire=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.ground.place-fire", true)
                 + " breathClouds=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.ground.create-dragon-breath-clouds", true)
-                + " dragonlingScale=" + getConfig().getDouble("ender-dragon-rework.dragonling.scale", 0.25D)
-                + " dragonlingHealth=" + getConfig().getDouble("ender-dragon-rework.dragonling.health", 40.0D)
-                + " dragonlingMaximumActive=" + getConfig().getInt("ender-dragon-rework.dragonling.maximum-active", 2)
+                + " phantomFlockMin=" + getConfig().getInt("ender-dragon-rework.phantoms.flock-size-min", 5)
+                + " phantomFlockMax=" + getConfig().getInt("ender-dragon-rework.phantoms.flock-size-max", 6)
+                + " phantomMaximumActive=" + getConfig().getInt("ender-dragon-rework.phantoms.maximum-active", 12)
+                + " phantomSizeMin=" + getConfig().getInt("ender-dragon-rework.phantoms.size-min", 1)
+                + " phantomSizeMax=" + getConfig().getInt("ender-dragon-rework.phantoms.size-max", 3)
+                + " healthMultiplier=" + getConfig().getDouble("ender-dragon-rework.primary-dragon.health-multiplier", 2.0D)
+                + " voidRoar=" + getConfig().getBoolean("ender-dragon-rework.void-roar.enabled", true)
+                + " voidRoarRadius=" + getConfig().getDouble("ender-dragon-rework.void-roar.maximum-radius", 20.0D)
+                + " crystalField=" + getConfig().getBoolean("ender-dragon-rework.crystal-field.enabled", true)
+                + " crystalCountMin=" + getConfig().getInt("ender-dragon-rework.crystal-field.count-min", 18)
+                + " crystalCountMax=" + getConfig().getInt("ender-dragon-rework.crystal-field.count-max", 24)
+                + " crystalMaximumActive=" + getConfig().getInt("ender-dragon-rework.crystal-field.maximum-active", 48)
+                + " dragonBreathCrystalProtection=true"
+                + " purpleAura=true ordinaryPhantomsUntouched=true"
                 + " reason=" + reason);
         getLogger().info("[reload] hazard-zones=REMOVED existing-config-keys-ignored=true reason=" + reason);
         getLogger().info("[reload] breeze-elytra chance="

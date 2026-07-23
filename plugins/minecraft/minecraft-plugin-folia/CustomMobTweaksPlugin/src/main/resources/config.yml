@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.3.1
+# CustomMobTweaks 2.5.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -294,12 +294,55 @@ happy-ghast-bomber:
   projectile-speed: 0.8
 
 # -----------------------------------------------------------------------------
-# Ender Dragon: sustained wide fire stream plus one real scaled EnderDragon copy
+# Ender Dragon: sustained wide fire stream plus a purple Phantom flock
 # for each completed portal landing. Detailed event logs are enabled for testing.
 # -----------------------------------------------------------------------------
 ender-dragon-rework:
   enabled: true
   debug: true
+
+  # The primary vanilla Ender Dragon keeps its normal AI, but its maximum
+  # health is multiplied once from the vanilla base. Reload preserves the
+  # current health percentage instead of multiplying the value repeatedly.
+  primary-dragon:
+    health-multiplier: 2.0
+
+  # Triggered once when a genuinely seated dragon leaves the exit portal.
+  # The expanding two-layer ring damages, pushes, darkens and temporarily
+  # prevents Elytra activation for players caught by the wave.
+  void-roar:
+    enabled: true
+    maximum-radius: 20.0
+    expansion-period-ticks: 2
+    ring-step: 3.0
+    ring-thickness: 1.75
+    vertical-range: 12.0
+    lower-ring-height: 1.2
+    upper-ring-height: 3.2
+    points-per-ring: 72
+
+    damage: 4.0
+    horizontal-knockback: 2.2
+    vertical-knockback: 0.65
+    darkness-duration-ticks: 80
+    disable-elytra-duration-ticks: 50
+
+    dragon-breath-particles-per-point: 1
+    portal-particles-per-point: 1
+    smoke-particles-per-point: 1
+
+  # After the same completed portal sitting cycle, crystals are scattered over
+  # valid End-stone/obsidian surfaces around the main island. They are normal
+  # destructible End Crystals and can heal the primary dragon.
+  crystal-field:
+    enabled: true
+    count-min: 18
+    count-max: 24
+    maximum-active: 48
+    minimum-radius: 18.0
+    maximum-radius: 96.0
+    placement-attempts-per-crystal: 8
+    show-bottom: true
 
   fire-stream:
     enabled: true
@@ -351,23 +394,49 @@ ender-dragon-rework:
       cloud-reapplication-delay-ticks: 10
       cloud-instant-damage-amplifier: 0
 
-  dragonling:
-    scale: 0.25
-    health: 40.0
-    maximum-active: 2
+  phantoms:
+    # Every confirmed landing creates one flock. The flock size is randomly
+    # selected between these two values, while maximum-active limits all living
+    # dragon-owned phantoms for one primary dragon.
+    flock-size-min: 5
+    flock-size-max: 6
+    maximum-active: 12
+
+    # Real Phantom size values. Only phantoms marked by this module use them;
+    # naturally spawned phantoms are never modified.
+    size-min: 1
+    size-max: 3
+    health: 20.0
+    attack-damage: 6.0
+
+    # Spawn around the real exit portal and circle above it between swoops.
     spawn-radius: 7.0
-    spawn-height: 5.0
+    spawn-height: 12.0
+    anchor-height: 18.0
+    anchor-reset-period-ticks: 40
 
-    # Per-primary-dragon entity monitor. It is a fallback in addition to phase
-    # events and guarantees one spawn attempt for every landing cycle.
+    # A LAND_ON_PORTAL phase begins while the dragon is still flying from far
+    # away. Spawning is allowed only after it is physically close to the real
+    # exit portal for the configured number of distinct monitor samples.
     landing-monitor-period-ticks: 5
+    landing-horizontal-radius: 8.0
+    landing-vertical-radius: 16.0
+    landing-confirmation-samples: 2
 
-    charge-cooldown-min-ticks: 40
-    charge-cooldown-max-ticks: 80
-    target-range: 72.0
-    collision-damage: 6.0
+    # Vanilla phantom AI performs the actual circling and dives. The controller
+    # only refreshes a valid player target and keeps the flock near the portal.
     controller-period-ticks: 5
-    charge-duration-ticks: 50
+    target-refresh-period-ticks: 20
+    target-range: 72.0
+
+    # Only marked dragon phantoms receive the dark-purple glowing team and this
+    # particle aura. Ordinary phantoms are not changed.
+    aura:
+      period-ticks: 5
+      purple-dust-particles: 8
+      dragon-breath-particles: 6
+      witch-particles: 3
+      portal-particles: 4
 
 # -----------------------------------------------------------------------------
 # Additional loot. Potion-compatible drops may use potion-type.

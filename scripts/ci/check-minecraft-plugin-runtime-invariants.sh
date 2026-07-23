@@ -18,12 +18,12 @@ cmt_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtw
 cmt_dragon_root="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/dragon"
 cmt_dragon="$cmt_dragon_root/EnderDragonRework.java"
 cmt_dragon_breath="$cmt_dragon_root/DragonBreathAttack.java"
-cmt_dragonlings="$cmt_dragon_root/DragonlingManager.java"
-cmt_dragonling_ai="$cmt_dragon_root/DragonlingAttackController.java"
+cmt_dragon_phantoms="$cmt_dragon_root/DragonPhantomManager.java"
+cmt_dragon_phantom_ai="$cmt_dragon_root/DragonPhantomAttackController.java"
 cmt_main="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/CustomMobTweaksPlugin.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragonlings" "$cmt_dragonling_ai" "$cmt_main" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragon_phantoms" "$cmt_dragon_phantom_ai" "$cmt_main" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -183,8 +183,8 @@ fi
 
 grep -Fq 'registerComponent(new EnderDragonRework(this));' "$cmt_main"   || fail 'Ender Dragon rework is not part of the CustomMobTweaks component lifecycle'
 grep -Fq 'EnderDragonShootFireballEvent' "$cmt_dragon"   || fail 'primary Ender Dragon fireball replacement event is missing'
-grep -Fq 'EnderDragonFireballHitEvent' "$cmt_dragon"   || fail 'dragonling fireball cloud cancellation guard is missing'
-grep -Fq 'EnderDragonFlameEvent' "$cmt_dragon"   || fail 'dragonling perched flame cancellation guard is missing'
+grep -Fq 'EnderDragonFireballHitEvent' "$cmt_dragon"   || fail 'legacy dragonling fireball cloud cleanup guard is missing'
+grep -Fq 'EnderDragonFlameEvent' "$cmt_dragon"   || fail 'legacy dragonling perched flame cleanup guard is missing'
 grep -Fq 'event.setCancelled(true);' "$cmt_dragon"   || fail 'vanilla dragon fireball is not cancelled before the stream starts'
 grep -Fq 'Particle.FLAME' "$cmt_dragon_breath"   || fail 'orange fire particles are missing from the dragon stream'
 grep -Fq 'Particle.DUST_COLOR_TRANSITION' "$cmt_dragon_breath"   || fail 'purple fire particles are missing from the dragon stream'
@@ -196,44 +196,71 @@ grep -Fq 'duration-ticks", 140L' "$cmt_dragon_breath"   || fail 'dragon fire str
 grep -Fq 'block.setType(Material.FIRE, true)' "$cmt_dragon_breath"   || fail 'dragon fire stream does not place real vanilla fire blocks'
 grep -Fq 'AreaEffectCloud.class' "$cmt_dragon_breath"   || fail 'dragon fire stream does not create real dragon-breath clouds'
 grep -Fq '[dragon][fire]' "$cmt_dragon_breath"   || fail 'dragon fire diagnostics are missing'
-grep -Fq 'landing cycle start' "$cmt_dragonlings"   || fail 'dragon landing diagnostics are missing'
-grep -Fq 'dragonling spawned' "$cmt_dragonlings"   || fail 'dragonling spawn diagnostics are missing'
-grep -Fq 'new NamespacedKey("taskforge", "dragonling")' "$cmt_dragonlings"   || fail 'taskforge:dragonling PDC marker is missing'
-grep -Fq 'new NamespacedKey("taskforge", "dragonling_owner")' "$cmt_dragonlings"   || fail 'taskforge:dragonling_owner PDC marker is missing'
-if ! grep -Fq 'EntityType.ENDER_DRAGON' "$cmt_dragonlings" \
-    && ! grep -Fq 'EnderDragon.class' "$cmt_dragonlings"; then
-  fail 'dragonlings are not real EnderDragon entities'
+
+grep -Fq 'landing cycle start' "$cmt_dragon_phantoms"   || fail 'dragon landing diagnostics are missing'
+grep -Fq 'getEndPortalLocation()' "$cmt_dragon_phantoms"   || fail 'phantom flock spawn does not use the real DragonBattle exit portal location'
+grep -Fq 'landing proximity acquired' "$cmt_dragon_phantoms"   || fail 'phantom flock spawn does not wait for physical portal proximity'
+grep -Fq 'landing-confirmation-samples' "$cmt_dragon_phantoms"   || fail 'dragon landing confirmation sample gate is missing'
+grep -Fq 'dragon phantom spawned' "$cmt_dragon_phantoms"   || fail 'dragon phantom spawn diagnostics are missing'
+grep -Fq 'new NamespacedKey("taskforge", "dragon_phantom")' "$cmt_dragon_phantoms"   || fail 'taskforge:dragon_phantom PDC marker is missing'
+grep -Fq 'new NamespacedKey("taskforge", "dragon_phantom_owner")' "$cmt_dragon_phantoms"   || fail 'taskforge:dragon_phantom_owner PDC marker is missing'
+grep -Fq 'Phantom.class' "$cmt_dragon_phantoms"   || fail 'dragon minions are not real Phantom entities'
+grep -Fq 'phantom.setSize(size);' "$cmt_dragon_phantoms"   || fail 'dragon phantom size configuration is not applied'
+grep -Fq 'phantom.setShouldBurnInDay(false);' "$cmt_dragon_phantoms"   || fail 'dragon phantoms still burn in daylight'
+grep -Fq 'NamedTextColor.DARK_PURPLE' "$cmt_dragon_phantoms"   || fail 'dark-purple glowing team is missing'
+grep -Fq 'phantom.setGlowing(true);' "$cmt_dragon_phantoms"   || fail 'dragon phantom glowing flag is missing'
+grep -Fq 'legacyDragonlingKey' "$cmt_dragon_phantoms"   || fail 'old dragonling entities are not cleaned up during upgrade'
+
+grep -Fq 'phantom.getTrackedBy()' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom target selection does not stay local to tracking players'
+grep -Fq 'candidate.getScheduler().run' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom candidate validation is not dispatched to player entity schedulers'
+grep -Fq 'Bukkit.getRegionScheduler().execute' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom purple aura is not dispatched to Folia region schedulers'
+grep -Fq 'Particle.DUST_COLOR_TRANSITION' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom aura lacks explicit purple dust particles'
+grep -Fq 'Particle.DRAGON_BREATH' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom aura lacks DRAGON_BREATH particles'
+grep -Fq 'Particle.WITCH' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom aura lacks WITCH particles'
+grep -Fq 'Particle.PORTAL' "$cmt_dragon_phantom_ai"   || fail 'dragon phantom aura lacks PORTAL particles'
+if grep -Fq 'candidate.getGameMode() == GameMode.CREATIVE' "$cmt_dragon_phantom_ai"; then
+  fail 'dragon phantom AI rejects creative players despite test/target rules'
 fi
-grep -Fq 'Attribute.SCALE' "$cmt_dragonlings"   || fail 'dragonling server-side scale attribute is missing'
-grep -Fq 'EnderDragon.Phase.CHARGE_PLAYER' "$cmt_dragonling_ai"   || fail 'dragonling charge controller is missing'
-grep -Fq 'dragon.getTrackedBy()' "$cmt_dragonling_ai"   || fail 'dragonling target selection does not stay local to tracking players'
-grep -Fq 'candidate.getScheduler().run' "$cmt_dragonling_ai"   || fail 'dragonling candidate validation is not dispatched to player entity schedulers'
-if grep -RIEq 'Bukkit\.getScheduler\(|GlobalRegionScheduler|ItemDisplay|EntityType\.PHANTOM|taskforge:dragonling' "$cmt_dragon_root"; then
-  fail 'dragon rework contains a global Bukkit scheduler, display/phantom carrier, or string-only PDC shortcut'
+if grep -RIEq 'Bukkit\.getScheduler\(|ItemDisplay|Attribute\.SCALE' "$cmt_dragon_root"; then
+  fail 'dragon rework contains a legacy Bukkit scheduler, display carrier, or unsupported EnderDragon scale path'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'duration-ticks: 140'; then
+if [ -e "$cmt_dragon_root/DragonlingManager.java" ] || [ -e "$cmt_dragon_root/DragonlingAttackController.java" ]; then
+  fail 'retired EnderDragon dragonling implementation is still present'
+fi
+
+grep -Fq 'isDragonPhantom(phantom)' "$cmt_dragon"   || fail 'phantom combat/death handlers are not PDC-scoped'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'duration-ticks: 140'; then
   fail 'default dragon fire stream duration is not seven seconds'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'place-fire: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'place-fire: true'; then
   fail 'real dragon ground fire is not enabled by default'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'create-dragon-breath-clouds: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'create-dragon-breath-clouds: true'; then
   fail 'dragon-breath ground clouds are not enabled by default'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'scale: 0.25'; then
-  fail 'default dragonling scale is not 0.25'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'flock-size-min: 5'; then
+  fail 'default minimum dragon phantom flock size is not 5'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 40.0'; then
-  fail 'default dragonling health is not 40.0'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'flock-size-max: 6'; then
+  fail 'default maximum dragon phantom flock size is not 6'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 2'; then
-  fail 'default maximum active dragonlings is not 2'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 12'; then
+  fail 'default maximum active dragon phantoms is not 12'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-min-ticks: 40'; then
-  fail 'default minimum dragonling charge cooldown is not 40 ticks'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'size-min: 1'; then
+  fail 'default minimum dragon phantom size is not 1'
 fi
-if ! grep -A120 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'charge-cooldown-max-ticks: 80'; then
-  fail 'default maximum dragonling charge cooldown is not 80 ticks'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'size-max: 3'; then
+  fail 'default maximum dragon phantom size is not 3'
+fi
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 20.0'; then
+  fail 'default dragon phantom health is not 20.0'
+fi
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'purple-dust-particles: 8'; then
+  fail 'default dragon phantom purple dust aura is missing'
+fi
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'landing-confirmation-samples: 2'; then
+  fail 'default phantom landing confirmation sample count is not 2'
 fi
 
 echo 'minecraft plugin runtime invariants ok'
