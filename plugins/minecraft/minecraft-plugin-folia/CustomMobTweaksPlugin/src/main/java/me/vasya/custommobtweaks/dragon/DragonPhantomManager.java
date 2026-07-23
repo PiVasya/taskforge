@@ -84,6 +84,9 @@ public final class DragonPhantomManager {
                 + " landingVerticalRadius=" + configDouble("landing-vertical-radius", 16.0D)
                 + " landingConfirmationSamples=" + configInt("landing-confirmation-samples", 2));
         inspectLoadedEntities();
+        for (World world : Bukkit.getWorlds()) {
+            inspectWorldBattle(world, "manager-start");
+        }
     }
 
     public void shutdown() {
@@ -133,6 +136,62 @@ public final class DragonPhantomManager {
         for (Entity entity : entities) {
             handleEntityAdded(entity, "entities-load");
         }
+    }
+
+    /** Directly discovers the battle dragon without depending on chunk/entity load event ordering. */
+    public void inspectWorldBattle(World world, String source) {
+        if (!running || world == null || world.getEnvironment() != World.Environment.THE_END) {
+            return;
+        }
+        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+            if (!running) {
+                return;
+            }
+            DragonBattle battle = world.getEnderDragonBattle();
+            EnderDragon dragon = battle == null ? null : battle.getEnderDragon();
+            if (dragon == null) {
+                debug("world battle discovery source=" + source
+                        + " world=" + world.getKey() + " result=no-active-dragon");
+                return;
+            }
+            dragon.getScheduler().run(plugin,
+                    task -> observePrimary(dragon, "world-battle:" + source),
+                    () -> debug("world battle dragon retired before observation source=" + source
+                            + " world=" + world.getKey()
+                            + " uuid=" + dragon.getUniqueId()));
+        });
+    }
+
+    /** Called from dragon-owned events, providing a second observer path for respawned dragons. */
+    public void handlePrimaryActivity(EnderDragon dragon, String source) {
+        if (!running || dragon == null) {
+            return;
+        }
+        observePrimary(dragon, source);
+    }
+
+    /**
+     * A vanilla EnderDragonFlameEvent is definitive proof that the primary dragon is perched and
+     * performing its portal breath attack. It therefore acts as a hard landing confirmation if the
+     * normal phase/proximity monitor was not attached in time.
+     */
+    public void handlePerchedBreath(EnderDragon dragon, Location flameLocation, String source) {
+        if (!running || dragon == null || isLegacyDragonling(dragon)) {
+            return;
+        }
+        observePrimary(dragon, source);
+        PrimaryMonitor monitor = primaryMonitors.get(dragon.getUniqueId());
+        if (monitor != null) {
+            monitor.confirmFromPerchedBreath(flameLocation, source);
+        }
+    }
+
+    public int observedPrimaryCount() {
+        return primaryMonitors.size();
+    }
+
+    public int activePhantomCount() {
+        return controllers.size();
     }
 
     public void handlePhaseChange(EnderDragonChangePhaseEvent event) {
@@ -756,22 +815,7 @@ public final class DragonPhantomManager {
             }
             if (LANDING_FAMILY.contains(phase)) {
                 if (!landingCycleActive) {
-                    landingCycleActive = true;
-                    spawnAttempted = false;
-                    approachLogged = false;
-                    landingConfirmed = false;
-                    postLandingAbilitiesTriggered = false;
-                    confirmedPortal = null;
-                    nearPortalSamples = 0;
-                    lastProximityTick = Integer.MIN_VALUE;
-                    landingCycle++;
-                    debug("landing cycle start owner=" + dragon.getUniqueId()
-                            + " cycle=" + landingCycle
-                            + " source=" + source
-                            + " phase=" + phase
-                            + " rawPodium=" + formatLocation(dragon.getPodium())
-                            + " resolvedPortal=" + formatLocation(resolvePortalAnchor(dragon))
-                            + " location=" + formatLocation(dragon.getLocation()));
+                    beginLandingCycle(phase, source);
                 }
 
                 if (LANDED_PHASES.contains(phase) && !spawnAttempted) {
@@ -874,6 +918,73 @@ public final class DragonPhantomManager {
             confirmedPortal = null;
             nearPortalSamples = 0;
             lastProximityTick = Integer.MIN_VALUE;
+        }
+
+        private void beginLandingCycle(EnderDragon.Phase phase, String source) {
+            landingCycleActive = true;
+            spawnAttempted = false;
+            approachLogged = false;
+            landingConfirmed = false;
+            postLandingAbilitiesTriggered = false;
+            confirmedPortal = null;
+            nearPortalSamples = 0;
+            lastProximityTick = Integer.MIN_VALUE;
+            landingCycle++;
+            debug("landing cycle start owner=" + dragon.getUniqueId()
+                    + " cycle=" + landingCycle
+                    + " source=" + source
+                    + " phase=" + phase
+                    + " rawPodium=" + formatLocation(dragon.getPodium())
+                    + " resolvedPortal=" + formatLocation(resolvePortalAnchor(dragon))
+                    + " location=" + formatLocation(dragon.getLocation()));
+        }
+
+        private synchronized void confirmFromPerchedBreath(Location flameLocation, String source) {
+            if (!running || !dragon.isValid() || dragon.isDead() || isLegacyDragonling(dragon)) {
+                return;
+            }
+            EnderDragon.Phase phase = dragon.getPhase();
+            if (!landingCycleActive) {
+                beginLandingCycle(phase, source + ":implicit-cycle");
+            }
+            if (spawnAttempted) {
+                debug("perched breath landing confirmation already satisfied owner=" + dragon.getUniqueId()
+                        + " cycle=" + landingCycle
+                        + " source=" + source
+                        + " phase=" + phase);
+                return;
+            }
+
+            Location portal = resolvePortalAnchor(dragon);
+            if (portal == null || portal.getWorld() != dragon.getWorld()) {
+                debug("perched breath could not confirm landing owner=" + dragon.getUniqueId()
+                        + " cycle=" + landingCycle
+                        + " source=" + source
+                        + " reason=portal-unresolved"
+                        + " flameLocation=" + formatLocation(flameLocation)
+                        + " dragonLocation=" + formatLocation(dragon.getLocation()));
+                return;
+            }
+
+            Location dragonLocation = dragon.getLocation().clone();
+            spawnAttempted = true;
+            landingConfirmed = true;
+            confirmedPortal = portal.clone();
+            nearPortalSamples = Math.max(nearPortalSamples,
+                    Math.max(1, configInt("landing-confirmation-samples", 2)));
+            debug("landing force-confirmed by perched breath owner=" + dragon.getUniqueId()
+                    + " cycle=" + landingCycle
+                    + " source=" + source
+                    + " phase=" + phase
+                    + " portal=" + formatLocation(portal)
+                    + " flameLocation=" + formatLocation(flameLocation)
+                    + " dragonLocation=" + formatLocation(dragonLocation)
+                    + " horizontalDistance=" + String.format(java.util.Locale.ROOT, "%.2f",
+                    horizontalDistance(dragonLocation, portal))
+                    + " verticalDistance=" + String.format(java.util.Locale.ROOT, "%.2f",
+                    Math.abs(dragonLocation.getY() - portal.getY()))
+                    + " action=spawn-phantom-flock-and-arm-post-landing-abilities");
+            trySpawnFlock(dragon, landingCycle, source, portal);
         }
 
         private synchronized void stop(String reason) {

@@ -8,6 +8,8 @@ import me.vasya.custommobtweaks.CustomMobTweaksPlugin;
 import me.vasya.custommobtweaks.PluginComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.DragonFireball;
@@ -28,7 +30,9 @@ import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 
@@ -60,6 +64,10 @@ public final class EnderDragonRework implements PluginComponent, Listener {
         plugin.getLogger().info("[dragon] module started enabled=" + enabled
                 + " fireStream=" + plugin.getConfig().getBoolean(
                 "ender-dragon-rework.fire-stream.enabled", true)
+                + " replaceStrafingFireball=" + plugin.getConfig().getBoolean(
+                "ender-dragon-rework.fire-stream.replace-strafing-fireball", true)
+                + " replacePerchedBreath=" + plugin.getConfig().getBoolean(
+                "ender-dragon-rework.fire-stream.replace-perched-breath", true)
                 + " durationTicks=" + plugin.getConfig().getLong(
                 "ender-dragon-rework.fire-stream.duration-ticks", 140L)
                 + " realGroundFire=" + plugin.getConfig().getBoolean(
@@ -101,6 +109,7 @@ public final class EnderDragonRework implements PluginComponent, Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDragonShootFireball(EnderDragonShootFireballEvent event) {
         EnderDragon dragon = event.getEntity();
+        phantomManager.handlePrimaryActivity(dragon, "shoot-fireball-event");
         boolean legacyDragonling = phantomManager.isLegacyDragonling(dragon);
         debug("shoot event dragon=" + dragon.getUniqueId()
                 + " legacyDragonling=" + legacyDragonling
@@ -117,8 +126,10 @@ public final class EnderDragonRework implements PluginComponent, Listener {
             debug("legacy dragonling fireball cancelled dragon=" + dragon.getUniqueId());
             return;
         }
-        if (!plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)) {
-            debug("shoot event kept vanilla reason=fire-stream-disabled dragon=" + dragon.getUniqueId());
+        if (!plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                || !plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-strafing-fireball", true)) {
+            debug("shoot event kept vanilla reason=fire-stream-or-strafing-replacement-disabled dragon="
+                    + dragon.getUniqueId());
             return;
         }
 
@@ -135,7 +146,7 @@ public final class EnderDragonRework implements PluginComponent, Listener {
                 + " fireball=" + fireball.getUniqueId()
                 + " origin=" + formatLocation(fireball.getLocation())
                 + " direction=" + formatVector(direction));
-        breathAttack.start(dragon, fireball.getLocation().clone(), direction);
+        breathAttack.start(dragon, fireball.getLocation().clone(), direction, "vanilla-strafing-fireball");
     }
 
     /** Fallback if another server path launches a DragonFireball without the dedicated Paper event. */
@@ -146,6 +157,7 @@ public final class EnderDragonRework implements PluginComponent, Listener {
             return;
         }
 
+        phantomManager.handlePrimaryActivity(dragon, "projectile-launch-fallback");
         boolean legacyDragonling = phantomManager.isLegacyDragonling(dragon);
         boolean alreadyReplaced = fireball.getPersistentDataContainer()
                 .has(replacedFireballKey, PersistentDataType.BYTE);
@@ -161,7 +173,8 @@ public final class EnderDragonRework implements PluginComponent, Listener {
             return;
         }
         if (!plugin.enabled("ender-dragon-rework")
-                || !plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)) {
+                || !plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                || !plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-strafing-fireball", true)) {
             return;
         }
 
@@ -179,7 +192,7 @@ public final class EnderDragonRework implements PluginComponent, Listener {
                 + " fireball=" + fireball.getUniqueId()
                 + " origin=" + formatLocation(fireball.getLocation())
                 + " direction=" + formatVector(direction));
-        breathAttack.start(dragon, fireball.getLocation().clone(), direction);
+        breathAttack.start(dragon, fireball.getLocation().clone(), direction, "projectile-launch-fallback");
     }
 
     /** Cleans clouds produced by old dragonling entities left by 2.3.x. */
@@ -196,17 +209,53 @@ public final class EnderDragonRework implements PluginComponent, Listener {
         debug("legacy dragonling fireball cloud cancelled dragon=" + dragon.getUniqueId());
     }
 
-    /** Cleans perched breath produced by old dragonling entities left by 2.3.x. */
+    /** Replaces the vanilla perched breath cloud with the same seven-second mega fire stream. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDragonFlame(EnderDragonFlameEvent event) {
-        if (!phantomManager.isLegacyDragonling(event.getEntity())) {
+        EnderDragon dragon = event.getEntity();
+        AreaEffectCloud cloud = event.getAreaEffectCloud();
+        Location cloudLocation = cloud.getLocation().clone();
+        boolean legacyDragonling = phantomManager.isLegacyDragonling(dragon);
+        debug("perched flame event dragon=" + dragon.getUniqueId()
+                + " legacyDragonling=" + legacyDragonling
+                + " phase=" + dragon.getPhase()
+                + " cloud=" + cloud.getUniqueId()
+                + " cloudLocation=" + formatLocation(cloudLocation)
+                + " initiallyCancelled=" + event.isCancelled());
+
+        if (legacyDragonling) {
+            event.setCancelled(true);
+            if (cloud.isValid()) {
+                cloud.remove();
+            }
+            debug("legacy dragonling flame cloud cancelled dragon=" + dragon.getUniqueId());
             return;
         }
-        event.setCancelled(true);
-        if (event.getAreaEffectCloud().isValid()) {
-            event.getAreaEffectCloud().remove();
+        if (!plugin.enabled("ender-dragon-rework")) {
+            return;
         }
-        debug("legacy dragonling flame cloud cancelled dragon=" + event.getEntity().getUniqueId());
+
+        // The perched flame callback is also the strongest possible landing confirmation.
+        phantomManager.handlePerchedBreath(dragon, cloudLocation, "perched-flame-event");
+
+        if (!plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                || !plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-perched-breath", true)) {
+            debug("perched flame kept vanilla reason=fire-stream-or-perched-replacement-disabled dragon="
+                    + dragon.getUniqueId());
+            return;
+        }
+
+        Location origin = dragon.getEyeLocation().clone();
+        Vector direction = perchedBreathDirection(dragon, origin, cloudLocation);
+        event.setCancelled(true);
+        if (cloud.isValid()) {
+            cloud.remove();
+        }
+        debug("vanilla perched breath replaced dragon=" + dragon.getUniqueId()
+                + " origin=" + formatLocation(origin)
+                + " target=" + formatLocation(cloudLocation)
+                + " direction=" + formatVector(direction));
+        breathAttack.start(dragon, origin, direction, "vanilla-perched-breath");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -215,6 +264,11 @@ public final class EnderDragonRework implements PluginComponent, Listener {
             return;
         }
         phantomManager.handlePhaseChange(event);
+        if (event.getNewPhase() == EnderDragon.Phase.BREATH_ATTACK
+                && plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                && plugin.getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-perched-breath", true)) {
+            scheduleBreathPhaseFallback(event.getEntity());
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -303,6 +357,19 @@ public final class EnderDragonRework implements PluginComponent, Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldLoad(WorldLoadEvent event) {
+        phantomManager.inspectWorldBattle(event.getWorld(), "world-load");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
+        World world = event.getPlayer().getWorld();
+        if (world.getEnvironment() == World.Environment.THE_END) {
+            phantomManager.inspectWorldBattle(world, "player-enter-end:" + event.getPlayer().getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onEntityAddToWorld(EntityAddToWorldEvent event) {
         phantomManager.handleEntityAdded(event.getEntity(), "entity-add-to-world");
         portalAbilities.handleEntityAdded(event.getEntity(), "entity-add-to-world");
@@ -317,6 +384,46 @@ public final class EnderDragonRework implements PluginComponent, Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onEntityRemove(EntityRemoveEvent event) {
         portalAbilities.handleEntityRemoved(event.getEntity());
+    }
+
+    public String diagnosticsSummary() {
+        return "observedPrimaries=" + phantomManager.observedPrimaryCount()
+                + " activeStreams=" + breathAttack.activeAttackCount()
+                + " activeDragonPhantoms=" + phantomManager.activePhantomCount()
+                + " activeVoidRoars=" + portalAbilities.activeRoarCount()
+                + " activeDragonCrystals=" + portalAbilities.activeCrystalCount();
+    }
+
+    private void scheduleBreathPhaseFallback(EnderDragon dragon) {
+        dragon.getScheduler().runDelayed(plugin, task -> {
+            if (!plugin.enabled("ender-dragon-rework")
+                    || dragon.isDead()
+                    || !dragon.isValid()
+                    || dragon.getPhase() != EnderDragon.Phase.BREATH_ATTACK
+                    || breathAttack.hasActiveAttack(dragon)) {
+                return;
+            }
+            Location origin = dragon.getEyeLocation().clone();
+            Vector direction = dragon.getLocation().getDirection();
+            if (direction.lengthSquared() < 0.0001D) {
+                direction = new Vector(0.0D, -0.20D, 1.0D);
+            }
+            debug("breath phase fallback starting stream dragon=" + dragon.getUniqueId()
+                    + " origin=" + formatLocation(origin)
+                    + " direction=" + formatVector(direction));
+            breathAttack.start(dragon, origin, direction.normalize(), "breath-phase-fallback");
+        }, () -> debug("breath phase fallback retired dragon=" + dragon.getUniqueId()), 2L);
+    }
+
+    private Vector perchedBreathDirection(EnderDragon dragon, Location origin, Location cloudLocation) {
+        Vector direction = cloudLocation.toVector().subtract(origin.toVector());
+        if (direction.lengthSquared() < 1.0D) {
+            direction = dragon.getLocation().getDirection();
+        }
+        if (direction.lengthSquared() < 0.0001D) {
+            direction = new Vector(0.0D, -0.20D, 1.0D);
+        }
+        return direction.normalize();
     }
 
     private boolean isDragonBreathDamage(EnderCrystal crystal, EntityDamageEvent event) {

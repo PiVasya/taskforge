@@ -23,6 +23,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     private final Object lifecycleLock = new Object();
     private final AtomicBoolean reloadInProgress = new AtomicBoolean(false);
     private volatile HappyGhastBomberListener bomberListener;
+    private volatile EnderDragonRework enderDragonRework;
     private volatile boolean runtimeStarted;
 
     @Override
@@ -97,6 +98,11 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         return bomberListener;
     }
 
+    public String dragonDiagnostics() {
+        EnderDragonRework rework = enderDragonRework;
+        return rework == null ? "dragon-runtime=stopped" : rework.diagnosticsSummary();
+    }
+
     public boolean enabled(String path) {
         return getConfig().getBoolean(path + ".enabled", false);
     }
@@ -118,7 +124,9 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
-            registerComponent(new EnderDragonRework(this));
+            EnderDragonRework newEnderDragonRework = new EnderDragonRework(this);
+            enderDragonRework = newEnderDragonRework;
+            registerComponent(newEnderDragonRework);
             registerComponent(newBomberListener);
 
             runtimeStarted = true;
@@ -148,6 +156,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         }
         components.clear();
         bomberListener = null;
+        enderDragonRework = null;
         getLogger().info("[reload] runtime stopped reason=" + reason);
     }
 
@@ -161,6 +170,8 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         getLogger().info("[reload] dragon enabled=" + enabled("ender-dragon-rework")
                 + " debug=" + getConfig().getBoolean("ender-dragon-rework.debug", false)
                 + " fireStream=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.enabled", true)
+                + " replaceStrafingFireball=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-strafing-fireball", true)
+                + " replacePerchedBreath=" + getConfig().getBoolean("ender-dragon-rework.fire-stream.replace-perched-breath", true)
                 + " durationTicks=" + getConfig().getLong("ender-dragon-rework.fire-stream.duration-ticks", 140L)
                 + " length=" + getConfig().getDouble("ender-dragon-rework.fire-stream.length", 42.0D)
                 + " maxRadius=" + getConfig().getDouble("ender-dragon-rework.fire-stream.maximum-radius", 5.5D)

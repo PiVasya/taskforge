@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.5.1
+# CustomMobTweaks 2.5.2
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -346,6 +346,12 @@ ender-dragon-rework:
 
   fire-stream:
     enabled: true
+
+    # Replace both vanilla ranged attack paths. STRAFING normally shoots one
+    # DragonFireball, while BREATH_ATTACK normally creates a stationary cloud
+    # when the dragon is perched on the exit portal.
+    replace-strafing-fireball: true
+    replace-perched-breath: true
 
     # Seven seconds of continuous flame. The stream grows during the first
     # ramp-up ticks, then keeps burning the full cone until the attack ends.

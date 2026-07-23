@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
 /** Sustained wide three-dimensional dragon fire stream with real ground fire and breath clouds. */
@@ -47,6 +48,7 @@ public final class DragonBreathAttack {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong sequence = new AtomicLong();
     private final Set<AttackState> activeAttacks = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, AttackState> activeAttacksByDragon = new ConcurrentHashMap<>();
     private final Set<AreaEffectCloud> activeClouds = ConcurrentHashMap.newKeySet();
     private final Map<BlockKey, Location> placedFire = new ConcurrentHashMap<>();
 
@@ -61,25 +63,63 @@ public final class DragonBreathAttack {
     }
 
     public void start(EnderDragon dragon, Location projectileOrigin, Vector projectileDirection) {
+        start(dragon, projectileOrigin, projectileDirection, "dragon-fireball");
+    }
+
+    /**
+     * Starts the seven-second stream or retargets the stream that is already active for this dragon.
+     * Vanilla perched breath can create more than one flame callback during one phase, so one dragon
+     * is intentionally limited to one active stream at a time.
+     */
+    public boolean start(EnderDragon dragon, Location projectileOrigin, Vector projectileDirection, String trigger) {
         if (!running.get() || projectileOrigin.getWorld() == null || projectileDirection.lengthSquared() < 0.0001D) {
             debug("fire stream rejected dragon=" + dragon.getUniqueId()
+                    + " trigger=" + trigger
                     + " running=" + running.get()
                     + " worldPresent=" + (projectileOrigin.getWorld() != null)
                     + " directionLengthSquared=" + projectileDirection.lengthSquared());
-            return;
+            return false;
+        }
+
+        Vector direction = projectileDirection.clone().normalize();
+        Aim aim = new Aim(direction, createBasis(direction));
+        UUID dragonId = dragon.getUniqueId();
+        AttackState existing = activeAttacksByDragon.get(dragonId);
+        if (existing != null && existing.active.get()) {
+            existing.aim.set(aim);
+            existing.retargets.incrementAndGet();
+            debug("fire stream retarget id=" + existing.id
+                    + " dragon=" + dragonId
+                    + " trigger=" + trigger
+                    + " origin=" + formatLocation(projectileOrigin)
+                    + " direction=" + formatVector(direction)
+                    + " elapsedTicks=" + existing.elapsedTicks.get());
+            return false;
         }
 
         long attackId = sequence.incrementAndGet();
         long durationTicks = Math.max(20L, configLong("duration-ticks", 140L));
         long periodTicks = Math.max(1L, configLong("period-ticks", 2L));
-        Vector direction = projectileDirection.clone().normalize();
-        Basis basis = createBasis(direction);
-        AttackState state = new AttackState(attackId, dragon.getUniqueId(), direction, basis, durationTicks, periodTicks);
+        AttackState state = new AttackState(attackId, dragonId, trigger, aim, durationTicks, periodTicks);
+        AttackState raced = activeAttacksByDragon.putIfAbsent(dragonId, state);
+        if (raced != null && raced.active.get()) {
+            raced.aim.set(aim);
+            raced.retargets.incrementAndGet();
+            debug("fire stream retarget-race id=" + raced.id
+                    + " dragon=" + dragonId
+                    + " trigger=" + trigger
+                    + " direction=" + formatVector(direction));
+            return false;
+        }
+        if (raced != null) {
+            activeAttacksByDragon.replace(dragonId, raced, state);
+        }
         activeAttacks.add(state);
 
         playStartSound(projectileOrigin);
         debug("fire stream start id=" + attackId
-                + " dragon=" + dragon.getUniqueId()
+                + " dragon=" + dragonId
+                + " trigger=" + trigger
                 + " world=" + projectileOrigin.getWorld().getKey()
                 + " origin=" + formatLocation(projectileOrigin)
                 + " direction=" + formatVector(direction)
@@ -113,11 +153,13 @@ public final class DragonBreathAttack {
             }
 
             try {
-                Location mouth = dragon.getEyeLocation().clone().add(direction.clone().multiply(1.35D));
-                renderPulse(state, mouth, elapsed);
+                Aim currentAim = state.aim.get();
+                Location mouth = dragon.getEyeLocation().clone()
+                        .add(currentAim.direction().clone().multiply(1.35D));
+                renderPulse(state, currentAim, mouth, elapsed);
             } catch (Throwable error) {
                 plugin.getLogger().log(Level.SEVERE,
-                        "[dragon][fire] attack failed id=" + attackId + " dragon=" + dragon.getUniqueId(), error);
+                        "[dragon][fire] attack failed id=" + attackId + " dragon=" + dragonId, error);
                 finish(state, "exception-" + error.getClass().getSimpleName());
             }
         }, () -> finish(state, "entity-retired"), 1L, periodTicks);
@@ -126,7 +168,18 @@ public final class DragonBreathAttack {
         state.task = task;
         if (task == null) {
             finish(state, "scheduler-rejected");
+            return false;
         }
+        return true;
+    }
+
+    public boolean hasActiveAttack(EnderDragon dragon) {
+        AttackState state = activeAttacksByDragon.get(dragon.getUniqueId());
+        return state != null && state.active.get();
+    }
+
+    public int activeAttackCount() {
+        return activeAttacks.size();
     }
 
     public boolean isDragonBreathCloud(AreaEffectCloud cloud) {
@@ -146,12 +199,13 @@ public final class DragonBreathAttack {
                 activeClouds.remove(cloud);
             }, () -> activeClouds.remove(cloud));
         }
+        activeAttacksByDragon.clear();
         removePlacedFire();
         debug("fire stream runtime disabled activeClouds=" + activeClouds.size()
                 + " trackedFireBlocks=" + placedFire.size());
     }
 
-    private void renderPulse(AttackState state, Location mouth, int elapsedTicks) {
+    private void renderPulse(AttackState state, Aim aim, Location mouth, int elapsedTicks) {
         World world = mouth.getWorld();
         if (world == null || !state.active.get()) {
             return;
@@ -169,10 +223,10 @@ public final class DragonBreathAttack {
             double progress = Math.min(1.0D, distance / fullLength);
             double radius = radiusAt(progress);
             for (int ray = 0; ray < rays; ray++) {
-                Vector rayDirection = rayDirection(state.basis, ray, rays, progress, spreadRadians, elapsedTicks);
+                Vector rayDirection = rayDirection(aim.basis(), ray, rays, progress, spreadRadians, elapsedTicks);
                 Location center = mouth.clone().add(rayDirection.multiply(distance));
                 double pointRadius = ray == 0 ? radius : Math.max(0.45D, radius * 0.62D);
-                dispatchStreamPoint(state, center, pointRadius, elapsedTicks);
+                dispatchStreamPoint(state, aim.basis(), center, pointRadius, elapsedTicks);
             }
         }
 
@@ -181,7 +235,7 @@ public final class DragonBreathAttack {
         maybeBurnGround(state, mouth, reach, elapsedTicks);
     }
 
-    private void dispatchStreamPoint(AttackState state, Location center, double radius, int elapsedTicks) {
+    private void dispatchStreamPoint(AttackState state, Basis basis, Location center, double radius, int elapsedTicks) {
         if (center.getWorld() == null) {
             return;
         }
@@ -189,7 +243,7 @@ public final class DragonBreathAttack {
             if (!running.get() || !state.active.get() || center.getWorld() == null) {
                 return;
             }
-            renderPoint(center, state.basis, radius);
+            renderPoint(center, basis, radius);
             damagePlayers(state, center, radius, elapsedTicks);
         });
     }
@@ -300,6 +354,7 @@ public final class DragonBreathAttack {
                 "ender-dragon-rework.fire-stream.ground.create-dragon-breath-clouds", true)
                 && elapsedTicks % Math.max(1, groundInt("cloud-interval-ticks", 20)) == 0;
 
+        Aim currentAim = state.aim.get();
         ThreadLocalRandom random = ThreadLocalRandom.current();
         for (int i = 0; i < patches; i++) {
             double distance = random.nextDouble(minimumDistance, reach + 0.0001D);
@@ -308,8 +363,8 @@ public final class DragonBreathAttack {
                     * Math.max(0.0D, groundDouble("lateral-spread-multiplier", 1.25D));
             double lateral = random.nextDouble(-width, width);
             Location airPoint = mouth.clone()
-                    .add(state.direction.clone().multiply(distance))
-                    .add(state.basis.right.clone().multiply(lateral));
+                    .add(currentAim.direction().clone().multiply(distance))
+                    .add(currentAim.basis().right().clone().multiply(lateral));
             dispatchGroundPatch(state, airPoint, cloudPulse && i == 0);
         }
     }
@@ -441,14 +496,17 @@ public final class DragonBreathAttack {
             task.cancel();
         }
         activeAttacks.remove(state);
+        activeAttacksByDragon.remove(state.dragonId, state);
         debug("fire stream finish id=" + state.id
                 + " dragon=" + state.dragonId
+                + " trigger=" + state.trigger
                 + " reason=" + reason
                 + " elapsedTicks=" + state.elapsedTicks.get()
                 + " pulses=" + state.pulses.get()
                 + " damageApplications=" + state.damageApplications.get()
                 + " fireBlocks=" + state.fireBlocks.get()
-                + " breathClouds=" + state.breathClouds.get());
+                + " breathClouds=" + state.breathClouds.get()
+                + " retargets=" + state.retargets.get());
     }
 
     private void playStartSound(Location origin) {
@@ -569,8 +627,8 @@ public final class DragonBreathAttack {
     private static final class AttackState {
         private final long id;
         private final UUID dragonId;
-        private final Vector direction;
-        private final Basis basis;
+        private final String trigger;
+        private final AtomicReference<Aim> aim;
         private final long durationTicks;
         private final long periodTicks;
         private final AtomicBoolean active = new AtomicBoolean(true);
@@ -579,18 +637,22 @@ public final class DragonBreathAttack {
         private final AtomicInteger damageApplications = new AtomicInteger();
         private final AtomicInteger fireBlocks = new AtomicInteger();
         private final AtomicInteger breathClouds = new AtomicInteger();
+        private final AtomicInteger retargets = new AtomicInteger();
         private final Map<UUID, Integer> nextDamageTick = new ConcurrentHashMap<>();
         private volatile ScheduledTask task;
 
-        private AttackState(long id, UUID dragonId, Vector direction, Basis basis,
+        private AttackState(long id, UUID dragonId, String trigger, Aim aim,
                             long durationTicks, long periodTicks) {
             this.id = id;
             this.dragonId = dragonId;
-            this.direction = direction;
-            this.basis = basis;
+            this.trigger = trigger;
+            this.aim = new AtomicReference<>(aim);
             this.durationTicks = durationTicks;
             this.periodTicks = periodTicks;
         }
+    }
+
+    private record Aim(Vector direction, Basis basis) {
     }
 
     private record Basis(Vector forward, Vector right, Vector up) {

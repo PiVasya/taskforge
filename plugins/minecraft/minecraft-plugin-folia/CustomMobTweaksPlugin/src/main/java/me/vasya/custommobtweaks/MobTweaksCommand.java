@@ -39,6 +39,7 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage("§cНет права custommobtweaks.admin.");
                     return true;
                 }
+                sender.sendMessage("§6CustomMobTweaks " + plugin.getDescription().getVersion());
                 sender.sendMessage("§6Модули CustomMobTweaks §7(runtime="
                         + (plugin.runtimeStarted() ? "§aON" : "§cOFF") + "§7):");
                 for (String module : List.of(
@@ -47,6 +48,7 @@ public final class MobTweaksCommand implements CommandExecutor, TabCompleter {
                         "lava-damage", "dry-weapon", "freezing-snowball", "ender-dragon-rework")) {
                     sender.sendMessage("§7- §f" + module + ": " + (plugin.enabled(module) ? "§aON" : "§cOFF"));
                 }
+                sender.sendMessage("§7Dragon: §f" + plugin.dragonDiagnostics());
             }
             case "bomber" -> handleBomber(sender, args);
             default -> sendHelp(sender, label);

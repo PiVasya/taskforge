@@ -216,6 +216,14 @@ public final class DragonPortalAbilities {
         return crystal.getPersistentDataContainer().has(crystalKey, PersistentDataType.BYTE);
     }
 
+    public int activeRoarCount() {
+        return activeRoars.size();
+    }
+
+    public int activeCrystalCount() {
+        return activeCrystals.size();
+    }
+
     public boolean isElytraLocked(Player player) {
         Long deadline = elytraLocksUntilNanos.get(player.getUniqueId());
         if (deadline == null) {

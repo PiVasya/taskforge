@@ -181,11 +181,14 @@ if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'minimum-lifetim
   fail 'bundled Illusioner clone minimum lifetime is not three seconds'
 fi
 
-grep -Fq 'registerComponent(new EnderDragonRework(this));' "$cmt_main"   || fail 'Ender Dragon rework is not part of the CustomMobTweaks component lifecycle'
+grep -Fq 'new EnderDragonRework(this)' "$cmt_main"   || fail 'Ender Dragon rework is not constructed by CustomMobTweaks'
+grep -Fq 'registerComponent(newEnderDragonRework);' "$cmt_main"   || fail 'Ender Dragon rework is not part of the CustomMobTweaks component lifecycle'
 grep -Fq 'EnderDragonShootFireballEvent' "$cmt_dragon"   || fail 'primary Ender Dragon fireball replacement event is missing'
 grep -Fq 'EnderDragonFireballHitEvent' "$cmt_dragon"   || fail 'legacy dragonling fireball cloud cleanup guard is missing'
-grep -Fq 'EnderDragonFlameEvent' "$cmt_dragon"   || fail 'legacy dragonling perched flame cleanup guard is missing'
+grep -Fq 'EnderDragonFlameEvent' "$cmt_dragon"   || fail 'primary perched dragon breath replacement event is missing'
 grep -Fq 'event.setCancelled(true);' "$cmt_dragon"   || fail 'vanilla dragon fireball is not cancelled before the stream starts'
+grep -Fq 'vanilla perched breath replaced' "$cmt_dragon"   || fail 'vanilla perched breath is not replaced by the mega stream'
+grep -Fq 'handlePerchedBreath' "$cmt_dragon"   || fail 'perched breath does not hard-confirm a completed landing'
 grep -Fq 'Particle.FLAME' "$cmt_dragon_breath"   || fail 'orange fire particles are missing from the dragon stream'
 grep -Fq 'Particle.DUST_COLOR_TRANSITION' "$cmt_dragon_breath"   || fail 'purple fire particles are missing from the dragon stream'
 grep -Fq 'Particle.DRAGON_BREATH' "$cmt_dragon_breath"   || fail 'vanilla dragon-breath particles are missing from the dragon stream'
@@ -198,6 +201,8 @@ grep -Fq 'AreaEffectCloud.class' "$cmt_dragon_breath"   || fail 'dragon fire str
 grep -Fq '[dragon][fire]' "$cmt_dragon_breath"   || fail 'dragon fire diagnostics are missing'
 
 grep -Fq 'landing cycle start' "$cmt_dragon_phantoms"   || fail 'dragon landing diagnostics are missing'
+grep -Fq 'getEnderDragon()' "$cmt_dragon_phantoms"   || fail 'primary dragon discovery does not query the active DragonBattle directly'
+grep -Fq 'landing force-confirmed by perched breath' "$cmt_dragon_phantoms"   || fail 'perched breath landing fallback is missing'
 grep -Fq 'getEndPortalLocation()' "$cmt_dragon_phantoms"   || fail 'phantom flock spawn does not use the real DragonBattle exit portal location'
 grep -Fq 'landing proximity acquired' "$cmt_dragon_phantoms"   || fail 'phantom flock spawn does not wait for physical portal proximity'
 grep -Fq 'landing-confirmation-samples' "$cmt_dragon_phantoms"   || fail 'dragon landing confirmation sample gate is missing'
@@ -229,6 +234,12 @@ if [ -e "$cmt_dragon_root/DragonlingManager.java" ] || [ -e "$cmt_dragon_root/Dr
 fi
 
 grep -Fq 'isDragonPhantom(phantom)' "$cmt_dragon"   || fail 'phantom combat/death handlers are not PDC-scoped'
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'replace-perched-breath: true'; then
+  fail 'vanilla perched breath replacement is not enabled by default'
+fi
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'replace-strafing-fireball: true'; then
+  fail 'vanilla strafing fireball replacement is not enabled by default'
+fi
 if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'duration-ticks: 140'; then
   fail 'default dragon fire stream duration is not seven seconds'
 fi
