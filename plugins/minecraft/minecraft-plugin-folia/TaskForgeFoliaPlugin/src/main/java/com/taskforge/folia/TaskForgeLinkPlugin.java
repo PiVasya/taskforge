@@ -92,6 +92,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     private int deathCoordinatesCost;
     private int deathChestCost;
     private int deathTeleportCost;
+    private int deathInventoryCost;
     private DeathRecoveryManager deathRecoveryManager;
 
     private boolean debugEnabled;
@@ -344,6 +345,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
         deathCoordinatesCost = Math.max(1, getConfig().getInt("deathRecovery.coordinatesCost", 10));
         deathChestCost = Math.max(1, getConfig().getInt("deathRecovery.chestCost", 50));
         deathTeleportCost = Math.max(1, getConfig().getInt("deathRecovery.teleportCost", 100));
+        deathInventoryCost = Math.max(1, getConfig().getInt("deathRecovery.inventoryCost", 300));
 
         runtimeHttpHost = host;
         runtimeHttpPort = port;
@@ -362,7 +364,7 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                 + " timeoutSeconds=" + taskForgeTimeoutSeconds);
         getLogger().info("[TaskForgeLink][reload] death costs coordinates=" + deathCoordinatesCost
                 + " chest=" + deathChestCost + " teleport=" + deathTeleportCost
-                + " linkStatusRefresh=event-driven");
+                + " inventory=" + deathInventoryCost + " linkStatusRefresh=event-driven");
 
         if (!canCallTaskForge()) {
             getLogger().warning("[TaskForgeLink] Minecraft -> TaskForge calls are disabled because apiBaseUrl or pluginKey is empty.");
@@ -1139,18 +1141,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
     // Mirror of TaskForge MinecraftPlayerStatusDto (only fields we need)
     static final class PlayerStatusResponse {
         boolean linked;
-        boolean debuffed;
-        int score;
-        int baseRating;
         int minecraftBalance;
         int balance;
-        int minecraftSpent;
-        int minecraftRestored;
-        int minecraftAdjustment;
-        int deathCoordinatesCost;
-        int deathChestCost;
-        int deathTeleportCost;
-        int effectiveScore;
     }
 
     private static final class TfListener implements Listener {
@@ -1181,11 +1173,8 @@ public final class TaskForgeLinkPlugin extends JavaPlugin {
                     return;
                 }
                 int balance = st.minecraftBalance;
-                int coordinatesCost = st.deathCoordinatesCost > 0 ? st.deathCoordinatesCost : plugin.deathCoordinatesCost;
-                int chestCost = st.deathChestCost > 0 ? st.deathChestCost : plugin.deathChestCost;
-                int returnCost = st.deathTeleportCost > 0 ? st.deathTeleportCost : plugin.deathTeleportCost;
                 plugin.sendChat(p, "§eTaskForge: §7Minecraft-баланс: §e" + balance
-                        + "§7. Координаты: §e" + coordinatesCost + "§7, сундук: §e" + chestCost + "§7, возврат: §e" + returnCost + "§7.");
+                        + "§7. Действия восстановления появятся в меню после смерти.");
             }, plugin.callbackExecutor());
         }
 

@@ -334,6 +334,7 @@ internal static partial class MinecraftApiEndpoints
                 deathCoordinatesCost = DeathCoordinatesCost(cfg),
                 deathChestCost = DeathChestCost(cfg),
                 deathTeleportCost = DeathTeleportCost(cfg),
+                deathInventoryCost = DeathInventoryCost(cfg),
                 deathChestAndTeleportCost = DeathChestCost(cfg) + DeathTeleportCost(cfg)
             }));
 
@@ -353,7 +354,7 @@ internal static partial class MinecraftApiEndpoints
 
             await BindLinkIdentityAsync(db, active, nick, uuid, logger, "join", ct);
             var dto = await BuildPlayerStatusAsync(active, db, cfg, httpFactory, ct);
-            logger.LogInformation("Minecraft join resolved as linked: nick={Nick} uuid={Uuid} user={UserId} balance={Balance} costs={CoordinatesCost}/{ChestCost}/{TeleportCost}", nick, uuid, active.UserId, dto.minecraftBalance, dto.deathCoordinatesCost, dto.deathChestCost, dto.deathTeleportCost);
+            logger.LogInformation("Minecraft join resolved as linked: nick={Nick} uuid={Uuid} user={UserId} balance={Balance}", nick, uuid, active.UserId, dto.minecraftBalance);
             return Microsoft.AspNetCore.Http.Results.Ok(dto);
         });
 
@@ -393,18 +394,8 @@ internal static partial class MinecraftApiEndpoints
         nick = NormalizeNick(nick),
         uuid = NormalizeUuid(uuid),
         linkCount = 0,
-        score = 0,
-        baseRating = 0,
         minecraftBalance = 0,
-        balance = 0,
-        minecraftSpent = 0,
-        minecraftRestored = 0,
-        minecraftAdjustment = 0,
-        deathCoordinatesCost = DeathCoordinatesCost(cfg),
-        deathChestCost = DeathChestCost(cfg),
-        deathTeleportCost = DeathTeleportCost(cfg),
-        effectiveScore = 0,
-        debuffed = false
+        balance = 0
     };
 
     private static async Task<MinecraftLink?> FindActiveLinkAsync(MinecraftDbContext db, string? nick, string? uuid, ILogger<Program> logger, CancellationToken ct)
@@ -553,18 +544,8 @@ internal static partial class MinecraftApiEndpoints
             active.PlayerUuid,
             active.ConfirmedAtUtc ?? active.CreatedAt,
             linkCount,
-            balance.baseRating,
-            balance.baseRating,
             balance.balance,
-            balance.balance,
-            balance.adjustmentTotal,
-            balance.spentTotal,
-            balance.restoredTotal,
-            balance.deathCoordinatesCost,
-            balance.deathChestCost,
-            balance.deathTeleportCost,
-            balance.effectiveRating,
-            false);
+            balance.balance);
     }
 
     private sealed record MinecraftPlayerStatusDto(
@@ -577,16 +558,6 @@ internal static partial class MinecraftApiEndpoints
         string? playerUuid,
         DateTimeOffset? linkedAtUtc,
         int linkCount,
-        int score,
-        int baseRating,
         int minecraftBalance,
-        int balance,
-        int minecraftAdjustment,
-        int minecraftSpent,
-        int minecraftRestored,
-        int deathCoordinatesCost,
-        int deathChestCost,
-        int deathTeleportCost,
-        int effectiveScore,
-        bool debuffed);
+        int balance);
 }

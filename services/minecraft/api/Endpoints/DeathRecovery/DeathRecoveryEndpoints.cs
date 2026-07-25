@@ -16,7 +16,8 @@ internal static partial class MinecraftApiEndpoints
         "coordinates",
         "chest",
         "return",
-        "both"
+        "both",
+        "inventory"
     };
 
     private static WebApplication MapDeathRecoveryEndpoints(WebApplication app)
@@ -340,6 +341,7 @@ internal static partial class MinecraftApiEndpoints
                 "coordinates" => DeathCoordinatesCost(cfg),
                 "chest" => DeathChestCost(cfg),
                 "return" => DeathTeleportCost(cfg),
+                "inventory" => DeathInventoryCost(cfg),
                 _ => DeathChestCost(cfg) + DeathTeleportCost(cfg)
             };
             if (request.Amount != expectedAmount)
@@ -592,6 +594,7 @@ internal static partial class MinecraftApiEndpoints
                         "coordinates" => "death-coordinates",
                         "chest" => "death-chest",
                         "return" => "death-teleport",
+                        "inventory" => "death-inventory-restore",
                         _ => "death-chest-and-teleport"
                     },
                     Reason = action switch
@@ -599,6 +602,7 @@ internal static partial class MinecraftApiEndpoints
                         "coordinates" => "Получение координат места смерти",
                         "chest" => "Сохранение вещей в сундуке после смерти",
                         "return" => "Возврат к месту смерти",
+                        "inventory" => "Возврат всех предметов прямо в инвентарь",
                         _ => "Сундук и возврат к месту смерти"
                     },
                     RequestId = requestId,
@@ -1014,7 +1018,8 @@ internal static partial class MinecraftApiEndpoints
             "FREE_CHEST_CREATED" or
             "COORDINATES_SENT" or
             "RESCUE_COMPLETED" or
-            "CHEST_AND_RESCUE_COMPLETED";
+            "CHEST_AND_RESCUE_COMPLETED" or
+            "INVENTORY_RESTORED";
 
     private static string Limit(string value, int max)
         => value.Length <= max ? value : value[..max];

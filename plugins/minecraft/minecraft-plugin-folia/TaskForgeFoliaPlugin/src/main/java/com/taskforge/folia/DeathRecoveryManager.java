@@ -76,6 +76,7 @@ import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 import org.bukkit.util.io.BukkitObjectInputStream;
@@ -94,7 +95,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private static final String ACTION_CHEST = "chest";
     private static final String ACTION_RETURN = "return";
     private static final String ACTION_BOTH = "both";
+    private static final String ACTION_INVENTORY = "inventory";
     private static final String ACTION_DROP = "drop";
+    private static final String SLOTTED_ITEMS_PREFIX = "slots-v2:";
     private static final Duration OFFER_DISPLAY_COOLDOWN = Duration.ofSeconds(30);
     private static final int MAX_MAINTENANCE_ATTEMPTS = 5;
     private static final long RESPAWN_WATCH_INITIAL_DELAY_TICKS = 10L;
@@ -109,6 +112,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final NamespacedKey deathIdKey;
     private final NamespacedKey itemIndexKey;
     private final NamespacedKey chestStateKey;
+    private final NamespacedKey inventoryRestoreKey;
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private final AtomicLong backendRequestSequence = new AtomicLong();
     private final Map<UUID, ScheduledTask> offerExpirationTasks = new ConcurrentHashMap<>();
@@ -126,6 +130,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     private final int coordinatesCost;
     private final int chestCost;
     private final int teleportCost;
+    private final int inventoryCost;
     private final Duration backendTimeout;
     private final String apiBaseUrl;
     private final String serverToken;
@@ -141,6 +146,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         this.coordinatesCost = positiveInt("deathRecovery.coordinatesCost", 10);
         this.chestCost = positiveInt("deathRecovery.chestCost", 50);
         this.teleportCost = positiveInt("deathRecovery.teleportCost", 100);
+        this.inventoryCost = positiveInt("deathRecovery.inventoryCost", 300);
         this.backendTimeout = Duration.ofMillis(positiveInt("deathRecovery.backendTimeoutMillis", 4500));
         this.apiBaseUrl = discoverString(
             "deathRecovery.apiBaseUrl", "taskforge.apiBaseUrl", "taskforge.apibaseUrl",
@@ -153,12 +159,14 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         this.deathIdKey = new NamespacedKey(plugin, "death_id");
         this.itemIndexKey = new NamespacedKey(plugin, "death_item_index");
         this.chestStateKey = new NamespacedKey(plugin, "death_chest_state");
+        this.inventoryRestoreKey = new NamespacedKey(plugin, "death_inventory_restore");
         plugin.debugDeath("manager constructed apiBaseUrl=" + (apiBaseUrl.isBlank() ? "<missing>" : apiBaseUrl)
             + " serverTokenPresent=" + !serverToken.isBlank() + " tokenLen=" + serverToken.length()
             + " offerSeconds=" + offerSeconds + " spectatorSeconds=" + spectatorSeconds
             + " maxDistance=" + maxDistance + " chestSearchRadius=" + chestSearchRadius
             + " emergencyChestSearchRadius=" + emergencyChestSearchRadius
-            + " safeSearchRadius=" + safeSearchRadius + " backendTimeoutMs=" + backendTimeout.toMillis());
+            + " safeSearchRadius=" + safeSearchRadius + " inventoryCost=" + inventoryCost
+            + " backendTimeoutMs=" + backendTimeout.toMillis());
     }
 
     public void enable() {
@@ -306,7 +314,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         // Serialize before clearing so an unexpected serialization failure leaves vanilla drops intact.
         final String serializedDrops;
-        try { serializedDrops = serializeItems(drops); }
+        try { serializedDrops = serializeCapturedItems(captureDeathItems(player, drops)); }
         catch (RuntimeException ex) { plugin.getLogger().log(Level.SEVERE, "Cannot capture death drops", ex); return; }
         // XP and vanilla Curse of Vanishing behavior are already reflected by getDrops().
         Location at = player.getLocation().clone();
@@ -491,6 +499,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         deliverVanillaDeathNotice(player, "join-event");
 
         onPlayer(player, () -> {
+            cleanupInventoryRestoreMarkers(player);
             restoreInterruptedSpectator(player);
             int delivered = showPendingOffers(player, "join-local");
             notifyUnseenChests(player);
@@ -578,7 +587,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         try { deathId = UUID.fromString(args[0]); }
         catch (IllegalArgumentException ex) { return true; }
         String action = args[1].toLowerCase(Locale.ROOT);
-        if (!List.of(ACTION_COORDINATES, ACTION_CHEST, ACTION_RETURN, ACTION_BOTH, ACTION_DROP).contains(action)) return true;
+        if (!List.of(ACTION_COORDINATES, ACTION_CHEST, ACTION_RETURN, ACTION_BOTH, ACTION_INVENTORY, ACTION_DROP).contains(action)) return true;
         DeathRecord record = deaths.get(deathId);
         if (record == null || !record.playerId.equals(player.getUniqueId())) {
             player.sendMessage(Component.text("Предложение не найдено или уже завершено.", NamedTextColor.RED));
@@ -589,6 +598,13 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
     }
 
     private void choose(Player player, DeathRecord record, String action) {
+        if (ACTION_INVENTORY.equals(action) && record.offerClosed
+            && ACTION_INVENTORY.equals(record.action) && record.inventoryPurchased && !record.itemsResolved) {
+            plugin.debugDeath("inventory restore retry requested player=" + player.getName() + "/" + player.getUniqueId()
+                + " deathId=" + record.deathId + " stage=" + record.stage);
+            restoreInventoryWhenOnline(record);
+            return;
+        }
         TaskForgeLinkPlugin.LinkState currentLinkState = plugin.linkState(player.getUniqueId());
         plugin.debugDeath("death action requested player=" + player.getName() + "/" + player.getUniqueId()
             + " deathId=" + record.deathId + " action=" + action + " stage=" + record.stage
@@ -596,6 +612,28 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             + " coordinatesGranted=" + record.coordinatesGranted + " chestCreated=" + record.chestCreated
             + " rescueCompleted=" + record.rescueCompleted + " rescuePending=" + record.rescuePending
             + " inFlight=" + record.actionsInFlight + " " + plugin.linkStateDebug(player.getUniqueId()));
+
+        if (ACTION_INVENTORY.equals(action)) {
+            final InventoryRestorePlan plan;
+            try {
+                plan = planInventoryRestore(player, record);
+            } catch (RuntimeException ex) {
+                plugin.getLogger().log(Level.SEVERE, "Cannot inspect inventory restore payload " + record.deathId, ex);
+                player.sendMessage(Component.text(
+                    "Сохранённые предметы пока не удалось прочитать. Выбор не закрыт; проверьте лог сервера.",
+                    NamedTextColor.RED));
+                return;
+            }
+            if (!plan.fits()) {
+                player.sendMessage(Component.text(
+                    "Недостаточно свободных ячеек для полного возврата. Освободите ещё "
+                        + plan.missingSlots() + " и нажмите кнопку снова.",
+                    NamedTextColor.YELLOW));
+                plugin.debugDeath("inventory restore selection withheld deathId=" + record.deathId
+                    + " player=" + player.getUniqueId() + " missingSlots=" + plan.missingSlots());
+                return;
+            }
+        }
 
         boolean expired = false;
         synchronized (record) {
@@ -675,6 +713,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             case ACTION_CHEST -> prepareChestAndPurchase(player, record, false);
             case ACTION_RETURN -> purchaseAndReturn(player, record);
             case ACTION_BOTH -> prepareBoth(player, record);
+            case ACTION_INVENTORY -> purchaseAndRestoreInventory(player, record);
             default -> completeAction(record, action);
         }
     }
@@ -685,6 +724,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             case ACTION_COORDINATES -> "Действие запущено: координаты смерти. Стоимость — " + coordinatesCost + ". Проверяю баланс.";
             case ACTION_CHEST -> "Действие запущено: сундук. Стоимость — " + chestCost + ". Ищу ближайшее свободное место и проверяю баланс.";
             case ACTION_RETURN -> "Действие запущено: возврат к месту смерти. Стоимость — " + teleportCost + ". Вещи будут выброшены в точке смерти, затем начнётся возврат.";
+            case ACTION_INVENTORY -> "Действие запущено: все сохранённые предметы вернутся прямо в инвентарь. Стоимость — " + inventoryCost + ". Сундук и телепортация не используются.";
             case ACTION_BOTH -> {
                 int cost = remainingBundleCost(record);
                 yield "Действие запущено: " + remainingBundleTitle(record) + ". Стоимость — " + cost + ". Проверяю место, баланс и безопасную точку.";
@@ -704,6 +744,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             case ACTION_CHEST -> "создание сундука";
             case ACTION_RETURN -> "возврат к месту смерти";
             case ACTION_BOTH -> "создание сундука и возврат";
+            case ACTION_INVENTORY -> "возврат предметов в инвентарь";
             case ACTION_DROP -> "обычный дроп";
             default -> "предыдущее действие";
         };
@@ -735,6 +776,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         }
         if (ACTION_RETURN.equals(action) && (record.returnPurchased || record.rescueCompleted || record.rescuePending || rescues.containsKey(record.playerId)))
             return record.rescueCompleted ? "Возврат для этой смерти уже выполнен." : "Возврат уже оплачен и выполняется. Повторного списания не будет.";
+        if (ACTION_INVENTORY.equals(action)) {
+            if (record.inventoryRestored || record.itemsResolved) return "Вещи для этой смерти уже обработаны.";
+            if (record.inventoryPurchased) return "Возврат в инвентарь уже оплачен и ожидает свободные ячейки.";
+        }
         if (ACTION_DROP.equals(action)) {
             if (record.chestPurchased && !record.chestCreated)
                 return "Обычный дроп недоступен: сундук уже оплачен и создаётся. Повторного списания не будет.";
@@ -1114,6 +1159,268 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 }
             });
         });
+    }
+
+    private void purchaseAndRestoreInventory(Player player, DeathRecord record) {
+        syncCreate(record).thenAccept(syncResult -> {
+            if (syncResult == BackendResult.UNLINKED) {
+                completeAction(record, ACTION_INVENTORY);
+                plugin.markLinkStateUnlinked(record.playerId, "death-state-put");
+                handleBackendUnlinked(record, "backend-inventory-create-rejected-not-linked");
+                return;
+            }
+            if (syncResult == BackendResult.UNAVAILABLE) {
+                failAction(player, record, ACTION_INVENTORY,
+                    PurchaseResult.unavailable("backend-unavailable"), "Возврат в инвентарь");
+                return;
+            }
+            purchase(record, ACTION_INVENTORY, inventoryCost).thenAccept(result -> {
+                if (result.outcome == PurchaseOutcome.CONFIRMED) {
+                    synchronized (record) {
+                        if (!record.inventoryPurchased) record.chargedAmount += result.charged;
+                        record.paymentConfirmed = true;
+                        record.compensated = false;
+                        record.inventoryPurchased = true;
+                        record.paymentErrorCode = "";
+                        record.stage = Stage.RESOLVING;
+                        saveQuietly(record);
+                    }
+                    plugin.debugDeath("inventory restore purchase confirmed deathId=" + record.deathId
+                        + " player=" + record.playerId + " charged=" + result.charged);
+                    restoreInventoryWhenOnline(record);
+                } else if (result.outcome == PurchaseOutcome.UNLINKED) {
+                    completeAction(record, ACTION_INVENTORY);
+                    plugin.markLinkStateUnlinked(record.playerId, "purchase");
+                    handleBackendUnlinked(record, "backend-inventory-purchase-rejected-not-linked");
+                } else if (result.outcome == PurchaseOutcome.UNAVAILABLE) {
+                    synchronized (record) {
+                        record.actionsInFlight.remove(ACTION_INVENTORY);
+                        record.backendUnavailable = true;
+                        record.compensationAction = ACTION_INVENTORY;
+                        record.compensationAmount = inventoryCost;
+                        record.compensationPending = true;
+                        record.lastError = "inventory-purchase-ambiguous";
+                        saveQuietly(record);
+                    }
+                    releaseDrops(record,
+                        "Сервис рейтинга недоступен. Вещи выпали в точке смерти, возможное списание будет автоматически возвращено.",
+                        () -> requestCompensation(record, ACTION_INVENTORY, inventoryCost));
+                } else {
+                    failAction(player, record, ACTION_INVENTORY, result, "Возврат в инвентарь");
+                }
+            });
+        });
+    }
+
+    private void restoreInventoryWhenOnline(DeathRecord record) {
+        Player player = plugin.findOnlinePlayer(record.playerId);
+        if (player == null || !player.isOnline() || player.isDead()) {
+            synchronized (record) {
+                record.actionsInFlight.remove(ACTION_INVENTORY);
+                record.stage = Stage.RESOLVING;
+                saveQuietly(record);
+            }
+            plugin.debugDeath("inventory restore deferred deathId=" + record.deathId
+                + " player=" + record.playerId + " reason=offline-or-dead");
+            return;
+        }
+        onPlayer(player, () -> restoreInventoryNow(player, record), 1L);
+    }
+
+    private void restoreInventoryNow(Player player, DeathRecord record) {
+        if (record.itemsResolved) {
+            cleanupInventoryRestoreMarkers(player, record.deathId);
+            completeAction(record, ACTION_INVENTORY);
+            return;
+        }
+
+        InventoryRestorePlan plan;
+        try {
+            plan = planInventoryRestore(player, record);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.SEVERE, "Cannot read inventory restore payload " + record.deathId, ex);
+            synchronized (record) {
+                record.actionsInFlight.remove(ACTION_INVENTORY);
+                record.lastError = "inventory-payload-invalid";
+                record.stage = Stage.RESOLVING;
+                saveQuietly(record);
+            }
+            player.sendMessage(Component.text(
+                "Не удалось прочитать сохранённые предметы. Они остаются сохранёнными; проверьте лог сервера.",
+                NamedTextColor.RED));
+            return;
+        }
+
+        if (!plan.fits()) {
+            synchronized (record) {
+                record.actionsInFlight.remove(ACTION_INVENTORY);
+                record.stage = Stage.RESOLVING;
+                record.lastError = "inventory-space-required:" + plan.missingSlots();
+                saveQuietly(record);
+            }
+            Component retry = Component.text("[Повторить возврат]", NamedTextColor.AQUA)
+                .clickEvent(ClickEvent.runCommand("/tfdeath " + record.deathId + " " + ACTION_INVENTORY));
+            player.sendMessage(Component.text(
+                "Оплата подтверждена, но для полного возврата не хватает " + plan.missingSlots()
+                    + " свободных ячеек. Освободите их — повторного списания не будет.",
+                NamedTextColor.YELLOW).append(Component.space()).append(retry));
+            plugin.debugDeath("inventory restore waiting for space deathId=" + record.deathId
+                + " player=" + player.getUniqueId() + " missingSlots=" + plan.missingSlots()
+                + " alreadyPresent=" + plan.alreadyPresent());
+            return;
+        }
+
+        List<CapturedItem> items = deserializeCapturedItems(record.itemsBase64);
+        try {
+            for (Map.Entry<Integer, Integer> placement : plan.placements().entrySet()) {
+                int itemIndex = placement.getKey();
+                int slot = placement.getValue();
+                ItemStack restored = withInventoryRestoreMarker(
+                    items.get(itemIndex).item().clone(), record.deathId, itemIndex);
+                player.getInventory().setItem(slot, restored);
+            }
+
+            synchronized (record) {
+                record.itemsResolved = true;
+                record.inventoryPurchased = true;
+                record.inventoryRestored = true;
+                record.offerClosed = true;
+                record.actionsInFlight.remove(ACTION_INVENTORY);
+                record.lastError = "";
+                record.stage = Stage.INVENTORY_RESTORED;
+                boolean saved = saveQuietly(record);
+                if (!saved) {
+                    record.itemsResolved = false;
+                    record.inventoryRestored = false;
+                    record.stage = Stage.RESOLVING;
+                    player.sendMessage(Component.text(
+                        "Предметы выданы, но локальный журнал не сохранился. Не выбрасывайте их до повторной проверки.",
+                        NamedTextColor.RED));
+                    return;
+                }
+            }
+
+            cleanupInventoryRestoreMarkers(player, record.deathId);
+            player.sendMessage(Component.text(
+                "Все сохранённые предметы возвращены прямо в инвентарь. Сундук и телепортация не использовались.",
+                NamedTextColor.GREEN));
+            plugin.debugDeath("inventory restore completed deathId=" + record.deathId
+                + " player=" + player.getUniqueId() + " inserted=" + plan.placements().size()
+                + " alreadyPresent=" + plan.alreadyPresent() + " chargedAmount=" + record.chargedAmount);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to restore death items into inventory " + record.deathId, ex);
+            synchronized (record) {
+                record.actionsInFlight.remove(ACTION_INVENTORY);
+                record.stage = Stage.RESOLVING;
+                record.lastError = "inventory-restore-runtime:" + ex.getClass().getSimpleName();
+                saveQuietly(record);
+            }
+            player.sendMessage(Component.text(
+                "Возврат прерван. Уже выданные предметы помечены, поэтому при повторе они не продублируются.",
+                NamedTextColor.RED));
+        }
+    }
+
+    private InventoryRestorePlan planInventoryRestore(Player player, DeathRecord record) {
+        List<CapturedItem> items = deserializeCapturedItems(record.itemsBase64);
+        ItemStack[] current = player.getInventory().getContents();
+        boolean[] occupied = new boolean[current.length];
+        Set<Integer> alreadyPresent = new HashSet<>();
+        String markerPrefix = record.deathId + ":";
+        for (int slot = 0; slot < current.length; slot++) {
+            ItemStack item = current[slot];
+            occupied[slot] = item != null && !item.getType().isAir() && item.getAmount() > 0;
+            String marker = inventoryRestoreMarker(item);
+            if (marker != null && marker.startsWith(markerPrefix)) {
+                try {
+                    alreadyPresent.add(Integer.parseInt(marker.substring(markerPrefix.length())));
+                } catch (NumberFormatException ignored) {
+                    // An invalid private marker is treated as an occupied ordinary item.
+                }
+            }
+        }
+
+        Map<Integer, Integer> placements = new LinkedHashMap<>();
+        int missing = 0;
+        for (int index = 0; index < items.size(); index++) {
+            if (alreadyPresent.contains(index)) continue;
+            CapturedItem captured = items.get(index);
+            int preferred = captured.slot();
+            int selected = -1;
+            if (preferred >= 0 && preferred < occupied.length && !occupied[preferred]) {
+                selected = preferred;
+            } else {
+                int storageLimit = Math.min(36, occupied.length);
+                for (int slot = 0; slot < storageLimit; slot++) {
+                    if (!occupied[slot]) {
+                        selected = slot;
+                        break;
+                    }
+                }
+            }
+            if (selected < 0) {
+                missing++;
+            } else {
+                occupied[selected] = true;
+                placements.put(index, selected);
+            }
+        }
+        return new InventoryRestorePlan(placements, missing, alreadyPresent.size());
+    }
+
+    private ItemStack withInventoryRestoreMarker(ItemStack item, UUID deathId, int itemIndex) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return item;
+        meta.getPersistentDataContainer().set(
+            inventoryRestoreKey, PersistentDataType.STRING, deathId + ":" + itemIndex);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private String inventoryRestoreMarker(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return null;
+        ItemMeta meta = item.getItemMeta();
+        return meta == null ? null : meta.getPersistentDataContainer().get(inventoryRestoreKey, PersistentDataType.STRING);
+    }
+
+    private void cleanupInventoryRestoreMarkers(Player player) {
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            String marker = inventoryRestoreMarker(item);
+            if (marker == null) continue;
+            int separator = marker.indexOf(':');
+            UUID deathId = null;
+            if (separator > 0) {
+                try { deathId = UUID.fromString(marker.substring(0, separator)); }
+                catch (IllegalArgumentException ignored) { }
+            }
+            DeathRecord record = deathId == null ? null : deaths.get(deathId);
+            if (record != null && record.itemsResolved) {
+                removeInventoryRestoreMarker(item);
+                player.getInventory().setItem(slot, item);
+            }
+        }
+    }
+
+    private void cleanupInventoryRestoreMarkers(Player player, UUID deathId) {
+        String prefix = deathId + ":";
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            String marker = inventoryRestoreMarker(item);
+            if (marker != null && marker.startsWith(prefix)) {
+                removeInventoryRestoreMarker(item);
+                player.getInventory().setItem(slot, item);
+            }
+        }
+    }
+
+    private void removeInventoryRestoreMarker(ItemStack item) {
+        ItemMeta meta = item == null ? null : item.getItemMeta();
+        if (meta == null) return;
+        meta.getPersistentDataContainer().remove(inventoryRestoreKey);
+        item.setItemMeta(meta);
     }
 
     void onLinkStateChanged(UUID playerId, TaskForgeLinkPlugin.LinkState state, String source) {
@@ -1645,6 +1952,10 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             line = line.append(button("[Вернуться — " + teleportCost + "]", r, ACTION_RETURN, NamedTextColor.AQUA)).append(Component.space());
             buttons++;
         }
+        if (!r.inventoryPurchased && !r.inventoryRestored && !r.itemsResolved) {
+            line = line.append(button("[В инвентарь — " + inventoryCost + "]", r, ACTION_INVENTORY, NamedTextColor.GREEN)).append(Component.space());
+            buttons++;
+        }
         boolean chestAvailable = !r.chestCreated && !r.chestPurchased && !r.itemsResolved;
         boolean returnAvailable = !r.returnPurchased && !r.rescueCompleted && !r.rescuePending && !rescues.containsKey(r.playerId);
         if (chestAvailable && returnAvailable) {
@@ -1737,7 +2048,15 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
                 continue;
             }
             if (record.backendUnavailable && !record.itemsResolved && claimRetry(record)) {
-                createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                if (ACTION_INVENTORY.equals(record.action)) {
+                    releaseDrops(record,
+                        "Сервис рейтинга недоступен. Вещи выпали в точке смерти; сундук и телепортация не использовались.",
+                        record.compensationPending
+                            ? () -> requestCompensation(record, ACTION_INVENTORY, Math.max(1, record.compensationAmount))
+                            : null);
+                } else {
+                    createFreeChest(record, "Сервис рейтинга недоступен — вещи сохранены бесплатно.");
+                }
                 continue;
             }
             if (record.coordinatesGranted && !record.coordinatesNotified) notifyDeathCoordinates(record);
@@ -1793,6 +2112,16 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             if ((ACTION_CHEST.equals(record.action) || ACTION_BOTH.equals(record.action)) && !record.itemsResolved) {
                 record.actionsInFlight.add(record.action);
                 prepareChestAndPurchase(player, record, ACTION_BOTH.equals(record.action));
+                continue;
+            }
+            if (ACTION_INVENTORY.equals(record.action) && !record.itemsResolved) {
+                if (record.inventoryPurchased || record.paymentConfirmed) {
+                    record.inventoryPurchased = true;
+                    restoreInventoryWhenOnline(record);
+                } else {
+                    record.actionsInFlight.add(ACTION_INVENTORY);
+                    purchaseAndRestoreInventory(player, record);
+                }
                 continue;
             }
             if (ACTION_RETURN.equals(record.action) && !record.rescueCompleted) {
@@ -1905,11 +2234,13 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             if (r.paymentConfirmed && ACTION_COORDINATES.equals(r.action)) r.coordinatesGranted = true;
             if (r.paymentConfirmed && (ACTION_CHEST.equals(r.action) || ACTION_BOTH.equals(r.action))) r.chestPurchased = true;
             if (r.paymentConfirmed && (ACTION_RETURN.equals(r.action) || ACTION_BOTH.equals(r.action))) r.returnPurchased = true;
+            if (r.paymentConfirmed && ACTION_INVENTORY.equals(r.action)) r.inventoryPurchased = true;
             r.paymentErrorCode = text(json, "paymentErrorCode", "");
             r.dropsReleased = bool(json, "dropsReleased");
             r.chestSpotReserved = bool(json, "chestSpotReserved");
             r.chestCreated = bool(json, "chestCreated");
             r.itemsResolved = bool(json, "itemsResolved");
+            if (r.itemsResolved && ACTION_INVENTORY.equals(r.action)) r.inventoryRestored = true;
             r.rescuePending = bool(json, "rescuePending");
             r.rescueCompleted = bool(json, "rescueCompleted");
             r.previousGameMode = text(json, "previousGameMode", "");
@@ -1953,6 +2284,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         local.coordinatesGranted |= remote.coordinatesGranted;
         local.chestPurchased |= remote.chestPurchased;
         local.returnPurchased |= remote.returnPurchased;
+        local.inventoryPurchased |= remote.inventoryPurchased;
+        local.inventoryRestored |= remote.inventoryRestored;
         if (remote.paymentErrorCode != null && !remote.paymentErrorCode.isBlank())
             local.paymentErrorCode = remote.paymentErrorCode;
         local.dropsReleased |= remote.dropsReleased;
@@ -3233,18 +3566,97 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
 
     private String trimSlash(String value) { return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
 
-    private String serializeItems(List<ItemStack> items) {
-        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); BukkitObjectOutputStream out = new BukkitObjectOutputStream(bytes)) {
-            out.writeInt(items.size()); for (ItemStack item : items) out.writeObject(item); out.flush();
-            return Base64.getEncoder().encodeToString(bytes.toByteArray());
-        } catch (IOException ex) { throw new IllegalStateException("Cannot serialize death items", ex); }
+    private List<CapturedItem> captureDeathItems(Player player, List<ItemStack> finalDrops) {
+        List<ItemStack> remaining = new ArrayList<>();
+        for (ItemStack drop : finalDrops) remaining.add(drop.clone());
+        List<CapturedItem> captured = new ArrayList<>();
+        ItemStack[] originalContents = player.getInventory().getContents();
+
+        for (int slot = 0; slot < originalContents.length; slot++) {
+            ItemStack original = originalContents[slot];
+            if (original == null || original.getType().isAir() || original.getAmount() <= 0) continue;
+            int amountLeft = original.getAmount();
+            for (int dropIndex = 0; dropIndex < remaining.size() && amountLeft > 0; dropIndex++) {
+                ItemStack drop = remaining.get(dropIndex);
+                if (drop == null || drop.getType().isAir() || drop.getAmount() <= 0 || !original.isSimilar(drop)) continue;
+                int amount = Math.min(amountLeft, drop.getAmount());
+                ItemStack portion = drop.clone();
+                portion.setAmount(amount);
+                captured.add(new CapturedItem(slot, portion));
+                amountLeft -= amount;
+                drop.setAmount(drop.getAmount() - amount);
+                if (drop.getAmount() <= 0) remaining.set(dropIndex, null);
+            }
+        }
+
+        for (ItemStack drop : remaining) {
+            if (drop != null && !drop.getType().isAir() && drop.getAmount() > 0) {
+                captured.add(new CapturedItem(-1, drop.clone()));
+            }
+        }
+        return captured;
+    }
+
+    private String serializeCapturedItems(List<CapturedItem> items) {
+        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+             BukkitObjectOutputStream out = new BukkitObjectOutputStream(bytes)) {
+            out.writeInt(2);
+            out.writeInt(items.size());
+            for (CapturedItem item : items) {
+                out.writeInt(item.slot());
+                out.writeObject(item.item());
+            }
+            out.flush();
+            return SLOTTED_ITEMS_PREFIX + Base64.getEncoder().encodeToString(bytes.toByteArray());
+        } catch (IOException ex) {
+            throw new IllegalStateException("Cannot serialize slotted death items", ex);
+        }
+    }
+
+    private List<CapturedItem> deserializeCapturedItems(String encoded) {
+        if (encoded != null && encoded.startsWith(SLOTTED_ITEMS_PREFIX)) {
+            String payload = encoded.substring(SLOTTED_ITEMS_PREFIX.length());
+            try (BukkitObjectInputStream in = new BukkitObjectInputStream(
+                    new ByteArrayInputStream(Base64.getDecoder().decode(payload)))) {
+                int version = in.readInt();
+                if (version != 2) throw new IllegalStateException("Unsupported death item payload version " + version);
+                int count = in.readInt();
+                if (count < 0 || count > 256) throw new IllegalStateException("Invalid death item count " + count);
+                List<CapturedItem> result = new ArrayList<>(count);
+                for (int i = 0; i < count; i++) {
+                    int slot = in.readInt();
+                    ItemStack item = (ItemStack) in.readObject();
+                    result.add(new CapturedItem(slot, item));
+                }
+                return result;
+            } catch (IOException | ClassNotFoundException ex) {
+                throw new IllegalStateException("Cannot deserialize slotted death items", ex);
+            }
+        }
+
+        List<ItemStack> legacy = deserializeLegacyItems(encoded);
+        List<CapturedItem> result = new ArrayList<>(legacy.size());
+        for (ItemStack item : legacy) result.add(new CapturedItem(-1, item));
+        return result;
     }
 
     private List<ItemStack> deserializeItems(String encoded) {
-        try (BukkitObjectInputStream in = new BukkitObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(encoded)))) {
-            int count = in.readInt(); List<ItemStack> result = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) result.add((ItemStack) in.readObject()); return result;
-        } catch (IOException | ClassNotFoundException ex) { throw new IllegalStateException("Cannot deserialize death items", ex); }
+        List<CapturedItem> captured = deserializeCapturedItems(encoded);
+        List<ItemStack> result = new ArrayList<>(captured.size());
+        for (CapturedItem item : captured) result.add(item.item().clone());
+        return result;
+    }
+
+    private List<ItemStack> deserializeLegacyItems(String encoded) {
+        try (BukkitObjectInputStream in = new BukkitObjectInputStream(
+                new ByteArrayInputStream(Base64.getDecoder().decode(encoded)))) {
+            int count = in.readInt();
+            List<ItemStack> result = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) result.add((ItemStack) in.readObject());
+            return result;
+        } catch (IOException | ClassNotFoundException ex) {
+            throw new IllegalStateException("Cannot deserialize death items", ex);
+        }
     }
 
     private void loadJournal() throws IOException {
@@ -3320,12 +3732,13 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         scheduleMaintenanceIfNeeded(record, "backend-snapshot");
     }
 
-    private void saveQuietly(DeathRecord record) {
+    private boolean saveQuietly(DeathRecord record) {
         boolean saved = persistLocal(record);
-        if (!saved || stopped.get()) return;
+        if (!saved || stopped.get()) return saved;
         scheduleOfferExpiration(record, "state-update");
         scheduleMaintenanceIfNeeded(record, "state-update");
         if (!apiBaseUrl.isBlank()) syncState(record);
+        return true;
     }
 
     private String recordJson(DeathRecord r) {
@@ -3401,9 +3814,35 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         static PurchaseResult unavailable(String reason) { return new PurchaseResult(PurchaseOutcome.UNAVAILABLE, reason, -1, -1, 0); }
         static PurchaseResult unlinked(String reason) { return new PurchaseResult(PurchaseOutcome.UNLINKED, reason, -1, -1, 0); }
     }
+    private static final class CapturedItem {
+        private final int slot;
+        private final ItemStack item;
+        CapturedItem(int slot, ItemStack item) {
+            this.slot = slot;
+            this.item = item;
+        }
+        int slot() { return slot; }
+        ItemStack item() { return item; }
+    }
+
+    private static final class InventoryRestorePlan {
+        private final Map<Integer, Integer> placements;
+        private final int missingSlots;
+        private final int alreadyPresent;
+        InventoryRestorePlan(Map<Integer, Integer> placements, int missingSlots, int alreadyPresent) {
+            this.placements = placements;
+            this.missingSlots = missingSlots;
+            this.alreadyPresent = alreadyPresent;
+        }
+        Map<Integer, Integer> placements() { return placements; }
+        int missingSlots() { return missingSlots; }
+        int alreadyPresent() { return alreadyPresent; }
+        boolean fits() { return missingSlots == 0; }
+    }
+
     private enum Stage {
         WAITING_RESPAWN, OFFER, RESOLVING, WORLD_UNAVAILABLE, RESCUE_PENDING, RESCUE_ACTIVE,
-        DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, COORDINATES_SENT, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED;
+        DROPS_RELEASED, CHEST_CREATED, FREE_CHEST_CREATED, COORDINATES_SENT, RESCUE_COMPLETED, CHEST_AND_RESCUE_COMPLETED, INVENTORY_RESTORED;
     }
 
     private static final class ChunkCandidate {
@@ -3470,6 +3909,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
         Stage stage; boolean paymentConfirmed, dropsReleased, chestSpotReserved, chestCreated, itemsResolved, rescuePending, rescueCompleted;
         boolean backendUnavailable, compensationPending, compensated, userNotified;
         boolean offerClosed, coordinatesGranted, coordinatesNotified, chestPurchased, chestNotified, returnPurchased;
+        boolean inventoryPurchased, inventoryRestored;
         volatile boolean notificationDispatchPending;
         volatile boolean coordinatesNotificationDispatchPending;
         volatile boolean chestNotificationDispatchPending;
@@ -3484,6 +3924,7 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             put(p,"chargedAmount",chargedAmount); put(p,"paymentConfirmed",paymentConfirmed); put(p,"dropsReleased",dropsReleased); put(p,"chestSpotReserved",chestSpotReserved); put(p,"chestCreated",chestCreated); put(p,"itemsResolved",itemsResolved);
             put(p,"rescuePending",rescuePending); put(p,"rescueCompleted",rescueCompleted); put(p,"backendUnavailable",backendUnavailable); put(p,"compensationPending",compensationPending); put(p,"compensated",compensated); put(p,"userNotified",userNotified);
             put(p,"offerClosed",offerClosed); put(p,"coordinatesGranted",coordinatesGranted); put(p,"coordinatesNotified",coordinatesNotified); put(p,"chestPurchased",chestPurchased); put(p,"chestNotified",chestNotified); put(p,"returnPurchased",returnPurchased);
+            put(p,"inventoryPurchased",inventoryPurchased); put(p,"inventoryRestored",inventoryRestored);
             put(p,"compensationAction",compensationAction); put(p,"compensationAmount",compensationAmount);
             put(p,"chestX",chestX); put(p,"chestY",chestY); put(p,"chestZ",chestZ); put(p,"chestSecondX",chestSecondX); put(p,"chestSecondY",chestSecondY); put(p,"chestSecondZ",chestSecondZ);
             put(p,"finalX",finalX); put(p,"finalY",finalY); put(p,"finalZ",finalZ);
@@ -3504,7 +3945,9 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             boolean hasChestPurchased = p.containsKey("chestPurchased");
             boolean hasChestNotified = p.containsKey("chestNotified");
             boolean hasReturnPurchased = p.containsKey("returnPurchased");
+            boolean hasInventoryPurchased = p.containsKey("inventoryPurchased");
             r.offerClosed=b(p,"offerClosed"); r.coordinatesGranted=b(p,"coordinatesGranted"); r.coordinatesNotified=b(p,"coordinatesNotified"); r.chestPurchased=b(p,"chestPurchased"); r.chestNotified=b(p,"chestNotified"); r.returnPurchased=b(p,"returnPurchased");
+            r.inventoryPurchased=b(p,"inventoryPurchased"); r.inventoryRestored=b(p,"inventoryRestored");
             r.compensationAction=p.getProperty("compensationAction",""); r.compensationAmount=n(p,"compensationAmount");
             // Legacy inference is only allowed when the field did not exist at all. New journal rows
             // deliberately persist false values per action. Treating an explicit false as "missing"
@@ -3514,6 +3957,8 @@ public final class DeathRecoveryManager implements Listener, CommandExecutor {
             if (!hasChestPurchased && !r.chestPurchased && r.paymentConfirmed && (ACTION_CHEST.equals(r.action) || ACTION_BOTH.equals(r.action))) r.chestPurchased=true;
             if (!hasChestNotified && !r.chestNotified && r.chestCreated && r.userNotified) r.chestNotified=true;
             if (!hasReturnPurchased && !r.returnPurchased && r.paymentConfirmed && (ACTION_RETURN.equals(r.action) || ACTION_BOTH.equals(r.action))) r.returnPurchased=true;
+            if (!hasInventoryPurchased && !r.inventoryPurchased && r.paymentConfirmed && ACTION_INVENTORY.equals(r.action)) r.inventoryPurchased=true;
+            if (!r.inventoryRestored && r.itemsResolved && ACTION_INVENTORY.equals(r.action)) r.inventoryRestored=true;
             if (!r.offerClosed && r.action != null && !r.action.isBlank()) r.offerClosed=true;
             if (!r.offerClosed && r.offerExpiresAt != null && Instant.now().isAfter(r.offerExpiresAt)) r.offerClosed=true;
             r.chestX=n(p,"chestX"); r.chestY=n(p,"chestY"); r.chestZ=n(p,"chestZ"); r.chestSecondX=n(p,"chestSecondX"); r.chestSecondY=n(p,"chestSecondY"); r.chestSecondZ=n(p,"chestSecondZ");

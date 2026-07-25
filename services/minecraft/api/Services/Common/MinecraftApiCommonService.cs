@@ -99,6 +99,9 @@ internal static class MinecraftApiCommonService
     internal static int DeathCoordinatesCost(IConfiguration cfg)
         => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_COORDINATES_COST") ?? 10, 1, 100000);
 
+    internal static int DeathInventoryCost(IConfiguration cfg)
+        => Math.Clamp(cfg.GetValue<int?>("MINECRAFT_DEATH_INVENTORY_COST") ?? 300, 1, 100000);
+
     internal static async Task<MinecraftRatingBalanceDto> BuildMinecraftRatingBalanceAsync(
         Guid userId,
         MinecraftDbContext db,

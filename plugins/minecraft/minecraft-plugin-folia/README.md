@@ -41,6 +41,7 @@ Event-driven link-status checks always send the exact UUID together with the cur
 Each death shows one button line and accepts exactly one action. The first valid click closes the offer before any HTTP request, so double-clicks, reconnects and backend synchronization cannot create a second choice or charge.
 
 - coordinates: charge once, show the death coordinates, then release the captured items at the death point;
+- inventory: charge once and restore every captured stack directly to the player inventory without a chest or teleport;
 - chest: charge once and create the death chest;
 - return: charge once, release unresolved items at the death point, then start spectator return;
 - chest + return: charge once for the bundle, create the chest, then start return;

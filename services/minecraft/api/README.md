@@ -30,3 +30,4 @@
 - `MINECRAFT_DEATH_COORDINATES_COST` — координаты смерти, по умолчанию 10;
 - `MINECRAFT_DEATH_CHEST_COST` — сундук смерти, по умолчанию 50;
 - `MINECRAFT_DEATH_TELEPORT_COST` — возврат к месту смерти, по умолчанию 100.
+- `MINECRAFT_DEATH_INVENTORY_COST` — возврат всех сохранённых предметов прямо в инвентарь, по умолчанию 300.

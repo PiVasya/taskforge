@@ -1,5 +1,5 @@
 name: TaskForgeLink
-version: 1.8.5
+version: 1.9.0
 main: com.taskforge.folia.TaskForgeLinkPlugin
 api-version: '26.1.2'
 folia-supported: true
@@ -10,7 +10,7 @@ commands:
     usage: /tfback
   tfdeath:
     description: Handles TaskForge death-offer buttons
-    usage: /tfdeath <deathId> <coordinates|chest|return|both|drop>
+    usage: /tfdeath <deathId> <coordinates|chest|return|both|inventory|drop>
     permission: taskforge.death.use
   taskforgelink:
     description: Reload or inspect TaskForgeLink without restarting the server

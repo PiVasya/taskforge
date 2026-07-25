@@ -513,7 +513,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     try {
       storedSeed = sessionStorage.getItem('tf-solar-system-seed') || '';
       if (!storedSeed) {
-        storedSeed = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+        storedSeed = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
         sessionStorage.setItem('tf-solar-system-seed', storedSeed);
       }
     } catch {

@@ -24,6 +24,7 @@ deathRecovery:
   coordinatesCost: 10
   chestCost: 50
   teleportCost: 100
+  inventoryCost: 300
   backendTimeoutMillis: 5000
   # Link state is checked on join/reload and updated by authoritative backend responses.
   # There is no periodic status polling while a player is online.
