@@ -24,6 +24,35 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapInternalEndpoints(WebApplication app)
     {
+        app.MapPost("/api/internal/quotas/consume", async (QuotaMutationRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            if (request.UserId == Guid.Empty)
+            {
+                return Problem(400, "QUOTA_USER_REQUIRED", "quotas.consume", "Не передан пользователь для списания энергии.");
+            }
+
+            var bucket = string.Equals(request.Bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+            var policy = QuotaPolicy(cfg, bucket);
+            var result = await ConsumeQuotaAsync(db, request.UserId, bucket, policy.Capacity, policy.Interval, request.Amount, ct);
+            WriteQuotaHeaders(http.Response, result.quota);
+            if (!result.consumed) return QuotaExceeded(result.quota);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, consumed = true, quota = result.quota, request.Reason });
+        });
+
+        app.MapPost("/api/internal/quotas/refund", async (QuotaMutationRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            if (request.UserId == Guid.Empty)
+            {
+                return Problem(400, "QUOTA_USER_REQUIRED", "quotas.refund", "Не передан пользователь для возврата энергии.");
+            }
+
+            var bucket = string.Equals(request.Bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+            var policy = QuotaPolicy(cfg, bucket);
+            var quota = await RefundQuotaAsync(db, request.UserId, bucket, policy.Capacity, policy.Interval, request.Amount, ct);
+            WriteQuotaHeaders(http.Response, quota);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, refunded = true, quota, request.Reason });
+        });
+
         app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, CancellationToken ct) =>
         {
             var sub = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);

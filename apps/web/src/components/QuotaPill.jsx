@@ -4,12 +4,12 @@ import { useQuota } from '../contexts/QuotaContext';
 
 function fmtSeconds(sec) {
   const total = Math.max(0, Math.ceil(Number(sec) || 0));
-  const m = Math.floor(total / 60);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (m <= 0) return `0:${String(s).padStart(2, '0')}`;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
-
 
 export default function QuotaPill({ bucket = 'tasks', className = '' }) {
   const quota = useQuota();
@@ -20,12 +20,14 @@ export default function QuotaPill({ bucket = 'tasks', className = '' }) {
   const isEmpty = view.remaining <= 0;
   const isFull = view.capacity > 0 && view.remaining >= view.capacity;
   const Icon = bucket === 'top' ? Trophy : Zap;
-  const title = bucket === 'top' ? 'Топ' : 'Энергия';
+  const title = bucket === 'top' ? 'Рейтинг' : 'Задачи';
   const etaText = isFull ? null : fmtSeconds(view.etaSeconds);
+  const stateText = isFull ? 'заряд полный' : `+1 через ${etaText}`;
 
   return (
     <div
-      title={`${title}: ${view.remaining}/${view.capacity}${etaText ? ` • ${etaText}` : ''}`}
+      title={`${title}: ${view.remaining}/${view.capacity}. ${stateText}`}
+      aria-label={`${title}: ${view.remaining}/${view.capacity}. ${stateText}`}
       className={[
         'inline-flex min-w-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs border',
         'bg-white/50 dark:bg-white/5 backdrop-blur',
@@ -36,7 +38,7 @@ export default function QuotaPill({ bucket = 'tasks', className = '' }) {
     >
       <Icon size={14} className="shrink-0" />
       <span className="tabular-nums shrink-0 font-medium">{view.remaining}/{view.capacity}</span>
-      {etaText && <span className="tabular-nums opacity-75 shrink-0">{etaText}</span>}
+      {etaText && <span className="tabular-nums opacity-75 shrink-0">+1 через {etaText}</span>}
     </div>
   );
 }

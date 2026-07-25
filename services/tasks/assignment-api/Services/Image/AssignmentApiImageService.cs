@@ -30,6 +30,9 @@ internal static partial class AssignmentApiImageService
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
         var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, "image-test.run-code");
         if (policyProblem != null) return policyProblem;
+        var userId = RequireUser(http, cfg);
+        if (userId == null) return Unauthorized();
+        if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-run-code", http.RequestAborted) is { } quotaProblem) return quotaProblem;
         try
         {
             var client = clients.CreateClient();
@@ -40,6 +43,7 @@ internal static partial class AssignmentApiImageService
         }
         catch (Exception ex)
         {
+            await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "image-run-code-failed", CancellationToken.None);
             return Problem(503, "IMAGE_RUNNER_FAILED", "image-test.run-code", "Не удалось запустить image-runner.", ex.Message);
         }
     }
@@ -48,8 +52,8 @@ internal static partial class AssignmentApiImageService
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
         if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, clients, CancellationToken.None))) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var currentUserId = submit && context is not null ? RequireUser(context, cfg) : null;
-        if (submit && currentUserId == null) return Unauthorized();
+        var currentUserId = context is not null ? RequireUser(context, cfg) : null;
+        if (context is not null && currentUserId == null) return Unauthorized();
 
         var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
         var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
@@ -61,6 +65,7 @@ internal static partial class AssignmentApiImageService
 
         var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, submit ? "image-test.submit-code" : "image-test.compare-code");
         if (policyProblem != null) return policyProblem;
+        if (context is not null && currentUserId.HasValue && await ConsumeTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code" : "image-compare-code", context.RequestAborted) is { } quotaProblem) return quotaProblem;
 
         try
         {
@@ -220,6 +225,10 @@ internal static partial class AssignmentApiImageService
         }
         catch (Exception ex)
         {
+            if (context is not null && currentUserId.HasValue)
+            {
+                await RefundTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code-failed" : "image-compare-code-failed", CancellationToken.None);
+            }
             return Problem(503, "IMAGE_CODE_COMPARE_FAILED", submit ? "image-test.submit-code" : "image-test.compare-code", "Не удалось выполнить image-code pipeline.", ex.Message);
         }
     }

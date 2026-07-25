@@ -1,6 +1,6 @@
 
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
@@ -14,6 +14,14 @@ import { getApiErrorMessage } from '../../api/http';
 import { AlertTriangle } from 'lucide-react';
 
 const LEADERBOARD_PAGE_SIZE = 20;
+
+function createLeaderboardViewId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    return (char === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+  });
+}
 
 function normalizePagedLeaderboard(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -35,6 +43,8 @@ export default function LeaderboardPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const leaderboardViewId = useRef(null);
+  if (!leaderboardViewId.current) leaderboardViewId.current = createLeaderboardViewId();
 
   
   const [courses, setCourses] = useState([]);
@@ -68,7 +78,7 @@ export default function LeaderboardPage() {
       else setLoadingMore(true);
       setError(null);
 
-      const params = {};
+      const params = { viewId: leaderboardViewId.current };
 
       if (courseId) params.courseId = courseId;
 
@@ -93,7 +103,7 @@ export default function LeaderboardPage() {
     } catch (e) {
       if (e?.response?.status === 429) {
         const ra = e.response?.data?.retryAfterSeconds;
-        const msg = getApiErrorMessage(e, 'Топ можно обновлять раз в 5 минут');
+        const msg = getApiErrorMessage(e, 'Энергия рейтинга закончилась');
         setError(ra ? `${msg}. Повтори через ~${Math.ceil(ra / 60)} мин.` : msg);
       } else {
         const parsed = handleApiError(e, notify, 'Не удалось загрузить топ');

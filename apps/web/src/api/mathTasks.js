@@ -1,7 +1,12 @@
 import api from './http';
 
+function emitQuotaChanged() {
+  try { window.dispatchEvent(new Event('quota:changed')); } catch {}
+}
+
 export async function startMathTask(assignmentId) {
   const { data } = await api.post(`/api/math-tasks/${assignmentId}/start`);
+  emitQuotaChanged();
   return data;
 }
 

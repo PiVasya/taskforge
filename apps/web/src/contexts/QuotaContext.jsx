@@ -158,6 +158,29 @@ export function QuotaProvider({ enabled = true, children }) {
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined;
 
+    const syncAfterPause = () => {
+      setTick(Date.now());
+      refresh();
+    };
+    const onVisibility = () => {
+      if (!document.hidden) syncAfterPause();
+    };
+
+    window.addEventListener('focus', syncAfterPause);
+    window.addEventListener('online', syncAfterPause);
+    window.addEventListener('pageshow', syncAfterPause);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', syncAfterPause);
+      window.removeEventListener('online', syncAfterPause);
+      window.removeEventListener('pageshow', syncAfterPause);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [enabled, refresh]);
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') return undefined;
+
     const at = getSoonestRefreshAt(data);
     if (!at) return undefined;
 

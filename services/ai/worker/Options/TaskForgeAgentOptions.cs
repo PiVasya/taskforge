@@ -59,11 +59,6 @@ public sealed class TaskForgeInternalApiOptions
 
     public string ApiKey { get; set; } = string.Empty;
 
-    [Range(100, 30000)]
-    public int ClaimBatchDelayMs { get; set; } = 1200;
-
-    [Range(5, 300)]
-    public int HeartbeatSeconds { get; set; } = 30;
 
     [Range(15, 600)]
     public int RequestTimeoutSeconds { get; set; } = 120;

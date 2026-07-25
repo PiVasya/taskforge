@@ -19,7 +19,7 @@ namespace TaskForge.Ai.Api.Services.Results;
 
 internal static class AiApiResultsService
 {
-    internal static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct)
+    internal static async Task<IResult> QueueAgentRun(Guid conversationId, string jobType, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, IHubContext<AgentRealtimeHub> hub, ILogger logger, CancellationToken ct)
     {
         var c = await GetConversationForUser(conversationId, http, cfg, db, asNoTracking: false);
         if (c == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Диалог не найден.", code = "AI_CONVERSATION_NOT_FOUND" });
@@ -41,7 +41,8 @@ internal static class AiApiResultsService
         await db.SaveChangesAsync(ct);
         var runDto = ToRunDto(run);
         await BroadcastAgentEventAsync(hub, conversationId, "run.created", new { run = runDto }, ct);
-        return Microsoft.AspNetCore.Http.Results.Ok(new { run = runDto, queued = true });
+        var workerNotified = await NotifyAiWorkerAsync(factory, cfg, run.Id, $"{jobType}-queued", logger, ct);
+        return Microsoft.AspNetCore.Http.Results.Ok(new { run = runDto, queued = true, workerNotified });
     }
 
     internal static async Task<JsonObject> BuildRunPayloadAsync(

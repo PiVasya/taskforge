@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getUpdatesIndex } from '../api/updates';
 import { getProfile } from '../api/profile';
+import { useAuth } from '../auth/AuthContext';
 
 function UpdateCard({ item, index }) {
   const isMinecraft = String(item.id || '').startsWith('minecraft-');
@@ -77,6 +78,7 @@ function UpdateCard({ item, index }) {
 
 export default function NewsPage() {
   const nav = useNavigate();
+  const { access } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
@@ -89,7 +91,7 @@ export default function NewsPage() {
         setError(null);
         const [index, currentProfile] = await Promise.all([
           getUpdatesIndex(),
-          getProfile().catch(() => null),
+          access ? getProfile().catch(() => null) : Promise.resolve(null),
         ]);
         setItems(index);
         setProfile(currentProfile);
@@ -99,7 +101,7 @@ export default function NewsPage() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [access]);
 
   const score = profile?.score ?? profile?.rating ?? profile?.points;
 
@@ -137,13 +139,13 @@ export default function NewsPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[250px] lg:grid-cols-1">
-              <Button className="w-full" onClick={() => nav('/courses')}>
+              <Button className="w-full" onClick={() => nav(access ? '/courses' : '/register')}>
                 <BookOpen size={18} />
-                <span>Открыть курсы</span>
+                <span>{access ? 'Открыть курсы' : 'Создать аккаунт'}</span>
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => nav('/leaderboard')}>
+              <Button variant="outline" className="w-full" onClick={() => nav(access ? '/leaderboard' : '/login')}>
                 <Trophy size={18} />
-                <span>Топ студентов</span>
+                <span>{access ? 'Топ студентов' : 'Войти'}</span>
               </Button>
             </div>
           </div>

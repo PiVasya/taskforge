@@ -294,6 +294,11 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      Quotas__Tasks__Capacity: ${TASKFORGE_TASK_ENERGY_CAPACITY:-10}
+      Quotas__Tasks__RefillSeconds: ${TASKFORGE_TASK_ENERGY_REFILL_SECONDS:-90}
+      Quotas__Top__Capacity: ${TASKFORGE_RATING_ENERGY_CAPACITY:-5}
+      Quotas__Top__RefillSeconds: ${TASKFORGE_RATING_ENERGY_REFILL_SECONDS:-1800}
+      Quotas__Top__ViewSessionSeconds: ${TASKFORGE_RATING_VIEW_SESSION_SECONDS:-7200}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}

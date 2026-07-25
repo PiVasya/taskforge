@@ -114,6 +114,83 @@ internal static class AssignmentApiCommonService
         if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
     }
 
+    internal static async Task<IResult?> ConsumeTaskEnergyAsync(
+        HttpContext http,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        Guid userId,
+        string reason,
+        CancellationToken ct)
+    {
+        var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
+        try
+        {
+            var client = httpFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(cfg.GetValue("Quotas:RequestTimeoutSeconds", 8), 2, 30));
+            using var msg = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/internal/quotas/consume")
+            {
+                Content = JsonContent.Create(new { userId, bucket = "tasks", amount = 1, reason }, options: JsonOptions())
+            };
+            AddInternalKey(msg, cfg);
+            using var response = await client.SendAsync(msg, ct);
+            CopyQuotaHeaders(response, http.Response);
+            var raw = await response.Content.ReadAsStringAsync(ct);
+            if (response.IsSuccessStatusCode) return null;
+            if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
+            {
+                return Microsoft.AspNetCore.Http.Results.Content(
+                    string.IsNullOrWhiteSpace(raw)
+                        ? JsonSerializer.Serialize(new { message = "Энергия для решения заданий закончилась.", code = "QUOTA_EXHAUSTED", bucket = "tasks" }, JsonOptions())
+                        : raw,
+                    "application/json",
+                    statusCode: StatusCodes.Status429TooManyRequests);
+            }
+
+            return Problem(503, "QUOTA_SERVICE_UNAVAILABLE", "quotas.consume", "Не удалось проверить энергию для решения задания.");
+        }
+        catch (Exception ex)
+        {
+            return Problem(503, "QUOTA_SERVICE_UNAVAILABLE", "quotas.consume", "Не удалось проверить энергию для решения задания.", ex.Message);
+        }
+    }
+
+    internal static async Task RefundTaskEnergyAsync(
+        HttpContext http,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        Guid userId,
+        string reason,
+        CancellationToken ct)
+    {
+        var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
+        try
+        {
+            var client = httpFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(cfg.GetValue("Quotas:RequestTimeoutSeconds", 8), 2, 30));
+            using var msg = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/internal/quotas/refund")
+            {
+                Content = JsonContent.Create(new { userId, bucket = "tasks", amount = 1, reason }, options: JsonOptions())
+            };
+            AddInternalKey(msg, cfg);
+            using var response = await client.SendAsync(msg, ct);
+            CopyQuotaHeaders(response, http.Response);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void CopyQuotaHeaders(HttpResponseMessage source, HttpResponse target)
+    {
+        foreach (var name in new[] { "X-Quota-Bucket", "X-Quota-Remaining", "X-Quota-Capacity", "X-Quota-Retry-After", "X-Quota-Next-Refill-At", "Retry-After" })
+        {
+            if (source.Headers.TryGetValues(name, out var values) || source.Content.Headers.TryGetValues(name, out values))
+            {
+                target.Headers[name] = values.ToArray();
+            }
+        }
+    }
+
     internal static bool TextAccepted(string? value, List<string> accepted, bool caseSensitive = false, bool trim = true, double? tolerance = null)
     {
         var v = value ?? string.Empty;

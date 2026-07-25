@@ -104,9 +104,21 @@ internal static partial class SolutionsApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
             }
 
+            var taskPolicy = QuotaPolicy(cfg, "tasks");
+            var quotaResult = await ConsumeQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
+            WriteQuotaHeaders(http.Response, quotaResult.quota);
+            if (!quotaResult.consumed)
+            {
+                db.Submissions.Remove(sub);
+                await db.SaveChangesAsync(ct);
+                return QuotaExceeded(quotaResult.quota);
+            }
+
             var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
             if (!enqueue.Created)
             {
+                var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
+                WriteQuotaHeaders(http.Response, refundedQuota);
                 ApplyLocalVerdict(sub, new JudgeRunResult(
                     "JudgeUnavailable",
                     0,

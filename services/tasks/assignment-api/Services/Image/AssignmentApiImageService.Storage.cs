@@ -118,6 +118,9 @@ internal static partial class AssignmentApiImageService
         var expected = await LoadExpectedImageAsync(expectedSpec, clients, cfg, CancellationToken.None);
         await using var actualMs = new MemoryStream();
         await actual.CopyToAsync(actualMs);
+        var userId = RequireUser(http, cfg);
+        if (userId == null) return Unauthorized();
+        if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-compare-upload", http.RequestAborted) is { } quotaProblem) return quotaProblem;
         var thresholdPercent = JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90);
         var threshold = System.Math.Clamp(thresholdPercent / 100.0, 0.0, 1.0);
         try
@@ -133,7 +136,11 @@ internal static partial class AssignmentApiImageService
             mp.Add(actualPart, "actual", actual.FileName);
             var response = await client.PostAsync($"http://image-analyzer:8080/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
             var raw = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode) return Problem(503, "IMAGE_ANALYZER_FAILED", "image-test.analyzer", "image-analyzer не смог сравнить изображения. Проверьте контейнер image-analyzer и формат файлов.", raw);
+            if (!response.IsSuccessStatusCode)
+            {
+                await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "image-compare-upload-analyzer-failed", CancellationToken.None);
+                return Problem(503, "IMAGE_ANALYZER_FAILED", "image-test.analyzer", "image-analyzer не смог сравнить изображения. Проверьте контейнер image-analyzer и формат файлов.", raw);
+            }
             var json = JsonSerializer.Deserialize<JsonElement>(raw);
             var combined = json.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
             var clip = json.TryGetProperty("clip_similarity", out var cl) && cl.TryGetDouble(out var clv) ? clv : combined;
@@ -142,6 +149,7 @@ internal static partial class AssignmentApiImageService
         }
         catch (Exception ex)
         {
+            await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "image-compare-upload-failed", CancellationToken.None);
             return Problem(503, "IMAGE_COMPARE_FAILED", "image-test.analyzer", "Не удалось выполнить сравнение через image-analyzer.", ex.Message);
         }
     }

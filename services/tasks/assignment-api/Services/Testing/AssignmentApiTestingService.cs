@@ -34,10 +34,19 @@ internal static class AssignmentApiTestingService
         var used = await db.Attempts.CountAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
         var max = spec.Settings.MaxAttempts <= 0 ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
+        if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start", ct) is { } quotaProblem) return quotaProblem;
         var attempt = new TaskAttempt { Kind = "test", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
         attempt.OrderJson = JsonSerializer.Serialize(OrderedIds(spec.Questions.Select(x => x.Id), spec.Settings.ShuffleQuestions, attempt.Id), JsonOptions());
         db.Attempts.Add(attempt);
-        await db.SaveChangesAsync();
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start-failed", CancellationToken.None);
+            throw;
+        }
         return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec));
     }
 

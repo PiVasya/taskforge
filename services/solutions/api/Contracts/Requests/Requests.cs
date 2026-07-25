@@ -31,3 +31,5 @@ public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId
 public sealed record CreateExecutionJobRequest(Guid SubmissionId, Guid? AssignmentId, Guid? UserId, string? Language, string? Code, string? Input, JsonElement[]? Tests, int? TimeLimitMs, int? MemoryLimitMb, string? TestsJson, string[]? CodeForbiddenCalls, string[]? CodeRequiredCalls);
 
 public sealed record BadgeUserRequest(Guid UserId, Guid BadgeId);
+
+public sealed record QuotaMutationRequest(Guid UserId, string? Bucket, int Amount = 1, string? Reason = null);

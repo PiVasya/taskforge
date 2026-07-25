@@ -328,11 +328,10 @@ export default function App() {
         <Route path="/register" element={<RegisterPage />} />
         
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/news" element={<NewsPage />} />
+        <Route path="/news/:postId" element={<UpdatePostPage />} />
 
         <Route element={<ProtectedRoute />}>
-          <Route path="/news" element={<NewsPage />} />
-          <Route path="/news/:postId" element={<UpdatePostPage />} />
-
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
 

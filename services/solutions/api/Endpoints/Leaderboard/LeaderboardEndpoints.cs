@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
 
@@ -22,10 +23,11 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapLeaderboardEndpoints(WebApplication app)
     {
-        app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? courseId, int? days, Guid? groupId, string? q, int top = 100, int? page = null, int? pageSize = null, CancellationToken ct = default) =>
+        app.MapGet("/api/leaderboard", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IDistributedCache cache, IHttpClientFactory httpFactory, Guid? courseId, int? days, Guid? groupId, string? q, Guid? viewId, int top = 100, int? page = null, int? pageSize = null, CancellationToken ct = default) =>
         {
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
+            var currentPage = System.Math.Max(1, page ?? 1);
 
             if (courseId.HasValue && !IsEditor(http, cfg))
             {
@@ -47,6 +49,10 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var courseScopeIds = await LoadCourseTreeIdsAsync(courseId, cfg, httpFactory, ct);
+
+            var quotaResult = await ConsumeLeaderboardViewQuotaAsync(db, cache, cfg, uid.Value, viewId, ct);
+            WriteQuotaHeaders(http.Response, quotaResult.quota);
+            if (!quotaResult.consumed) return QuotaExceeded(quotaResult.quota);
 
             var since = days.HasValue && days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-days.Value) : (DateTimeOffset?)null;
             var codeRows = await db.Submissions.AsNoTracking()
@@ -126,7 +132,6 @@ internal static partial class SolutionsApiEndpoints
                 .ToList();
 
             var requestedPagedShape = page.HasValue || pageSize.HasValue;
-            var currentPage = System.Math.Max(1, page ?? 1);
             var size = requestedPagedShape ? System.Math.Clamp(pageSize ?? 20, 1, 50) : System.Math.Clamp(top, 1, 200);
             var offset = requestedPagedShape ? (currentPage - 1) * size : 0;
             var total = filtered.Count;

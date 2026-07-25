@@ -6,9 +6,11 @@ import { ArrowLeft, ExternalLink, Tag } from 'lucide-react';
 import StatementViewer from '../components/tiptap/StatementViewer';
 import ChangelogShowcase from '../components/ChangelogShowcase';
 import { getUpdatesIndex, getUpdatePost } from '../api/updates';
+import { useAuth } from '../auth/AuthContext';
 
 export default function UpdatePostPage() {
   const { postId } = useParams();
+  const { access } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -71,8 +73,8 @@ export default function UpdatePostPage() {
             <span>Назад в ленту</span>
           </Link>
 
-          <Link to="/courses" className="btn-outline self-start sm:self-auto">
-            Перейти к курсам
+          <Link to={access ? "/courses" : "/register"} className="btn-outline self-start sm:self-auto">
+            {access ? "Перейти к курсам" : "Создать аккаунт"}
           </Link>
         </div>
 

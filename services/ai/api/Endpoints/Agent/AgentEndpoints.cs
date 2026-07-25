@@ -93,14 +93,15 @@ internal static partial class AiApiEndpoints
             var runDto = ToRunDto(run);
             await BroadcastAgentEventAsync(hub, conversationId, "message.created", new { message = messageDto }, ct);
             await BroadcastAgentEventAsync(hub, conversationId, "run.created", new { run = runDto }, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { conversation = ToConversationDto(c), message = messageDto, run = runDto, queued = true });
+            var workerNotified = await NotifyAiWorkerAsync(factory, cfg, run.Id, "assistant-chat-turn-queued", app.Logger, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { conversation = ToConversationDto(c), message = messageDto, run = runDto, queued = true, workerNotified });
         });
 
         app.MapPost("/api/agent/conversations/{conversationId:guid}/attachments", async (Guid conversationId, HttpRequest request, HttpContext http, IConfiguration cfg, AiDbContext db, CancellationToken ct) => await SaveAttachment(conversationId, request, http, cfg, db, ct)).DisableAntiforgery();
 
-        app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-task", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db, hub, ct));
+        app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-task", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db, factory, hub, app.Logger, ct));
 
-        app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-tasks", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db, hub, ct));
+        app.MapPost("/api/agent/conversations/{conversationId:guid}/polish-tasks", async (Guid conversationId, JsonElement payload, HttpContext http, IConfiguration cfg, AiDbContext db, IHttpClientFactory factory, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) => await QueueAgentRun(conversationId, "polish_assignment_draft", payload, http, cfg, db, factory, hub, app.Logger, ct));
 
         app.MapPost("/api/agent/runs/{runId:guid}/cancel", async (Guid runId, HttpContext http, IConfiguration cfg, AiDbContext db, IHubContext<AgentRealtimeHub> hub, CancellationToken ct) =>
         {

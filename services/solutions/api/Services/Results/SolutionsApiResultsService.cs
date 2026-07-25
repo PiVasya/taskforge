@@ -174,10 +174,12 @@ internal static class SolutionsApiResultsService
         await MarkRatingDirtyAsync(db, userId, accepted ? "accepted-verdict" : "terminal-verdict");
     }
 
-    internal static async Task<object> GetQuotaStatus(SolutionsDbContext db, Guid userId)
+    internal static async Task<object> GetQuotaStatus(SolutionsDbContext db, Guid userId, IConfiguration cfg, CancellationToken ct = default)
     {
-        var tasks = await StatusFor(db, userId, "tasks", 10, TimeSpan.FromSeconds(90));
-        var top = await StatusFor(db, userId, "top", 5, TimeSpan.FromMinutes(30));
+        var taskPolicy = QuotaPolicy(cfg, "tasks");
+        var topPolicy = QuotaPolicy(cfg, "top");
+        var tasks = await StatusFor(db, userId, "tasks", taskPolicy.Capacity, taskPolicy.Interval, ct);
+        var top = await StatusFor(db, userId, "top", topPolicy.Capacity, topPolicy.Interval, ct);
         return new { enabled = true, tasks, top, buckets = new[] { tasks, top }, remaining = tasks.remaining, capacity = tasks.capacity };
     }
 

@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
 
@@ -19,6 +20,10 @@ namespace TaskForge.Solutions.Api.Services.Common;
 
 internal static class SolutionsApiCommonService
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> QuotaLocks = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> LeaderboardViewLocks = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> LeaderboardViewFallback = new(StringComparer.Ordinal);
+    private static long LeaderboardViewFallbackSweepCounter;
     internal static IResult? CheckUserRateLimit(HttpContext http, string bucket)
     {
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
@@ -198,27 +203,305 @@ internal static class SolutionsApiCommonService
         return prev[b.Length];
     }
 
-    internal static async Task<QuotaView> StatusFor(SolutionsDbContext db, Guid userId, string bucket, int capacity, TimeSpan interval)
+    internal static (int Capacity, TimeSpan Interval) QuotaPolicy(IConfiguration cfg, string bucket)
     {
-        var now = DateTimeOffset.UtcNow;
-        var row = await db.UserQuotaBuckets.FirstOrDefaultAsync(x => x.UserId == userId && x.BucketType == bucket);
-        if (row == null)
+        var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+        if (normalized == "top")
         {
-            row = new UserQuotaBucket { UserId = userId, BucketType = bucket, Tokens = capacity, LastRefillAtUtc = now, CreatedAtUtc = now, UpdatedAtUtc = now };
-            db.UserQuotaBuckets.Add(row);
-            await db.SaveChangesAsync();
+            var capacity = System.Math.Clamp(cfg.GetValue("Quotas:Top:Capacity", 5), 1, 100);
+            var seconds = System.Math.Clamp(cfg.GetValue("Quotas:Top:RefillSeconds", 1800), 1, 86400);
+            return (capacity, TimeSpan.FromSeconds(seconds));
         }
-        var elapsed = now - row.LastRefillAtUtc;
-        if (elapsed.TotalSeconds >= interval.TotalSeconds)
+
+        var taskCapacity = System.Math.Clamp(cfg.GetValue("Quotas:Tasks:Capacity", 10), 1, 1000);
+        var taskSeconds = System.Math.Clamp(cfg.GetValue("Quotas:Tasks:RefillSeconds", 90), 1, 86400);
+        return (taskCapacity, TimeSpan.FromSeconds(taskSeconds));
+    }
+
+    internal static async Task<QuotaView> StatusFor(SolutionsDbContext db, Guid userId, string bucket, int capacity, TimeSpan interval, CancellationToken ct = default)
+    {
+        var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            var refill = (int)System.Math.Floor(elapsed.TotalSeconds / interval.TotalSeconds);
-            row.Tokens = System.Math.Min(capacity, row.Tokens + refill);
-            row.LastRefillAtUtc = row.LastRefillAtUtc.AddSeconds(refill * interval.TotalSeconds);
+            var now = DateTimeOffset.UtcNow;
+            var row = await db.UserQuotaBuckets.FirstOrDefaultAsync(x => x.UserId == userId && x.BucketType == normalized, ct);
+            if (row == null)
+            {
+                row = new UserQuotaBucket
+                {
+                    UserId = userId,
+                    BucketType = normalized,
+                    Tokens = capacity,
+                    LastRefillAtUtc = now,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                };
+                db.UserQuotaBuckets.Add(row);
+                await db.SaveChangesAsync(ct);
+            }
+
+            if (ApplyQuotaRefill(row, capacity, interval, now))
+            {
+                await db.SaveChangesAsync(ct);
+            }
+
+            return BuildQuotaView(row, normalized, capacity, interval, now);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    internal static async Task<QuotaMutationResult> ConsumeLeaderboardViewQuotaAsync(
+        SolutionsDbContext db,
+        IDistributedCache cache,
+        IConfiguration cfg,
+        Guid userId,
+        Guid? viewId,
+        CancellationToken ct = default)
+    {
+        var policy = QuotaPolicy(cfg, "top");
+        if (!viewId.HasValue || viewId.Value == Guid.Empty)
+        {
+            return await ConsumeQuotaAsync(db, userId, "top", policy.Capacity, policy.Interval, 1, ct);
+        }
+
+        var ttlSeconds = System.Math.Clamp(cfg.GetValue("Quotas:Top:ViewSessionSeconds", 7200), 60, 86400);
+        var expiresAt = DateTimeOffset.UtcNow.AddSeconds(ttlSeconds);
+        var key = TaskForgeCache.Key("leaderboard-view", userId, viewId.Value);
+        var gate = LeaderboardViewLocks.GetOrAdd($"{userId:N}:top-view", static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            PruneLeaderboardViewFallback(now);
+            if (LeaderboardViewFallback.TryGetValue(key, out var localExpiry))
+            {
+                if (localExpiry > now)
+                {
+                    var current = await StatusFor(db, userId, "top", policy.Capacity, policy.Interval, ct);
+                    return new QuotaMutationResult(true, current);
+                }
+                LeaderboardViewFallback.TryRemove(key, out _);
+            }
+
+            try
+            {
+                var cached = await cache.GetStringAsync(key, ct);
+                if (!string.IsNullOrWhiteSpace(cached))
+                {
+                    LeaderboardViewFallback[key] = expiresAt;
+                    var current = await StatusFor(db, userId, "top", policy.Capacity, policy.Interval, ct);
+                    return new QuotaMutationResult(true, current);
+                }
+            }
+            catch
+            {
+                // Redis/cache outage must not break the leaderboard. The local marker below
+                // still prevents repeat charges while this solutions-api instance is alive.
+            }
+
+            var consumed = await ConsumeQuotaAsync(db, userId, "top", policy.Capacity, policy.Interval, 1, ct);
+            if (!consumed.consumed) return consumed;
+
+            LeaderboardViewFallback[key] = expiresAt;
+            try
+            {
+                await cache.SetStringAsync(
+                    key,
+                    "1",
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(ttlSeconds) },
+                    ct);
+            }
+            catch
+            {
+                // The in-process fallback above is enough for a single instance and keeps
+                // the user flow working until Redis becomes available again.
+            }
+
+            return consumed;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    internal static async Task<QuotaMutationResult> ConsumeQuotaAsync(
+        SolutionsDbContext db,
+        Guid userId,
+        string bucket,
+        int capacity,
+        TimeSpan interval,
+        int amount = 1,
+        CancellationToken ct = default)
+    {
+        var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+        amount = System.Math.Clamp(amount, 1, capacity);
+        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var row = await db.UserQuotaBuckets.FirstOrDefaultAsync(x => x.UserId == userId && x.BucketType == normalized, ct);
+            if (row == null)
+            {
+                row = new UserQuotaBucket
+                {
+                    UserId = userId,
+                    BucketType = normalized,
+                    Tokens = capacity,
+                    LastRefillAtUtc = now,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                };
+                db.UserQuotaBuckets.Add(row);
+            }
+            else
+            {
+                ApplyQuotaRefill(row, capacity, interval, now);
+            }
+
+            if (row.Tokens < amount)
+            {
+                row.UpdatedAtUtc = now;
+                await db.SaveChangesAsync(ct);
+                return new QuotaMutationResult(false, BuildQuotaView(row, normalized, capacity, interval, now));
+            }
+
+            var wasFull = row.Tokens >= capacity;
+            row.Tokens -= amount;
+            if (wasFull)
+            {
+                row.LastRefillAtUtc = now;
+            }
             row.UpdatedAtUtc = now;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
+            return new QuotaMutationResult(true, BuildQuotaView(row, normalized, capacity, interval, now));
         }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    internal static async Task<QuotaView> RefundQuotaAsync(
+        SolutionsDbContext db,
+        Guid userId,
+        string bucket,
+        int capacity,
+        TimeSpan interval,
+        int amount = 1,
+        CancellationToken ct = default)
+    {
+        var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+        amount = System.Math.Clamp(amount, 1, capacity);
+        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var row = await db.UserQuotaBuckets.FirstOrDefaultAsync(x => x.UserId == userId && x.BucketType == normalized, ct);
+            if (row == null)
+            {
+                row = new UserQuotaBucket
+                {
+                    UserId = userId,
+                    BucketType = normalized,
+                    Tokens = capacity,
+                    LastRefillAtUtc = now,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                };
+                db.UserQuotaBuckets.Add(row);
+            }
+            else
+            {
+                ApplyQuotaRefill(row, capacity, interval, now);
+                row.Tokens = System.Math.Min(capacity, row.Tokens + amount);
+                row.UpdatedAtUtc = now;
+            }
+
+            await db.SaveChangesAsync(ct);
+            return BuildQuotaView(row, normalized, capacity, interval, now);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    internal static void WriteQuotaHeaders(HttpResponse response, QuotaView quota)
+    {
+        response.Headers["X-Quota-Bucket"] = quota.bucket;
+        response.Headers["X-Quota-Remaining"] = quota.remaining.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        response.Headers["X-Quota-Capacity"] = quota.capacity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        response.Headers["X-Quota-Retry-After"] = quota.retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        response.Headers["X-Quota-Next-Refill-At"] = quota.nextRefillAtUtc.ToString("O");
+        if (!quota.allowed && quota.retryAfterSeconds > 0)
+        {
+            response.Headers.RetryAfter = quota.retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    internal static IResult QuotaExceeded(QuotaView quota, string? message = null)
+    {
+        var text = message ?? (quota.bucket == "top"
+            ? "Энергия рейтинга закончилась. Дождитесь восстановления заряда."
+            : "Энергия для решения заданий закончилась. Дождитесь восстановления заряда.");
+        return Microsoft.AspNetCore.Http.Results.Json(new
+        {
+            message = text,
+            code = "QUOTA_EXHAUSTED",
+            bucket = quota.bucket,
+            remaining = quota.remaining,
+            capacity = quota.capacity,
+            retryAfterSeconds = quota.retryAfterSeconds,
+            nextRefillAtUtc = quota.nextRefillAtUtc
+        }, statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    private static void PruneLeaderboardViewFallback(DateTimeOffset now)
+    {
+        if ((Interlocked.Increment(ref LeaderboardViewFallbackSweepCounter) & 255) != 0) return;
+        foreach (var item in LeaderboardViewFallback)
+        {
+            if (item.Value <= now) LeaderboardViewFallback.TryRemove(item.Key, out _);
+        }
+    }
+
+    private static bool ApplyQuotaRefill(UserQuotaBucket row, int capacity, TimeSpan interval, DateTimeOffset now)
+    {
+        if (row.Tokens >= capacity)
+        {
+            if (row.Tokens != capacity)
+            {
+                row.Tokens = capacity;
+                row.UpdatedAtUtc = now;
+                return true;
+            }
+            return false;
+        }
+
+        var elapsed = now - row.LastRefillAtUtc;
+        if (elapsed < interval) return false;
+        var refill = (int)System.Math.Floor(elapsed.TotalSeconds / interval.TotalSeconds);
+        if (refill <= 0) return false;
+        row.Tokens = System.Math.Min(capacity, row.Tokens + refill);
+        row.LastRefillAtUtc = row.LastRefillAtUtc.AddSeconds(refill * interval.TotalSeconds);
+        row.UpdatedAtUtc = now;
+        return true;
+    }
+
+    private static QuotaView BuildQuotaView(UserQuotaBucket row, string bucket, int capacity, TimeSpan interval, DateTimeOffset now)
+    {
+        var remaining = System.Math.Clamp(row.Tokens, 0, capacity);
         var next = row.LastRefillAtUtc.Add(interval);
-        return new QuotaView(bucket, System.Math.Max(0, row.Tokens), capacity, row.Tokens >= capacity ? 0 : System.Math.Max(1, (int)System.Math.Ceiling((next - now).TotalSeconds)), next, row.Tokens > 0);
+        var retry = remaining >= capacity ? 0 : System.Math.Max(1, (int)System.Math.Ceiling((next - now).TotalSeconds));
+        return new QuotaView(bucket, remaining, capacity, retry, next, remaining > 0);
     }
 
     internal static IResult Unauthorized() => Microsoft.AspNetCore.Http.Results.Json(new { message = "Сессия истекла или вы не вошли в систему.", code = "AUTH_REQUIRED" }, statusCode: StatusCodes.Status401Unauthorized);

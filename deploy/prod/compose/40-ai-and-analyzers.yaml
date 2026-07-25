@@ -22,6 +22,9 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       InternalApi__Key: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
+      AiWorker__BaseUrl: http://ai-worker:8080
+      AiWorker__WakeTimeoutSeconds: 5
+      AiWorker__WakeAttempts: 3
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
@@ -62,6 +65,7 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       TaskForgeInternalApi__BaseUrl: http://ai-api:8080
       TaskForgeInternalApi__ApiKey: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
@@ -87,6 +91,8 @@ services:
       Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
+    expose:
+      - '8080'
     depends_on:
       ai-api:
         condition: service_healthy

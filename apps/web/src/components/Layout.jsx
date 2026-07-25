@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Bot,
+  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "../auth/AuthContext";
@@ -293,17 +294,18 @@ export default function Layout({
   }, [adminOpen]);
 
   useEffect(() => {
-    if (!mobileOpen) return;
-    const onDown = (e) => {
-      const el = mobileMenuRef.current;
-      if (!el) return;
-      if (!el.contains(e.target)) setMobileOpen(false);
+    if (!mobileOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setMobileOpen(false);
     };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("touchstart", onDown);
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("touchstart", onDown);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [mobileOpen]);
 
@@ -444,6 +446,7 @@ export default function Layout({
     : [];
 
   const adminNav = [...adminPrimaryNav, ...adminSecondaryNav];
+  const isAdminArea = isAdmin && (currentPath.startsWith("/admin/") || currentPath === "/admin");
 
   const roleBadges = roles.filter(Boolean).slice(0, 4);
   const currentViewTitle = (() => {
@@ -723,145 +726,166 @@ export default function Layout({
                   )}
                 </div>
               ) : (
-                <Link
-                  to="/login"
-                  className="hidden md:inline-flex btn-primary"
-                  title="Войти"
-                >
-                  <LogIn size={18} />
-                  <span>Войти</span>
-                </Link>
+                <div className="hidden md:flex items-center gap-2">
+                  <Link to="/news" className="btn-outline" title="Лента обновлений">
+                    <House size={18} />
+                    <span>Лента</span>
+                  </Link>
+                  <Link to="/login" className="btn-primary" title="Войти">
+                    <LogIn size={18} />
+                    <span>Войти</span>
+                  </Link>
+                </div>
               )}
 
-              <div className="relative xl:hidden" ref={mobileMenuRef}>
+              <div className="xl:hidden">
                 <button
                   className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
-                  onClick={() => setMobileOpen((v) => !v)}
+                  onClick={() => setMobileOpen(true)}
                   title="Меню"
-                  aria-haspopup="menu"
+                  aria-haspopup="dialog"
                   aria-expanded={mobileOpen}
                 >
-                  <Menu size={18} />
+                  <Menu size={20} />
                 </button>
+              </div>
 
-                {mobileOpen && (
-                  <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1rem))] max-h-[75dvh] overflow-y-auto rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
-                    <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">
-                      Навигация
+            </div>
+          </div>
+
+          {access && (
+            <div className="xl:hidden border-t border-neutral-200/55 dark:border-neutral-800/55">
+              <div className="container-app py-2">
+                <QuotaStatusBar mobile />
+              </div>
+            </div>
+          )}
+
+          {isAdminArea && (
+            <nav className="admin-mobile-tabs xl:hidden" aria-label="Разделы админ-панели">
+              <div className="container-app admin-mobile-tabs__scroller">
+                {adminNav.map((item) => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={`admin-mobile-tab ${item.active ? "is-active" : ""}`}
+                  >
+                    <item.icon size={16} />
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </nav>
+          )}
+        </header>
+
+        {mobileOpen && (
+          <div className="mobile-nav-overlay xl:hidden" role="dialog" aria-modal="true" aria-label="Меню TaskForge">
+            <button
+              type="button"
+              className="mobile-nav-backdrop"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Закрыть меню"
+            />
+            <div className="mobile-nav-sheet" ref={mobileMenuRef}>
+              <div className="mobile-nav-sheet__header">
+                <div className="min-w-0">
+                  <div className="text-lg font-semibold truncate">TaskForge</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{currentViewTitle}</div>
+                </div>
+                <button
+                  type="button"
+                  className="mobile-nav-close"
+                  onClick={() => setMobileOpen(false)}
+                  aria-label="Закрыть меню"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {access ? <QuotaStatusBar mobile className="mobile-nav-sheet__quota" /> : null}
+
+              <div className="mobile-nav-sheet__content">
+                <section className="mobile-nav-section">
+                  <div className="mobile-nav-section__title">Навигация</div>
+                  <div className="mobile-nav-grid">
+                    {primaryNav.map((item) => (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        className={`mobile-nav-card ${item.active ? "is-active" : ""}`}
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <item.icon size={19} />
+                        <span>{item.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+
+                {access && (
+                  <section className="mobile-nav-section">
+                    <div className="mobile-nav-section__title">Аккаунт</div>
+                    <div className="mobile-nav-grid">
+                      <Link to="/settings?section=profile" className="mobile-nav-card" onClick={() => setMobileOpen(false)}>
+                        <User size={19} /><span>Профиль</span>
+                      </Link>
+                      <Link to="/settings" className="mobile-nav-card" onClick={() => setMobileOpen(false)}>
+                        <Settings size={19} /><span>Настройки</span>
+                      </Link>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          className={`mobile-nav-card ${isEditorMode ? "is-active" : ""}`}
+                          onClick={() => { toggle(); setMobileOpen(false); }}
+                        >
+                          {isEditorMode ? <PencilLine size={19} /> : <Eye size={19} />}
+                          <span>{isEditorMode ? "Редактор" : "Просмотр"}</span>
+                        </button>
+                      ) : null}
                     </div>
-                    <div className="flex flex-col">
-                      {primaryNav.map((item) => (
+                  </section>
+                )}
+
+                {isAdmin && (
+                  <section className="mobile-nav-section">
+                    <div className="mobile-nav-section__title">Админ-панель</div>
+                    <div className="mobile-nav-grid mobile-nav-grid--admin">
+                      {adminNav.map((item) => (
                         <Link
                           key={item.to}
                           to={item.to}
-                          className="btn-ghost w-full justify-start"
+                          className={`mobile-nav-card ${item.active ? "is-active" : ""}`}
                           onClick={() => setMobileOpen(false)}
                         >
-                          <item.icon size={18} />
-                          <span className="ml-2">{item.label}</span>
+                          <item.icon size={19} />
+                          <span>{item.label}</span>
                         </Link>
                       ))}
-
-                      {access && (
-                        <>
-                          <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                          <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">
-                            Аккаунт
-                          </div>
-
-                          <Link
-                            to="/settings?section=profile"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <User size={18} />
-                            <span className="ml-2">Профиль</span>
-                          </Link>
-                          <Link
-                            to="/settings"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <Settings size={18} />
-                            <span className="ml-2">Настройки</span>
-                          </Link>
-                          {canEdit && (
-                            <button
-                              type="button"
-                              className="btn-ghost w-full justify-start"
-                              onClick={() => {
-                                toggle();
-                                setMobileOpen(false);
-                              }}
-                            >
-                              {isEditorMode ? (
-                                <PencilLine size={18} />
-                              ) : (
-                                <Eye size={18} />
-                              )}
-                              <span className="ml-2">
-                                {isEditorMode
-                                  ? "Режим редактора"
-                                  : "Режим просмотра"}
-                              </span>
-                            </button>
-                          )}
-
-                          {isAdmin && (
-                            <>
-                              <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                              <div className="px-3 py-2 text-xs uppercase tracking-wide opacity-70">
-                                Админка
-                              </div>
-                              {adminNav.map((item) => (
-                                <Link
-                                  key={item.to}
-                                  to={item.to}
-                                  className="btn-ghost w-full justify-start"
-                                  onClick={() => setMobileOpen(false)}
-                                >
-                                  <item.icon size={18} />
-                                  <span className="ml-2">{item.label}</span>
-                                </Link>
-                              ))}
-                            </>
-                          )}
-
-                          <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                          <button
-                            type="button"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => {
-                              setMobileOpen(false);
-                              handleLogout();
-                            }}
-                          >
-                            <LogOut size={18} />
-                            <span className="ml-2">Выйти</span>
-                          </button>
-                        </>
-                      )}
-
-                      {!access && (
-                        <>
-                          <div className="my-1 h-px bg-neutral-200/70 dark:bg-neutral-800/70" />
-                          <Link
-                            to="/login"
-                            className="btn-ghost w-full justify-start"
-                            onClick={() => setMobileOpen(false)}
-                          >
-                            <LogIn size={18} />
-                            <span className="ml-2">Войти</span>
-                          </Link>
-                        </>
-                      )}
                     </div>
-                  </div>
+                  </section>
                 )}
+
+                <section className="mobile-nav-section mobile-nav-section--last">
+                  {access ? (
+                    <button type="button" className="mobile-nav-card mobile-nav-card--danger w-full" onClick={handleLogout}>
+                      <LogOut size={19} /><span>Выйти</span>
+                    </button>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <Link to="/login" className="mobile-nav-card" onClick={() => setMobileOpen(false)}>
+                        <LogIn size={19} /><span>Войти</span>
+                      </Link>
+                      <Link to="/register" className="mobile-nav-card is-active" onClick={() => setMobileOpen(false)}>
+                        <User size={19} /><span>Регистрация</span>
+                      </Link>
+                    </div>
+                  )}
+                </section>
               </div>
             </div>
           </div>
-        </header>
+        )}
 
         <main className={mainWrapClass}>
           <div
@@ -911,7 +935,7 @@ export default function Layout({
               </aside>
             )}
 
-            <section className="min-w-0 overflow-x-hidden xl:px-1 2xl:px-2">
+            <section className={`min-w-0 overflow-x-hidden xl:px-1 2xl:px-2 ${isAdminArea ? "admin-mobile-content" : ""}`}>
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}

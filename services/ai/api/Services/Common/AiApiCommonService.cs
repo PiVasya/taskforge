@@ -25,6 +25,76 @@ internal static class AiApiCommonService
         if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
     }
 
+
+    internal static async Task<bool> NotifyAiWorkerAsync(
+        IHttpClientFactory httpFactory,
+        IConfiguration cfg,
+        Guid runId,
+        string reason,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var baseUrl = (cfg["AiWorker:BaseUrl"] ?? "http://ai-worker:8080").TrimEnd('/');
+        var timeoutSeconds = System.Math.Clamp(cfg.GetValue("AiWorker:WakeTimeoutSeconds", 5), 1, 30);
+        var attempts = System.Math.Clamp(cfg.GetValue("AiWorker:WakeAttempts", 3), 1, 5);
+
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            try
+            {
+                var client = httpFactory.CreateClient();
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+                using var message = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/wake")
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        reason,
+                        runId,
+                        requestedAtUtc = DateTimeOffset.UtcNow
+                    })
+                };
+                AddInternalKey(message, cfg);
+                using var response = await client.SendAsync(message, timeout.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    logger.LogInformation(
+                        "AI worker wake accepted: runId={RunId} reason={Reason} attempt={Attempt}",
+                        runId, reason, attempt);
+                    return true;
+                }
+
+                var body = await response.Content.ReadAsStringAsync(timeout.Token);
+                logger.LogWarning(
+                    "AI worker wake rejected: runId={RunId} reason={Reason} attempt={Attempt}/{Attempts} status={Status} body={Body}",
+                    runId, reason, attempt, attempts, (int)response.StatusCode, body);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    "AI worker wake timed out: runId={RunId} reason={Reason} attempt={Attempt}/{Attempts}",
+                    runId, reason, attempt, attempts);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "AI worker wake failed: runId={RunId} reason={Reason} attempt={Attempt}/{Attempts}",
+                    runId, reason, attempt, attempts);
+            }
+
+            if (attempt < attempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt), ct);
+            }
+        }
+
+        logger.LogError(
+            "AI worker was not notified after {Attempts} attempts. Run remains queued and will be drained on the next wake or worker restart: runId={RunId}",
+            attempts, runId);
+        return false;
+    }
+
     internal static JsonArray SelectAssignments(JsonNode? assignments, Guid assignmentId)
     {
         var result = new JsonArray();
