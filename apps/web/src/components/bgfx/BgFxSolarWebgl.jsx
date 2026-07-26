@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function cssTriplet(name, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -404,6 +404,10 @@ void main() {
 
 export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
   const canvasRef = useRef(null);
+  const runtimeRef = useRef(null);
+  const latestIntensityRef = useRef(intensity);
+  const [canvasGeneration, setCanvasGeneration] = useState(0);
+  latestIntensityRef.current = intensity;
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -411,21 +415,27 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
 
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     const gl = canvas.getContext('webgl2', {
-      alpha: true,
+      alpha: false,
       antialias: false,
       depth: false,
       stencil: false,
       premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
-      desynchronized: true,
+      preserveDrawingBuffer: true,
+      desynchronized: false,
       powerPreference: 'high-performance',
     });
 
-    if (!gl) return undefined;
+    if (!gl) {
+      canvas.dataset.webglState = 'unavailable';
+      return undefined;
+    }
 
     let disposed = false;
+    let contextLost = false;
     let rafId = 0;
+    let contextRetryTimer = 0;
     let resizeObserver = null;
     let lastFrame = 0;
     let startTime = performance.now() / 1000;
@@ -433,8 +443,6 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     let samples = [];
     let adaptiveCooldown = 0;
 
-    const isDark = document.documentElement.classList.contains('dark');
-    const theme = makeThemePalette(isDark);
     const cores = navigator.hardwareConcurrency || 4;
     const memory = navigator.deviceMemory || 4;
     if (cores <= 4 || memory <= 4) renderScale *= 0.82;
@@ -473,6 +481,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     try {
       program = createProgram();
     } catch (error) {
+      canvas.dataset.webglState = 'shader-error';
       console.error('[BgFxSolarWebgl]', error);
       return undefined;
     }
@@ -526,6 +535,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     const planetB = new Float32Array(7 * 4);
     const colorA = new Float32Array(7 * 4);
     const colorB = new Float32Array(7 * 4);
+    const paletteSlots = new Uint8Array(7);
     const typePool = [0, 0, 1, 1, 4, 8, 9, 9];
     const planetTypes = [4, 1, 8, 9, 0];
 
@@ -539,7 +549,6 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
 
     for (let i = 0; i < 7; i += 1) {
       const type = planetTypes[i];
-      const pair = theme.planetPairs[(i + Math.floor(random() * 3)) % theme.planetPairs.length];
       const orbit = 0.105 + (i + 0.68) * 0.054 + random() * 0.005;
       const phase = random() * Math.PI * 2;
       const direction = random() > 0.5 ? 1 : -1;
@@ -550,11 +559,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
 
       planetA.set([orbit, phase, speed, size], i * 4);
       planetB.set([type, hasRing ? 1 : 0, random() * 100, random()], i * 4);
-
-      const primary = rgb01(pair[0]);
-      const secondary = rgb01(pair[1]);
-      colorA.set([primary[0], primary[1], primary[2], 1], i * 4);
-      colorB.set([secondary[0], secondary[1], secondary[2], 1], i * 4);
+      paletteSlots[i] = (i + Math.floor(random() * 3)) % 6;
     }
 
     const baseRotation = ((-8 + (random() - 0.5) * 4) * Math.PI) / 180;
@@ -565,28 +570,50 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     ]);
 
     const setVec3 = (location, rgb) => gl.uniform3fv(location, new Float32Array(rgb01(rgb)));
+
+    function applyTheme(nextIntensity = 1) {
+      if (disposed || contextLost || gl.isContextLost()) return;
+      const isDark = document.documentElement.classList.contains('dark');
+      const theme = makeThemePalette(isDark);
+      const normalizedIntensity = clamp(Number(nextIntensity) || 1, 0.35, 1.5);
+
+      for (let i = 0; i < 7; i += 1) {
+        const pair = theme.planetPairs[paletteSlots[i] % theme.planetPairs.length];
+        const primary = rgb01(pair[0]);
+        const secondary = rgb01(pair[1]);
+        colorA.set([primary[0], primary[1], primary[2], 1], i * 4);
+        colorB.set([secondary[0], secondary[1], secondary[2], 1], i * 4);
+      }
+
+      gl.useProgram(program);
+      gl.uniform1f(locations.opacity, clamp(theme.opacity * normalizedIntensity, 0.35, 1));
+      setVec3(locations.bgA, theme.bgA);
+      setVec3(locations.bgB, theme.bgB);
+      setVec3(locations.nebulaA, theme.nebulaA);
+      setVec3(locations.nebulaB, theme.nebulaB);
+      setVec3(locations.starA, theme.starA);
+      setVec3(locations.starB, theme.starB);
+      setVec3(locations.orbitColor, theme.orbit);
+      setVec3(locations.sunA, theme.sunA);
+      setVec3(locations.sunB, theme.sunB);
+      setVec3(locations.blackHole, theme.blackHole);
+      gl.uniform4fv(locations.colorA, colorA);
+      gl.uniform4fv(locations.colorB, colorB);
+
+      canvas.style.opacity = String(clamp(theme.opacity * normalizedIntensity, 0.52, 1));
+      canvas.dataset.webglState = 'ready';
+    }
+
     gl.uniform1f(locations.seed, (baseSeed % 100000) / 100000);
     gl.uniform1f(locations.baseRotation, baseRotation);
     gl.uniform1f(locations.tilt, tilt);
-    gl.uniform1f(locations.opacity, clamp(theme.opacity * (Number(intensity) || 1), 0.35, 1));
     gl.uniform2fv(locations.center, center);
-    setVec3(locations.bgA, theme.bgA);
-    setVec3(locations.bgB, theme.bgB);
-    setVec3(locations.nebulaA, theme.nebulaA);
-    setVec3(locations.nebulaB, theme.nebulaB);
-    setVec3(locations.starA, theme.starA);
-    setVec3(locations.starB, theme.starB);
-    setVec3(locations.orbitColor, theme.orbit);
-    setVec3(locations.sunA, theme.sunA);
-    setVec3(locations.sunB, theme.sunB);
-    setVec3(locations.blackHole, theme.blackHole);
     gl.uniform4fv(locations.planetA, planetA);
     gl.uniform4fv(locations.planetB, planetB);
-    gl.uniform4fv(locations.colorA, colorA);
-    gl.uniform4fv(locations.colorB, colorB);
+    applyTheme(latestIntensityRef.current);
 
     function resize() {
-      if (disposed) return;
+      if (disposed || contextLost || gl.isContextLost()) return;
       const rect = canvas.getBoundingClientRect();
       const widthCss = Math.max(1, rect.width || window.innerWidth);
       const heightCss = Math.max(1, rect.height || window.innerHeight);
@@ -597,13 +624,22 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
         canvas.width = width;
         canvas.height = height;
         gl.viewport(0, 0, width, height);
+        gl.useProgram(program);
         gl.uniform2f(locations.resolution, width, height);
       }
     }
 
     function render(timeSeconds) {
+      if (disposed || contextLost || gl.isContextLost()) return;
+      gl.useProgram(program);
+      gl.bindVertexArray(vao);
       gl.uniform1f(locations.time, timeSeconds);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    function renderNow() {
+      resize();
+      render(Math.max(0, performance.now() / 1000 - startTime));
     }
 
     function adaptQuality(delta) {
@@ -627,7 +663,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     }
 
     function loop(now) {
-      if (disposed) return;
+      if (disposed || contextLost || gl.isContextLost()) return;
       rafId = requestAnimationFrame(loop);
       if (document.hidden) return;
       const seconds = now / 1000;
@@ -643,37 +679,90 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
       render(seconds - startTime);
     }
 
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     const handleVisibility = () => {
       if (!document.hidden) {
         lastFrame = 0;
         startTime = performance.now() / 1000;
+        renderNow();
       }
     };
+    const handlePageShow = () => {
+      lastFrame = 0;
+      renderNow();
+    };
+    const handleContextLost = (event) => {
+      event.preventDefault();
+      if (disposed || contextLost) return;
+      contextLost = true;
+      canvas.dataset.webglState = 'lost';
+      cancelAnimationFrame(rafId);
+      contextRetryTimer = window.setTimeout(() => {
+        if (!disposed) setCanvasGeneration((value) => value + 1);
+      }, 250);
+    };
+    const handleContextCreationError = (event) => {
+      console.error('[BgFxSolarWebgl] WebGL context creation error', event?.statusMessage || event);
+    };
 
-    resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(canvas);
+    canvas.addEventListener('webglcontextlost', handleContextLost, false);
+    canvas.addEventListener('webglcontextcreationerror', handleContextCreationError, false);
     document.addEventListener('visibilitychange', handleVisibility);
-    resize();
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('resize', resize, { passive: true });
 
-    if (reducedMotion) render(0);
-    else rafId = requestAnimationFrame(loop);
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(resize);
+      resizeObserver.observe(canvas);
+    }
+
+    resize();
+    render(0);
+    if (!reducedMotion) rafId = requestAnimationFrame(loop);
+
+    const runtime = {
+      updateTheme(nextIntensity) {
+        applyTheme(nextIntensity);
+        renderNow();
+      },
+    };
+    runtimeRef.current = runtime;
 
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      window.clearTimeout(contextRetryTimer);
       resizeObserver?.disconnect();
+      canvas.removeEventListener('webglcontextlost', handleContextLost, false);
+      canvas.removeEventListener('webglcontextcreationerror', handleContextCreationError, false);
       document.removeEventListener('visibilitychange', handleVisibility);
-      gl.bindVertexArray(null);
-      if (vao) gl.deleteVertexArray(vao);
-      gl.deleteProgram(program);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('resize', resize);
+      if (runtimeRef.current === runtime) runtimeRef.current = null;
+
+      if (!gl.isContextLost()) {
+        gl.bindVertexArray(null);
+        if (vao) gl.deleteVertexArray(vao);
+        gl.deleteProgram(program);
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+      }
     };
-  }, [enabled, intensity, uiRev]);
+  }, [enabled, canvasGeneration]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const runtime = runtimeRef.current;
+    if (!runtime) return undefined;
+
+    runtime.updateTheme(intensity);
+    const frame = requestAnimationFrame(() => runtime.updateTheme(intensity));
+    return () => cancelAnimationFrame(frame);
+  }, [enabled, intensity, uiRev, canvasGeneration]);
 
   if (!enabled) return null;
 
   return (
     <canvas
+      key={canvasGeneration}
       ref={canvasRef}
       aria-hidden
       className="bgfx-canvas bgfx-canvas--solar"
@@ -684,6 +773,9 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
         height: '100%',
         zIndex: 0,
         pointerEvents: 'none',
+        background:
+          'radial-gradient(circle at 50% 52%, rgb(var(--fx-2) / 0.14), transparent 28%), linear-gradient(135deg, rgb(var(--page-bg)), rgb(var(--card)))',
+        willChange: 'opacity',
       }}
     />
   );
