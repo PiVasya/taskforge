@@ -84,6 +84,12 @@ if 'FROM node:22-bookworm-slim' not in js_docker:
 if '--experimental-permission' not in (root / 'services/execution/runners/javascript-runner/main.go').read_text():
     die('JavaScript permission model is not enforced')
 
+analyzer_dockerfile = (root / 'services/analyzers/code-analyzer/Dockerfile').read_text()
+if 'FROM rust:slim-bookworm AS build' not in analyzer_dockerfile:
+    die('code-analyzer Rust builder must be pinned to bookworm to avoid GLIBC drift')
+if 'FROM debian:bookworm-slim' not in analyzer_dockerfile:
+    die('code-analyzer runtime must remain on the same bookworm GLIBC generation')
+
 required_analyzer_files = [
     'services/analyzers/code-analyzer/src/security_policy.rs',
     'services/analyzers/code-analyzer/src/attestation.rs',

@@ -1,6 +1,6 @@
 # Используем актуальный stable toolchain, т.к. Cargo.lock может иметь новый формат.
 # (Например lockfile version 4 не поддерживается старыми Cargo из rust:1.77)
-FROM rust:slim AS build
+FROM rust:slim-bookworm AS build
 
 WORKDIR /app
 

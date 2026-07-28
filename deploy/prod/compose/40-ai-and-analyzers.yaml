@@ -112,7 +112,7 @@ services:
     user: "1000:1000"
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/code-analyzer:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:

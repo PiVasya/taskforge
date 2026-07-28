@@ -190,7 +190,7 @@ services:
     - csharp-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/csharp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -233,7 +233,7 @@ services:
     - cpp-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/cpp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -274,7 +274,7 @@ services:
     - java-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/java-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -315,7 +315,7 @@ services:
     - javascript-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/javascript-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -356,7 +356,7 @@ services:
     - pascal-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/pascal-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -397,7 +397,7 @@ services:
     - python-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/python-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -438,7 +438,7 @@ services:
     - image-cpp-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-cpp-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -479,7 +479,7 @@ services:
     - image-pascal-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-pascal-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:
@@ -520,7 +520,7 @@ services:
     - image-python-runner-net
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/image-python-runner:${IMAGE_TAG:-develop}
     labels:
-    - com.centurylinklabs.watchtower.enable=true
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
     - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
     restart: unless-stopped
     expose:

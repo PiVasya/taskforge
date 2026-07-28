@@ -229,3 +229,15 @@ sudo sysctl --system
 
 `image-analyzer` uses a persistent host cache directory `.runtime/image-analyzer-model-cache` for OpenCLIP/HuggingFace weights.
 Do not remove this directory during normal updates; otherwise the analyzer will download the CLIP weights again.
+
+## OJ image/config updates
+
+Runner and `code-analyzer` images are excluded from automatic Watchtower replacement by default (`WATCHTOWER_OJ_ENABLE=false`). Their security contract includes RSA key mounts and other Compose settings, so updating only an image can break a live runner while leaving the old container configuration in place.
+
+Apply OJ changes through the repository scripts:
+
+```bash
+./deploy/prod/repair-oj.sh
+```
+
+Set `WATCHTOWER_OJ_ENABLE=true` only when a release changes binaries without changing environment variables, secrets, mounts, networks, limits, or security options.
