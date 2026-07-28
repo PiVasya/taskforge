@@ -5,6 +5,7 @@
     <AnalysisLevel>latest</AnalysisLevel>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
 		<!-- Производительность запуска -->
 		<PublishReadyToRun>true</PublishReadyToRun>

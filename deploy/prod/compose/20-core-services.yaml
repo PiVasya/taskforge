@@ -25,7 +25,7 @@ services:
       Telegram__ConfirmAttemptLimit: ${TELEGRAM_LINK_CONFIRM_ATTEMPT_LIMIT:-8}
       Telegram__ConfirmAttemptWindowMinutes: ${TELEGRAM_LINK_CONFIRM_ATTEMPT_WINDOW_MINUTES:-5}
       SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
-      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}
       Services__SolutionsApi: http://solutions-api:8080
       Services__TasksApi: http://tasks-api:8080
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}

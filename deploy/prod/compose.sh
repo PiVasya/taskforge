@@ -1,169 +1,102 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
 
 TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR="${TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR:-$ROOT_DIR/.runtime/image-analyzer-model-cache}"
-mkdir -p "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" 2>/dev/null || true
+mkdir -p "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" "$ROOT_DIR/.runtime"
 chmod 0777 "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" 2>/dev/null || true
 export TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR
 export TASKFORGE_ROOT="$ROOT_DIR"
 
 ENV_FILE="${TASKFORGE_PROD_ENV_FILE:-deploy/prod/.env}"
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Missing $ENV_FILE. Create it first:" >&2
-  echo "  cp deploy/prod/.env.example deploy/prod/.env" >&2
-  exit 2
+[ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE. Run scripts/prod/prepare-env.sh first." >&2; exit 2; }
+
+COMPOSE_FILES=(
+  -f deploy/prod/compose/00-storage.yaml
+  -f deploy/prod/compose/10-apps-gateway.yaml
+  -f deploy/prod/compose/20-core-services.yaml
+  -f deploy/prod/compose/30-execution.yaml
+  -f deploy/prod/compose/40-ai-and-analyzers.yaml
+  -f deploy/prod/compose/50-integrations.yaml
+  -f deploy/prod/compose/80-watchtower.yaml
+  -f deploy/prod/compose/90-certbot.yaml
+)
+
+AUTH_CONFIG_PATH=""
+if [ -f "$ROOT_DIR/config.json" ]; then
+  mkdir -p "$ROOT_DIR/.docker"
+  cp "$ROOT_DIR/config.json" "$ROOT_DIR/.docker/config.json"
+  chmod 600 "$ROOT_DIR/.docker/config.json" 2>/dev/null || true
+  export DOCKER_CONFIG="$ROOT_DIR/.docker"
+  AUTH_CONFIG_PATH="$ROOT_DIR/.docker/config.json"
+elif [ -n "${DOCKER_CONFIG:-}" ] && [ -f "${DOCKER_CONFIG}/config.json" ]; then
+  AUTH_CONFIG_PATH="$(cd "$(dirname "${DOCKER_CONFIG}/config.json")" && pwd)/config.json"
+elif [ -f "${HOME:-}/.docker/config.json" ]; then
+  AUTH_CONFIG_PATH="$(cd "$(dirname "${HOME}/.docker/config.json")" && pwd)/config.json"
+fi
+if [ -n "$AUTH_CONFIG_PATH" ]; then
+  python3 - "$ROOT_DIR/.runtime/watchtower-auth.yaml" "$AUTH_CONFIG_PATH" <<'PY'
+from pathlib import Path
+import json,sys
+Path(sys.argv[1]).write_text(
+    "services:\n  watchtower:\n    volumes:\n      - " + json.dumps(sys.argv[2]+":/config.json:ro") + "\n",
+    encoding="utf-8",
+)
+PY
+  COMPOSE_FILES+=( -f .runtime/watchtower-auth.yaml )
 fi
 
-compose() {
-  docker compose \
-    --env-file "$ENV_FILE" \
-    -f deploy/prod/compose/00-storage.yaml \
-    -f deploy/prod/compose/10-apps-gateway.yaml \
-    -f deploy/prod/compose/20-core-services.yaml \
-    -f deploy/prod/compose/30-execution.yaml \
-    -f deploy/prod/compose/40-ai-and-analyzers.yaml \
-    -f deploy/prod/compose/50-integrations.yaml \
-    -f deploy/prod/compose/80-watchtower.yaml \
-    -f deploy/prod/compose/90-certbot.yaml \
-    "$@"
+compose(){ docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"; }
+new_log_dir(){
+  local base="${TASKFORGE_PROD_LOG_DIR:-deploy/prod/logs}"
+  local dir="$base/$(date -u +%Y%m%d-%H%M%S)"
+  mkdir -p "$dir"; printf '%s\n' "$dir"
 }
-
-new_log_dir() {
-  base_dir="${TASKFORGE_PROD_LOG_DIR:-deploy/prod/logs}"
-  run_id=$(date -u +"%Y%m%d-%H%M%S")
-  log_dir="$base_dir/$run_id"
-  mkdir -p "$log_dir"
-  printf '%s\n' "$log_dir"
-}
-
-capture_window() {
-  seconds="$1"
-  log_dir="$2"
-  start_ts="$3"
-  log_file="$log_dir/startup-${seconds}s.log"
-  ps_file="$log_dir/ps.txt"
-
+capture_window(){
+  local seconds="$1" dir="$2" start="$3" log="$2/startup-${1}s.log"
   {
-    echo "TaskForge prod startup log"
-    echo "Started at UTC: $start_ts"
+    echo "TaskForge production startup log"
+    echo "Started at UTC: $start"
     echo "Capture seconds: $seconds"
-    echo "Env file: $ENV_FILE"
-    echo "Command: docker compose logs --since $start_ts --timestamps -f"
+    echo "Environment file: $ENV_FILE"
     echo "============================================================"
-  } > "$log_file"
-
-  echo "Capturing prod logs for ${seconds}s..."
-  echo "Log file: $log_file"
-
+  } > "$log"
+  echo "Capturing ${seconds}s of logs into $log"
   if command -v timeout >/dev/null 2>&1; then
-    (timeout "${seconds}s" "$0" logs --since "$start_ts" --timestamps -f 2>&1 || true) | tee -a "$log_file"
+    (timeout "${seconds}s" "$0" logs --since "$start" --timestamps -f 2>&1 || true) | tee -a "$log"
   else
-    (
-      "$0" logs --since "$start_ts" --timestamps -f 2>&1 &
-      child_pid=$!
-      sleep "$seconds"
-      kill "$child_pid" 2>/dev/null || true
-      wait "$child_pid" 2>/dev/null || true
-    ) | tee -a "$log_file"
+    ( "$0" logs --since "$start" --timestamps -f 2>&1 & pid=$!; sleep "$seconds"; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true ) | tee -a "$log"
   fi
-
-  compose ps > "$ps_file" 2>&1 || true
-  echo "Saved compose ps: $ps_file"
-  echo "Saved logs: $log_file"
+  compose ps > "$dir/ps.txt" 2>&1 || true
 }
 
-print_log_help() {
-  cat <<'EOF_HELP'
-TaskForge prod compose wrapper
-
-Regular docker compose usage still works:
-  ./deploy/prod/compose.sh pull
-  ./deploy/prod/compose.sh up -d
-  ./deploy/prod/compose.sh logs -f --tail=200
-
-Extra logging commands:
-  ./deploy/prod/compose.sh up-logs
-      Start stack in detached mode and capture the first 30 seconds of logs
-      from all services into deploy/prod/logs/<timestamp>/startup-30s.log.
-
-  TASKFORGE_STARTUP_LOG_SECONDS=60 ./deploy/prod/compose.sh up-logs
-      Same, but capture 60 seconds.
-
-  ./deploy/prod/compose.sh logs-startup 30
-      Do not start services. Capture the next 30 seconds of live logs.
-
-  ./deploy/prod/compose.sh logs-dump 1000
-      Save the last 1000 log lines from all services.
-
-Environment variables:
-  TASKFORGE_STARTUP_LOG_SECONDS=30
-  TASKFORGE_PROD_LOG_DIR=deploy/prod/logs
-  TASKFORGE_PROD_ENV_FILE=deploy/prod/.env
-EOF_HELP
-}
-
-cmd="${1:-}"
-case "$cmd" in
+case "${1:-}" in
   up-logs|up-capture|up-watch)
     shift
     seconds="${TASKFORGE_STARTUP_LOG_SECONDS:-30}"
-    start_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    log_dir=$(new_log_dir)
-    echo "Starting prod stack in detached mode..."
+    start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    dir="$(new_log_dir)"
     compose up -d "$@"
-    capture_window "$seconds" "$log_dir" "$start_ts"
-    echo ""
-    echo "Useful next commands:"
-    echo "  ./deploy/prod/compose.sh ps"
-    echo "  ./deploy/prod/compose.sh logs -f --tail=200"
-    exit 0
+    capture_window "$seconds" "$dir" "$start"
     ;;
   logs-startup|logs-window)
     shift
     seconds="${1:-${TASKFORGE_STARTUP_LOG_SECONDS:-30}}"
-    start_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    log_dir=$(new_log_dir)
-    capture_window "$seconds" "$log_dir" "$start_ts"
-    exit 0
+    case "$seconds" in ''|*[!0-9]*) echo "error: duration must be numeric" >&2; exit 2;; esac
+    capture_window "$seconds" "$(new_log_dir)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     ;;
   logs-dump)
     shift
-    tail_lines="${1:-${TASKFORGE_LOG_TAIL:-1000}}"
-    case "$tail_lines" in
-      ''|*[!0-9]*)
-        echo "logs-dump expects a numeric tail count as the first argument." >&2
-        exit 2
-        ;;
-    esac
+    lines="${1:-${TASKFORGE_LOG_TAIL:-1000}}"
+    case "$lines" in ''|*[!0-9]*) echo "error: line count must be numeric" >&2; exit 2;; esac
     shift || true
-    log_dir=$(new_log_dir)
-    log_file="$log_dir/logs-tail-${tail_lines}.log"
-    ps_file="$log_dir/ps.txt"
-    echo "Saving last ${tail_lines} prod log lines to $log_file"
-    compose logs --timestamps --tail "$tail_lines" "$@" > "$log_file" 2>&1 || true
-    compose ps > "$ps_file" 2>&1 || true
-    echo "Saved compose ps: $ps_file"
-    echo "Saved logs: $log_file"
-    exit 0
+    dir="$(new_log_dir)"
+    compose logs --timestamps --tail "$lines" "$@" > "$dir/logs-tail-${lines}.log" 2>&1 || true
+    compose ps > "$dir/ps.txt" 2>&1 || true
+    echo "Saved logs: $dir"
     ;;
-  help-logs|logs-help)
-    print_log_help
-    exit 0
-    ;;
+  *) compose "$@" ;;
 esac
-
-exec docker compose \
-  --env-file "$ENV_FILE" \
-  -f deploy/prod/compose/00-storage.yaml \
-  -f deploy/prod/compose/10-apps-gateway.yaml \
-  -f deploy/prod/compose/20-core-services.yaml \
-  -f deploy/prod/compose/30-execution.yaml \
-  -f deploy/prod/compose/40-ai-and-analyzers.yaml \
-  -f deploy/prod/compose/50-integrations.yaml \
-  -f deploy/prod/compose/80-watchtower.yaml \
-  -f deploy/prod/compose/90-certbot.yaml \
-  "$@"

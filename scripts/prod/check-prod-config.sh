@@ -3,88 +3,154 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
-
 ENV_FILE="${TASKFORGE_PROD_ENV_FILE:-deploy/prod/.env}"
+EXAMPLE="${TASKFORGE_PROD_ENV_EXAMPLE:-deploy/prod/.env.example}"
+
 [ -f "$ENV_FILE" ] || { echo "error: missing $ENV_FILE" >&2; exit 2; }
+[ -f "$EXAMPLE" ] || { echo "error: missing $EXAMPLE" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required" >&2; exit 2; }
 
-get_env() {
-  local key="$1"
-  grep -E "^${key}=" "$ENV_FILE" | tail -n1 | cut -d= -f2-
-}
+python3 - "$ENV_FILE" "$EXAMPLE" <<'PY'
+from __future__ import annotations
+from pathlib import Path
+import os, re, sys
 
-fail() { echo "error: $*" >&2; exit 1; }
-warn() { echo "warning: $*" >&2; }
+env_path=Path(sys.argv[1]); example_path=Path(sys.argv[2])
+key_re=re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
-require_nonempty() {
-  local key="$1"
-  local value
-  value="$(get_env "$key" || true)"
-  [ -n "$value" ] || fail "$key is empty in $ENV_FILE"
-}
+def parse(path:Path):
+    values={}; dup=[]
+    for raw in path.read_text(encoding='utf-8-sig').splitlines():
+        if not raw or raw.lstrip().startswith('#') or '=' not in raw: continue
+        k,v=raw.split('=',1); k=k.strip()
+        if k.startswith('export '): k=k[7:].strip()
+        if not key_re.fullmatch(k): continue
+        if k in values: dup.append(k)
+        values[k]=v.strip()
+    return values,sorted(set(dup))
 
-require_not_placeholder() {
-  local key="$1"
-  local value
-  value="$(get_env "$key" || true)"
-  [ -n "$value" ] || fail "$key is empty in $ENV_FILE"
-  case "$(printf '%s' "$value" | tr '[:lower:]' '[:upper:]')" in
-    *CHANGE_ME*|*DEV_CHANGE_ME*) fail "$key still contains a placeholder" ;;
-  esac
-}
+env,dup=parse(env_path); example,template_dup=parse(example_path)
+errors=[]
+if template_dup: errors.append('duplicate keys in template: '+', '.join(template_dup))
+if dup: errors.append('duplicate keys in env: '+', '.join(dup))
+missing=sorted(set(example)-set(env))
+if missing: errors.append('missing env keys: '+', '.join(missing))
 
-require_min_len() {
-  local key="$1" min="$2"
-  local value
-  value="$(get_env "$key" || true)"
-  [ "${#value}" -ge "$min" ] || fail "$key must be at least $min characters"
-}
+def required(key):
+    value=env.get(key,'')
+    if not value: errors.append(f'{key} is empty'); return ''
+    if value.endswith('@example.com'): errors.append(f'{key} still contains an example address')
+    upper=value.upper()
+    if 'CHANGE_ME' in upper or 'DEV_CHANGE_ME' in upper:
+        errors.append(f'{key} still contains a placeholder')
+    return value
 
-for key in IMAGE_REPOSITORY DOMAIN CT_DOMAIN LETSENCRYPT_EMAIL POSTGRES_PASSWORD RABBITMQ_DEFAULT_PASS REDIS_PASSWORD MINIO_ROOT_PASSWORD JWT_SIGNING_KEY TASKFORGE_INTERNAL_KEY TASKFORGE_AGENT_INTERNAL_KEY S3_PUBLIC_ENDPOINT BOOTSTRAP_ADMIN_EMAILS; do
-  require_not_placeholder "$key"
-done
+def minlen(key,n):
+    value=required(key)
+    if value and len(value)<n: errors.append(f'{key} must be at least {n} characters')
 
-require_min_len JWT_SIGNING_KEY 64
-require_min_len TASKFORGE_INTERNAL_KEY 40
-require_min_len TASKFORGE_AGENT_INTERNAL_KEY 40
-require_min_len POSTGRES_PASSWORD 24
-require_min_len RABBITMQ_DEFAULT_PASS 24
-require_min_len REDIS_PASSWORD 24
-require_min_len MINIO_ROOT_PASSWORD 24
+def positive_int(key):
+    value=env.get(key,'')
+    try:
+        if int(value)<=0: raise ValueError
+    except ValueError: errors.append(f'{key} must be a positive integer')
 
-[ "$(get_env BOOTSTRAP_FIRST_USER_IS_ADMIN)" = "false" ] || fail "BOOTSTRAP_FIRST_USER_IS_ADMIN must be false in production"
-[ "$(get_env ASPNETCORE_ENVIRONMENT)" = "Production" ] || fail "ASPNETCORE_ENVIRONMENT must be Production"
-[ "$(get_env ENSURE_CREATED)" = "false" ] || fail "ENSURE_CREATED must be false in production"
+def positive_number(key):
+    value=env.get(key,'')
+    try:
+        if float(value)<=0: raise ValueError
+    except ValueError: errors.append(f'{key} must be a positive number')
 
-repo="$(get_env IMAGE_REPOSITORY)"
-case "$repo" in
-  ghcr.io/CHANGE_ME*|*CHANGE_ME*) fail "IMAGE_REPOSITORY must point to your GHCR repository" ;;
-esac
+for key in ('IMAGE_REPOSITORY','IMAGE_TAG','DOMAIN','CT_DOMAIN','LETSENCRYPT_EMAIL',
+            'S3_PUBLIC_ENDPOINT','BOOTSTRAP_ADMIN_EMAILS'):
+    required(key)
+for key,n in {
+    'JWT_SIGNING_KEY':64, 'TASKFORGE_INTERNAL_KEY':40, 'TASKFORGE_AGENT_INTERNAL_KEY':40,
+    'POSTGRES_PASSWORD':24, 'RABBITMQ_DEFAULT_PASS':24, 'REDIS_PASSWORD':24,
+    'MINIO_ROOT_PASSWORD':24, 'ANALYTICS_IP_HASH_SALT':32,
+    'MINECRAFT_PLUGIN_KEY':32, 'MINECRAFT_WEBHOOK_KEY':32,
+}.items(): minlen(key,n)
+for key in ('MINECRAFT_DEATH_COORDINATES_COST','MINECRAFT_DEATH_CHEST_COST',
+            'MINECRAFT_DEATH_TELEPORT_COST','MINECRAFT_DEATH_INVENTORY_COST',
+            'RUNNER_PIDS_LIMIT','CODE_ANALYZER_PIDS_LIMIT','WATCHTOWER_POLL_INTERVAL'):
+    positive_int(key)
+for key in ('RUNNER_CPUS','CODE_ANALYZER_CPUS'):
+    positive_number(key)
 
-domain="$(get_env DOMAIN)"
-ct_domain="$(get_env CT_DOMAIN)"
-[ "$domain" != "$ct_domain" ] || fail "DOMAIN and CT_DOMAIN must be different"
+if env.get('ASPNETCORE_ENVIRONMENT')!='Production': errors.append('ASPNETCORE_ENVIRONMENT must be Production')
+if env.get('ENSURE_CREATED')!='false': errors.append('ENSURE_CREATED must be false')
+if env.get('BOOTSTRAP_FIRST_USER_IS_ADMIN')!='false': errors.append('BOOTSTRAP_FIRST_USER_IS_ADMIN must be false')
+if env.get('TASKFORGE_DEBUG_LOGS')!='1': errors.append('TASKFORGE_DEBUG_LOGS must remain 1 while the project logging policy is development diagnostics')
+if env.get('DOMAIN')==env.get('CT_DOMAIN'): errors.append('DOMAIN and CT_DOMAIN must be different')
+if not env.get('MINECRAFT_WEBHOOK_SEND_CODE_PATH','').startswith('/'):
+    errors.append('MINECRAFT_WEBHOOK_SEND_CODE_PATH must start with /')
+if env.get('TASKFORGE_NODE_ROLE','primary') not in {'primary','standby'}:
+    errors.append('TASKFORGE_NODE_ROLE must be primary or standby')
+repo=env.get('IMAGE_REPOSITORY','')
+if 'CHANGE_ME' in repo.upper() or not repo.startswith('ghcr.io/'):
+    errors.append('IMAGE_REPOSITORY must point to ghcr.io')
+for key in ('CODE_ANALYZER_PRIVATE_KEY_PATH','CODE_ANALYZER_PUBLIC_KEY_PATH'):
+    value=required(key)
+    if value and not Path(value).is_file(): errors.append(f'{key} does not exist: {value}')
+
+bot=env.get('SUPPORT_BOT_TOKEN',''); group=env.get('SUPPORT_BOT_GROUP_ID','')
+if bot and not group: errors.append('SUPPORT_BOT_GROUP_ID is required when SUPPORT_BOT_TOKEN is set')
+if group and not re.fullmatch(r'-?\d+',group): errors.append('SUPPORT_BOT_GROUP_ID must be numeric')
+
+if errors:
+    for e in errors: print('error: '+e,file=sys.stderr)
+    raise SystemExit(1)
+print('environment values ok')
+PY
+
+private_key="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+v=''
+for line in Path(sys.argv[1]).read_text(encoding='utf-8-sig').splitlines():
+    if line.startswith('CODE_ANALYZER_PRIVATE_KEY_PATH='): v=line.split('=',1)[1]
+print(v)
+PY
+)"
+public_key="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+v=''
+for line in Path(sys.argv[1]).read_text(encoding='utf-8-sig').splitlines():
+    if line.startswith('CODE_ANALYZER_PUBLIC_KEY_PATH='): v=line.split('=',1)[1]
+print(v)
+PY
+)"
+
+if command -v openssl >/dev/null 2>&1; then
+  tmp_public="$(mktemp)"
+  trap 'rm -f "$tmp_public"' EXIT
+  openssl pkey -in "$private_key" -check -noout >/dev/null
+  openssl pkey -in "$private_key" -pubout -out "$tmp_public"
+  openssl pkey -pubin -in "$public_key" -text -noout | grep -Eq 'Public-Key: \((3072|[4-9][0-9]{3,}) bit\)' \
+    || { echo "error: code-analyzer public key must be at least 3072-bit RSA" >&2; exit 1; }
+  cmp -s "$tmp_public" "$public_key" \
+    || { echo "error: code-analyzer private/public keys do not match" >&2; exit 1; }
+else
+  echo "warning: openssl unavailable; key-pair consistency was not checked" >&2
+fi
 
 if grep -R "network_mode:[[:space:]]*host" deploy/prod/compose >/dev/null 2>&1; then
-  fail "prod compose must not use host networking"
+  echo "error: production compose must not use host networking" >&2
+  exit 1
 fi
-
-if grep -R "ports:" deploy/prod/compose/*.yaml | grep -v '00-storage.yaml' | grep -v '10-apps-gateway.yaml' >/dev/null 2>&1; then
-  fail "only storage localhost ports and public gateway ports should be published"
-fi
-
-if grep -R "127.0.0.1" deploy/prod/compose >/dev/null 2>&1; then
-  :
-else
-  warn "no localhost-bound infra ports found; check prod storage exposure"
+if grep -R "^[[:space:]]*build:" deploy/prod/compose >/dev/null 2>&1; then
+  echo "error: production compose must use published images, not local build contexts" >&2
+  exit 1
 fi
 
 ./scripts/verify-runtime-config.sh >/dev/null
 python3 scripts/ci/check-workflow-integrity.py >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
-  bash ./deploy/prod/compose.sh config >/dev/null
+  ./deploy/prod/compose.sh config >/dev/null
 else
-  warn "docker is not installed here; skipped docker compose config"
+  echo "warning: docker is not installed; skipped docker compose config" >&2
 fi
 
 echo "production config ok"
