@@ -72,7 +72,7 @@ export function isPendingSolution(value) {
   return value?.isPending === true || value?.result?.pending === true || PENDING_SOLUTION_STATUSES.has(status);
 }
 
-async export function waitForSolutionVerdict(solutionId, options = {}) {
+export async function waitForSolutionVerdict(solutionId, options = {}) {
   const { maxAttempts = 30, onUpdate } = options || {};
   let latest = null;
   for (let i = 0; i < maxAttempts; i += 1) {
