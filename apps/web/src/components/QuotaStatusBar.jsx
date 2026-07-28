@@ -14,9 +14,14 @@ function fmtEta(sec) {
 function BucketChip({ icon: Icon, title, bucket, compact = false, mobile = false }) {
   if (!bucket) return null;
 
-  const etaText = bucket.isFull ? null : fmtEta(bucket.etaSeconds);
-  const stateText = bucket.isFull ? 'заряд полный' : `+1 через ${etaText}`;
-  const fullTitle = `${title}: ${bucket.remaining}/${bucket.capacity}. ${stateText}`;
+  const etaText = bucket.unlimited || bucket.isFull ? null : fmtEta(bucket.etaSeconds);
+  const stateText = bucket.unlimited
+    ? 'без ограничений'
+    : bucket.isFull
+      ? 'заряд полный'
+      : `+1 через ${etaText}`;
+  const valueText = bucket.unlimited ? '∞' : `${bucket.remaining}/${bucket.capacity}`;
+  const fullTitle = `${title}: ${valueText}. ${stateText}`;
 
   return (
     <div
@@ -40,7 +45,7 @@ function BucketChip({ icon: Icon, title, bucket, compact = false, mobile = false
             'tabular-nums font-semibold text-neutral-900 dark:text-neutral-100',
             compact ? 'text-[0.92rem]' : 'text-sm',
           ].join(' ')}>
-            {bucket.remaining}/{bucket.capacity}
+            {valueText}
           </span>
           {!mobile && etaText ? (
             <span className={[

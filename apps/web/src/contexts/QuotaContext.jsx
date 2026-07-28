@@ -36,6 +36,7 @@ function normalizeBucket(section, bucket) {
     capacity: Number.isFinite(capacity) ? capacity : 0,
     retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 0,
     nextRefillAtUtc: section.nextRefillAtUtc || toIsoFromRetry(retryAfterSeconds),
+    unlimited: Boolean(section.unlimited),
   };
 }
 
@@ -43,6 +44,7 @@ function normalizePayload(payload) {
   if (!payload) return null;
   return {
     unified: Boolean(payload.unified),
+    unlimited: Boolean(payload.unlimited),
     tasks: normalizeBucket(payload.tasks, 'tasks'),
     top: normalizeBucket(payload.top, 'top'),
   };
@@ -55,7 +57,8 @@ function sameBucket(left, right) {
     && left.remaining === right.remaining
     && left.capacity === right.capacity
     && left.retryAfterSeconds === right.retryAfterSeconds
-    && left.nextRefillAtUtc === right.nextRefillAtUtc;
+    && left.nextRefillAtUtc === right.nextRefillAtUtc
+    && left.unlimited === right.unlimited;
 }
 
 function reconcilePayload(previous, next) {
@@ -64,10 +67,13 @@ function reconcilePayload(previous, next) {
 
   const tasks = sameBucket(previous.tasks, next.tasks) ? previous.tasks : next.tasks;
   const top = sameBucket(previous.top, next.top) ? previous.top : next.top;
-  if (previous.unified === next.unified && tasks === previous.tasks && top === previous.top) {
+  if (previous.unified === next.unified
+    && previous.unlimited === next.unlimited
+    && tasks === previous.tasks
+    && top === previous.top) {
     return previous;
   }
-  return { unified: next.unified, tasks, top };
+  return { unified: next.unified, unlimited: next.unlimited, tasks, top };
 }
 
 function mergeBucket(previous, patch) {
@@ -77,6 +83,7 @@ function mergeBucket(previous, patch) {
     capacity: 0,
     retryAfterSeconds: 0,
     nextRefillAtUtc: null,
+    unlimited: false,
   };
   const remaining = patch.remaining == null ? base.remaining : Number(patch.remaining);
   const capacity = patch.capacity == null ? base.capacity : Number(patch.capacity);
@@ -100,6 +107,7 @@ function mergeBucket(previous, patch) {
           || base.nextRefillAtUtc
           || null
         ),
+    unlimited: patch.unlimited == null ? Boolean(base.unlimited) : Boolean(patch.unlimited),
   };
 
   return sameBucket(base, next) ? base : next;
@@ -108,13 +116,14 @@ function mergeBucket(previous, patch) {
 function mergeQuotaUpdate(previous, detail) {
   const bucket = String(detail?.bucket || '').trim().toLowerCase();
   if (bucket !== 'tasks' && bucket !== 'top') return previous;
-  const base = previous || { unified: false, tasks: null, top: null };
+  const base = previous || { unified: false, unlimited: false, tasks: null, top: null };
   const nextBucket = mergeBucket(base[bucket], {
     bucket,
     remaining: detail?.remaining,
     capacity: detail?.capacity,
     retryAfterSeconds: detail?.retryAfterSeconds,
     nextRefillAtUtc: detail?.nextRefillAtUtc,
+    unlimited: detail?.unlimited,
   });
   if (nextBucket === base[bucket]) return base;
   return { ...base, [bucket]: nextBucket };
@@ -125,6 +134,7 @@ function getSoonestRefreshAt(data) {
   return ['tasks', 'top']
     .map((key) => data[key])
     .filter(Boolean)
+    .filter((bucket) => !bucket.unlimited)
     .filter((bucket) => Number(bucket.remaining) < Number(bucket.capacity))
     .map((bucket) => (bucket.nextRefillAtUtc ? new Date(bucket.nextRefillAtUtc).getTime() : null))
     .filter((value) => Number.isFinite(value) && value > Date.now())
@@ -139,13 +149,15 @@ function buildBucketView(bucket, nowMs) {
   const etaSeconds = Number.isFinite(nextAtMs)
     ? Math.max(0, Math.ceil((nextAtMs - nowMs) / 1000))
     : 0;
+  const unlimited = Boolean(bucket.unlimited);
   return {
     ...bucket,
     remaining,
     capacity,
-    etaSeconds,
-    isEmpty: remaining <= 0,
-    isFull: capacity > 0 && remaining >= capacity,
+    unlimited,
+    etaSeconds: unlimited ? 0 : etaSeconds,
+    isEmpty: unlimited ? false : remaining <= 0,
+    isFull: unlimited || (capacity > 0 && remaining >= capacity),
   };
 }
 
@@ -284,8 +296,8 @@ export function useQuota() {
 
 export function useQuotaBucket(bucketName = 'tasks') {
   const bucket = useContext(bucketName === 'top' ? TopQuotaContext : TasksQuotaContext);
-  const isFull = bucket && Number(bucket.capacity) > 0 && Number(bucket.remaining) >= Number(bucket.capacity);
-  const hasCountdown = Boolean(bucket?.nextRefillAtUtc && !isFull);
+  const isFull = bucket && (bucket.unlimited || (Number(bucket.capacity) > 0 && Number(bucket.remaining) >= Number(bucket.capacity)));
+  const hasCountdown = Boolean(bucket?.nextRefillAtUtc && !bucket?.unlimited && !isFull);
   const clockNowMs = useSecondClock(hasCountdown);
   const nowMs = hasCountdown ? clockNowMs : Date.now();
 

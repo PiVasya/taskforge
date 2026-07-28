@@ -50,9 +50,12 @@ internal static partial class SolutionsApiEndpoints
 
             var courseScopeIds = await LoadCourseTreeIdsAsync(courseId, cfg, httpFactory, ct);
 
-            var quotaResult = await ConsumeLeaderboardViewQuotaAsync(db, cache, cfg, uid.Value, viewId, ct);
-            WriteQuotaHeaders(http.Response, quotaResult.quota);
-            if (!quotaResult.consumed) return QuotaExceeded(quotaResult.quota);
+            if (!IsAdmin(http, cfg))
+            {
+                var quotaResult = await ConsumeLeaderboardViewQuotaAsync(db, cache, cfg, uid.Value, viewId, ct);
+                WriteQuotaHeaders(http.Response, quotaResult.quota);
+                if (!quotaResult.consumed) return QuotaExceeded(quotaResult.quota);
+            }
 
             var since = days.HasValue && days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-days.Value) : (DateTimeOffset?)null;
             var codeRows = await db.Submissions.AsNoTracking()

@@ -31,6 +31,12 @@ internal static class SolutionsApiAccessService
 
     internal static Guid? CurrentUserId(HttpContext http, IConfiguration cfg) => TaskForgeRequestSecurity.UserId(http, cfg);
 
+    internal static bool IsAdmin(HttpContext http, IConfiguration cfg)
+    {
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
+        return principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin");
+    }
+
     internal static bool IsEditor(HttpContext http, IConfiguration cfg)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);

@@ -16,17 +16,18 @@ function QuotaPill({ bucket = 'tasks', className = '' }) {
 
   if (!view) return null;
 
-  const isEmpty = view.remaining <= 0;
-  const isFull = view.capacity > 0 && view.remaining >= view.capacity;
+  const isEmpty = !view.unlimited && view.remaining <= 0;
+  const isFull = view.unlimited || (view.capacity > 0 && view.remaining >= view.capacity);
   const Icon = bucket === 'top' ? Trophy : Zap;
   const title = bucket === 'top' ? 'Рейтинг' : 'Задачи';
-  const etaText = isFull ? null : fmtSeconds(view.etaSeconds);
-  const stateText = isFull ? 'заряд полный' : `+1 через ${etaText}`;
+  const etaText = view.unlimited || isFull ? null : fmtSeconds(view.etaSeconds);
+  const stateText = view.unlimited ? 'без ограничений' : isFull ? 'заряд полный' : `+1 через ${etaText}`;
+  const valueText = view.unlimited ? '∞' : `${view.remaining}/${view.capacity}`;
 
   return (
     <div
-      title={`${title}: ${view.remaining}/${view.capacity}. ${stateText}`}
-      aria-label={`${title}: ${view.remaining}/${view.capacity}. ${stateText}`}
+      title={`${title}: ${valueText}. ${stateText}`}
+      aria-label={`${title}: ${valueText}. ${stateText}`}
       className={[
         'inline-flex min-w-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs border',
         'bg-white/50 dark:bg-white/5 backdrop-blur',
@@ -36,7 +37,7 @@ function QuotaPill({ bucket = 'tasks', className = '' }) {
       ].join(' ')}
     >
       <Icon size={14} className="shrink-0" />
-      <span className="tabular-nums shrink-0 font-medium">{view.remaining}/{view.capacity}</span>
+      <span className="tabular-nums shrink-0 font-medium">{valueText}</span>
       {etaText && <span className="tabular-nums opacity-75 shrink-0">+1 через {etaText}</span>}
     </div>
   );

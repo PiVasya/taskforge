@@ -145,6 +145,9 @@ internal static class AssignmentApiCommonService
         string reason,
         CancellationToken ct)
     {
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
+        if (principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin")) return null;
+
         var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
         try
         {
@@ -185,6 +188,9 @@ internal static class AssignmentApiCommonService
         string reason,
         CancellationToken ct)
     {
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
+        if (principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin")) return;
+
         var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
         try
         {

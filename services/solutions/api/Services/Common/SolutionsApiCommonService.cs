@@ -218,6 +218,12 @@ internal static class SolutionsApiCommonService
         return (taskCapacity, TimeSpan.FromSeconds(taskSeconds));
     }
 
+    internal static QuotaView UnlimitedQuotaView(string bucket, int capacity)
+    {
+        var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
+        return new QuotaView(normalized, capacity, capacity, 0, DateTimeOffset.UtcNow, true, true);
+    }
+
     internal static async Task<QuotaView> StatusFor(SolutionsDbContext db, Guid userId, string bucket, int capacity, TimeSpan interval, CancellationToken ct = default)
     {
         var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";

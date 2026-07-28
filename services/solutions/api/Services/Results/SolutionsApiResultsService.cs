@@ -174,13 +174,17 @@ internal static class SolutionsApiResultsService
         await MarkRatingDirtyAsync(db, userId, accepted ? "accepted-verdict" : "terminal-verdict");
     }
 
-    internal static async Task<object> GetQuotaStatus(SolutionsDbContext db, Guid userId, IConfiguration cfg, CancellationToken ct = default)
+    internal static async Task<object> GetQuotaStatus(SolutionsDbContext db, Guid userId, IConfiguration cfg, bool unlimited, CancellationToken ct = default)
     {
         var taskPolicy = QuotaPolicy(cfg, "tasks");
         var topPolicy = QuotaPolicy(cfg, "top");
-        var tasks = await StatusFor(db, userId, "tasks", taskPolicy.Capacity, taskPolicy.Interval, ct);
-        var top = await StatusFor(db, userId, "top", topPolicy.Capacity, topPolicy.Interval, ct);
-        return new { enabled = true, tasks, top, buckets = new[] { tasks, top }, remaining = tasks.remaining, capacity = tasks.capacity };
+        var tasks = unlimited
+            ? UnlimitedQuotaView("tasks", taskPolicy.Capacity)
+            : await StatusFor(db, userId, "tasks", taskPolicy.Capacity, taskPolicy.Interval, ct);
+        var top = unlimited
+            ? UnlimitedQuotaView("top", topPolicy.Capacity)
+            : await StatusFor(db, userId, "top", topPolicy.Capacity, topPolicy.Interval, ct);
+        return new { enabled = true, unlimited, tasks, top, buckets = new[] { tasks, top }, remaining = tasks.remaining, capacity = tasks.capacity };
     }
 
     internal static object ToTopSolutionDto(SolutionSubmission x, bool includeCode, AssignmentMetadata? metadata = null, UserSummaryDto? user = null)

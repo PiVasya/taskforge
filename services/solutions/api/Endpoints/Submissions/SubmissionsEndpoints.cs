@@ -27,6 +27,7 @@ internal static partial class SolutionsApiEndpoints
             if (CheckUserRateLimit(http, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
             if (userId == null) return Unauthorized();
+            var isAdmin = IsAdmin(http, cfg);
             var canRevealHidden = IsEditor(http, cfg);
 
             var language = NormalizeLanguage(request.Language) ?? "csharp";
@@ -105,20 +106,26 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var taskPolicy = QuotaPolicy(cfg, "tasks");
-            var quotaResult = await ConsumeQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
-            WriteQuotaHeaders(http.Response, quotaResult.quota);
-            if (!quotaResult.consumed)
+            if (!isAdmin)
             {
-                db.Submissions.Remove(sub);
-                await db.SaveChangesAsync(ct);
-                return QuotaExceeded(quotaResult.quota);
+                var quotaResult = await ConsumeQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
+                WriteQuotaHeaders(http.Response, quotaResult.quota);
+                if (!quotaResult.consumed)
+                {
+                    db.Submissions.Remove(sub);
+                    await db.SaveChangesAsync(ct);
+                    return QuotaExceeded(quotaResult.quota);
+                }
             }
 
             var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
             if (!enqueue.Created)
             {
-                var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
-                WriteQuotaHeaders(http.Response, refundedQuota);
+                if (!isAdmin)
+                {
+                    var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
+                    WriteQuotaHeaders(http.Response, refundedQuota);
+                }
                 ApplyLocalVerdict(sub, new JudgeRunResult(
                     "JudgeUnavailable",
                     0,

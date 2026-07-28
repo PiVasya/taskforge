@@ -86,6 +86,6 @@ public sealed record EnqueueResult(bool Created, Guid? JobId, string? Message, J
 
 public sealed record JudgeRunResult(string Verdict, int Score, bool PassedAllTests, bool CountInRating, string Message, JsonElement? Results, JsonElement? Raw, bool CompileError);
 
-public sealed record QuotaView(string bucket, int remaining, int capacity, int retryAfterSeconds, DateTimeOffset nextRefillAtUtc, bool allowed);
+public sealed record QuotaView(string bucket, int remaining, int capacity, int retryAfterSeconds, DateTimeOffset nextRefillAtUtc, bool allowed, bool unlimited = false);
 
 public sealed record QuotaMutationResult(bool consumed, QuotaView quota);

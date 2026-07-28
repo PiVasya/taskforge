@@ -36,7 +36,10 @@ function PageContent({ authenticated = false }) {
   const { isAdminArea } = useShellNavigation();
 
   const fullWidth = useMemo(() => isFullWidthRoute(pathname), [pathname]);
-  const mainClassName = fullWidth
+  // Authenticated pages always use the same full-width shell gutters. Previously
+  // AI routes used these gutters while the rest of the app used container-app,
+  // which made the persistent left navigation jump horizontally between pages.
+  const mainClassName = authenticated || fullWidth
     ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
     : 'container-app py-4 sm:py-8 relative z-10';
 
