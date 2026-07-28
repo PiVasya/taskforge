@@ -11,8 +11,9 @@ public sealed partial class Worker
 {
     private sealed record ClaimNextResponse(ExecutionJobDto? Job);
     private sealed record ExecutionJobDto(Guid Id, Guid SubmissionId, Guid? AssignmentId, Guid? UserId, string? Language, string? Code, string? Input, string? TestsJson, string? CodeForbiddenCallsJson, string? CodeRequiredCallsJson, int? TimeLimitMs, int? MemoryLimitMb, int AttemptCount, string Status);
-    private sealed record AnalyzerRequest(string Language, string Source, [property: JsonPropertyName("extra_forbidden")] object? ExtraForbidden, [property: JsonPropertyName("forbidden_calls")] string[]? ForbiddenCalls, [property: JsonPropertyName("required_calls")] string[]? RequiredCalls);
-    private sealed record RunnerTestsRequest(string Code, JsonElement[] Tests, int? TimeLimitMs, int? MemoryLimitMb);
+    private sealed record AnalyzerRequest(string Language, string Profile, string Source, [property: JsonPropertyName("extra_forbidden")] object? ExtraForbidden, [property: JsonPropertyName("forbidden_calls")] string[]? ForbiddenCalls, [property: JsonPropertyName("required_calls")] string[]? RequiredCalls);
+    private sealed record RunnerTestsRequest(string Code, JsonElement[] Tests, int? TimeLimitMs, int? MemoryLimitMb, JsonElement Attestation);
+    private sealed record PolicyAnalysisResult(RunnerResult? Block, JsonElement? Attestation);
     private sealed record CompleteExecutionJobRequest(string Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result);
     private sealed record SolutionVerdictRequest(string Verdict, int Score, string Message, JsonElement? Result);
 

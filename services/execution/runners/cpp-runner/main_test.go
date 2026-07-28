@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,36 @@ target:
 	}
 	if len(blocked) != 1 || blocked[0] != "elf.irelative" {
 		t.Fatalf("expected IRELATIVE rejection, got %#v", blocked)
+	}
+}
+
+func TestObjectInspectionRejectsDirectFileSyscalls(t *testing.T) {
+	requireGxx(t)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "file_api.cpp")
+	object := filepath.Join(dir, "file_api.o")
+	code := `
+extern "C" int open(const char*, int, ...);
+extern "C" long read(int, void*, unsigned long);
+int main() {
+    char byte = 0;
+    const int fd = open("/etc/passwd", 0);
+    return fd < 0 ? 0 : int(read(fd, &byte, 1));
+}
+`
+	if err := os.WriteFile(source, []byte(code), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("g++", "-std=c++17", "-O0", "-c", source, "-o", object)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build direct file API fixture: %v\n%s", err, output)
+	}
+	blocked, err := forbiddenUndefinedELFSymbols(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(blocked, "open") || !slices.Contains(blocked, "read") {
+		t.Fatalf("expected open/read rejection, got %#v", blocked)
 	}
 }
 
@@ -213,5 +244,65 @@ int main() {
 	}
 	if strings.TrimSpace(string(output)) != "blocked" {
 		t.Fatalf("fork was not blocked, output=%q", output)
+	}
+}
+
+func TestSandboxGuardBlocksNetworkAndExecutableMemoryButAllowsThreads(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("seccomp test requires Linux")
+	}
+	guard := prepareSandboxGuard(t)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "sandbox_surface_test.cpp")
+	binary := filepath.Join(dir, "sandbox_surface_test")
+	code := `
+#include <cerrno>
+#include <iostream>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <thread>
+int main() {
+    int thread_value = 0;
+    std::thread worker([&]() { thread_value = 7; });
+    worker.join();
+    if (thread_value != 7) return 2;
+
+    errno = 0;
+    const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd != -1 || errno != EPERM) return 3;
+
+    errno = 0;
+    void* memory = mmap(nullptr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (memory != MAP_FAILED || errno != EPERM) return 4;
+
+    struct rlimit limit{};
+    if (getrlimit(RLIMIT_CORE, &limit) != 0 || limit.rlim_cur != 0 || limit.rlim_max != 0) return 5;
+    if (getrlimit(RLIMIT_CPU, &limit) != 0 || limit.rlim_cur != 40 || limit.rlim_max != 40) return 6;
+    if (getrlimit(RLIMIT_FSIZE, &limit) != 0 || limit.rlim_cur != 16ULL * 1024ULL * 1024ULL || limit.rlim_max != limit.rlim_cur) return 7;
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur != 128 || limit.rlim_max != 128) return 8;
+
+    std::cout << "blocked";
+    return 0;
+}
+`
+	if err := os.WriteFile(source, []byte(code), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(
+		"g++", source, guard, "-pthread",
+		"-Wl,-init,taskforge_sandbox_init,-z,relro,-z,now,-z,noexecstack",
+		"-o", binary,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to link sandbox surface test: %v\n%s", err, output)
+	}
+	output, err := exec.Command(binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("sandbox surface test failed: %v\n%s", err, output)
+	}
+	if strings.TrimSpace(string(output)) != "blocked" {
+		t.Fatalf("unexpected sandbox surface result: %q", output)
 	}
 }

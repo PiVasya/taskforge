@@ -25,7 +25,13 @@ public sealed record AssignmentRequest(Guid? Id, string? Title, string? Descript
 
 public sealed record ImageCodeRequest(string? Language, string? Code, string? Input, int? TimeoutSeconds);
 
-public sealed record AnalyzerRequest(string Language, string Source, object? ExtraForbidden, string[]? ForbiddenCalls, string[]? RequiredCalls);
+public sealed record AnalyzerRequest(
+    string Language,
+    string Profile,
+    string Source,
+    [property: System.Text.Json.Serialization.JsonPropertyName("extra_forbidden")] object? ExtraForbidden,
+    [property: System.Text.Json.Serialization.JsonPropertyName("forbidden_calls")] string[]? ForbiddenCalls,
+    [property: System.Text.Json.Serialization.JsonPropertyName("required_calls")] string[]? RequiredCalls);
 
 public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
 

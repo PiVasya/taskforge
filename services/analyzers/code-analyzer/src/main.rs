@@ -1,6 +1,22 @@
-use axum::{routing::get, routing::post, Json, Router};
+mod attestation;
+mod security_policy;
+
+use attestation::{PolicyAttestation, POLICY_VERSION};
+use axum::{
+    extract::{DefaultBodyLimit, State},
+    http::StatusCode,
+    routing::get,
+    routing::post,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::Semaphore;
+
+#[derive(Clone)]
+struct AppState {
+    analysis_slots: Arc<Semaphore>,
+}
 
 fn taskforge_debug_logs_enabled() -> bool {
     matches!(
@@ -21,6 +37,9 @@ macro_rules! debug_log {
 struct AnalyzeRequest {
     /// Language key used in TaskForge (e.g. csharp, cpp, c, java, javascript, python, pascal)
     language: String,
+    /// Execution profile. `standard` is used for console tasks and `image`
+    /// enables only the additional graphics libraries required by image tasks.
+    profile: Option<String>,
     source: String,
     /// Optional extra forbidden patterns configured per task.
     /// Patterns are matched after stripping comments & string literals.
@@ -49,8 +68,11 @@ struct ForbiddenPattern {
 #[derive(Debug, Serialize)]
 struct AnalyzeResponse {
     ok: bool,
+    policy_version: String,
     errors: Vec<Violation>,
     hits: Vec<Hit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attestation: Option<PolicyAttestation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -360,9 +382,39 @@ async fn main() {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    if let Err(error) = security_policy::harden_analyzer_process() {
+        eprintln!("[code-analyzer] FATAL: {error}");
+        std::process::exit(9);
+    }
+
+    if let Err(error) = attestation::readiness_check() {
+        eprintln!("[code-analyzer] FATAL: {error}");
+        std::process::exit(10);
+    }
+
+    let max_parallel = std::env::var("CODE_ANALYZER_MAX_PARALLEL")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(2)
+        .clamp(1, 8);
+    let state = AppState {
+        analysis_slots: Arc::new(Semaphore::new(max_parallel)),
+    };
+
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/analyze", post(analyze));
+        .route(
+            "/ready",
+            get(|| async {
+                match attestation::readiness_check() {
+                    Ok(()) => (StatusCode::OK, "ok"),
+                    Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "not ready"),
+                }
+            }),
+        )
+        .route("/analyze", post(analyze))
+        .layer(DefaultBodyLimit::max(2 << 20))
+        .with_state(state);
 
     // Port override via PORT env
     let port = std::env::var("PORT").ok().and_then(|v| v.parse::<u16>().ok()).unwrap_or(8080);
@@ -378,7 +430,7 @@ async fn main() {
 
     tracing::info!("code-analyzer listening on {addr}");
     debug_log!("[code-analyzer] listening OK on {addr}");
-    debug_log!("[code-analyzer] ready: GET /health, POST /analyze");
+    debug_log!("[code-analyzer] ready: GET /health, GET /ready, POST /analyze");
 
     axum::serve(listener, app).await.unwrap_or_else(|e| {
         eprintln!("[code-analyzer] FATAL: server error: {e}");
@@ -388,7 +440,20 @@ async fn main() {
     // Should never reach here in normal operation
     debug_log!("[code-analyzer] stopped: serve() returned unexpectedly");
 }
-async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
+async fn analyze(
+    State(state): State<AppState>,
+    Json(req): Json<AnalyzeRequest>,
+) -> (StatusCode, Json<AnalyzeResponse>) {
+    let _permit = match state.analysis_slots.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return analyzer_rejection(
+                StatusCode::TOO_MANY_REQUESTS,
+                "analyzer.busy",
+                "Сервис анализа кода занят. Повторите запрос позже.",
+            );
+        }
+    };
     tracing::info!("/analyze -> start");
     debug_log!("[code-analyzer] /analyze start lang='{}' source.len={} extra_forbidden={}",
         req.language,
@@ -400,16 +465,67 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         req.required_calls.as_ref().map(|v| v.len()).unwrap_or(0)
     );
 
-    let lang = req.language.to_lowercase();
+    let Some(lang) = security_policy::normalize_language(&req.language) else {
+        return analyzer_rejection(
+            StatusCode::BAD_REQUEST,
+            "language.unsupported",
+            "Неподдерживаемый язык программирования.",
+        );
+    };
+    let Some(profile) = security_policy::normalize_profile(req.profile.as_deref()) else {
+        return analyzer_rejection(
+            StatusCode::BAD_REQUEST,
+            "profile.unsupported",
+            "Неподдерживаемый профиль выполнения.",
+        );
+    };
+    if req.source.as_bytes().len() > security_policy::MAX_SOURCE_BYTES {
+        return analyzer_rejection(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "source.too_large",
+            "Исходный код превышает допустимый размер.",
+        );
+    }
+    if req.extra_forbidden.as_ref().map(|v| v.len()).unwrap_or(0) > 64
+        || req.forbidden_calls.as_ref().map(|v| v.len()).unwrap_or(0) > 64
+        || req.required_calls.as_ref().map(|v| v.len()).unwrap_or(0) > 64
+    {
+        return analyzer_rejection(
+            StatusCode::BAD_REQUEST,
+            "rules.too_many",
+            "Слишком много пользовательских правил анализа.",
+        );
+    }
+    if req
+        .extra_forbidden
+        .as_ref()
+        .into_iter()
+        .flatten()
+        .any(|p| p.needle.len() > 256 || p.id.as_deref().unwrap_or("").len() > 128)
+        || req
+            .forbidden_calls
+            .as_ref()
+            .into_iter()
+            .flatten()
+            .chain(req.required_calls.as_ref().into_iter().flatten())
+            .any(|v| v.len() > 256)
+    {
+        return analyzer_rejection(
+            StatusCode::BAD_REQUEST,
+            "rules.too_large",
+            "Пользовательское правило анализа слишком длинное.",
+        );
+    }
+
     tracing::debug!("normalized lang={}", lang);
 
-    let analysis_source = if is_c_family(&lang) {
+    let analysis_source = if is_c_family(lang) {
         splice_c_line_continuations(&req.source)
     } else {
         req.source.clone()
     };
-    let no_comments = strip_comments_only(&lang, &analysis_source);
-    let cleaned = strip_comments_and_strings(&lang, &analysis_source);
+    let no_comments = strip_comments_only(lang, &analysis_source);
+    let cleaned = strip_comments_and_strings(lang, &analysis_source);
     tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
     debug_log!(
         "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
@@ -418,7 +534,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         no_comments.len()
     );
 
-    let mut patterns = builtin_forbidden(&lang);
+    let mut patterns = builtin_forbidden(lang);
     debug_log!("[code-analyzer] builtin patterns={}", patterns.len());
     if let Some(extra) = req.extra_forbidden {
         debug_log!("[code-analyzer] extra patterns={}", extra.len());
@@ -429,7 +545,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
 
-    if let Some((pos, ch)) = find_cyrillic_in_code(&lang, &analysis_source) {
+    if let Some((pos, ch)) = find_cyrillic_in_code(lang, &analysis_source) {
         hits.push(Hit {
             pattern_id: Some("unicode.cyrillic_in_code".to_string()),
             needle: ch.to_string(),
@@ -443,7 +559,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
         });
     }
 
-    if is_c_family(&lang) {
+    if is_c_family(lang) {
         for platform_hit in c_family_platform_hits(&cleaned) {
             hits.push(Hit {
                 pattern_id: Some(platform_hit.id.to_string()),
@@ -456,6 +572,72 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
                 message: platform_hit.message.to_string(),
                 pattern_id: Some(platform_hit.id.to_string()),
             });
+        }
+    }
+
+    for finding in security_policy::analyze_lexical(
+        lang,
+        profile,
+        &req.source,
+        &no_comments,
+        &cleaned,
+    ) {
+        let position = finding.position.min(req.source.len());
+        hits.push(Hit {
+            pattern_id: Some(finding.id.clone()),
+            needle: finding.needle.clone(),
+            position,
+            preview: make_preview(&req.source, position, finding.needle.len().max(1)),
+        });
+        errors.push(Violation {
+            code: "security_policy".to_string(),
+            message: finding.message,
+            pattern_id: Some(finding.id),
+        });
+    }
+
+    if is_c_family(lang) && errors.is_empty() {
+        let preprocess_language = lang.to_string();
+        let preprocess_profile = profile.to_string();
+        let preprocess_source = req.source.clone();
+        match tokio::task::spawn_blocking(move || {
+            security_policy::preprocess_c_family(
+                &preprocess_language,
+                &preprocess_profile,
+                &preprocess_source,
+            )
+        })
+        .await
+        {
+            Ok(Ok(preprocessed)) => {
+                for finding in security_policy::analyze_preprocessed_c_family(profile, &preprocessed) {
+                    hits.push(Hit {
+                        pattern_id: Some(finding.id.clone()),
+                        needle: finding.needle.clone(),
+                        position: 0,
+                        preview: "Обнаружено после раскрытия препроцессора.".to_string(),
+                    });
+                    errors.push(Violation {
+                        code: "security_policy".to_string(),
+                        message: finding.message,
+                        pattern_id: Some(finding.id),
+                    });
+                }
+            }
+            Ok(Err(message)) => {
+                errors.push(Violation {
+                    code: "preprocessor_rejected".to_string(),
+                    message,
+                    pattern_id: Some("c.preprocessor_failed".to_string()),
+                });
+            }
+            Err(_) => {
+                return analyzer_rejection(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "analyzer.preprocessor_unavailable",
+                    "Сервис безопасной C/C++-проверки временно недоступен.",
+                );
+            }
         }
     }
 
@@ -566,14 +748,65 @@ for call in &required_calls {
         .cmp(&(b.code.as_str(), b.pattern_id.as_deref().unwrap_or(""), b.message.as_str())));
     errors.dedup_by(|a, b| a.code == b.code && a.pattern_id == b.pattern_id && a.message == b.message);
 
+    hits.sort_by(|a, b| {
+        (a.position, a.pattern_id.as_deref().unwrap_or(""), a.needle.as_str())
+            .cmp(&(b.position, b.pattern_id.as_deref().unwrap_or(""), b.needle.as_str()))
+    });
+    hits.dedup_by(|a, b| {
+        a.position == b.position && a.pattern_id == b.pattern_id && a.needle == b.needle
+    });
+    hits.truncate(256);
+
+    let attestation = if errors.is_empty() {
+        match attestation::issue(lang, profile, &req.source) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                tracing::error!("failed to issue code policy attestation: {error}");
+                return analyzer_rejection(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "analyzer.attestation_unavailable",
+                    "Сервис подписи результатов анализа временно недоступен.",
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     debug_log!("[code-analyzer] done ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
     tracing::info!("/analyze <- ok={} errors={} hits={}", errors.is_empty(), errors.len(), hits.len());
 
-    Json(AnalyzeResponse {
-        ok: errors.is_empty(),
-        errors,
-        hits,
-    })
+    (
+        StatusCode::OK,
+        Json(AnalyzeResponse {
+            ok: errors.is_empty(),
+            policy_version: POLICY_VERSION.to_string(),
+            errors,
+            hits,
+            attestation,
+        }),
+    )
+}
+
+fn analyzer_rejection(
+    status: StatusCode,
+    id: &str,
+    message: &str,
+) -> (StatusCode, Json<AnalyzeResponse>) {
+    (
+        status,
+        Json(AnalyzeResponse {
+            ok: false,
+            policy_version: POLICY_VERSION.to_string(),
+            errors: vec![Violation {
+                code: "analyzer_rejected".to_string(),
+                message: message.to_string(),
+                pattern_id: Some(id.to_string()),
+            }],
+            hits: Vec::new(),
+            attestation: None,
+        }),
+    )
 }
 
 fn is_cyrillic_char(c: char) -> bool {

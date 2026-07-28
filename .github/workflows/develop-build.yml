@@ -203,6 +203,21 @@ jobs:
       - name: Check unlimited Minecraft links and shared balance
         run: bash scripts/ci/check-minecraft-link-invariants.sh
 
+  oj-security-invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install security check dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
+      - name: Check OJ security invariants
+        run: bash scripts/security/check-oj-security.sh
+
   compose-check:
     runs-on: ubuntu-latest
     steps:
@@ -213,7 +228,7 @@ jobs:
       - run: bash ./deploy/prod/compose.sh config
 
   build:
-    needs: [changes, compose-check, workflow-integrity, minecraft-link-invariants]
+    needs: [changes, compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants]
     if: ${{ needs.changes.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-latest
     strategy:

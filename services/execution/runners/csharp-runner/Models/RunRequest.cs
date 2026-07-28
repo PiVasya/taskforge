@@ -5,4 +5,5 @@ public class RunRequest
     public string? Input { get; init; }
     public int? TimeLimitMs { get; init; }
     public int? MemoryLimitMb { get; init; }
+    public PolicyAttestation? Attestation { get; init; }
 }

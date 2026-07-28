@@ -19,15 +19,17 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates wget \
+    && apt-get install -y --no-install-recommends curl ca-certificates openssl clang \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m appuser
+RUN useradd --uid 1000 --create-home appuser
 WORKDIR /app
 
 COPY --from=build /app/target/release/taskforge-code-analyzer /app/taskforge-code-analyzer
+COPY include /opt/taskforge/include
 
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app \
+    && chmod -R a-w /opt/taskforge/include
 USER appuser
 
 EXPOSE 8080

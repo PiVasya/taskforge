@@ -2,5 +2,11 @@
 
 public interface IExecutionService
 {
-    (bool Ok, string Stdout, string Error) Run(byte[] pe, byte[] pdb, string input, TimeSpan timeout);
+    Task<(bool Ok, string Stdout, string Error, string Status)> RunAsync(
+        byte[] pe,
+        byte[] pdb,
+        string input,
+        int timeLimitMs,
+        int memoryLimitMb,
+        CancellationToken cancellationToken);
 }

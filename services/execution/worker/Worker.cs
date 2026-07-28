@@ -75,8 +75,11 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         }
         else
         {
-            var policyBlock = await AnalyzePolicyAsync(job, ct);
-            runnerResult = policyBlock ?? await RunTestsAsync(job, tests, ct);
+            var policy = await AnalyzePolicyAsync(job, ct);
+            runnerResult = policy.Block
+                ?? (policy.Attestation.HasValue
+                    ? await RunTestsAsync(job, tests, policy.Attestation.Value, ct)
+                    : RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода не выдал обязательную подпись безопасности."));
         }
 
         started.Stop();
@@ -100,12 +103,22 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         logger.LogInformation("Execution job {JobId} completed with verdict {Verdict}, score {Score}.", job.Id, runnerResult.Verdict, runnerResult.Score);
     }
 
-    private async Task<RunnerResult?> AnalyzePolicyAsync(ExecutionJobDto job, CancellationToken ct)
+    private async Task<PolicyAnalysisResult> AnalyzePolicyAsync(ExecutionJobDto job, CancellationToken ct)
     {
-        if (!configuration.GetValue("CodeAnalyzer:Enabled", true)) return null;
+        if (!configuration.GetValue("CodeAnalyzer:Enabled", true))
+        {
+            return new PolicyAnalysisResult(
+                RunnerResult.Error("JudgeUnavailable", "Обязательный сервис анализа кода отключён."),
+                null);
+        }
 
         var baseUrl = (configuration["CodeAnalyzer:Url"] ?? "http://code-analyzer:8080").TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(baseUrl)) return null;
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return new PolicyAnalysisResult(
+                RunnerResult.Error("JudgeUnavailable", "Не настроен обязательный сервис анализа кода."),
+                null);
+        }
 
         var forbidden = ParseStringArray(job.CodeForbiddenCallsJson);
         var required = ParseStringArray(job.CodeRequiredCallsJson);
@@ -114,6 +127,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
         var payload = new AnalyzerRequest(
             Language: NormalizeLanguage(job.Language),
+            Profile: "standard",
             Source: job.Code ?? string.Empty,
             ExtraForbidden: null,
             ForbiddenCalls: forbidden.Length > 0 ? forbidden : null,
@@ -126,9 +140,11 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             if (!response.IsSuccessStatusCode)
             {
                 var failClosed = configuration.GetValue("CodeAnalyzer:FailClosed", true);
-                return failClosed
-                    ? RunnerResult.Error("JudgeUnavailable", $"Code analyzer returned {(int)response.StatusCode}.", CloneJson(text))
-                    : null;
+                return new PolicyAnalysisResult(
+                    failClosed
+                        ? RunnerResult.Error("JudgeUnavailable", $"Code analyzer returned {(int)response.StatusCode}.", CloneJson(text))
+                        : RunnerResult.Error("JudgeUnavailable", "Обязательная проверка кода не выполнена."),
+                    null);
             }
 
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
@@ -138,21 +154,35 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 && okProp.ValueKind is JsonValueKind.True or JsonValueKind.False
                 && okProp.GetBoolean();
 
-            if (ok) return null;
+            if (ok)
+            {
+                if (!root.TryGetProperty("attestation", out var attestation)
+                    || attestation.ValueKind != JsonValueKind.Object)
+                {
+                    return new PolicyAnalysisResult(
+                        RunnerResult.Error("JudgeUnavailable", "Code analyzer returned success without a signed attestation.", root),
+                        null);
+                }
+                return new PolicyAnalysisResult(null, attestation.Clone());
+            }
 
             var clientPolicyPayload = BuildClientPolicyPayload(root);
-            return RunnerResult.PolicyFailed(clientPolicyPayload, BuildPolicyMessage(clientPolicyPayload));
+            return new PolicyAnalysisResult(
+                RunnerResult.PolicyFailed(clientPolicyPayload, BuildPolicyMessage(clientPolicyPayload)),
+                null);
         }
         catch (Exception ex)
         {
             var failClosed = configuration.GetValue("CodeAnalyzer:FailClosed", true);
-            return failClosed
-                ? RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода недоступен: " + ex.Message, CloneJson(JsonSerializer.Serialize(new { error = ex.Message }, JsonOptions)))
-                : null;
+            return new PolicyAnalysisResult(
+                failClosed
+                    ? RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода недоступен: " + ex.Message, CloneJson(JsonSerializer.Serialize(new { error = ex.Message }, JsonOptions)))
+                    : RunnerResult.Error("JudgeUnavailable", "Обязательная проверка кода не выполнена."),
+                null);
         }
     }
 
-    private async Task<RunnerResult> RunTestsAsync(ExecutionJobDto job, JsonElement[] tests, CancellationToken ct)
+    private async Task<RunnerResult> RunTestsAsync(ExecutionJobDto job, JsonElement[] tests, JsonElement attestation, CancellationToken ct)
     {
         var language = NormalizeLanguage(job.Language);
         var baseUrl = RunnerUrl(language);
@@ -165,7 +195,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         // send the broader internal RunnerRequest shape here. Sending fields such as
         // language, input or testCases to /run-tests makes cpp/java/js/pascal/python
         // runners reject the request with 400 before the code is executed.
-        var payload = new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb);
+        var payload = new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb, attestation);
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
 

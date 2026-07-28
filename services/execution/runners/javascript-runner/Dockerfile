@@ -1,15 +1,22 @@
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/runner .
+COPY *.go ./
+COPY security/sandbox_preload.c ./
+RUN mkdir -p /out \
+  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/runner .
+RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+      -Wl,-z,relro,-z,now,-z,noexecstack \
+      -o /out/libtaskforge_sandbox.so sandbox_preload.c
 
-FROM debian:bookworm-slim
+FROM node:22-bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates nodejs \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
+COPY --from=build /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
+COPY security/js_bootstrap.mjs /opt/taskforge/js_bootstrap.mjs
 ENV RUNNER_KIND=javascript PORT=8080
 EXPOSE 8080
 USER 65534

@@ -1,39 +1,60 @@
-using Runner.Services;
-using System.Text.Json;
-using System.Runtime.Loader;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Loader;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Runner.Services;
 
 const string ExecArg = "--exec";
 
-if (args.Any(a => string.Equals(a, ExecArg, StringComparison.OrdinalIgnoreCase)))
+if (args.Any(argument => string.Equals(argument, ExecArg, StringComparison.OrdinalIgnoreCase)))
 {
-    // Режим “исполнитель” (child-process). Читает JSON из stdin и пишет JSON в stdout.
     ExecMode.Run();
     return;
 }
 
+NativeHardening.ProtectServiceProcess();
+
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = RunnerLimits.MaxRequestBytes;
+    options.Limits.MaxRequestHeaderCount = 64;
+    options.Limits.MaxRequestHeadersTotalSize = 32 * 1024;
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);
+    options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(30);
+});
 
 builder.Services.AddTaskForgeDebugDiagnostics("csharp-runner");
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.MaxDepth = 16;
+    options.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+});
 builder.Services.AddSingleton<IRoslynCompilationService, RoslynCompilationService>();
 builder.Services.AddSingleton<IExecutionService, ExecutionService>();
+builder.Services.AddSingleton<RunnerJobGate>();
+builder.Services.AddSingleton<PolicyAttestationVerifier>();
 
 var app = builder.Build();
-
+_ = app.Services.GetRequiredService<PolicyAttestationVerifier>();
 app.UseTaskForgeDebugRequestLogging("csharp-runner");
-app.MapGet("/health", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "csharp-runner" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "csharp-runner" }));
+app.MapGet("/ready", (PolicyAttestationVerifier _) => File.Exists(Environment.GetEnvironmentVariable("TASKFORGE_SANDBOX_PRELOAD") ?? "/app/libtaskforge_sandbox.so")
+    ? Results.Ok(new { status = "ready" })
+    : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 app.MapControllers();
 app.Run();
 
 static class ExecMode
 {
+    private const int MaxAssemblyBytes = 16 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        MaxDepth = 16,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
     private sealed class ExecRequest
@@ -55,102 +76,93 @@ static class ExecMode
         try
         {
             var json = Console.In.ReadToEnd();
-            var req = JsonSerializer.Deserialize<ExecRequest>(json, JsonOpts);
-
-            if (req == null || string.IsNullOrWhiteSpace(req.AssemblyBase64))
+            var request = JsonSerializer.Deserialize<ExecRequest>(json, JsonOpts);
+            if (request is null || string.IsNullOrWhiteSpace(request.AssemblyBase64))
             {
                 Write(new ExecResponse { Ok = false, Error = "Bad exec request." });
                 return;
             }
 
-            var pe = Convert.FromBase64String(req.AssemblyBase64);
-            var pdb = string.IsNullOrWhiteSpace(req.PdbBase64)
-                ? Array.Empty<byte>()
-                : Convert.FromBase64String(req.PdbBase64);
+            var pe = Convert.FromBase64String(request.AssemblyBase64);
+            var pdb = string.IsNullOrWhiteSpace(request.PdbBase64)
+                ? []
+                : Convert.FromBase64String(request.PdbBase64);
+            if (pe.Length == 0 || pe.Length > MaxAssemblyBytes || pdb.Length > MaxAssemblyBytes)
+            {
+                Write(new ExecResponse { Ok = false, Error = "Bad exec request." });
+                return;
+            }
 
-            // Нормализуем input
-            var normalizedInput = string.IsNullOrEmpty(req.Input) ? "\n" : req.Input!;
-
-            var oldIn = Console.In;
-            var oldOut = Console.Out;
-            var oldErr = Console.Error;
-
-            using var inputReader = new StringReader(normalizedInput);
-            using var outputWriter = new StringWriter();
-            using var errorWriter = new StringWriter();
+            var originalIn = Console.In;
+            var originalOut = Console.Out;
+            var originalError = Console.Error;
+            using var inputReader = new StringReader(string.IsNullOrEmpty(request.Input) ? "\n" : request.Input);
+            using var outputWriter = new CappedTextWriter(RunnerLimits.MaxOutputChars);
+            using var errorWriter = new CappedTextWriter(64 * 1024);
 
             Console.SetIn(inputReader);
             Console.SetOut(outputWriter);
             Console.SetError(errorWriter);
 
-            var resp = new ExecResponse();
-
+            var response = new ExecResponse();
+            AssemblyLoadContext? loadContext = null;
             try
             {
-                // Загружаем сборку в отдельный ALC (внутри процесса)
-                var alc = new AssemblyLoadContext("user-submission", isCollectible: true);
-                using var peStream = new MemoryStream(pe);
-                using var pdbStream = pdb.Length > 0 ? new MemoryStream(pdb) : null;
+                loadContext = new AssemblyLoadContext("user-submission", isCollectible: true);
+                using var peStream = new MemoryStream(pe, writable: false);
+                using var pdbStream = pdb.Length > 0 ? new MemoryStream(pdb, writable: false) : null;
+                var assembly = pdbStream is null
+                    ? loadContext.LoadFromStream(peStream)
+                    : loadContext.LoadFromStream(peStream, pdbStream);
 
-                var asm = pdbStream != null
-                    ? alc.LoadFromStream(peStream, pdbStream)
-                    : alc.LoadFromStream(peStream);
+                NativeLibrary.SetDllImportResolver(assembly, static (libraryName, _, _) =>
+                    throw new DllNotFoundException($"Native library '{libraryName}' is not available in the runner."));
 
-                var entry = asm.EntryPoint;
-                if (entry == null)
+                var entryPoint = assembly.EntryPoint;
+                if (entryPoint is null)
                 {
-                    resp.Ok = false;
-                    resp.Error = "Entry point not found.";
-                    resp.Stdout = "";
-                    Write(resp);
-                    return;
+                    response.Ok = false;
+                    response.Error = "Entry point not found.";
                 }
-
-                var parameters = entry.GetParameters();
-                object? invokeResult;
-
-                if (parameters.Length == 0)
-                    invokeResult = entry.Invoke(null, null);
                 else
-                    invokeResult = entry.Invoke(null, new object[] { Array.Empty<string>() });
-
-                // Если Main async — дожидаемся
-                if (invokeResult is Task t)
-                    t.GetAwaiter().GetResult();
-
-                resp.Ok = true;
-                resp.Stdout = outputWriter.ToString();
-                resp.Error = "";
+                {
+                    object? result = entryPoint.GetParameters().Length == 0
+                        ? entryPoint.Invoke(null, null)
+                        : entryPoint.Invoke(null, [Array.Empty<string>()]);
+                    if (result is Task task)
+                    {
+                        task.GetAwaiter().GetResult();
+                    }
+                    response.Ok = true;
+                }
             }
             catch (Exception ex)
             {
-                resp.Ok = false;
-                resp.Stdout = outputWriter.ToString();
-                resp.Error = ex.InnerException?.Message ?? ex.Message;
+                response.Ok = false;
+                response.Error = ex.InnerException?.Message ?? ex.Message;
             }
             finally
             {
-                Console.SetIn(oldIn);
-                Console.SetOut(oldOut);
-                Console.SetError(oldErr);
+                response.Stdout = outputWriter.ToString();
+                Console.SetIn(originalIn);
+                Console.SetOut(originalOut);
+                Console.SetError(originalError);
+                loadContext?.Unload();
             }
 
-            Write(resp);
+            Write(response);
         }
         catch (Exception ex)
         {
-            Write(new ExecResponse
-            {
-                Ok = false,
-                Stdout = "",
-                Error = ex.Message
-            });
+            Write(new ExecResponse { Ok = false, Error = ex.Message });
         }
     }
 
-    private static void Write(ExecResponse resp)
+    private static void Write(ExecResponse response)
     {
-        var json = JsonSerializer.Serialize(resp, JsonOpts);
-        Console.Out.Write(json);
+        Console.Out.Write(JsonSerializer.Serialize(response, JsonOpts));
+        Console.Out.Flush();
+        // Do not let submission-created foreground threads outlive the protocol response.
+        Environment.Exit(response.Ok ? 0 : 1);
     }
 }

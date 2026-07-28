@@ -28,8 +28,9 @@ internal static partial class AssignmentApiImageService
         var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
-        var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, "image-test.run-code");
-        if (policyProblem != null) return policyProblem;
+        var policy = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, "image-test.run-code");
+        if (policy.Problem != null) return policy.Problem;
+        if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", "image-test.run-code", "Анализатор не выдал обязательную подпись безопасности.");
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-run-code", http.RequestAborted) is { } quotaProblem) return quotaProblem;
@@ -37,7 +38,7 @@ internal static partial class AssignmentApiImageService
         {
             var client = clients.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(90);
-            var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true });
+            var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true, attestation = policy.Attestation.Value });
             var raw = await response.Content.ReadAsStringAsync();
             return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
         }
@@ -63,8 +64,9 @@ internal static partial class AssignmentApiImageService
         var cases = ReadImageTestCases(root, request.Input);
         if (cases.Count == 0) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания не настроены image-тесты: добавьте Input, Expected output и Expected image хотя бы для одного теста.");
 
-        var policyProblem = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, submit ? "image-test.submit-code" : "image-test.compare-code");
-        if (policyProblem != null) return policyProblem;
+        var policy = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, submit ? "image-test.submit-code" : "image-test.compare-code");
+        if (policy.Problem != null) return policy.Problem;
+        if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", submit ? "image-test.submit-code" : "image-test.compare-code", "Анализатор не выдал обязательную подпись безопасности.");
         if (context is not null && currentUserId.HasValue && await ConsumeTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code" : "image-compare-code", context.RequestAborted) is { } quotaProblem) return quotaProblem;
 
         try
@@ -78,7 +80,7 @@ internal static partial class AssignmentApiImageService
             for (var i = 0; i < cases.Count; i++)
             {
                 var test = cases[i];
-                var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true });
+                var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true, attestation = policy.Attestation.Value });
                 var renderRaw = await render.Content.ReadAsStringAsync();
                 if (!render.IsSuccessStatusCode)
                 {

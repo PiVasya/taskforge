@@ -15,9 +15,9 @@ internal static partial class ExecutionApiEndpoints
 {
     private static WebApplication MapInternalExecutionEndpoints(WebApplication app)
     {
-        app.MapPost("/api/internal/execution/compile-run", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: false));
+        app.MapPost("/api/internal/execution/compile-run", async (RunnerRequest request, IHttpClientFactory factory, IConfiguration cfg) => await ProxyRunAsync(request, factory, cfg, tests: false));
 
-        app.MapPost("/api/internal/execution/run-tests", async (RunnerRequest request, IHttpClientFactory factory) => await ProxyRunAsync(request, factory, tests: true));
+        app.MapPost("/api/internal/execution/run-tests", async (RunnerRequest request, IHttpClientFactory factory, IConfiguration cfg) => await ProxyRunAsync(request, factory, cfg, tests: true));
 
         app.MapPost("/api/internal/execution/jobs", async (CreateExecutionJobRequest request, ExecutionDbContext db, CancellationToken ct) =>
         {

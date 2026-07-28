@@ -24,14 +24,23 @@ import (
 	"time"
 )
 
-const maxTextLen = 1_000_000
+const (
+	maxTextLen               = 1_000_000
+	maxRequestBytes          = 16 << 20
+	maxSourceBytes           = 1 << 20
+	maxStdinBytes            = 1 << 20
+	maxImageBytes            = 16 << 20
+	maxRenderRequestDuration = 34 * time.Second
+	prSetDumpable            = 4
+)
 
 type renderRequest struct {
-	Source          string  `json:"source"`
-	Stdin           *string `json:"stdin"`
-	TimeoutSeconds  *int    `json:"timeoutSeconds"`
-	TimeoutSeconds2 *int    `json:"timeout_seconds"`
-	Debug           bool    `json:"debug"`
+	Source          string             `json:"source"`
+	Stdin           *string            `json:"stdin"`
+	TimeoutSeconds  *int               `json:"timeoutSeconds"`
+	TimeoutSeconds2 *int               `json:"timeout_seconds"`
+	Debug           bool               `json:"debug"`
+	Attestation     *policyAttestation `json:"attestation"`
 }
 
 type renderDebugResponse struct {
@@ -55,8 +64,9 @@ type captureOutput struct {
 }
 
 type limitedBuffer struct {
-	buf bytes.Buffer
-	max int
+	buf       bytes.Buffer
+	max       int
+	truncated bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -64,15 +74,22 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if left > 0 {
 		if len(p) > left {
 			_, _ = b.buf.Write(p[:left])
+			b.truncated = true
 		} else {
 			_, _ = b.buf.Write(p)
 		}
+	} else if len(p) > 0 {
+		b.truncated = true
 	}
 	return len(p), nil
 }
 
 func (b *limitedBuffer) String() string {
 	return strings.ReplaceAll(b.buf.String(), "\r\n", "\n")
+}
+
+func (b *limitedBuffer) Bytes() []byte {
+	return append([]byte(nil), b.buf.Bytes()...)
 }
 
 var tmpTaskforgePathPattern = regexp.MustCompile(`/tmp/taskforge-[^\s:]+`)
@@ -105,12 +122,95 @@ func env(name, fallback string) string {
 	return v
 }
 
+func runnerChildEnvironment() []string {
+	result := []string{
+		"HOME=/tmp",
+		"TMPDIR=/tmp",
+	}
+	for _, key := range []string{
+		"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+		"MPLBACKEND", "MPLCONFIGDIR", "PYTHONPYCACHEPREFIX",
+		"MONO_REGISTRY_PATH", "PABCNETC",
+	} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			result = append(result, key+"="+value)
+		}
+	}
+	return result
+}
+
+func sandboxRuntimeEnvironment(seconds int) ([]string, error) {
+	if _, err := imageCppSandboxGuardObject(); err != nil {
+		return nil, err
+	}
+	return []string{
+		"TASKFORGE_SUBMISSION=1",
+		"TASKFORGE_SANDBOX_PROFILE=image",
+		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(clamp(seconds+2, 2, 40)),
+		"TASKFORGE_LIMIT_FSIZE_MB=32",
+		"TASKFORGE_LIMIT_NOFILE=128",
+	}, nil
+}
+
+func helperSandboxPreloadPath() (string, error) {
+	path := strings.TrimSpace(os.Getenv("TASKFORGE_SANDBOX_PRELOAD"))
+	if path == "" {
+		path = "/app/libtaskforge_sandbox.so"
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("sandbox preload is not a regular file")
+	}
+	return path, nil
+}
+
+func helperSandboxEnvironment(seconds int) ([]string, error) {
+	preload, err := helperSandboxPreloadPath()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"LD_PRELOAD=" + preload,
+		"TASKFORGE_SUBMISSION=1",
+		"TASKFORGE_SANDBOX_PROFILE=image",
+		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(clamp(seconds+2, 2, 40)),
+		"TASKFORGE_LIMIT_FSIZE_MB=32",
+		"TASKFORGE_LIMIT_NOFILE=128",
+	}, nil
+}
+
+func xserverSandboxEnvironment(seconds int) ([]string, error) {
+	preload, err := helperSandboxPreloadPath()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"LD_PRELOAD=" + preload,
+		"TASKFORGE_SUBMISSION=1",
+		"TASKFORGE_SANDBOX_PROFILE=xserver",
+		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(clamp(seconds+4, 4, 45)),
+		"TASKFORGE_LIMIT_FSIZE_MB=32",
+		"TASKFORGE_LIMIT_NOFILE=128",
+	}, nil
+}
+
+func hardenRunnerProcess() error {
+	_, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, uintptr(prSetDumpable), 0, 0, 0, 0, 0)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
 func timeout(req renderRequest) int {
 	if req.TimeoutSeconds2 != nil && *req.TimeoutSeconds2 > 0 {
-		return clamp(*req.TimeoutSeconds2, 1, 120)
+		return clamp(*req.TimeoutSeconds2, 1, 30)
 	}
 	if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
-		return clamp(*req.TimeoutSeconds, 1, 120)
+		return clamp(*req.TimeoutSeconds, 1, 30)
 	}
 	return 20
 }
@@ -125,6 +225,14 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
+func secondsRemaining(deadline time.Time) int {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0
+	}
+	return int((remaining + time.Second - 1) / time.Second)
+}
+
 func tail(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -137,9 +245,9 @@ func runCommand(name string, args []string, cwd string, input string, seconds in
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Env = append(runnerChildEnvironment(), extraEnv...)
 	cmd.Stdin = strings.NewReader(input)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	stdout := &limitedBuffer{max: maxTextLen}
 	stderr := &limitedBuffer{max: maxTextLen}
 	cmd.Stdout = stdout
@@ -187,51 +295,193 @@ func sendError(w http.ResponseWriter, code int, message string, stdout string, s
 
 func decodeJSON(r *http.Request, out any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 32<<20))
-	return dec.Decode(out)
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > maxRequestBytes {
+		return fmt.Errorf("request body is too large")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body contains multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func validateRenderRequest(req renderRequest) error {
+	if strings.TrimSpace(req.Source) == "" {
+		return fmt.Errorf("source is required")
+	}
+	if len(req.Source) > maxSourceBytes {
+		return fmt.Errorf("source is too large")
+	}
+	if req.Stdin != nil && len(*req.Stdin) > maxStdinBytes {
+		return fmt.Errorf("stdin is too large")
+	}
+	return nil
+}
+
+func readFileLimited(path string, maximum int64) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 {
+		return nil, fmt.Errorf("rendered image is not a regular file")
+	}
+	if info.Size() > maximum {
+		return nil, fmt.Errorf("rendered image is too large")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maximum {
+		return nil, fmt.Errorf("rendered image is too large")
+	}
+	return data, nil
 }
 
 var forbiddenCppExternalSymbols = map[string]struct{}{
-	"system": {}, "__libc_system": {}, "popen": {}, "pclose": {},
+	"system": {}, "__libc_system": {}, "popen": {}, "pclose": {}, "wordexp": {},
 	"fork": {}, "vfork": {}, "clone": {}, "clone3": {},
 	"execl": {}, "execlp": {}, "execle": {}, "execv": {}, "execvp": {},
 	"execvpe": {}, "execve": {}, "execveat": {}, "fexecve": {},
 	"posix_spawn": {}, "posix_spawnp": {},
 	"dlopen": {}, "dlmopen": {}, "dlsym": {}, "dlvsym": {},
-	"syscall": {}, "ptrace": {}, "unshare": {}, "setns": {},
+	"syscall": {}, "prctl": {}, "seccomp": {}, "ptrace": {}, "unshare": {}, "setns": {},
 	"mount": {}, "umount": {}, "umount2": {}, "chroot": {}, "pivot_root": {},
 	"socket": {}, "socketpair": {}, "connect": {}, "bind": {}, "listen": {},
-	"accept": {}, "accept4": {}, "send": {}, "sendto": {}, "sendmsg": {},
-	"recv": {}, "recvfrom": {}, "recvmsg": {}, "getaddrinfo": {},
-	"kill": {}, "tkill": {}, "tgkill": {},
-	"mmap": {}, "mmap64": {}, "mprotect": {}, "memfd_create": {},
+	"accept": {}, "accept4": {}, "send": {}, "sendto": {}, "sendmsg": {}, "sendmmsg": {},
+	"recv": {}, "recvfrom": {}, "recvmsg": {}, "recvmmsg": {}, "shutdown": {},
+	"getaddrinfo": {}, "gethostbyname": {}, "gethostbyname2": {},
+	"kill": {}, "tkill": {}, "tgkill": {}, "pidfd_open": {}, "pidfd_getfd": {}, "pidfd_send_signal": {},
+	"process_vm_readv": {}, "process_vm_writev": {}, "process_madvise": {}, "process_mrelease": {}, "kcmp": {},
+	"getenv": {}, "secure_getenv": {}, "setenv": {}, "putenv": {}, "unsetenv": {},
+	"open": {}, "open64": {}, "openat": {}, "openat64": {}, "creat": {}, "creat64": {},
+
+	"read": {}, "pread": {}, "pread64": {}, "readv": {}, "preadv": {}, "preadv2": {},
+	"write": {}, "pwrite": {}, "pwrite64": {}, "writev": {}, "pwritev": {}, "pwritev2": {},
+	"close": {}, "dup": {}, "dup2": {}, "dup3": {}, "fcntl": {}, "ioctl": {},
+	"stat": {}, "stat64": {}, "lstat": {}, "lstat64": {}, "fstat": {}, "fstat64": {}, "fstatat": {}, "statx": {},
+	"access": {}, "faccessat": {}, "faccessat2": {}, "getcwd": {}, "chdir": {}, "fchdir": {},
+	"unlink": {}, "unlinkat": {}, "remove": {}, "rename": {}, "renameat": {}, "renameat2": {},
+	"mkdir": {}, "mkdirat": {}, "rmdir": {}, "link": {}, "linkat": {}, "symlink": {}, "symlinkat": {},
+	"chmod": {}, "fchmod": {}, "fchmodat": {}, "chown": {}, "fchown": {}, "fchownat": {}, "lchown": {},
+	"truncate": {}, "truncate64": {}, "ftruncate": {}, "ftruncate64": {},
+	"fopen": {}, "fopen64": {}, "freopen": {}, "freopen64": {}, "tmpfile": {}, "tmpfile64": {}, "tmpnam": {},
+	"opendir": {}, "fdopendir": {}, "readdir": {}, "readdir64": {}, "scandir": {}, "scandir64": {},
+	"ftw": {}, "ftw64": {}, "nftw": {}, "nftw64": {}, "glob": {}, "glob64": {},
+	"readlink": {}, "readlinkat": {}, "realpath": {}, "open_by_handle_at": {}, "name_to_handle_at": {},
+	"mmap": {}, "mmap64": {}, "mprotect": {}, "pkey_mprotect": {}, "memfd_create": {}, "userfaultfd": {},
+	"bpf": {}, "perf_event_open": {}, "fanotify_init": {},
+	"keyctl": {}, "add_key": {}, "request_key": {},
+	"io_uring_setup": {}, "io_uring_enter": {}, "io_uring_register": {},
+	"init_module": {}, "finit_module": {}, "delete_module": {},
+	"kexec_load": {}, "kexec_file_load": {}, "reboot": {}, "swapon": {}, "swapoff": {},
+	"acct": {}, "iopl": {}, "ioperm": {}, "quotactl": {}, "quotactl_fd": {},
+}
+
+func isForbiddenCppExternalSymbol(name string) bool {
+	if _, forbidden := forbiddenCppExternalSymbols[name]; forbidden {
+		return true
+	}
+	for _, prefix := range []string{
+		"__open", "__read", "__write", "__pread", "__pwrite", "__xstat", "__fxstat", "__lxstat",
+		"__libc_open", "__libc_read", "__libc_write", "__libc_system", "__GI_open", "__GI_read", "__GI_write",
+	} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+var forbiddenCppDefinedSymbols = map[string]struct{}{
+	"__libc_start_main": {}, "__libc_start_call_main": {},
+	"_start": {}, "_init": {}, "_fini": {},
+	"taskforge_image_sandbox_init": {},
 }
 
 func normalizeELFSymbol(name string) string {
 	name = strings.TrimSpace(name)
-	if i := strings.IndexByte(name, '@'); i >= 0 {
-		name = name[:i]
+	if index := strings.IndexByte(name, '@'); index >= 0 {
+		name = name[:index]
 	}
 	return strings.TrimPrefix(name, "__GI_")
 }
 
-func forbiddenUndefinedELFSymbols(path string) ([]string, error) {
-	f, err := elf.Open(path)
+func isForbiddenCppDefinedSymbol(name string) bool {
+	if _, forbidden := forbiddenCppDefinedSymbols[name]; forbidden {
+		return true
+	}
+	return strings.HasPrefix(name, "_dl_") ||
+		strings.HasPrefix(name, "__libc_start_") ||
+		strings.HasPrefix(name, "taskforge_image_sandbox_")
+}
+
+func forbiddenDefinedELFSymbols(path string) ([]string, error) {
+	file, err := elf.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer file.Close()
+
+	symbols, symbolErr := file.Symbols()
+	if symbolErr != nil {
+		if errors.Is(symbolErr, elf.ErrNoSymbols) {
+			return nil, nil
+		}
+		return nil, symbolErr
+	}
+
+	blocked := make(map[string]struct{})
+	for _, symbol := range symbols {
+		if symbol.Section == elf.SHN_UNDEF {
+			continue
+		}
+		binding := elf.ST_BIND(symbol.Info)
+		if binding != elf.STB_GLOBAL && binding != elf.STB_WEAK {
+			continue
+		}
+		name := normalizeELFSymbol(symbol.Name)
+		if isForbiddenCppDefinedSymbol(name) {
+			blocked[name] = struct{}{}
+		}
+	}
+	return sortedMarkerSet(blocked), nil
+}
+
+func forbiddenUndefinedELFSymbols(path string) ([]string, error) {
+	file, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
 	all := make([]elf.Symbol, 0, 64)
-	if symbols, symErr := f.Symbols(); symErr == nil {
+	if symbols, symbolErr := file.Symbols(); symbolErr == nil {
 		all = append(all, symbols...)
-	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
-		return nil, symErr
+	} else if !errors.Is(symbolErr, elf.ErrNoSymbols) {
+		return nil, symbolErr
 	}
-	if symbols, symErr := f.DynamicSymbols(); symErr == nil {
+	if symbols, symbolErr := file.DynamicSymbols(); symbolErr == nil {
 		all = append(all, symbols...)
-	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
-		return nil, symErr
+	} else if !errors.Is(symbolErr, elf.ErrNoSymbols) {
+		return nil, symbolErr
 	}
 
 	blocked := make(map[string]struct{})
@@ -240,36 +490,22 @@ func forbiddenUndefinedELFSymbols(path string) ([]string, error) {
 			continue
 		}
 		name := normalizeELFSymbol(symbol.Name)
-		if _, forbidden := forbiddenCppExternalSymbols[name]; forbidden {
+		if isForbiddenCppExternalSymbol(name) {
 			blocked[name] = struct{}{}
 		}
 	}
-
-	result := make([]string, 0, len(blocked))
-	for name := range blocked {
-		result = append(result, name)
-	}
-	sort.Strings(result)
-	return result, nil
+	return sortedMarkerSet(blocked), nil
 }
 
 func forbiddenExecutableInstructions(path string) ([]string, error) {
-	f, err := elf.Open(path)
+	file, err := elf.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer file.Close()
 
-	patterns := []struct {
-		name  string
-		bytes []byte
-	}{
-		{name: "machine.syscall", bytes: []byte{0x0f, 0x05}},
-		{name: "machine.sysenter", bytes: []byte{0x0f, 0x34}},
-		{name: "machine.int80", bytes: []byte{0xcd, 0x80}},
-	}
 	blocked := make(map[string]struct{})
-	for _, section := range f.Sections {
+	for _, section := range file.Sections {
 		if section.Flags&elf.SHF_EXECINSTR == 0 || section.Size == 0 {
 			continue
 		}
@@ -277,19 +513,144 @@ func forbiddenExecutableInstructions(path string) ([]string, error) {
 		if readErr != nil {
 			return nil, readErr
 		}
-		for _, pattern := range patterns {
-			if bytes.Contains(data, pattern.bytes) {
-				blocked[pattern.name] = struct{}{}
+		switch file.Machine {
+		case elf.EM_X86_64:
+			for _, pattern := range []struct {
+				name  string
+				bytes []byte
+			}{
+				{name: "machine.syscall", bytes: []byte{0x0f, 0x05}},
+				{name: "machine.sysenter", bytes: []byte{0x0f, 0x34}},
+				{name: "machine.int80", bytes: []byte{0xcd, 0x80}},
+			} {
+				if bytes.Contains(data, pattern.bytes) {
+					blocked[pattern.name] = struct{}{}
+				}
+			}
+		case elf.EM_AARCH64:
+			for offset := 0; offset+4 <= len(data); offset += 4 {
+				instruction := file.ByteOrder.Uint32(data[offset : offset+4])
+				if instruction&0xffe0001f == 0xd4000001 {
+					blocked["machine.svc"] = struct{}{}
+					break
+				}
+			}
+		default:
+			blocked["elf.unsupported_machine"] = struct{}{}
+		}
+	}
+	return sortedMarkerSet(blocked), nil
+}
+
+func forbiddenELFMetadata(path string) ([]string, error) {
+	file, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	blocked := make(map[string]struct{})
+	for _, section := range file.Sections {
+		if section.Size == 0 {
+			continue
+		}
+		if strings.HasPrefix(section.Name, ".preinit_array") {
+			blocked["elf.preinit_array"] = struct{}{}
+		}
+		if (section.Name == ".init" || strings.HasPrefix(section.Name, ".init.")) && section.Flags&elf.SHF_EXECINSTR != 0 {
+			blocked["elf.init_section"] = struct{}{}
+		}
+	}
+	if symbols, symbolErr := file.Symbols(); symbolErr == nil {
+		for _, symbol := range symbols {
+			if elf.ST_TYPE(symbol.Info) == elf.STT_GNU_IFUNC {
+				blocked["elf.ifunc"] = struct{}{}
+			}
+		}
+	} else if !errors.Is(symbolErr, elf.ErrNoSymbols) {
+		return nil, symbolErr
+	}
+	return sortedMarkerSet(blocked), nil
+}
+
+func forbiddenELFRelocations(path string) ([]string, error) {
+	file, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if file.Class != elf.ELFCLASS64 {
+		return []string{"elf.unsupported_class"}, nil
+	}
+
+	var forbiddenType uint32
+	switch file.Machine {
+	case elf.EM_X86_64:
+		forbiddenType = uint32(elf.R_X86_64_IRELATIVE)
+	case elf.EM_AARCH64:
+		forbiddenType = uint32(elf.R_AARCH64_IRELATIVE)
+	default:
+		return []string{"elf.unsupported_machine"}, nil
+	}
+
+	for _, section := range file.Sections {
+		if section.Type != elf.SHT_RELA && section.Type != elf.SHT_REL {
+			continue
+		}
+		data, readErr := section.Data()
+		if readErr != nil {
+			return nil, readErr
+		}
+		entrySize := int(section.Entsize)
+		if entrySize == 0 {
+			if section.Type == elf.SHT_RELA {
+				entrySize = 24
+			} else {
+				entrySize = 16
+			}
+		}
+		if entrySize < 16 {
+			return nil, fmt.Errorf("invalid relocation entry size %d", entrySize)
+		}
+		for offset := 0; offset+entrySize <= len(data); offset += entrySize {
+			info := file.ByteOrder.Uint64(data[offset+8 : offset+16])
+			if uint32(info) == forbiddenType {
+				return []string{"elf.irelative"}, nil
 			}
 		}
 	}
+	return nil, nil
+}
 
-	result := make([]string, 0, len(blocked))
-	for name := range blocked {
-		result = append(result, name)
+func sortedMarkerSet(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
 	}
 	sort.Strings(result)
-	return result, nil
+	return result
+}
+
+func imageCppSandboxGuardObject() (string, error) {
+	path := strings.TrimSpace(os.Getenv("TASKFORGE_IMAGE_CPP_SANDBOX_GUARD"))
+	if path == "" {
+		path = "/app/taskforge_image_cpp_sandbox_guard.o"
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("sandbox guard is not a regular file")
+	}
+	return path, nil
+}
+
+func imageCppPolicyError(markers []string) (string, string, int) {
+	if len(markers) > 0 {
+		log.Printf("image-cpp-runner blocked security-policy markers: %s", strings.Join(markers, ","))
+	}
+	return "Решение отклонено системой безопасности.", "", 126
 }
 
 func compileCpp(source string, dir string, timeoutSec int) (string, string, int) {
@@ -299,35 +660,56 @@ func compileCpp(source string, dir string, timeoutSec int) (string, string, int)
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
 		return sanitizeRunnerText(err.Error()), "", 1
 	}
-	compile := runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-fno-asm", "-I/opt/taskforge/include", "-c", "-o", obj}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	compile := runCommand("g++", []string{
+		"main.cpp", "-O2", "-std=c++17", "-fno-asm", "-fPIE",
+		"-fstack-protector-strong", "-fstack-clash-protection", "-D_FORTIFY_SOURCE=2",
+		"-I/opt/taskforge/include", "-c", "-o", obj,
+	}, dir, "", clamp(timeoutSec, 1, 30), nil)
 	if compile.ExitCode != 0 {
 		return sanitizeRunnerText(compile.Stdout + compile.Stderr), "", compile.ExitCode
 	}
-	blocked, scanErr := forbiddenUndefinedELFSymbols(obj)
-	if scanErr != nil {
-		log.Printf("image-cpp-runner failed to inspect compiled object: %v", scanErr)
-		return "Решение отклонено системой безопасности.", "", 126
+
+	checks := []struct {
+		name string
+		run  func(string) ([]string, error)
+	}{
+		{name: "defined symbols", run: forbiddenDefinedELFSymbols},
+		{name: "undefined symbols", run: forbiddenUndefinedELFSymbols},
+		{name: "machine instructions", run: forbiddenExecutableInstructions},
+		{name: "ELF metadata", run: forbiddenELFMetadata},
+		{name: "ELF relocations", run: forbiddenELFRelocations},
 	}
-	if len(blocked) > 0 {
-		log.Printf("image-cpp-runner blocked forbidden external symbols: %s", strings.Join(blocked, ","))
-		return "Решение отклонено системой безопасности.", "", 126
-	}
-	blockedInstructions, instructionScanErr := forbiddenExecutableInstructions(obj)
-	if instructionScanErr != nil {
-		log.Printf("image-cpp-runner failed to inspect executable instructions: %v", instructionScanErr)
-		return "Решение отклонено системой безопасности.", "", 126
-	}
-	if len(blockedInstructions) > 0 {
-		log.Printf("image-cpp-runner blocked forbidden machine instructions: %s", strings.Join(blockedInstructions, ","))
-		return "Решение отклонено системой безопасности.", "", 126
-	}
-	link := runCommand("g++", []string{obj, "-Wl,-z,relro,-z,now,-z,noexecstack", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
-	if link.ExitCode == 0 {
-		if err := os.Chmod(exe, 0o500); err != nil {
-			return "Не удалось подготовить программу к запуску.", "", 1
+	for _, check := range checks {
+		markers, checkErr := check.run(obj)
+		if checkErr != nil {
+			log.Printf("image-cpp-runner failed to inspect %s: %v", check.name, checkErr)
+			return imageCppPolicyError(nil)
+		}
+		if len(markers) > 0 {
+			return imageCppPolicyError(markers)
 		}
 	}
-	return sanitizeRunnerText(link.Stdout + link.Stderr), exe, link.ExitCode
+
+	guardObject, guardErr := imageCppSandboxGuardObject()
+	if guardErr != nil {
+		log.Printf("image-cpp-runner sandbox guard is unavailable: %v", guardErr)
+		return imageCppPolicyError(nil)
+	}
+	link := runCommand("g++", []string{
+		obj,
+		guardObject,
+		"-pie",
+		"-Wl,-init,taskforge_image_sandbox_init,-z,relro,-z,now,-z,noexecstack,-z,defs,--as-needed,--fatal-warnings",
+		"-lglut", "-lGL", "-lGLU",
+		"-o", exe,
+	}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	if link.ExitCode != 0 {
+		return sanitizeRunnerText(link.Stdout + link.Stderr), "", link.ExitCode
+	}
+	if err := os.Chmod(exe, 0o500); err != nil {
+		return "Не удалось подготовить программу к запуску.", "", 1
+	}
+	return sanitizeRunnerText(link.Stdout + link.Stderr), exe, 0
 }
 
 func preparePython(source string, dir string, timeoutSec int) (string, string, int) {
@@ -350,7 +732,7 @@ func compilePascal(source string, dir string, timeoutSec int) (string, string, i
 		return sanitizeRunnerText(err.Error()), "", 1
 	}
 	compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
-	res := runCommand("mono", []string{compiler, src}, dir, "", clamp(timeoutSec, 6, 60), nil)
+	res := runCommand("mono", []string{compiler, src}, dir, "", clamp(timeoutSec, 1, 30), nil)
 	if res.ExitCode != 0 {
 		return sanitizeRunnerText(res.Stdout + res.Stderr), "", res.ExitCode
 	}
@@ -372,7 +754,7 @@ func compilePascal(source string, dir string, timeoutSec int) (string, string, i
 }
 
 func fileMTime(path string) time.Time {
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil {
 		return time.Time{}
 	}
@@ -382,7 +764,7 @@ func fileMTime(path string) time.Time {
 func findOutputFile(dir string) string {
 	for _, n := range []string{"out.png", "out.ppm", "out.bmp", "out.jpg", "out.jpeg"} {
 		p := filepath.Join(dir, n)
-		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+		if st, err := os.Lstat(p); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
 			return p
 		}
 	}
@@ -395,7 +777,7 @@ func findOutputFile(dir string) string {
 		p := filepath.Join(dir, e.Name())
 		ext := strings.ToLower(filepath.Ext(e.Name()))
 		if ext == ".png" || ext == ".ppm" || ext == ".bmp" || ext == ".jpg" || ext == ".jpeg" {
-			if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+			if st, err := os.Lstat(p); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
 				files = append(files, p)
 			}
 		}
@@ -407,65 +789,141 @@ func findOutputFile(dir string) string {
 	return files[0]
 }
 
-func convertToPNG(path string, dir string) ([]byte, error) {
-	if strings.EqualFold(filepath.Ext(path), ".png") {
-		return os.ReadFile(path)
+func runBinaryCommand(name string, args []string, cwd string, seconds int, extraEnv []string) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(clamp(seconds, 1, 10))*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = cwd
+	cmd.Env = append(runnerChildEnvironment(), extraEnv...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	stdout := &limitedBuffer{max: maxImageBytes + 1}
+	stderr := &limitedBuffer{max: 64 * 1024}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return nil, stderr.String(), ctx.Err()
 	}
-	out := filepath.Join(dir, "converted.png")
-	res := runCommand("convert", []string{path, out}, dir, "", 10, nil)
-	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("image conversion failed: %s", tail(res.Stdout+res.Stderr, 4000))
+	if err != nil {
+		return nil, stderr.String(), err
 	}
-	return os.ReadFile(out)
+	if stdout.truncated || len(stdout.Bytes()) > maxImageBytes {
+		return nil, stderr.String(), fmt.Errorf("rendered image is too large")
+	}
+	if len(stdout.Bytes()) == 0 {
+		return nil, stderr.String(), fmt.Errorf("renderer produced an empty image")
+	}
+	return stdout.Bytes(), stderr.String(), nil
 }
 
-func startLongProcess(name string, args []string, cwd string, input string, envs []string) (*exec.Cmd, *limitedBuffer, *limitedBuffer, error) {
+func convertToPNG(path string, dir string, seconds int, helperEnv []string) ([]byte, error) {
+	if strings.EqualFold(filepath.Ext(path), ".png") {
+		return readFileLimited(path, maxImageBytes)
+	}
+	png, stderr, err := runBinaryCommand("convert", []string{path, "png:-"}, dir, seconds, helperEnv)
+	if err != nil {
+		return nil, fmt.Errorf("image conversion failed: %s", tail(stderr, 4000))
+	}
+	return png, nil
+}
+
+func captureWindowPNG(display string, windowID string, seconds int, helperEnv []string) ([]byte, error) {
+	png, stderr, err := runBinaryCommand(
+		"import",
+		[]string{"-display", display, "-window", windowID, "png:-"},
+		"/tmp",
+		seconds,
+		append([]string{"DISPLAY=" + display}, helperEnv...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("window capture failed: %s", tail(stderr, 4000))
+	}
+	return png, nil
+}
+
+type longProcess struct {
+	cmd  *exec.Cmd
+	done chan error
+}
+
+func startLongProcess(name string, args []string, cwd string, input string, envs []string) (*longProcess, *limitedBuffer, *limitedBuffer, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), envs...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(runnerChildEnvironment(), envs...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	stdout := &limitedBuffer{max: maxTextLen}
 	stderr := &limitedBuffer{max: maxTextLen}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	var inputPipe io.WriteCloser
 	if input != "" {
 		pipe, err := cmd.StdinPipe()
-		if err == nil {
-			go func() {
-				_, _ = io.WriteString(pipe, input)
-				if !strings.HasSuffix(input, "\n") {
-					_, _ = io.WriteString(pipe, "\n")
-				}
-				_ = pipe.Close()
-			}()
+		if err != nil {
+			return nil, stdout, stderr, err
 		}
+		inputPipe = pipe
 	}
 	if err := cmd.Start(); err != nil {
+		if inputPipe != nil {
+			_ = inputPipe.Close()
+		}
 		return nil, stdout, stderr, err
 	}
-	return cmd, stdout, stderr, nil
+	process := &longProcess{cmd: cmd, done: make(chan error, 1)}
+	go func() {
+		process.done <- cmd.Wait()
+		close(process.done)
+	}()
+	if inputPipe != nil {
+		go func() {
+			_, _ = io.WriteString(inputPipe, input)
+			if !strings.HasSuffix(input, "\n") {
+				_, _ = io.WriteString(inputPipe, "\n")
+			}
+			_ = inputPipe.Close()
+		}()
+	}
+	return process, stdout, stderr, nil
 }
 
-func stopProc(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
+func processExited(process *longProcess) bool {
+	if process == nil {
+		return true
+	}
+	select {
+	case <-process.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func stopProc(process *longProcess) {
+	if process == nil || process.cmd == nil || process.cmd.Process == nil {
 		return
 	}
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() { _, _ = cmd.Process.Wait(); close(done) }()
+	if processExited(process) {
+		return
+	}
+	_ = syscall.Kill(-process.cmd.Process.Pid, syscall.SIGTERM)
 	select {
-	case <-done:
+	case <-process.done:
+		return
 	case <-time.After(1500 * time.Millisecond):
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Process.Kill()
+	}
+	_ = syscall.Kill(-process.cmd.Process.Pid, syscall.SIGKILL)
+	_ = process.cmd.Process.Kill()
+	select {
+	case <-process.done:
+	case <-time.After(1500 * time.Millisecond):
 	}
 }
 
-func firstWindowID(pid int, display string) string {
+func firstWindowID(pid int, display string, helperEnv []string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "xdotool", "search", "--onlyvisible", "--pid", strconv.Itoa(pid))
-	cmd.Env = append(os.Environ(), "DISPLAY="+display)
+	cmd.Env = append(runnerChildEnvironment(), append([]string{"DISPLAY=" + display}, helperEnv...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -478,49 +936,74 @@ func firstWindowID(pid int, display string) string {
 }
 
 func captureExecutable(exe string, dir string, stdin string, timeoutSec int, programArgs ...string) captureOutput {
+	helperEnv, helperErr := helperSandboxEnvironment(timeoutSec)
+	if helperErr != nil {
+		log.Printf("image runner helper sandbox is unavailable: %v", helperErr)
+		return captureOutput{Err: "Решение отклонено системой безопасности."}
+	}
+	xserverEnv, xserverErr := xserverSandboxEnvironment(timeoutSec)
+	if xserverErr != nil {
+		log.Printf("image runner X server sandbox is unavailable: %v", xserverErr)
+		return captureOutput{Err: "Решение отклонено системой безопасности."}
+	}
+
 	display := fmt.Sprintf(":%d", 90+rand.Intn(1000))
-	xvfb, _, xvfbErr, err := startLongProcess("Xvfb", []string{display, "-screen", "0", env("TF_XVFB_SCREEN", "1280x1024x24")}, dir, "", nil)
+	xvfbArgs := []string{display, "-nolisten", "tcp", "-extension", "XTEST", "-screen", "0", env("TF_XVFB_SCREEN", "1280x1024x24")}
+	xvfb, _, xvfbErr, err := startLongProcess("Xvfb", xvfbArgs, dir, "", xserverEnv)
 	if err != nil {
 		return captureOutput{Err: "failed to start Xvfb: " + err.Error() + " " + xvfbErr.String()}
 	}
 	defer stopProc(xvfb)
 	time.Sleep(500 * time.Millisecond)
 
-	wm, _, _, _ := startLongProcess("openbox", nil, dir, "", []string{"DISPLAY=" + display})
+	openboxEnv := append([]string{"DISPLAY=" + display}, helperEnv...)
+	wm, _, _, _ := startLongProcess("openbox", []string{"--config-file", "/etc/xdg/openbox/rc.xml"}, dir, "", openboxEnv)
 	defer stopProc(wm)
 	time.Sleep(350 * time.Millisecond)
 
-	proc, stdout, stderr, err := startLongProcess(exe, programArgs, dir, stdin, []string{"DISPLAY=" + display})
+	sandboxEnv, sandboxErr := sandboxRuntimeEnvironment(timeoutSec)
+	if sandboxErr != nil {
+		log.Printf("image C++ runner sandbox guard is unavailable: %v", sandboxErr)
+		return captureOutput{Err: "Решение отклонено системой безопасности."}
+	}
+	programEnv := append([]string{"DISPLAY=" + display}, sandboxEnv...)
+
+	proc, stdout, stderr, err := startLongProcess(exe, programArgs, dir, stdin, programEnv)
 	if err != nil {
 		return captureOutput{Err: "failed to start program: " + err.Error()}
 	}
-	defer stopProc(proc)
+	defer func() { stopProc(proc) }()
 
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
-	screenshot := filepath.Join(dir, "captured.png")
 	var windowID string
 	for time.Now().Before(deadline) {
 		if out := findOutputFile(dir); out != "" {
-			png, convErr := convertToPNG(out, dir)
+			// Stop untrusted writers before opening or converting their output.
+			stopProc(proc)
+			proc = nil
+			remaining := secondsRemaining(deadline)
+			if remaining <= 0 {
+				break
+			}
+			png, convErr := convertToPNG(out, dir, clamp(remaining, 1, 10), helperEnv)
 			if convErr == nil {
 				return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
 			}
+			return captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: convErr.Error()}
 		}
-		if proc.ProcessState != nil && proc.ProcessState.Exited() {
+		if processExited(proc) {
 			break
 		}
 		if windowID == "" {
-			windowID = firstWindowID(proc.Process.Pid, display)
+			windowID = firstWindowID(proc.cmd.Process.Pid, display, helperEnv)
 		}
 		if windowID != "" {
-			res := runCommand("import", []string{"-display", display, "-window", windowID, screenshot}, dir, "", 4, nil)
-			if res.ExitCode == 0 {
-				if st, statErr := os.Stat(screenshot); statErr == nil && st.Size() > 0 {
-					png, readErr := os.ReadFile(screenshot)
-					if readErr == nil {
-						return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
-					}
-				}
+			remaining := secondsRemaining(deadline)
+			if remaining <= 0 {
+				break
+			}
+			if png, captureErr := captureWindowPNG(display, windowID, clamp(remaining, 1, 4), helperEnv); captureErr == nil {
+				return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -539,11 +1022,17 @@ func handleRender(kind string, debug bool) http.HandlerFunc {
 			sendError(w, http.StatusBadRequest, err.Error(), "", "")
 			return
 		}
-		if strings.TrimSpace(req.Source) == "" {
-			sendError(w, http.StatusBadRequest, "source is required", "", "")
+		if err := validateRenderRequest(req); err != nil {
+			sendError(w, http.StatusBadRequest, err.Error(), "", "")
+			return
+		}
+		if err := verifyPolicyAttestation(kind, "image", req.Source, req.Attestation); err != nil {
+			log.Printf("image-%s-runner rejected unattested source: %v", kind, err)
+			sendError(w, http.StatusForbidden, "Решение не прошло обязательную проверку безопасности.", "", "")
 			return
 		}
 		timeoutSec := timeout(req)
+		requestDeadline := time.Now().Add(maxRenderRequestDuration)
 		dir, err := os.MkdirTemp("", "taskforge-image-"+kind+"-")
 		if err != nil {
 			sendError(w, http.StatusInternalServerError, err.Error(), "", "")
@@ -551,24 +1040,36 @@ func handleRender(kind string, debug bool) http.HandlerFunc {
 		}
 		defer os.RemoveAll(dir)
 
+		remaining := secondsRemaining(requestDeadline)
+		if remaining <= 0 {
+			sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
+			return
+		}
+		compileBudget := clamp(remaining, 1, 20)
 		var compileOut, exe string
 		var code int
 		if kind == "pascal" {
-			compileOut, exe, code = compilePascal(req.Source, dir, timeoutSec)
+			compileOut, exe, code = compilePascal(req.Source, dir, compileBudget)
 		} else if kind == "python" {
-			compileOut, exe, code = preparePython(req.Source, dir, timeoutSec)
+			compileOut, exe, code = preparePython(req.Source, dir, compileBudget)
 		} else {
-			compileOut, exe, code = compileCpp(req.Source, dir, timeoutSec)
+			compileOut, exe, code = compileCpp(req.Source, dir, clamp(compileBudget, 1, 15))
 		}
 		if code != 0 {
 			sendError(w, http.StatusBadRequest, "Compilation failed", "", compileOut)
 			return
 		}
+		remaining = secondsRemaining(requestDeadline)
+		if remaining <= 5 {
+			sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
+			return
+		}
+		renderBudget := clamp(timeoutSec, 1, remaining-5)
 		var cap captureOutput
 		if kind == "python" {
-			cap = captureExecutable("/usr/bin/python3", dir, value(req.Stdin), timeoutSec, exe)
+			cap = captureExecutable("/usr/bin/python3", dir, value(req.Stdin), renderBudget, exe)
 		} else {
-			cap = captureExecutable(exe, dir, value(req.Stdin), timeoutSec)
+			cap = captureExecutable(exe, dir, value(req.Stdin), renderBudget)
 		}
 		if len(cap.PNG) == 0 {
 			sendError(w, http.StatusBadRequest, cap.Err, cap.Stdout, cap.Stderr)
@@ -599,83 +1100,108 @@ func taskforgeDebugLogsEnabled() bool {
 type taskforgeStatusWriter struct {
 	http.ResponseWriter
 	status int
-	body   bytes.Buffer
+	bytes  int
 }
 
 func (w *taskforgeStatusWriter) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *taskforgeStatusWriter) Write(p []byte) (int, error) {
-	if w.body.Len() < 4096 {
-		left := 4096 - w.body.Len()
-		if len(p) > left {
-			_, _ = w.body.Write(p[:left])
-		} else {
-			_, _ = w.body.Write(p)
-		}
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
 	}
-	return w.ResponseWriter.Write(p)
-}
-
-func taskforgeDebugSnippet(value string) string {
-	value = strings.ReplaceAll(value, "\r", " ")
-	value = strings.ReplaceAll(value, "\n", " ")
-	value = sanitizeRunnerText(value)
-	if len(value) > 4000 {
-		return value[:4000] + fmt.Sprintf("...<trimmed %d bytes>", len(value)-4000)
-	}
-	return value
-}
-
-func taskforgeReadRequestBody(r *http.Request) string {
-	if r.Body == nil || r.ContentLength == 0 {
-		return ""
-	}
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		r.Body = io.NopCloser(bytes.NewReader(nil))
-		return "<request-body-read-failed: " + err.Error() + ">"
-	}
-	r.Body = io.NopCloser(bytes.NewReader(data))
-	return taskforgeDebugSnippet(string(data))
+	n, err := w.ResponseWriter.Write(p)
+	w.bytes += n
+	return n, err
 }
 
 func taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		started := time.Now()
 		traceID := r.Header.Get("X-TaskForge-Trace-Id")
 		if traceID == "" {
 			traceID = fmt.Sprintf("%s-%d", service, time.Now().UnixNano())
 		}
-		reqBody := taskforgeReadRequestBody(r)
-		log.Printf("[TFDBG RUNNER IN START] trace=%s service=%s method=%s path=%s query=%s remote=%s content_length=%d body=%s", traceID, service, r.Method, r.URL.Path, r.URL.RawQuery, r.RemoteAddr, r.ContentLength, reqBody)
-		sw := &taskforgeStatusWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(sw, r)
-		log.Printf("[TFDBG RUNNER IN END] trace=%s service=%s method=%s path=%s status=%d duration=%s response=%s", traceID, service, r.Method, r.URL.Path, sw.status, time.Since(start), taskforgeDebugSnippet(sw.body.String()))
+		log.Printf("[TFDBG RUNNER IN START] trace=%s service=%s method=%s path=%s query=%s remote=%s content_length=%d content_type=%q", traceID, service, r.Method, r.URL.Path, r.URL.RawQuery, r.RemoteAddr, r.ContentLength, r.Header.Get("Content-Type"))
+		writer := &taskforgeStatusWriter{ResponseWriter: w}
+		next.ServeHTTP(writer, r)
+		if writer.status == 0 {
+			writer.status = http.StatusOK
+		}
+		log.Printf("[TFDBG RUNNER IN END] trace=%s service=%s method=%s path=%s status=%d duration=%s response_bytes=%d", traceID, service, r.Method, r.URL.Path, writer.status, time.Since(started), writer.bytes)
+	})
+}
+
+func jobLimitMiddleware(slots chan struct{}, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+			next.ServeHTTP(w, r)
+		case <-r.Context().Done():
+			sendError(w, http.StatusRequestTimeout, "request cancelled", "", "")
+		}
 	})
 }
 
 func main() {
 	kind := env("IMAGE_RUNNER_KIND", "cpp")
 	port := env("PORT", "8000")
+	if err := hardenRunnerProcess(); err != nil {
+		log.Fatalf("image-%s-runner failed to protect its service process: %v", kind, err)
+	}
+	if err := policyAttestationReady(); err != nil {
+		log.Fatalf("image-%s-runner code analyzer verification key is unavailable: %v", kind, err)
+	}
+	if _, err := imageCppSandboxGuardObject(); err != nil {
+		log.Fatalf("image-%s-runner sandbox guard is unavailable: %v", kind, err)
+	}
+	if _, err := helperSandboxPreloadPath(); err != nil {
+		log.Fatalf("image-%s-runner helper sandbox is unavailable: %v", kind, err)
+	}
 	rand.Seed(time.Now().UnixNano())
+	// One active submission per container prevents cross-submission /proc and /tmp interference.
+	jobSlots := make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "image-" + kind + "-runner", "runtime": "go", "go": runtime.Version()})
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		if err := policyAttestationReady(); err != nil {
+			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+			return
+		}
+		if _, err := imageCppSandboxGuardObject(); err != nil {
+			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+			return
+		}
+		if _, err := helperSandboxPreloadPath(); err != nil {
+			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+			return
+		}
 		sendJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
-	mux.HandleFunc("/render", handleRender(kind, false))
-	mux.HandleFunc("/render/debug", handleRender(kind, true))
+	mux.Handle("/render", jobLimitMiddleware(jobSlots, handleRender(kind, false)))
+	mux.Handle("/render/debug", jobLimitMiddleware(jobSlots, handleRender(kind, true)))
 	log.Printf("image-%s-runner listening on :%s", kind, port)
 	handler := http.Handler(mux)
 	if taskforgeDebugLogsEnabled() {
 		handler = taskforgeDebugMiddleware("image-"+kind+"-runner", handler)
 	}
-	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       35 * time.Second,
+		WriteTimeout:      40 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+	}
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

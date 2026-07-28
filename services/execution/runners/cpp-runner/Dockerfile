@@ -1,8 +1,9 @@
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/runner .
+COPY *.go ./
+RUN mkdir -p /out \
+  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/runner .
 
 FROM gcc:14-bookworm
 RUN apt-get update \
@@ -11,7 +12,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY security/sandbox_guard.c /tmp/taskforge_cpp_sandbox_guard.c
-RUN gcc -O2 -fPIC -Wall -Wextra -Werror \
+RUN gcc -O2 -fPIC -Wall -Wextra -Werror -fvisibility=hidden -fno-stack-protector -fno-builtin \
       -c /tmp/taskforge_cpp_sandbox_guard.c \
       -o /app/taskforge_cpp_sandbox_guard.o \
   && chmod 0444 /app/taskforge_cpp_sandbox_guard.o \

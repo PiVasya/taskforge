@@ -12,7 +12,7 @@ namespace TaskForge.Execution.Api.Services.Results;
 
 internal static class ExecutionApiResultsService
 {
-    internal static async Task<IResult> ProxyRunAsync(RunnerRequest request, IHttpClientFactory factory, bool tests, bool image = false)
+    internal static async Task<IResult> ProxyRunAsync(RunnerRequest request, IHttpClientFactory factory, IConfiguration configuration, bool tests, bool image = false)
     {
         var language = NormalizeLanguage(request.Language);
         var service = RunnerService(language, image);
@@ -21,10 +21,62 @@ internal static class ExecutionApiResultsService
 
         var client = factory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(40);
+        var analyzerUrl = (configuration["CodeAnalyzer:Url"] ?? "http://code-analyzer:8080").TrimEnd('/');
+        JsonElement attestation;
+        try
+        {
+            using var analyzerResponse = await client.PostAsJsonAsync(
+                $"{analyzerUrl}/analyze",
+                new
+                {
+                    language,
+                    profile = image ? "image" : "standard",
+                    source = request.Code ?? string.Empty,
+                    extra_forbidden = (object?)null,
+                    forbidden_calls = (string[]?)null,
+                    required_calls = (string[]?)null
+                });
+            var analyzerText = await analyzerResponse.Content.ReadAsStringAsync();
+            if (!analyzerResponse.IsSuccessStatusCode)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new { status = "judge_unavailable", message = "Обязательный анализ кода временно недоступен." },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            using var analyzerDocument = JsonDocument.Parse(string.IsNullOrWhiteSpace(analyzerText) ? "{}" : analyzerText);
+            var root = analyzerDocument.RootElement;
+            var ok = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("ok", out var okProperty)
+                && okProperty.ValueKind is JsonValueKind.True or JsonValueKind.False
+                && okProperty.GetBoolean();
+            if (!ok)
+            {
+                return Microsoft.AspNetCore.Http.Results.Content(
+                    analyzerText,
+                    "application/json",
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+            if (!root.TryGetProperty("attestation", out var attestationProperty)
+                || attestationProperty.ValueKind != JsonValueKind.Object)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new { status = "judge_unavailable", message = "Анализатор не выдал обязательную подпись безопасности." },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            attestation = attestationProperty.Clone();
+        }
+        catch
+        {
+            return Microsoft.AspNetCore.Http.Results.Json(
+                new { status = "judge_unavailable", message = "Обязательный анализ кода временно недоступен." },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
         var url = $"http://{service}:{port}" + (tests ? "/run-tests" : "/run");
         object payload = tests
-            ? new { code = request.Code ?? string.Empty, tests = request.TestCases ?? request.Tests ?? Array.Empty<JsonElement>(), timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb }
-            : new { code = request.Code ?? string.Empty, input = request.Input, timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb };
+            ? new { code = request.Code ?? string.Empty, tests = request.TestCases ?? request.Tests ?? Array.Empty<JsonElement>(), timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation }
+            : new { code = request.Code ?? string.Empty, input = request.Input, timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation };
 
         try
         {

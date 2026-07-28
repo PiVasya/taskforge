@@ -1,8 +1,13 @@
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
+COPY *.go ./
+COPY security/sandbox_preload.c ./
+RUN mkdir -p /out \
+  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
+RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+      -Wl,-z,relro,-z,now,-z,noexecstack \
+      -o /out/libtaskforge_sandbox.so sandbox_preload.c
 
 FROM debian:bookworm-slim
 WORKDIR /app
@@ -13,7 +18,9 @@ RUN apt-get update \
     fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/image-runner /app/image-runner
+COPY --from=build /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 COPY python_image_entry.py /opt/taskforge/python_image_entry.py
+COPY security/python_policy.py /opt/taskforge/python_policy.py
 ENV HOME=/tmp
 ENV IMAGE_RUNNER_KIND=python PORT=8000 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib PYTHONPYCACHEPREFIX=/tmp/pycache
 EXPOSE 8000

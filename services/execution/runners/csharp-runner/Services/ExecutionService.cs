@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -7,9 +8,14 @@ namespace Runner.Services;
 
 public sealed class ExecutionService : IExecutionService
 {
+    private const int MaxProtocolChars = RunnerLimits.MaxOutputChars + 64 * 1024;
+    private const int MaxDiagnosticChars = 64 * 1024;
+    private const int MaxAssemblyBytes = 16 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        MaxDepth = 16
     };
 
     private sealed class ExecRequest
@@ -26,104 +32,303 @@ public sealed class ExecutionService : IExecutionService
         public string Error { get; set; } = "";
     }
 
-    public (bool Ok, string Stdout, string Error) Run(byte[] pe, byte[] pdb, string input, TimeSpan timeout)
+    public async Task<(bool Ok, string Stdout, string Error, string Status)> RunAsync(
+        byte[] pe,
+        byte[] pdb,
+        string input,
+        int timeLimitMs,
+        int memoryLimitMb,
+        CancellationToken cancellationToken)
     {
-        // если вход пустой – отправляем хотя бы перевод строки (важно для Console.ReadLine)
-        var normalizedInput = string.IsNullOrEmpty(input) ? "\n" : input;
+        if (pe.Length == 0 || pe.Length > MaxAssemblyBytes || pdb.Length > MaxAssemblyBytes)
+        {
+            return (false, "", "Решение отклонено системой безопасности.", "policy_error");
+        }
 
+        var normalizedInput = string.IsNullOrEmpty(input) ? "\n" : input;
         var entryDll = Assembly.GetEntryAssembly()?.Location;
         if (string.IsNullOrWhiteSpace(entryDll))
-            return (false, "", "Runner entry assembly location not found.");
-
-        var req = new ExecRequest
         {
-            AssemblyBase64 = Convert.ToBase64String(pe),
-            PdbBase64 = (pdb != null && pdb.Length > 0) ? Convert.ToBase64String(pdb) : null,
-            Input = normalizedInput
-        };
+            return (false, "", "Runner entry assembly location not found.", "policy_error");
+        }
 
-        var json = JsonSerializer.Serialize(req, JsonOpts);
-
-        var psi = new ProcessStartInfo
+        var preloadPath = Environment.GetEnvironmentVariable("TASKFORGE_SANDBOX_PRELOAD");
+        if (string.IsNullOrWhiteSpace(preloadPath))
         {
-            FileName = "dotnet",
-            Arguments = $"\"{entryDll}\" --exec",
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+            preloadPath = "/app/libtaskforge_sandbox.so";
+        }
+        if (!File.Exists(preloadPath) || (File.GetAttributes(preloadPath) & FileAttributes.Directory) != 0)
+        {
+            return (false, "", "Решение отклонено системой безопасности.", "policy_error");
+        }
 
+        var workDirectory = CreateWorkDirectory();
+        try
+        {
+            var request = new ExecRequest
+            {
+                AssemblyBase64 = Convert.ToBase64String(pe),
+                PdbBase64 = pdb.Length > 0 ? Convert.ToBase64String(pdb) : null,
+                Input = normalizedInput
+            };
+            var json = JsonSerializer.Serialize(request, JsonOpts);
+
+            var processStartInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = workDirectory
+            };
+            processStartInfo.ArgumentList.Add(entryDll);
+            processStartInfo.ArgumentList.Add("--exec");
+
+            PopulateSandboxEnvironment(processStartInfo, preloadPath, workDirectory, timeLimitMs, memoryLimitMb);
+
+            using var process = new Process { StartInfo = processStartInfo, EnableRaisingEvents = false };
+            try
+            {
+                if (!process.Start())
+                {
+                    return (false, "", "Execution failed.", "runtime_error");
+                }
+
+                var stdoutTask = ReadLimitedAsync(process.StandardOutput, MaxProtocolChars, cancellationToken);
+                var stderrTask = ReadLimitedAsync(process.StandardError, MaxDiagnosticChars, cancellationToken);
+
+                await process.StandardInput.WriteAsync(json.AsMemory(), cancellationToken);
+                await process.StandardInput.FlushAsync(cancellationToken);
+                process.StandardInput.Close();
+
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(timeLimitMs + 2_000));
+
+                try
+                {
+                    await process.WaitForExitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    TryKill(process);
+                    await WaitAfterKillAsync(process);
+                    _ = await stdoutTask;
+                    _ = await stderrTask;
+                    return (false, "", "Time limit exceeded.", "time_limit");
+                }
+
+                var childStdout = await stdoutTask;
+                var childStderr = await stderrTask;
+
+                if (process.ExitCode == 126)
+                {
+                    return (false, "", "Решение отклонено системой безопасности.", "policy_error");
+                }
+                if (string.IsNullOrWhiteSpace(childStdout))
+                {
+                    var error = string.IsNullOrWhiteSpace(childStderr) ? "Execution failed." : childStderr;
+                    return (false, "", error, "runtime_error");
+                }
+
+                ExecResponse? response;
+                try
+                {
+                    response = JsonSerializer.Deserialize<ExecResponse>(childStdout, JsonOpts);
+                }
+                catch (JsonException)
+                {
+                    var error = "Bad exec response.";
+                    if (!string.IsNullOrWhiteSpace(childStderr))
+                    {
+                        error += "\n" + childStderr;
+                    }
+                    return (false, "", error, "runtime_error");
+                }
+
+                if (response is null)
+                {
+                    return (false, "", "Empty exec response.", "runtime_error");
+                }
+
+                return response.Ok
+                    ? (true, Limit(response.Stdout, RunnerLimits.MaxOutputChars), "", "ok")
+                    : (false, Limit(response.Stdout, RunnerLimits.MaxOutputChars), Limit(response.Error, MaxDiagnosticChars), "runtime_error");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                TryKill(process);
+                await WaitAfterKillAsync(process);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                TryKill(process);
+                await WaitAfterKillAsync(process);
+                return (false, "", Limit(ex.Message, MaxDiagnosticChars), "runtime_error");
+            }
+        }
+        finally
+        {
+            TryDeleteWorkDirectory(workDirectory);
+        }
+    }
+
+    private static void PopulateSandboxEnvironment(ProcessStartInfo startInfo, string preloadPath, string workDirectory, int timeLimitMs, int memoryLimitMb)
+    {
         var inheritedPath = Environment.GetEnvironmentVariable("PATH");
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
         var globalizationInvariant = Environment.GetEnvironmentVariable("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
         var language = Environment.GetEnvironmentVariable("LANG");
         var locale = Environment.GetEnvironmentVariable("LC_ALL");
         var timezone = Environment.GetEnvironmentVariable("TZ");
-        psi.Environment.Clear();
-        if (!string.IsNullOrWhiteSpace(inheritedPath)) psi.Environment["PATH"] = inheritedPath;
-        if (!string.IsNullOrWhiteSpace(dotnetRoot)) psi.Environment["DOTNET_ROOT"] = dotnetRoot;
-        if (!string.IsNullOrWhiteSpace(globalizationInvariant)) psi.Environment["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = globalizationInvariant;
-        if (!string.IsNullOrWhiteSpace(language)) psi.Environment["LANG"] = language;
-        if (!string.IsNullOrWhiteSpace(locale)) psi.Environment["LC_ALL"] = locale;
-        if (!string.IsNullOrWhiteSpace(timezone)) psi.Environment["TZ"] = timezone;
-        psi.Environment["HOME"] = "/tmp";
-        psi.Environment["TMPDIR"] = "/tmp";
-        psi.Environment["TASKFORGE_SUBMISSION"] = "1";
 
-        using var p = new Process { StartInfo = psi, EnableRaisingEvents = false };
+        startInfo.Environment.Clear();
+        CopyIfPresent(startInfo, "PATH", inheritedPath);
+        CopyIfPresent(startInfo, "DOTNET_ROOT", dotnetRoot);
+        CopyIfPresent(startInfo, "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", globalizationInvariant);
+        CopyIfPresent(startInfo, "LANG", language);
+        CopyIfPresent(startInfo, "LC_ALL", locale);
+        CopyIfPresent(startInfo, "TZ", timezone);
 
+        var cpuSeconds = Math.Max(2, (timeLimitMs + 999) / 1_000 + 2);
+        var heapBytes = Math.Clamp((long)memoryLimitMb * 1024 * 1024 * 3 / 4, 32L * 1024 * 1024, 768L * 1024 * 1024);
+
+        startInfo.Environment["HOME"] = workDirectory;
+        startInfo.Environment["TMPDIR"] = workDirectory;
+        startInfo.Environment["TMP"] = workDirectory;
+        startInfo.Environment["TEMP"] = workDirectory;
+        startInfo.Environment["TASKFORGE_SUBMISSION"] = "1";
+        startInfo.Environment["TASKFORGE_SANDBOX_PROFILE"] = "managed";
+        startInfo.Environment["TASKFORGE_LIMIT_CPU_SECONDS"] = cpuSeconds.ToString(CultureInfo.InvariantCulture);
+        startInfo.Environment["TASKFORGE_LIMIT_FSIZE_MB"] = "16";
+        startInfo.Environment["TASKFORGE_LIMIT_NOFILE"] = "128";
+        startInfo.Environment["LD_PRELOAD"] = preloadPath;
+        startInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
+        startInfo.Environment["DOTNET_EnableDiagnostics_IPC"] = "0";
+        startInfo.Environment["DOTNET_EnableDiagnostics_Debugger"] = "0";
+        startInfo.Environment["DOTNET_EnableDiagnostics_Profiler"] = "0";
+        startInfo.Environment["COMPlus_EnableDiagnostics"] = "0";
+        startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        startInfo.Environment["DOTNET_NOLOGO"] = "1";
+        startInfo.Environment["DOTNET_GCHeapHardLimit"] = heapBytes.ToString("x", CultureInfo.InvariantCulture);
+        startInfo.Environment["COMPlus_GCHeapHardLimit"] = heapBytes.ToString("x", CultureInfo.InvariantCulture);
+    }
+
+    private static string CreateWorkDirectory()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "taskforge-csharp-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    private static void TryDeleteWorkDirectory(string path)
+    {
         try
         {
-            p.Start();
-
-            // Отправляем request в stdin и закрываем, чтобы child понял “ввода больше нет”
-            p.StandardInput.Write(json);
-            p.StandardInput.Close();
-
-            // Ждём завершения по таймауту
-            if (!p.WaitForExit((int)timeout.TotalMilliseconds))
-            {
-                try { p.Kill(entireProcessTree: true); } catch { }
-                try { p.WaitForExit(1000); } catch { }
-                return (false, "", "Time limit exceeded.");
-            }
-
-            var childStdout = p.StandardOutput.ReadToEnd();
-            var childStderr = p.StandardError.ReadToEnd();
-
-            if (string.IsNullOrWhiteSpace(childStdout))
-            {
-                // если внезапно ничего не пришло — показываем stderr, если есть
-                var err = string.IsNullOrWhiteSpace(childStderr) ? "Execution failed." : childStderr;
-                return (false, "", err);
-            }
-
-            ExecResponse? resp = null;
-            try
-            {
-                resp = JsonSerializer.Deserialize<ExecResponse>(childStdout, JsonOpts);
-            }
-            catch
-            {
-                // если child “сломался” и вернул не JSON
-                var err = "Bad exec response.\n" + childStdout;
-                if (!string.IsNullOrWhiteSpace(childStderr))
-                    err += "\n" + childStderr;
-                return (false, "", err);
-            }
-
-            if (resp == null)
-                return (false, "", "Empty exec response.");
-
-            return resp.Ok
-                ? (true, resp.Stdout ?? "", "")
-                : (false, resp.Stdout ?? "", resp.Error ?? "Execution error.");
+            DeleteTreeWithoutFollowingLinks(path);
         }
-        catch (Exception ex)
+        catch
         {
-            return (false, "", ex.Message);
+        }
+    }
+
+    private static void DeleteTreeWithoutFollowingLinks(string path)
+    {
+        var directory = new DirectoryInfo(path);
+        directory.Refresh();
+        if (directory.LinkTarget is not null || (directory.Exists && (directory.Attributes & FileAttributes.ReparsePoint) != 0))
+        {
+            directory.Delete();
+            return;
+        }
+        if (!directory.Exists)
+        {
+            return;
+        }
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        directory.Refresh();
+
+        foreach (var entry in directory.EnumerateFileSystemInfos())
+        {
+            entry.Refresh();
+            if (entry.LinkTarget is not null || (entry.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                entry.Delete();
+                continue;
+            }
+
+            if ((entry.Attributes & FileAttributes.Directory) != 0)
+            {
+                File.SetUnixFileMode(entry.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                DeleteTreeWithoutFollowingLinks(entry.FullName);
+            }
+            else
+            {
+                entry.Delete();
+            }
+        }
+        directory.Delete();
+    }
+
+    private static void CopyIfPresent(ProcessStartInfo startInfo, string name, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            startInfo.Environment[name] = value;
+        }
+    }
+
+    private static async Task<string> ReadLimitedAsync(StreamReader reader, int maxChars, CancellationToken cancellationToken)
+    {
+        var builder = new StringBuilder(Math.Min(maxChars, 16 * 1024));
+        var buffer = new char[8 * 1024];
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+            var remaining = maxChars - builder.Length;
+            if (remaining > 0)
+            {
+                builder.Append(buffer, 0, Math.Min(read, remaining));
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static string Limit(string? value, int maxChars)
+    {
+        var text = value ?? string.Empty;
+        return text.Length <= maxChars ? text : text[..maxChars];
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task WaitAfterKillAsync(Process process)
+    {
+        try
+        {
+            using var waitCts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            await process.WaitForExitAsync(waitCts.Token);
+        }
+        catch
+        {
         }
     }
 }

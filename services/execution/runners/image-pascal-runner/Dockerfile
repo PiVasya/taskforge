@@ -5,8 +5,13 @@ ARG PASCAL_IMAGE_BASE=ghcr.io/pivasya/taskforge/image-pascal-runner:develop
 FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
+COPY *.go ./
+COPY security/sandbox_preload.c ./
+RUN mkdir -p /out \
+  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/image-runner .
+RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+      -Wl,-z,relro,-z,now,-z,noexecstack \
+      -o /out/libtaskforge_sandbox.so sandbox_preload.c
 
 # The PascalABC.NET compiler bundle is huge and pascalabc.net is not reliable from
 # GitHub Actions runners. The normal image rebuild therefore reuses the already
@@ -20,6 +25,7 @@ FROM ${PASCAL_IMAGE_BASE}
 
 WORKDIR /app
 COPY --from=build /out/image-runner /app/image-runner
+COPY --from=build /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 
 ENV MONO_REGISTRY_PATH=/tmp/mono-registry \
     PABCNETC=/opt/pabcnetc/pabcnetc.exe \

@@ -87,3 +87,11 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 - Radioactive zones are retired from CustomMobTweaks. Do not reintroduce `RadiationManager`, `radiation-zone` config sections, repeated zone knockback, forced fire, or random inventory item ejection.
 - Breeze Elytra remains chance-based through `extra-loot.breeze.drops.elytra.chance` (default `0.05` = 5%); never force it to 100%. Preserve direct, projectile, and short delayed-death player attribution and event-driven `[loot]` roll diagnostics.
 - The maintained Minecraft plugins are exactly `TaskForgeLink` and `CustomMobTweaks`; do not reintroduce WorldLoaderFolia or DefaultGroupAssigner.
+
+## OJ security invariants
+
+- Пользовательский код нельзя отправлять в runner без успешного `code-analyzer` и его действующей RSA-аттестации точного исходника. Любая недоступность анализатора, подписи или public key обрабатывается fail-closed.
+- Не добавлять обходные прямые execution paths. Worker, execution API и image assignment API обязаны анализировать код и передавать неизменённую аттестацию в runner.
+- Private key анализатора монтируется только в `code-analyzer`; runner-ы получают только public key. Версия политики и schema должны оставаться синхронными во всех verifier-ах.
+- Не ослаблять post-compile/AST/bytecode/PE/ELF-проверки, seccomp, `no_new_privs`, process-group cleanup, лимиты и отдельные internal runner networks.
+- После любых изменений OJ обязательно запускать `./scripts/security/check-oj-security.sh`. CI должен оставаться заблокированным этим security invariant job.

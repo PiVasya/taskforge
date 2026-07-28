@@ -1,65 +1,86 @@
-﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace Runner.Services;
 
 public interface IRoslynCompilationService
 {
-    (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code);
+    (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code, CancellationToken cancellationToken = default);
 }
 
 public sealed class RoslynCompilationService : IRoslynCompilationService
 {
-    public (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code)
+    public (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code, CancellationToken cancellationToken = default)
     {
         try
         {
-            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.CSharp14));
+            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.CSharp14), cancellationToken: cancellationToken);
 
-            // ПОЛНЫЙ набор платформенных сборок (TPA) — критично для CS0012/System.Runtime
-            var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
+            var trustedAssemblies = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
                 .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
 
-            var references = tpa
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(p =>
+            var references = new List<MetadataReference>();
+            foreach (var path in trustedAssemblies.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
                 {
-                    try { return MetadataReference.CreateFromFile(p); }
-                    catch { return null; }
-                })
-                .Where(r => r != null)!
-                .ToList();
+                    references.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch
+                {
+                    // A broken framework reference is ignored; Roslyn will report
+                    // a normal compilation error if the submission needs it.
+                }
+            }
 
             var options = new CSharpCompilationOptions(
                 OutputKind.ConsoleApplication,
                 optimizationLevel: OptimizationLevel.Release,
                 allowUnsafe: false,
                 concurrentBuild: true,
-                usings: new[]
-                {
-                    "System", "System.IO", "System.Text", "System.Linq", "System.Collections.Generic"
-                });
+                deterministic: true,
+                checkOverflow: true,
+                usings:
+                [
+                    "System", "System.Text", "System.Linq", "System.Collections.Generic"
+                ]);
 
             var compilation = CSharpCompilation.Create(
                 assemblyName: "UserSubmission",
-                syntaxTrees: new[] { syntax },
+                syntaxTrees: [syntax],
                 references: references,
-                options: options
-            );
+                options: options);
+
+            var securityError = RoslynSecurityPolicy.Validate(compilation, syntax, cancellationToken);
+            if (securityError is not null)
+            {
+                return (false, null, null, securityError);
+            }
 
             using var peStream = new MemoryStream();
             using var pdbStream = new MemoryStream();
 
-            var emit = compilation.Emit(peStream, pdbStream);
+            var emit = compilation.Emit(peStream, pdbStream, cancellationToken: cancellationToken);
             if (!emit.Success)
             {
                 var errors = string.Join("\n", emit.Diagnostics
-                    .Where(d => d.Severity == DiagnosticSeverity.Error)
-                    .Select(d => d.ToString()));
+                    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                    .Select(diagnostic => diagnostic.ToString()));
                 return (false, null, null, errors);
             }
 
-            return (true, peStream.ToArray(), pdbStream.ToArray(), "");
+            var pe = peStream.ToArray();
+            var metadataSecurityError = ManagedPeSecurityPolicy.Validate(pe);
+            if (metadataSecurityError is not null)
+            {
+                return (false, null, null, metadataSecurityError);
+            }
+
+            return (true, pe, pdbStream.ToArray(), "");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

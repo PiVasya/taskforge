@@ -21,6 +21,8 @@ namespace TaskForge.Tasks.Api.Services.Common;
 
 internal static class AssignmentApiCommonService
 {
+    internal sealed record CodePolicyAnalysis(IResult? Problem, JsonElement? Attestation);
+
     internal static IResult? CheckUserRateLimit(HttpContext http, string bucket)
     {
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
@@ -55,9 +57,14 @@ internal static class AssignmentApiCommonService
         return string.Equals(Norm(actual), Norm(expected), StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static async Task<IResult?> AnalyzeCodePolicyForAssignment(Assignment assignment, string language, string code, IHttpClientFactory clients, IConfiguration cfg, string stage)
+    internal static async Task<CodePolicyAnalysis> AnalyzeCodePolicyForAssignment(Assignment assignment, string language, string code, IHttpClientFactory clients, IConfiguration cfg, string stage)
     {
-        if (!cfg.GetValue("CodeAnalyzer:Enabled", true)) return null;
+        if (!cfg.GetValue("CodeAnalyzer:Enabled", true))
+        {
+            return new CodePolicyAnalysis(
+                Problem(503, "CODE_ANALYZER_REQUIRED", stage, "Обязательный сервис анализа кода отключён."),
+                null);
+        }
         var baseUrl = (cfg["CodeAnalyzer:Url"] ?? "http://code-analyzer:8080").TrimEnd('/');
         var forbidden = ParseStringArrayJson(assignment.CodeForbiddenCallsJson);
         var required = ParseStringArrayJson(assignment.CodeRequiredCallsJson);
@@ -66,11 +73,13 @@ internal static class AssignmentApiCommonService
 
         try
         {
-            using var response = await client.PostAsJsonAsync($"{baseUrl}/analyze", new AnalyzerRequest(NormalizeLanguage(language) ?? language, code, null, forbidden.Length > 0 ? forbidden : null, required.Length > 0 ? required : null), JsonOptions());
+            using var response = await client.PostAsJsonAsync($"{baseUrl}/analyze", new AnalyzerRequest(NormalizeLanguage(language) ?? language, "image", code, null, forbidden.Length > 0 ? forbidden : null, required.Length > 0 ? required : null), JsonOptions());
             var raw = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                return Problem(503, "CODE_ANALYZER_FAILED", stage, "Сервис анализа кода временно недоступен.");
+                return new CodePolicyAnalysis(
+                    Problem(503, "CODE_ANALYZER_FAILED", stage, "Сервис анализа кода временно недоступен."),
+                    null);
             }
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(raw) ? "{}" : raw);
             var root = doc.RootElement.Clone();
@@ -78,13 +87,27 @@ internal static class AssignmentApiCommonService
                 && root.TryGetProperty("ok", out var okProp)
                 && okProp.ValueKind is JsonValueKind.True or JsonValueKind.False
                 && okProp.GetBoolean();
-            if (ok) return null;
+            if (ok)
+            {
+                if (!root.TryGetProperty("attestation", out var attestation)
+                    || attestation.ValueKind != JsonValueKind.Object)
+                {
+                    return new CodePolicyAnalysis(
+                        Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", stage, "Анализатор не выдал обязательную подпись безопасности."),
+                        null);
+                }
+                return new CodePolicyAnalysis(null, attestation.Clone());
+            }
             var message = BuildImagePolicyMessage(root);
-            return Microsoft.AspNetCore.Http.Results.Json(new { status = 400, code = "CODE_POLICY_FAILED", stage, message, severity = "warning" }, statusCode: StatusCodes.Status400BadRequest);
+            return new CodePolicyAnalysis(
+                Microsoft.AspNetCore.Http.Results.Json(new { status = 400, code = "CODE_POLICY_FAILED", stage, message, severity = "warning" }, statusCode: StatusCodes.Status400BadRequest),
+                null);
         }
         catch (Exception ex)
         {
-            return Problem(503, "CODE_ANALYZER_FAILED", stage, "Сервис анализа кода временно недоступен.", ex.Message);
+            return new CodePolicyAnalysis(
+                Problem(503, "CODE_ANALYZER_FAILED", stage, "Сервис анализа кода временно недоступен.", ex.Message),
+                null);
         }
     }
 

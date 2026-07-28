@@ -11,6 +11,14 @@ chmod 0777 "$TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR" 2>/dev/null || true
 export TASKFORGE_IMAGE_ANALYZER_MODEL_CACHE_DIR
 export TASKFORGE_ROOT="$ROOT_DIR"
 
+CODE_ANALYZER_KEY_DIR="${CODE_ANALYZER_KEY_DIR:-$ROOT_DIR/.runtime/code-analyzer-keys}"
+if [ ! -s "$CODE_ANALYZER_KEY_DIR/code-analyzer-private.pem" ] || [ ! -s "$CODE_ANALYZER_KEY_DIR/code-analyzer-public.pem" ]; then
+  "$ROOT_DIR/scripts/security/generate-code-analyzer-keypair.sh" "$CODE_ANALYZER_KEY_DIR"
+fi
+CODE_ANALYZER_PRIVATE_KEY_PATH="${CODE_ANALYZER_PRIVATE_KEY_PATH:-$CODE_ANALYZER_KEY_DIR/code-analyzer-private.pem}"
+CODE_ANALYZER_PUBLIC_KEY_PATH="${CODE_ANALYZER_PUBLIC_KEY_PATH:-$CODE_ANALYZER_KEY_DIR/code-analyzer-public.pem}"
+export CODE_ANALYZER_PRIVATE_KEY_PATH CODE_ANALYZER_PUBLIC_KEY_PATH
+
 ENV_FILE="${TASKFORGE_DEV_ENV_FILE:-deploy/dev/.env}"
 if [ ! -f "$ENV_FILE" ]; then
   cp deploy/dev/.env.example "$ENV_FILE"

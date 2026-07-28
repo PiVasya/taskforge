@@ -1,3 +1,11 @@
+FROM gcc:14-bookworm AS sandbox
+WORKDIR /sandbox
+COPY security/sandbox_preload.c ./
+RUN mkdir -p /out \
+    && gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+    -Wl,-z,relro,-z,now,-z,noexecstack \
+    -o /out/libtaskforge_sandbox.so sandbox_preload.c
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
@@ -9,6 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out ./
+COPY --from=sandbox /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 USER 65534
