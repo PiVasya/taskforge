@@ -1,7 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 
-import Layout from '../components/Layout';
 import { Field, Input, Textarea, Button, Card, Badge } from '../components/ui';
 import { getCourse, updateCourse, deleteCourse } from '../api/courses';
 import { getGroups } from '../api/groups';
@@ -204,7 +203,7 @@ export default function CourseEditPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Layers size={20} />
@@ -385,6 +384,6 @@ export default function CourseEditPage() {
           </Card>
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

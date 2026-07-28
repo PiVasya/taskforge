@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Layout from '../../components/Layout';
 import { Card, Button, Field, Input, Textarea, Badge } from '../../components/ui';
 import { createGroup, deleteGroup, getAdminGroups, updateGroup } from '../../api/groups';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -144,7 +143,7 @@ export default function AdminGroupsPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Группы пользователей</h1>
         {!creating ? (
@@ -282,6 +281,6 @@ export default function AdminGroupsPage() {
       {!loading && filtered.length === 0 && (
         <div className="card-muted p-8 mt-6 text-center text-neutral-500">Пока групп нет.</div>
       )}
-    </Layout>
+    </>
   );
 }

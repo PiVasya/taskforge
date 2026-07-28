@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import Layout from '../../components/Layout';
 import { Badge, Button, Card } from '../../components/ui';
 import { createAssignmentAnalyticsConnection, getAdminAssignmentInsights, getAdminAssignmentTimeline } from '../../api/adminAssignmentInsights';
 import { handleApiError } from '../../utils/handleApiError';
@@ -239,7 +238,7 @@ export default function AdminAssignmentInsightsPage() {
   const proctoring = data?.proctoringSummary || {};
 
   return (
-    <Layout>
+    <>
       <div className="space-y-6">
         {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
@@ -459,6 +458,6 @@ export default function AdminAssignmentInsightsPage() {
       </div>
       <CodeModal activity={selectedActivity} onClose={() => setSelectedActivity(null)} />
       <TimelineModal user={selectedUser} rows={timelineRows} loading={timelineLoading} onClose={() => setSelectedUser(null)} />
-    </Layout>
+    </>
   );
 }

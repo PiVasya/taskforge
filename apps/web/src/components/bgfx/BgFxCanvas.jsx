@@ -71,7 +71,7 @@ function heartPath(ctx, x, y, s) {
   ctx.closePath();
 }
 
-export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 }) {
+export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey = 'default' }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
 
@@ -95,7 +95,6 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
     
     const isDarkTheme = () => document.documentElement.classList.contains('dark');
     const alphaBoost = () => (isDarkTheme() ? 1.0 : 1.8);
-    const rgbaB = (rgb, a) => rgba(rgb, Math.min(1, a * alphaBoost()));
 
     let w = 0;
     let h = 0;
@@ -139,20 +138,6 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
         small: null, sctx: null, imgData: null, imgArr: null,
         _fpsAcc: 0,
       },
-    };
-
-    
-    const sparks = [];
-    const spawnSpark = (x, y) => {
-      sparks.push({
-        x,
-        y,
-        vx: rand(-0.4, 0.4),
-        vy: rand(-0.7, -0.1),
-        life: 1,
-        r: rand(0.8, 2.1),
-      });
-      if (sparks.length > 160) sparks.splice(0, sparks.length - 160);
     };
 
     
@@ -428,53 +413,6 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
 
     
     const TAU = Math.PI * 2;
-    const hexPoints = (cx, cy, r) => {
-      const pts = [];
-      for (let i = 0; i < 6; i += 1) {
-        const a = TAU * (i / 6) + Math.PI / 6;
-        pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-      }
-      return pts;
-    };
-
-    const drawHexStroke = (cx, cy, r, alpha, width, hue) => {
-      const pts = hexPoints(cx, cy, r);
-      ctx.strokeStyle = `hsla(${hue}, 95%, 62%, ${alpha})`;
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < 6; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.closePath();
-      ctx.stroke();
-    };
-
-    const drawHexFillGlow = (cx, cy, r, alpha, hue) => {
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.6);
-      g.addColorStop(0, `hsla(${hue}, 98%, 60%, ${alpha})`);
-      g.addColorStop(0.55, `hsla(${hue + 12}, 98%, 48%, ${alpha * 0.45})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * 1.6, 0, TAU);
-      ctx.fill();
-    };
-
-    const bounce = (p) => {
-      if (p.x < 0) {
-        p.x = 0;
-        p.vx = Math.abs(p.vx);
-      } else if (p.x > w) {
-        p.x = w;
-        p.vx = -Math.abs(p.vx);
-      }
-      if (p.y < 0) {
-        p.y = 0;
-        p.vy = Math.abs(p.vy);
-      } else if (p.y > h) {
-        p.y = h;
-        p.vy = -Math.abs(p.vy);
-      }
-    };
 
     const step = (dt) => {
       state.t += dt;
@@ -1104,16 +1042,16 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, uiRev = 0 
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [enabled, preset, intensity, uiRev]);
+  }, [enabled, preset, intensity, paletteKey]);
 
   if (!enabled) return null;
 
   if (preset === 2) {
-    return <BgFxNeuralWebgl enabled={enabled} intensity={intensity} uiRev={uiRev} />;
+    return <BgFxNeuralWebgl enabled={enabled} intensity={intensity} paletteKey={paletteKey} />;
   }
 
   if (preset === 8) {
-    return <BgFxSolarWebgl enabled={enabled} intensity={intensity} uiRev={uiRev} />;
+    return <BgFxSolarWebgl enabled={enabled} intensity={intensity} paletteKey={paletteKey} />;
   }
 
   return (

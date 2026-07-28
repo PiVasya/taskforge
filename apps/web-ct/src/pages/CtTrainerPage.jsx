@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { BookOpen, Loader2, RefreshCcw, Search, Settings, Sparkles } from 'lucide-react';
-import Layout from '../components/Layout';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getLearningConspect, getLearningConspects } from '../api/learning';
 
@@ -150,7 +149,7 @@ export default function CtTrainerPage() {
   }, [conspects, query]);
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="container-app py-6 lg:py-8">
           <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -238,6 +237,6 @@ export default function CtTrainerPage() {
           </div>
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Layout from "../components/Layout";
 import { Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
 import { getCourseProgressByCourses } from "../api/assignments";
@@ -360,7 +359,7 @@ export default function CoursesPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
@@ -473,6 +472,6 @@ export default function CoursesPage() {
           )}
         </div>
       )}
-    </Layout>
+    </>
   );
 }

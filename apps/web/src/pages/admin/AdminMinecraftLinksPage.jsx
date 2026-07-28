@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input } from '../../components/ui';
 import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
 import { handleApiError } from '../../utils/handleApiError';
@@ -37,7 +36,7 @@ export default function AdminMinecraftLinksPage() {
   }), [items]);
 
   return (
-    <Layout>
+    <>
       <div className="space-y-6">
         {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
@@ -107,6 +106,6 @@ export default function AdminMinecraftLinksPage() {
           ))}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

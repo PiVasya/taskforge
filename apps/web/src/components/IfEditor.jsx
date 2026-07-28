@@ -1,4 +1,3 @@
-﻿import React from "react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 
 export default function IfEditor({ children, otherwise = null }) {

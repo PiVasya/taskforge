@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, RefreshCw, Search } from 'lucide-react';
-import Layout from '../../components/Layout';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
 import { getAdminActivity } from '../../api/adminActivity';
@@ -55,7 +54,7 @@ export default function AdminUserActionsPage() {
   }, [items]);
 
   return (
-    <Layout>
+    <>
       <div className="py-6 space-y-6 min-w-0">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -178,6 +177,6 @@ export default function AdminUserActionsPage() {
           </div>
         </Card>
       </div>
-    </Layout>
+    </>
   );
 }

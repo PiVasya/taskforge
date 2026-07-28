@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import Layout from '../components/Layout';
 import { Card, Button, Badge } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { getMySolutions, getMySolutionDetails } from '../api/solutions';
@@ -535,7 +534,7 @@ export default function MySolutionsPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Мои решения</h1>
 
@@ -721,6 +720,6 @@ export default function MySolutionsPage() {
           </div>
         ) : null}
       </div>
-    </Layout>
+    </>
   );
 }

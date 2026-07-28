@@ -1,0 +1,61 @@
+.bg-fx {
+  position: absolute;
+  inset: -25%;
+  filter: blur(70px);
+  
+  opacity: 0.62;
+}
+
+html.dark .bg-fx {
+  opacity: 0.78;
+  filter: blur(65px);
+}
+
+
+.bg-fx__blob {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--fx-1) / 0.5), transparent 60%);
+  mix-blend-mode: multiply;
+  animation: bgfx-float-1 18s ease-in-out infinite;
+}
+
+html.dark .bg-fx__blob {
+  
+  mix-blend-mode: screen;
+  opacity: 1;
+}
+
+.bg-fx__blob:nth-child(2) {
+  width: 45vmax;
+  height: 45vmax;
+  background: radial-gradient(circle at 35% 35%, rgba(var(--fx-2) / 0.45), transparent 62%);
+  animation: bgfx-float-2 22s ease-in-out infinite;
+}
+
+.bg-fx__blob:nth-child(3) {
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(circle at 40% 40%, rgba(var(--fx-3) / 0.45), transparent 65%);
+  animation: bgfx-float-3 26s ease-in-out infinite;
+}
+
+@keyframes bgfx-float-1 {
+  0%   { transform: translate3d(-18%, -10%, 0) scale(1); }
+  50%  { transform: translate3d(12%, 8%, 0) scale(1.08); }
+  100% { transform: translate3d(-18%, -10%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-2 {
+  0%   { transform: translate3d(22%, -8%, 0) scale(1); }
+  50%  { transform: translate3d(-10%, 12%, 0) scale(1.06); }
+  100% { transform: translate3d(22%, -8%, 0) scale(1); }
+}
+
+@keyframes bgfx-float-3 {
+  0%   { transform: translate3d(-5%, 22%, 0) scale(1); }
+  50%  { transform: translate3d(18%, -8%, 0) scale(1.07); }
+  100% { transform: translate3d(-5%, 22%, 0) scale(1); }
+}

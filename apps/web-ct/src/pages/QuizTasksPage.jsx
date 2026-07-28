@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Loader2, PlayCircle, RotateCcw, XCircle } from 'lucide-react';
-import Layout from '../components/Layout';
 import { getLearningCourseOutline } from '../api/learning';
 import { getQuizTask, getQuizTasks, submitQuizAttempt } from '../api/quiz';
 
@@ -135,7 +134,7 @@ export default function QuizTasksPage() {
   };
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="container-app py-6 lg:py-8">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -246,6 +245,6 @@ export default function QuizTasksPage() {
           )}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

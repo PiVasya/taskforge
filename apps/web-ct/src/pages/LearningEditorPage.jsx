@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   Code2,
@@ -13,7 +12,6 @@ import {
   RefreshCcw,
   Save,
 } from 'lucide-react';
-import Layout from '../components/Layout';
 import CtStructureBootstrapPanel from '../components/CtStructureBootstrapPanel';
 import SectionTaskAdminPanel from '../components/SectionTaskAdminPanel';
 import {
@@ -403,7 +401,7 @@ export default function LearningEditorPage() {
   }
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="container-app py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -575,6 +573,6 @@ export default function LearningEditorPage() {
           </main>
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

@@ -16,7 +16,6 @@ import {
   Trophy,
   Zap,
 } from "lucide-react";
-import Layout from "../components/Layout";
 import { useAuth } from "../auth/AuthContext";
 
 const featureTabs = [
@@ -275,7 +274,7 @@ export default function LandingPage() {
   const secondaryText = access ? "Открыть курсы" : "Войти";
 
   return (
-    <Layout fullWidth hideFooter>
+    <>
       <div className="landing-page">
         <section className="landing-hero" id="top">
           <div className="landing-hero-bg" aria-hidden="true">
@@ -447,6 +446,6 @@ export default function LandingPage() {
           <span>Учебная платформа для практики программирования.</span>
         </footer>
       </div>
-    </Layout>
+    </>
   );
 }

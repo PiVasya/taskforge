@@ -59,7 +59,9 @@ function TiptapDocViewer({ doc }) {
   return <EditorContent editor={editor} />;
 }
 
-export default function StatementViewer({ value }) {
+function StatementViewer({ value }) {
   const doc = useMemo(() => safeParseJson(value) || plainTextToTiptapDoc(value), [value]);
   return <TiptapDocViewer doc={doc} />;
 }
+
+export default React.memo(StatementViewer);

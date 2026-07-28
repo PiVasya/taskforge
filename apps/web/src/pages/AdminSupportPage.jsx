@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Card } from '../components/ui';
 import { listSupportTickets } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -38,7 +37,7 @@ export default function AdminSupportPage() {
   }), [chats]);
 
   return (
-    <Layout>
+    <>
       <div className="max-w-5xl mx-auto">
         <div className="mb-5">
           <h1 className="text-2xl font-semibold">Чаты поддержки</h1>
@@ -99,6 +98,6 @@ export default function AdminSupportPage() {
           )}
         </Card>
       </div>
-    </Layout>
+    </>
   );
 }

@@ -1,10 +1,7 @@
 import React from 'react';
-import Layout from '../components/Layout';
-
-
 export default function PrivacyPolicyPage() {
   return (
-    <Layout>
+    <>
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
         <h1 className="text-2xl font-semibold mb-4">Политика конфиденциальности</h1>
         <p>
@@ -55,6 +52,6 @@ export default function PrivacyPolicyPage() {
           обработки личной информации, пожалуйста, свяжитесь с нами.
         </p>
       </div>
-    </Layout>
+    </>
   );
 }

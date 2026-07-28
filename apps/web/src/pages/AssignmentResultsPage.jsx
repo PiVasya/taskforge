@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import Layout from '../components/Layout';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../components/ui';
 import { getAssignment } from '../api/assignments';
 import { getMySolutionDetails } from '../api/solutions';
@@ -330,15 +329,15 @@ export default function AssignmentResultsPage() {
 
   if (loading) {
     return (
-      <Layout>
+      <>
         <div className="text-neutral-500">Загрузка…</div>
-      </Layout>
+      </>
     );
   }
 
   if (!res) {
     return (
-      <Layout>
+      <>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
@@ -354,7 +353,7 @@ export default function AssignmentResultsPage() {
         <Card>
           <div className="text-neutral-500 p-3">Нет данных для отображения.</div>
         </Card>
-      </Layout>
+      </>
     );
   }
 
@@ -376,7 +375,7 @@ export default function AssignmentResultsPage() {
   );
 
   return (
-    <Layout>
+    <>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
@@ -522,6 +521,6 @@ export default function AssignmentResultsPage() {
           </div>
         </div>
       </Card>
-    </Layout>
+    </>
   );
 }

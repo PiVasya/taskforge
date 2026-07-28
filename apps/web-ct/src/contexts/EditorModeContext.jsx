@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 
 function parseJwt(token) {
@@ -29,7 +29,10 @@ export default function EditorModeProvider({ children }) {
   const { access } = useAuth();
   const [isEditorMode, setIsEditorMode] = useState(false);
   const roles = useMemo(() => getRoles(access), [access]);
-  const hasRole = (role) => roles.some((x) => x.toLowerCase() === String(role).toLowerCase());
+  const hasRole = useCallback(
+    (role) => roles.some((value) => value.toLowerCase() === String(role).toLowerCase()),
+    [roles],
+  );
   const canEdit = hasRole('Admin') || hasRole('LearningEditor');
   useEffect(() => {
     if (!canEdit) { setIsEditorMode(false); return; }
@@ -38,11 +41,16 @@ export default function EditorModeProvider({ children }) {
   useEffect(() => {
     if (canEdit) { try { localStorage.setItem(KEY, isEditorMode ? '1' : '0'); } catch {} }
   }, [canEdit, isEditorMode]);
-  const setEditorMode = (value) => {
+  const setEditorMode = useCallback((value) => {
     if (!canEdit) return;
     setIsEditorMode(Boolean(value));
-  };
-  const toggle = () => canEdit && setIsEditorMode((v) => !v);
-  const value = { canEdit, isEditorMode, setEditorMode, toggle, roles, hasRole };
+  }, [canEdit]);
+  const toggle = useCallback(() => {
+    if (canEdit) setIsEditorMode((value) => !value);
+  }, [canEdit]);
+  const value = useMemo(
+    () => ({ canEdit, isEditorMode, setEditorMode, toggle, roles, hasRole }),
+    [canEdit, hasRole, isEditorMode, roles, setEditorMode, toggle],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

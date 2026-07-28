@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Textarea } from '../../components/ui';
 import { assignFeatureRole, createFeatureRole, deleteFeatureRole, getFeatureRoles, removeFeatureRole, searchFeatureRoleUsers, updateFeatureRole } from '../../api/featureRoles';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -127,7 +126,7 @@ export default function AdminFeatureRolesPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -234,6 +233,6 @@ export default function AdminFeatureRolesPage() {
           </div>
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

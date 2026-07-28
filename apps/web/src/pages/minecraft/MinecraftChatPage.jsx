@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import Layout from '../../components/Layout';
 import { Button, Card, Input } from '../../components/ui';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { useAuth } from '../../auth/AuthContext';
@@ -161,7 +160,7 @@ export default function MinecraftChatPage() {
   };
 
   return (
-    <Layout hideFooter>
+    <>
       <div className={`${CHAT_H} min-h-0 overflow-hidden flex flex-col gap-3 sm:gap-5`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -198,6 +197,6 @@ export default function MinecraftChatPage() {
             </div>
         </Card>
       </div>
-    </Layout>
+    </>
   );
 }

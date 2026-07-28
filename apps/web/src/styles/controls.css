@@ -1,0 +1,193 @@
+
+.dark select,
+.dark select.input {
+  @apply bg-[rgb(var(--card))];
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.75);
+}
+
+
+
+html.pink select,
+html.pink select.input { color: rgb(var(--text)); }
+
+
+
+@-moz-document url-prefix() {
+  .input {
+    -moz-appearance: none; appearance: none;
+    background-clip: padding-box; outline: none; line-height: 1.2; min-height: 40px;
+  }
+  .input::placeholder { opacity: .7; }
+}
+
+
+.bg-brand-500 { background-color: rgb(var(--brand-500)) !important; }
+.bg-brand-600 { background-color: rgb(var(--brand-600)) !important; }
+.bg-brand-700 { background-color: rgb(var(--brand-700)) !important; }
+
+.text-brand-500 { color: color-mix(in srgb, rgb(var(--text)) 96%, rgb(var(--accent)) 4%) !important; }
+.text-brand-600 { color: color-mix(in srgb, rgb(var(--text)) 93%, rgb(var(--accent)) 7%) !important; }
+.text-brand-700 { color: color-mix(in srgb, rgb(var(--text)) 90%, rgb(var(--accent)) 10%) !important; }
+
+.border-brand-200 { border-color: rgb(var(--brand-200)) !important; }
+.border-brand-300 { border-color: rgb(var(--brand-300)) !important; }
+.border-brand-500 { border-color: rgb(var(--brand-500)) !important; }
+.border-brand-600 { border-color: rgb(var(--brand-600)) !important; }
+
+.ring-brand-500 { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:ring-brand-500:focus { --tw-ring-color: rgb(var(--brand-500) / 35%) !important; }
+.focus\:border-brand-500:focus { border-color: rgb(var(--brand-500)) !important; }
+
+.hover\:bg-brand-500:hover { background-color: rgb(var(--brand-500)) !important; }
+.hover\:bg-brand-600:hover { background-color: rgb(var(--brand-600)) !important; }
+.hover\:bg-brand-700:hover { background-color: rgb(var(--brand-700)) !important; }
+.hover\:text-brand-600:hover { color: color-mix(in srgb, rgb(var(--text)) 80%, rgb(var(--accent)) 20%) !important; }
+.hover\:border-brand-600:hover { border-color: rgb(var(--brand-600)) !important; }
+
+
+.from-brand-600\/10 {
+  --tw-gradient-from: rgb(var(--brand-600) / 0.10) !important;
+  --tw-gradient-to: rgb(var(--brand-600) / 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  @apply bg-[rgb(var(--card))] border rounded-xl px-3 py-2;
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+}
+
+
+textarea,
+code, pre,
+.cm-editor, .cm-scroller, .monaco-editor, .monaco-editor * {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+
+:root {
+  --editor-bg: var(--card);
+}
+
+.cm-editor, .cm-scroller {
+  background: rgb(var(--editor-bg)) !important;
+  color: inherit;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(var(--border) / 0.8);
+}
+
+.dark .cm-editor, .dark .cm-scroller {
+  border-color: rgba(var(--border) / 0.8);
+}
+
+
+
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin,
+.monaco-editor .overflow-guard,
+.monaco-editor .scroll-decoration,
+.monaco-editor .minimap,
+.monaco-editor .minimap-shadow-visible {
+  background-color: rgb(var(--editor-bg)) !important;
+}
+
+
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(var(--text));
+  caret-color: rgb(var(--text));
+  box-shadow: inset 0 0 0 1000px rgb(var(--card));
+  transition: background-color 9999s ease-out 0s;
+}
+
+
+input:focus,
+textarea:focus,
+select:focus,
+.select:focus {
+  outline: none;
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, rgb(var(--accent)) 25%, transparent);
+}
+
+
+.monaco-editor .inputarea:focus {
+  outline: none !important;
+  box-shadow: none !important; 
+}
+
+
+.monaco-editor .view-overlays .current-line,
+.monaco-editor .margin-view-overlays .current-line {
+  background: rgba(var(--accent) / 0.10) !important;
+  border: none !important;
+}
+
+.monaco-editor .selected-text,
+.monaco-editor .focused .selected-text,
+.monaco-editor .selectionHighlight,
+.monaco-editor .focused .selectionHighlight {
+  background-color: rgba(var(--accent) / 0.30) !important;
+}
+
+.monaco-editor .findMatch,
+.monaco-editor .currentFindMatch {
+  background-color: rgba(var(--accent) / 0.22) !important;
+}
+
+
+
+.field { @apply w-full; }
+.field > .label { @apply block text-sm font-medium mb-1; color: rgb(var(--text-muted)); }
+
+
+.textarea {
+  @apply w-full bg-[rgb(var(--card))] border rounded-xl px-3 py-2;
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+}
+.select {
+  @apply w-full rounded-xl px-3 py-2 border bg-[rgb(var(--card))];
+  color: rgb(var(--text));
+  border-color: rgba(var(--border) / 0.8);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='currentColor' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}
+.dark .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
+html.pink .select { color: rgb(var(--text)); border-color: rgba(var(--border) / 0.8); }
+
+
+
+
+*:focus-visible { outline: none; }
+
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  color: inherit;
+  text-decoration-color: currentColor;
+}
+a:visited {
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, rgba(var(--accent) / 0.22), rgba(var(--border) / 0.12));
+  color: rgb(var(--text));
+}
+
+

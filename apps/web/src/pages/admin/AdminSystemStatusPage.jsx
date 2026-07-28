@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, RefreshCw, ServerCrash, ShieldCheck } from 'lucide-react';
-import Layout from '../../components/Layout';
 import { Button, Card } from '../../components/ui';
 import { getSystemStatus } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
@@ -47,7 +46,7 @@ export default function AdminSystemStatusPage() {
   }, [data]);
 
   return (
-    <Layout>
+    <>
       <div className="space-y-6">
         {pageError ? (
           <Card className="border-rose-300 bg-rose-50 text-rose-700">
@@ -97,6 +96,6 @@ export default function AdminSystemStatusPage() {
           ))}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 
 function parseJwt(token) {
@@ -84,10 +84,12 @@ export default function EditorModeProvider({ children }) {
     }
   }, [isEditorMode, canEdit]);
 
-  const toggle = () => {
+  const toggle = useCallback(() => {
     if (!canEdit) return;
-    setIsEditorMode((v) => !v);
-  };
+    setIsEditorMode((value) => !value);
+  }, [canEdit]);
+
+  const hasRole = useCallback((role) => hasRoleName(roles, role), [roles]);
 
   const value = useMemo(
     () => ({
@@ -97,9 +99,9 @@ export default function EditorModeProvider({ children }) {
       isAdmin,
       isEditor,
       roles,
-      hasRole: (role) => hasRoleName(roles, role),
+      hasRole,
     }),
-    [canEdit, isEditorMode, isAdmin, isEditor, roles]
+    [canEdit, hasRole, isAdmin, isEditor, isEditorMode, roles, toggle]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

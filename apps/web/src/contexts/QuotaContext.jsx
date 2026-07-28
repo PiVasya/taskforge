@@ -1,7 +1,23 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { getMyQuotas } from '../api/quotas';
+import useSecondClock from '../hooks/useSecondClock';
 
-const QuotaContext = createContext(null);
+const EMPTY_ACTIONS = Object.freeze({
+  refresh: async () => null,
+});
+
+const TasksQuotaContext = createContext(null);
+const TopQuotaContext = createContext(null);
+const RawQuotaContext = createContext(null);
+const QuotaActionsContext = createContext(EMPTY_ACTIONS);
 
 function toIsoFromRetry(retryAfterSeconds) {
   const retry = Number(retryAfterSeconds);
@@ -11,18 +27,15 @@ function toIsoFromRetry(retryAfterSeconds) {
 
 function normalizeBucket(section, bucket) {
   if (!section) return null;
-
   const remaining = Number(section.remaining ?? 0);
   const capacity = Number(section.capacity ?? 0);
   const retryAfterSeconds = Number(section.retryAfterSeconds ?? 0);
-  const nextRefillAtUtc = section.nextRefillAtUtc || toIsoFromRetry(retryAfterSeconds);
-
   return {
     bucket,
     remaining: Number.isFinite(remaining) ? remaining : 0,
     capacity: Number.isFinite(capacity) ? capacity : 0,
     retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 0,
-    nextRefillAtUtc: nextRefillAtUtc || null,
+    nextRefillAtUtc: section.nextRefillAtUtc || toIsoFromRetry(retryAfterSeconds),
   };
 }
 
@@ -35,109 +48,160 @@ function normalizePayload(payload) {
   };
 }
 
-function mergeBucket(prevBucket, patch) {
-  const prev = prevBucket || { bucket: patch.bucket, remaining: 0, capacity: 0, retryAfterSeconds: 0, nextRefillAtUtc: null };
-  const remaining = patch.remaining == null ? prev.remaining : Number(patch.remaining);
-  const capacity = patch.capacity == null ? prev.capacity : Number(patch.capacity);
-
-  const explicitRetry = patch.retryAfterSeconds == null ? prev.retryAfterSeconds : Number(patch.retryAfterSeconds);
-  const nextRefillAtUtc = patch.nextRefillAtUtc || toIsoFromRetry(patch.retryAfterSeconds) || prev.nextRefillAtUtc || null;
-
-  return {
-    bucket: patch.bucket || prev.bucket,
-    remaining: Number.isFinite(remaining) ? remaining : prev.remaining,
-    capacity: Number.isFinite(capacity) ? capacity : prev.capacity,
-    retryAfterSeconds: Number.isFinite(explicitRetry) ? explicitRetry : 0,
-    nextRefillAtUtc,
-  };
+function sameBucket(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.bucket === right.bucket
+    && left.remaining === right.remaining
+    && left.capacity === right.capacity
+    && left.retryAfterSeconds === right.retryAfterSeconds
+    && left.nextRefillAtUtc === right.nextRefillAtUtc;
 }
 
-function mergeQuotaUpdate(prevData, detail) {
-  const bucket = String(detail?.bucket || '').trim().toLowerCase();
-  if (!bucket || (bucket !== 'tasks' && bucket !== 'top')) return prevData;
+function reconcilePayload(previous, next) {
+  if (!next) return null;
+  if (!previous) return next;
 
-  const base = prevData || { unified: false, tasks: null, top: null };
-  const patch = {
+  const tasks = sameBucket(previous.tasks, next.tasks) ? previous.tasks : next.tasks;
+  const top = sameBucket(previous.top, next.top) ? previous.top : next.top;
+  if (previous.unified === next.unified && tasks === previous.tasks && top === previous.top) {
+    return previous;
+  }
+  return { unified: next.unified, tasks, top };
+}
+
+function mergeBucket(previous, patch) {
+  const base = previous || {
+    bucket: patch.bucket,
+    remaining: 0,
+    capacity: 0,
+    retryAfterSeconds: 0,
+    nextRefillAtUtc: null,
+  };
+  const remaining = patch.remaining == null ? base.remaining : Number(patch.remaining);
+  const capacity = patch.capacity == null ? base.capacity : Number(patch.capacity);
+  const retryAfterSeconds = patch.retryAfterSeconds == null
+    ? base.retryAfterSeconds
+    : Number(patch.retryAfterSeconds);
+  const normalizedRemaining = Number.isFinite(remaining) ? remaining : base.remaining;
+  const normalizedCapacity = Number.isFinite(capacity) ? capacity : base.capacity;
+  const isFull = normalizedCapacity > 0 && normalizedRemaining >= normalizedCapacity;
+
+  const next = {
+    bucket: patch.bucket || base.bucket,
+    remaining: normalizedRemaining,
+    capacity: normalizedCapacity,
+    retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 0,
+    nextRefillAtUtc: isFull
+      ? null
+      : (
+          patch.nextRefillAtUtc
+          || toIsoFromRetry(patch.retryAfterSeconds)
+          || base.nextRefillAtUtc
+          || null
+        ),
+  };
+
+  return sameBucket(base, next) ? base : next;
+}
+
+function mergeQuotaUpdate(previous, detail) {
+  const bucket = String(detail?.bucket || '').trim().toLowerCase();
+  if (bucket !== 'tasks' && bucket !== 'top') return previous;
+  const base = previous || { unified: false, tasks: null, top: null };
+  const nextBucket = mergeBucket(base[bucket], {
     bucket,
     remaining: detail?.remaining,
     capacity: detail?.capacity,
     retryAfterSeconds: detail?.retryAfterSeconds,
     nextRefillAtUtc: detail?.nextRefillAtUtc,
-  };
-
-  return {
-    ...base,
-    [bucket]: mergeBucket(base[bucket], patch),
-  };
+  });
+  if (nextBucket === base[bucket]) return base;
+  return { ...base, [bucket]: nextBucket };
 }
 
 function getSoonestRefreshAt(data) {
   if (!data) return null;
-
   return ['tasks', 'top']
     .map((key) => data[key])
     .filter(Boolean)
     .filter((bucket) => Number(bucket.remaining) < Number(bucket.capacity))
     .map((bucket) => (bucket.nextRefillAtUtc ? new Date(bucket.nextRefillAtUtc).getTime() : null))
-    .filter((ts) => Number.isFinite(ts) && ts > Date.now())
-    .sort((a, b) => a - b)[0] ?? null;
+    .filter((value) => Number.isFinite(value) && value > Date.now())
+    .sort((left, right) => left - right)[0] ?? null;
 }
 
 function buildBucketView(bucket, nowMs) {
   if (!bucket) return null;
-
   const remaining = Number(bucket.remaining ?? 0);
   const capacity = Number(bucket.capacity ?? 0);
   const nextAtMs = bucket.nextRefillAtUtc ? new Date(bucket.nextRefillAtUtc).getTime() : null;
-  const etaSeconds = Number.isFinite(nextAtMs) ? Math.max(0, Math.ceil((nextAtMs - nowMs) / 1000)) : 0;
-  const isEmpty = remaining <= 0;
-  const isFull = capacity > 0 && remaining >= capacity;
-
+  const etaSeconds = Number.isFinite(nextAtMs)
+    ? Math.max(0, Math.ceil((nextAtMs - nowMs) / 1000))
+    : 0;
   return {
     ...bucket,
     remaining,
     capacity,
     etaSeconds,
-    isEmpty,
-    isFull,
+    isEmpty: remaining <= 0,
+    isFull: capacity > 0 && remaining >= capacity,
   };
 }
 
 export function QuotaProvider({ enabled = true, children }) {
   const [data, setData] = useState(null);
-  const [tick, setTick] = useState(Date.now());
   const refreshTimeoutRef = useRef(null);
+  const inFlightRef = useRef(null);
+  const lastRefreshAtRef = useRef(0);
+  const enabledRef = useRef(enabled);
+  const sessionGenerationRef = useRef(0);
+
+  enabledRef.current = enabled;
 
   const refresh = useCallback(async () => {
-    if (!enabled) {
-      setData(null);
-      return;
-    }
+    if (!enabled) return null;
+    if (inFlightRef.current) return inFlightRef.current;
+    const generation = sessionGenerationRef.current;
 
-    try {
-      const payload = await getMyQuotas();
-      setData(normalizePayload(payload));
-    } catch {
-      
-    }
+    const request = getMyQuotas()
+      .then((payload) => {
+        if (!enabledRef.current || generation !== sessionGenerationRef.current) {
+          return null;
+        }
+        const normalized = normalizePayload(payload);
+        setData((previous) => reconcilePayload(previous, normalized));
+        lastRefreshAtRef.current = Date.now();
+        return normalized;
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (inFlightRef.current === request) inFlightRef.current = null;
+      });
+
+    inFlightRef.current = request;
+    return request;
   }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      sessionGenerationRef.current += 1;
+      setData((previous) => (previous == null ? previous : null));
+      inFlightRef.current = null;
+      return;
+    }
     refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined;
 
     const onQuotaChanged = () => {
       window.clearTimeout(refreshTimeoutRef.current);
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        refresh();
-      }, 120);
+      refreshTimeoutRef.current = window.setTimeout(refresh, 120);
     };
-
     const onQuotaUpdate = (event) => {
-      setData((prev) => mergeQuotaUpdate(prev, event?.detail || {}));
+      setData((previous) => mergeQuotaUpdate(previous, event?.detail || {}));
     };
 
     window.addEventListener('quota:changed', onQuotaChanged);
@@ -151,57 +215,79 @@ export function QuotaProvider({ enabled = true, children }) {
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined;
-    const id = window.setInterval(() => setTick(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [enabled]);
 
-  useEffect(() => {
-    if (!enabled || typeof window === 'undefined') return undefined;
-
-    const syncAfterPause = () => {
-      setTick(Date.now());
-      refresh();
+    const refreshAfterPause = () => {
+      if (Date.now() - lastRefreshAtRef.current >= 15000) refresh();
     };
     const onVisibility = () => {
-      if (!document.hidden) syncAfterPause();
+      if (!document.hidden) refreshAfterPause();
     };
 
-    window.addEventListener('focus', syncAfterPause);
-    window.addEventListener('online', syncAfterPause);
-    window.addEventListener('pageshow', syncAfterPause);
+    window.addEventListener('focus', refreshAfterPause);
+    window.addEventListener('online', refreshAfterPause);
+    window.addEventListener('pageshow', refreshAfterPause);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.removeEventListener('focus', syncAfterPause);
-      window.removeEventListener('online', syncAfterPause);
-      window.removeEventListener('pageshow', syncAfterPause);
+      window.removeEventListener('focus', refreshAfterPause);
+      window.removeEventListener('online', refreshAfterPause);
+      window.removeEventListener('pageshow', refreshAfterPause);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [enabled, refresh]);
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined;
+    const refreshAt = getSoonestRefreshAt(data);
+    if (!refreshAt) return undefined;
 
-    const at = getSoonestRefreshAt(data);
-    if (!at) return undefined;
-
-    const delay = Math.max(250, at - Date.now() + 250);
-    const id = window.setTimeout(() => refresh(), delay);
-    return () => window.clearTimeout(id);
+    let cancelled = false;
+    let retryId = null;
+    const refreshAfterRefill = async () => {
+      const result = await refresh();
+      if (!result && !cancelled) {
+        retryId = window.setTimeout(refreshAfterRefill, 5000);
+      }
+    };
+    const id = window.setTimeout(
+      refreshAfterRefill,
+      Math.max(250, refreshAt - Date.now() + 250),
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+      if (retryId != null) window.clearTimeout(retryId);
+    };
   }, [data, enabled, refresh]);
 
-  const value = useMemo(() => {
-    const nowMs = tick || Date.now();
-    return {
-      refresh,
-      raw: data,
-      tasks: buildBucketView(data?.tasks, nowMs),
-      top: buildBucketView(data?.top, nowMs),
-    };
-  }, [data, refresh, tick]);
+  const actionsValue = useMemo(() => ({ refresh }), [refresh]);
 
-  return <QuotaContext.Provider value={value}>{children}</QuotaContext.Provider>;
+  return (
+    <QuotaActionsContext.Provider value={actionsValue}>
+      <RawQuotaContext.Provider value={data}>
+        <TasksQuotaContext.Provider value={data?.tasks || null}>
+          <TopQuotaContext.Provider value={data?.top || null}>
+            {children}
+          </TopQuotaContext.Provider>
+        </TasksQuotaContext.Provider>
+      </RawQuotaContext.Provider>
+    </QuotaActionsContext.Provider>
+  );
 }
 
 export function useQuota() {
-  return useContext(QuotaContext) || { refresh: async () => {}, raw: null, tasks: null, top: null };
+  const raw = useContext(RawQuotaContext);
+  const tasks = useContext(TasksQuotaContext);
+  const top = useContext(TopQuotaContext);
+  const { refresh } = useContext(QuotaActionsContext);
+  return useMemo(() => ({ raw, tasks, top, refresh }), [raw, refresh, tasks, top]);
+}
+
+export function useQuotaBucket(bucketName = 'tasks') {
+  const bucket = useContext(bucketName === 'top' ? TopQuotaContext : TasksQuotaContext);
+  const isFull = bucket && Number(bucket.capacity) > 0 && Number(bucket.remaining) >= Number(bucket.capacity);
+  const hasCountdown = Boolean(bucket?.nextRefillAtUtc && !isFull);
+  const clockNowMs = useSecondClock(hasCountdown);
+  const nowMs = hasCountdown ? clockNowMs : Date.now();
+
+  return useMemo(() => buildBucketView(bucket, nowMs), [bucket, nowMs]);
 }

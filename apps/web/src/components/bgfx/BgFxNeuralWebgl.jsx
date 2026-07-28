@@ -20,7 +20,7 @@ function rand(min, max) {
   return min + Math.random() * (max - min);
 }
 
-export default function BgFxNeuralWebgl({ enabled, intensity = 1, uiRev = 0 }) {
+export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = 'default' }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -120,7 +120,7 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, uiRev = 0 }) {
       heat: 0,
       flash: 0,
       renderer: 'webgl',
-      uiRev,
+      paletteKey,
     };
 
     function makeShader(type, source) {
@@ -854,7 +854,7 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, uiRev = 0 }) {
       gl.deleteProgram(lineProgram);
       gl.deleteProgram(circleProgram);
     };
-  }, [enabled, intensity, uiRev]);
+  }, [enabled, intensity, paletteKey]);
 
   if (!enabled) return null;
 

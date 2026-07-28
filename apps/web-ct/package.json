@@ -7,7 +7,9 @@
     "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test --env=jsdom",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "prebuild": "node scripts/check-architecture.js",
+    "prestart": "node scripts/check-architecture.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

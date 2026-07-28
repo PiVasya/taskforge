@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import Layout from "../components/Layout";
 import { Card, Field, Input, Button, Textarea } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { registerUser } from "../api/auth";
@@ -99,7 +98,7 @@ export default function RegisterPage() {
     }, [access, nav]);
 
     return (
-        <Layout>
+        <>
             <div className="max-w-2xl mx-auto">
                 <form onSubmit={onSubmit} className="space-y-4">
                     <Card className="p-6">
@@ -280,6 +279,6 @@ export default function RegisterPage() {
                     </Card>
                 </form>
             </div>
-        </Layout>
+        </>
     );
 }

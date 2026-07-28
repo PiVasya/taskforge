@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Button, Card, Badge } from '../components/ui';
 import { getMyImageSolutionDetails } from '../api/imageSolutions';
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -111,7 +110,7 @@ export default function AssignmentImageResultsPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -167,6 +166,6 @@ export default function AssignmentImageResultsPage() {
           </>
         )}
       </div>
-    </Layout>
+    </>
   );
 }

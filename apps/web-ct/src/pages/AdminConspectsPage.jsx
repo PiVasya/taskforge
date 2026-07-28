@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, BookOpen, CheckCircle2, Link2, Loader2, Plus, Save } from 'lucide-react';
-import Layout from '../components/Layout';
 import {
   createLearningConspect,
   createLearningConspectTaskLink,
@@ -256,7 +255,7 @@ export default function AdminConspectsPage() {
   };
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="container-app py-6 lg:py-8">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -377,6 +376,6 @@ export default function AdminConspectsPage() {
           )}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

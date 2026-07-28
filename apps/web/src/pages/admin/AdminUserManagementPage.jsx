@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { deleteAdminUser, getAdminUser, updateAdminUser } from '../../api/adminUsers';
@@ -266,7 +265,7 @@ export default function AdminUserManagementPage() {
   const attemptsShown = attempts > 0 ? attempts : totalRecent;
 
   return (
-    <Layout>
+    <>
       <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -427,6 +426,6 @@ export default function AdminUserManagementPage() {
           <ActivityList title="Последние math-попытки" rows={mathAttempts} emptyText="Math-попыток нет." />
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

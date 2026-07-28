@@ -1,58 +1,45 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Badge } from '../components/ui';
 import { ArrowLeft, ExternalLink, Tag } from 'lucide-react';
 import StatementViewer from '../components/tiptap/StatementViewer';
 import ChangelogShowcase from '../components/ChangelogShowcase';
 import { getUpdatesIndex, getUpdatePost } from '../api/updates';
 import { useAuth } from '../auth/AuthContext';
+import useQuery from '../hooks/useQuery';
 
 export default function UpdatePostPage() {
   const { postId } = useParams();
   const { access } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [meta, setMeta] = useState(null);
-  const [postData, setPostData] = useState(null);
-  const [contentJson, setContentJson] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const index = await getUpdatesIndex();
-        const currentMeta = index.find((item) => String(item.id) === String(postId));
-        if (!currentMeta) {
-          setError('Пост не найден');
-          return;
-        }
-        setMeta(currentMeta);
-
-        const dto = await getUpdatePost(currentMeta.file);
-        setPostData(dto || null);
-
-        let nextValue = '';
-        const rawContent = dto?.contentJson ?? dto?.content;
-        if (typeof rawContent === 'string') {
-          nextValue = rawContent;
-        } else if (dto && typeof dto === 'object' && dto.type === 'doc') {
-          try {
-            nextValue = JSON.stringify(dto);
-          } catch {
-            nextValue = '';
-          }
-        }
-        setContentJson(nextValue);
-      } catch {
-        setError('Не удалось загрузить пост');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [postId]);
+  const indexQuery = useQuery({
+    queryKey: ['updates', 'index'],
+    queryFn: getUpdatesIndex,
+    staleTime: 5 * 60_000,
+    keepPreviousData: true,
+  });
+  const meta = useMemo(() => (
+    (Array.isArray(indexQuery.data) ? indexQuery.data : []).find((item) => String(item.id) === String(postId)) || null
+  ), [indexQuery.data, postId]);
+  const postQuery = useQuery({
+    queryKey: ['updates', 'post', meta?.file || postId],
+    queryFn: () => getUpdatePost(meta.file),
+    enabled: Boolean(meta?.file),
+    staleTime: 5 * 60_000,
+    keepPreviousData: true,
+  });
+  const postData = postQuery.data || null;
+  const loading = indexQuery.isLoading || (Boolean(meta?.file) && postQuery.isLoading);
+  const error = indexQuery.error || postQuery.error
+    ? 'Не удалось загрузить пост'
+    : (!indexQuery.isLoading && indexQuery.data && !meta ? 'Пост не найден' : null);
+  const contentJson = useMemo(() => {
+    const rawContent = postData?.contentJson ?? postData?.content;
+    if (typeof rawContent === 'string') return rawContent;
+    if (postData && typeof postData === 'object' && postData.type === 'doc') {
+      try { return JSON.stringify(postData); } catch { return ''; }
+    }
+    return '';
+  }, [postData]);
 
   const extraLinks = useMemo(() => {
     const links = meta?.links;
@@ -65,7 +52,7 @@ export default function UpdatePostPage() {
   const isShowcase = postData?.layout === 'showcase';
 
   return (
-    <Layout>
+    <>
       <div className="mx-auto flex max-w-[1540px] flex-col gap-5 pb-10">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link to="/news" className="btn-outline self-start">
@@ -129,6 +116,6 @@ export default function UpdatePostPage() {
           </>
         ) : null}
       </div>
-    </Layout>
+    </>
   );
 }

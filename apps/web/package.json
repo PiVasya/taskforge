@@ -4,9 +4,9 @@
   "private": true,
   "proxy": "http://localhost:8080",
   "scripts": {
-    "prestart": "node scripts/copy-monaco.js",
+    "prestart": "node scripts/check-architecture.js && node scripts/copy-monaco.js",
     "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
-    "prebuild": "node scripts/copy-monaco.js",
+    "prebuild": "node scripts/check-architecture.js && node scripts/copy-monaco.js",
     "build": "react-scripts build",
     "test": "react-scripts test --env=jsdom",
     "eject": "react-scripts eject"
@@ -28,7 +28,6 @@
     "@tiptap/extension-underline": "3.17.0",
     "@tiptap/react": "^3.17.0",
     "@tiptap/starter-kit": "^3.17.0",
-    "@xyflow/react": "^12.10.2",
     "axios": "^1.12.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.16",

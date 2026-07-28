@@ -1,25 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Card, Button, Field, Input, Textarea, Select, Badge } from '../components/ui';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Card, Button } from '../components/ui';
 import { startMathTask, submitMathTask } from '../api/mathTasks';
 import { useNotify } from '../components/notify/NotifyProvider';
 import StatementViewer from '../components/tiptap/StatementViewer';
-
-function fmtSeconds(total) {
-  if (total == null) return '';
-  const t = Math.max(0, Math.floor(total));
-  const m = Math.floor(t / 60);
-  const s = t % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
+import AttemptCountdown from '../features/attempts/AttemptCountdown';
+import {
+  destroyAttemptAnswers,
+  getAttemptAnswers,
+  resetAttemptAnswers,
+  subscribeAttemptAnswers,
+} from '../features/attempts/attemptAnswerStore';
+import MathTaskBlock from '../features/math-task/MathTaskBlock';
 
 function hashActivityText(value) {
   const text = typeof value === 'string' ? value : '';
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
   }
-  return `fnv1a:${(h >>> 0).toString(16).padStart(8, '0')}:${text.length}`;
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}:${text.length}`;
 }
 
 function summarizeAnswerDraft(answers) {
@@ -28,13 +28,13 @@ function summarizeAnswerDraft(answers) {
   let selectedCount = 0;
   let orderedCount = 0;
   let pairCount = 0;
-  for (const [, value] of entries) {
+  entries.forEach(([, value]) => {
     const text = typeof value?.text === 'string' ? value.text : '';
     if (text) textParts.push(text);
     if (Array.isArray(value?.selectedOptionKeys)) selectedCount += value.selectedOptionKeys.length;
     if (Array.isArray(value?.orderedItems)) orderedCount += value.orderedItems.length;
-    if (Array.isArray(value?.matchPairs)) pairCount += value.matchPairs.filter(x => x?.rightKey).length;
-  }
+    if (Array.isArray(value?.matchPairs)) pairCount += value.matchPairs.filter((item) => item?.rightKey).length;
+  });
   const joinedText = textParts.join('\n');
   return {
     touched: entries.length,
@@ -47,284 +47,212 @@ function summarizeAnswerDraft(answers) {
   };
 }
 
-export default function MathTaskSolve({ assignmentId, assignment, onActivity }) {
+function MathTaskSolve({ assignmentId, assignment, onActivity }) {
   const notify = useNotify();
   const [loading, setLoading] = useState(false);
   const [startData, setStartData] = useState(null);
-  const [answers, setAnswers] = useState({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [limitReached, setLimitReached] = useState(false);
   const lastAnswerActivityRef = useRef({ signature: '', at: 0 });
 
-  const timeLimit = startData?.timeLimitSeconds ?? null;
-  const startedAt = startData?.startedAt ? new Date(startData.startedAt) : null;
-  const [nowTick, setNowTick] = useState(Date.now());
-  useEffect(() => {
-    if (!startedAt || !timeLimit) return;
-    const id = setInterval(() => setNowTick(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [startedAt, timeLimit]);
+  const storeKey = startData?.attemptId ? `math:${startData.attemptId}` : '';
+  const blocks = useMemo(() => startData?.blocks ?? [], [startData?.blocks]);
 
-  const secondsLeft = useMemo(() => {
-    if (!startedAt || !timeLimit) return null;
-    const elapsed = (nowTick - startedAt.getTime()) / 1000;
-    return Math.max(0, Math.ceil(timeLimit - elapsed));
-  }, [startedAt, timeLimit, nowTick]);
+  useEffect(() => () => {
+    if (storeKey) destroyAttemptAnswers(storeKey);
+  }, [storeKey]);
 
-  const begin = async () => {
+  const begin = useCallback(async () => {
     try {
       setLoading(true);
       setLimitReached(false);
+      if (storeKey) destroyAttemptAnswers(storeKey);
       setStartData(null);
       setResult(null);
-      setAnswers({});
       onActivity?.('math_started', { payload: { kind: 'math' } });
       const data = await startMathTask(assignmentId);
+      resetAttemptAnswers(`math:${data.attemptId}`);
+      lastAnswerActivityRef.current = { signature: '', at: 0 };
       setStartData(data);
-    } catch (err) {
-      if (err?.response?.status === 409) setLimitReached(true);
-      notify.error(err?.userMessage || err?.message || 'Не удалось начать math-задание');
+    } catch (error) {
+      if (error?.response?.status === 409) setLimitReached(true);
+      notify.error(error?.userMessage || error?.message || 'Не удалось начать math-задание');
     } finally {
       setLoading(false);
     }
-  };
+  }, [assignmentId, notify, onActivity, storeKey]);
 
-  const doSubmit = async () => {
-    if (!startData?.attemptId) return;
+  const doSubmit = useCallback(async () => {
+    if (!startData?.attemptId || !storeKey || submitLoading || result) return;
+    const answers = getAttemptAnswers(storeKey);
     try {
       setSubmitLoading(true);
-      const finalSummary = summarizeAnswerDraft(answers);
+      const summary = summarizeAnswerDraft(answers);
       onActivity?.('math_answers_final', {
         attemptId: startData.attemptId,
-        textLength: finalSummary.textLength,
-        textHash: finalSummary.textHash,
-        textSample: finalSummary.textSample,
-        payload: { kind: 'math', touched: finalSummary.touched, selectedCount: finalSummary.selectedCount, orderedCount: finalSummary.orderedCount, pairCount: finalSummary.pairCount },
+        textLength: summary.textLength,
+        textHash: summary.textHash,
+        textSample: summary.textSample,
+        payload: {
+          kind: 'math',
+          touched: summary.touched,
+          selectedCount: summary.selectedCount,
+          orderedCount: summary.orderedCount,
+          pairCount: summary.pairCount,
+        },
       });
       const payload = {
         attemptId: startData.attemptId,
-        answers: Object.entries(answers).map(([blockId, v]) => ({
+        answers: Object.entries(answers).map(([blockId, value]) => ({
           blockId,
-          text: v?.text ?? null,
-          selectedOptionKeys: v?.selectedOptionKeys ?? null,
-          orderedItems: v?.orderedItems ?? null,
-          matchPairs: v?.matchPairs ?? null,
+          text: value?.text ?? null,
+          selectedOptionKeys: value?.selectedOptionKeys ?? null,
+          orderedItems: value?.orderedItems ?? null,
+          matchPairs: value?.matchPairs ?? null,
         })),
       };
-      const res = await submitMathTask(assignmentId, payload);
-      onActivity?.('math_finished', { attemptId: startData.attemptId, payload: { passed: !!res?.passed, scorePercent: res?.scorePercent ?? null } });
-      setResult(res);
-      if (Number.isFinite(startData?.attemptNumber) && Number.isFinite(startData?.maxAttempts) && startData.attemptNumber >= startData.maxAttempts) {
+      const response = await submitMathTask(assignmentId, payload);
+      onActivity?.('math_finished', {
+        attemptId: startData.attemptId,
+        payload: { passed: Boolean(response?.passed), scorePercent: response?.scorePercent ?? null },
+      });
+      destroyAttemptAnswers(storeKey);
+      setResult(response);
+      if (
+        Number.isFinite(startData?.attemptNumber)
+        && Number.isFinite(startData?.maxAttempts)
+        && startData.attemptNumber >= startData.maxAttempts
+      ) {
         setLimitReached(true);
       }
-      notify.success(res.passed ? 'Математическое задание засчитано ✅' : 'Попытка завершена');
-    } catch (err) {
-      onActivity?.('submit_failed', { attemptId: startData?.attemptId || null, payload: { kind: 'math', message: err?.userMessage || err?.message || 'Не удалось отправить ответы' } });
-      notify.error(err?.userMessage || err?.message || 'Не удалось отправить ответы');
+      notify.success(response.passed ? 'Математическое задание засчитано ✅' : 'Попытка завершена');
+    } catch (error) {
+      onActivity?.('submit_failed', {
+        attemptId: startData?.attemptId || null,
+        payload: { kind: 'math', message: error?.userMessage || error?.message || 'Не удалось отправить ответы' },
+      });
+      notify.error(error?.userMessage || error?.message || 'Не удалось отправить ответы');
     } finally {
       setSubmitLoading(false);
     }
-  };
+  }, [assignmentId, notify, onActivity, result, startData, storeKey, submitLoading]);
 
   useEffect(() => {
-    if (!startData?.attemptId || result) return;
-    const signature = JSON.stringify(answers || {});
-    if (signature === lastAnswerActivityRef.current.signature) return;
-    const now = Date.now();
-    if (lastAnswerActivityRef.current.signature && now - lastAnswerActivityRef.current.at < 2500) return;
-    lastAnswerActivityRef.current = { signature, at: now };
-    const summary = summarizeAnswerDraft(answers);
-    if (summary.touched <= 0) return;
-    onActivity?.('math_answers_changed', {
-      attemptId: startData.attemptId,
-      textLength: summary.textLength,
-      textHash: summary.textHash,
-      textSample: summary.textSample,
-      payload: { kind: 'math', touched: summary.touched, selectedCount: summary.selectedCount, orderedCount: summary.orderedCount, pairCount: summary.pairCount },
+    if (!storeKey || result) return undefined;
+    return subscribeAttemptAnswers(storeKey, () => {
+      const answers = getAttemptAnswers(storeKey);
+      const signature = JSON.stringify(answers);
+      if (signature === lastAnswerActivityRef.current.signature) return;
+      const now = Date.now();
+      if (lastAnswerActivityRef.current.signature && now - lastAnswerActivityRef.current.at < 2500) return;
+      lastAnswerActivityRef.current = { signature, at: now };
+      const summary = summarizeAnswerDraft(answers);
+      if (summary.touched <= 0) return;
+      onActivity?.('math_answers_changed', {
+        attemptId: startData?.attemptId,
+        textLength: summary.textLength,
+        textHash: summary.textHash,
+        textSample: summary.textSample,
+        payload: {
+          kind: 'math',
+          touched: summary.touched,
+          selectedCount: summary.selectedCount,
+          orderedCount: summary.orderedCount,
+          pairCount: summary.pairCount,
+        },
+      });
     });
-  }, [answers, startData?.attemptId, result, onActivity]);
+  }, [onActivity, result, startData?.attemptId, storeKey]);
 
-  useEffect(() => {
-    if (!startData?.attemptId || secondsLeft == null || secondsLeft > 0 || submitLoading || result) return;
-    doSubmit();
-    
-  }, [secondsLeft]);
-
-  const blocks = startData?.blocks ?? [];
-
-  const moveOrderItem = (blockId, idx, dir) => {
-    setAnswers((prev) => {
-      const cur = prev[blockId]?.orderedItems ?? [];
-      const j = idx + dir;
-      if (j < 0 || j >= cur.length) return prev;
-      const next = [...cur];
-      [next[idx], next[j]] = [next[j], next[idx]];
-      return { ...prev, [blockId]: { ...(prev[blockId] || {}), orderedItems: next } };
-    });
-  };
-
-  const renderBlockBody = (block) => {
-    const kind = String(block.kind || '').toLowerCase();
-
-    if (kind === 'info') {
-      return <div className="text-sm text-neutral-500">Это информационный блок. Он не оценивается, но помогает провести решение по шагам.</div>;
-    }
-
-    if (kind === 'single-choice' || kind === 'multi-choice') {
-      const selected = answers[block.id]?.selectedOptionKeys ?? [];
-      const isMulti = kind === 'multi-choice';
-      return (
-        <div className="space-y-2">
-          {(block.options || []).map((o) => (
-            <label key={o.key} className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type={isMulti ? 'checkbox' : 'radio'}
-                name={`math-${block.id}`}
-                checked={selected.includes(o.key)}
-                onChange={() => setAnswers((prev) => {
-                  const cur = prev[block.id]?.selectedOptionKeys ?? [];
-                  if (!isMulti) return { ...prev, [block.id]: { selectedOptionKeys: [o.key] } };
-                  const set = new Set(cur);
-                  set.has(o.key) ? set.delete(o.key) : set.add(o.key);
-                  return { ...prev, [block.id]: { selectedOptionKeys: Array.from(set) } };
-                })}
-              />
-              <span>{o.text}</span>
-            </label>
-          ))}
-        </div>
-      );
-    }
-
-    if (kind === 'number' || kind === 'expression' || kind === 'set') {
-      return (
-        <Field label={kind === 'number' ? 'Ответ' : kind === 'set' ? 'Множество / список' : 'Формула / выражение'}>
-          <Textarea
-            rows={kind === 'expression' ? 3 : 2}
-            value={answers[block.id]?.text || ''}
-            onChange={(e) => setAnswers((prev) => ({ ...prev, [block.id]: { ...(prev[block.id] || {}), text: e.target.value } }))}
-            placeholder={kind === 'number' ? 'Например: 3.14' : kind === 'set' ? 'Например: 1, 2, 3' : 'Например: (x-1)(x+1)'}
-          />
-        </Field>
-      );
-    }
-
-    if (kind === 'order') {
-      const cur = answers[block.id]?.orderedItems?.length ? answers[block.id].orderedItems : (block.orderItems || []);
-      return (
-        <div className="space-y-2">
-          {cur.map((item, idx) => (
-            <div key={`${item}_${idx}`} className="flex items-center gap-2 rounded-xl border border-neutral-200 dark:border-neutral-800 px-3 py-2">
-              <Badge>{idx + 1}</Badge>
-              <div className="flex-1">{item}</div>
-              <Button variant="outline" onClick={() => moveOrderItem(block.id, idx, -1)}>↑</Button>
-              <Button variant="outline" onClick={() => moveOrderItem(block.id, idx, 1)}>↓</Button>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    if (kind === 'match') {
-      const pairs = answers[block.id]?.matchPairs ?? (block.matchLeftItems || []).map((x) => ({ leftKey: x.key, rightKey: '' }));
-      return (
-        <div className="space-y-3">
-          {(block.matchLeftItems || []).map((left) => (
-            <div key={left.key} className="grid md:grid-cols-[1fr_220px] gap-3 items-center">
-              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 px-3 py-2">{left.text}</div>
-              <Select
-                value={pairs.find((x) => x.leftKey === left.key)?.rightKey || ''}
-                onChange={(e) => setAnswers((prev) => {
-                  const cur = prev[block.id]?.matchPairs ?? (block.matchLeftItems || []).map((x) => ({ leftKey: x.key, rightKey: '' }));
-                  const next = cur.map((x) => x.leftKey === left.key ? { ...x, rightKey: e.target.value } : x);
-                  return { ...prev, [block.id]: { ...(prev[block.id] || {}), matchPairs: next } };
-                })}
-              >
-                <option value="">— выбери —</option>
-                {(block.matchRightItems || []).map((right) => <option key={right.key} value={right.key}>{right.text}</option>)}
-              </Select>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    return <div className="text-sm text-rose-500">Неизвестный тип блока: {kind}</div>;
-  };
+  const closeAttempt = useCallback(() => {
+    if (storeKey) destroyAttemptAnswers(storeKey);
+    setStartData(null);
+    setResult(null);
+  }, [storeKey]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{assignment?.title || 'Математика'}</h1>
-          {assignment?.description && (
+          {assignment?.description ? (
             <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
               <StatementViewer value={assignment.description} />
             </div>
-          )}
+          ) : null}
         </div>
         <div className="text-right">
-          {startData && <div className="text-sm text-neutral-600 dark:text-neutral-400">Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}</div>}
-          {timeLimit ? <div className="mt-1"><Badge variant={secondsLeft !== null && secondsLeft <= 10 ? 'destructive' : 'secondary'}>Таймер: {fmtSeconds(secondsLeft)}</Badge></div> : null}
+          {startData ? (
+            <div className="text-sm text-neutral-600 dark:text-neutral-400">
+              Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}
+            </div>
+          ) : null}
+          {startData?.timeLimitSeconds ? (
+            <div className="mt-1">
+              <AttemptCountdown
+                startedAt={startData.startedAt}
+                timeLimitSeconds={startData.timeLimitSeconds}
+                onExpire={doSubmit}
+                disabled={submitLoading || Boolean(result)}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {!startData && (
+      {!startData ? (
         <Card>
           <div className="space-y-3">
-            <div className="text-sm text-neutral-600 dark:text-neutral-400">Здесь можно строить решения по блокам: формулы, числа, множества, шаги, соответствия и тестовые подпункты.</div>
+            <div className="text-sm text-neutral-600 dark:text-neutral-400">
+              Здесь можно строить решения по блокам: формулы, числа, множества, шаги, соответствия и тестовые подпункты.
+            </div>
             <div className="flex gap-3">
-              <Button onClick={begin} disabled={loading || limitReached}>{limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать задание')}</Button>
+              <Button onClick={begin} disabled={loading || limitReached}>
+                {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать задание')}
+              </Button>
             </div>
             {limitReached ? <div className="text-sm text-rose-600">Достигнут лимит попыток.</div> : null}
           </div>
         </Card>
-      )}
+      ) : null}
 
-      {result && (
+      {result ? (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-lg font-semibold">Результат: {result.scorePercent}% ({result.earnedScore}/{result.totalScore} баллов)</div>
-              <div className="text-sm text-neutral-600 dark:text-neutral-400">Порог: {result.passPercent}%. {result.timeExpired ? '⏱️ Время вышло.' : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}</div>
+              <div className="text-lg font-semibold">
+                Результат: {result.scorePercent}% ({result.earnedScore}/{result.totalScore} баллов)
+              </div>
+              <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                Порог: {result.passPercent}%. {result.timeExpired ? '⏱️ Время вышло.' : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}
+              </div>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setStartData(null); setResult(null); }}>Закрыть</Button>
+              <Button variant="outline" onClick={closeAttempt}>Закрыть</Button>
               {startData && startData.attemptNumber < startData.maxAttempts ? (
                 <Button onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
-              ) : <Button variant="secondary" disabled>Лимит попыток</Button>}
+              ) : (
+                <Button variant="secondary" disabled>Лимит попыток</Button>
+              )}
             </div>
           </div>
         </Card>
-      )}
+      ) : null}
 
-      {startData && !result && (
+      {startData && !result ? (
         <div className="space-y-4">
-          {blocks.map((block, idx) => (
-            <Card key={block.id}>
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{idx + 1}. {block.prompt || 'Блок'}</div>
-                    {block.promptContentJson ? <div className="mt-2"><StatementViewer value={block.promptContentJson} /></div> : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{block.kind}</Badge>
-                    {block.score > 0 ? <Badge>{block.score} б.</Badge> : null}
-                  </div>
-                </div>
-                {renderBlockBody(block)}
-              </div>
-            </Card>
+          {blocks.map((block, index) => (
+            <MathTaskBlock key={block.id} storeKey={storeKey} block={block} index={index} />
           ))}
-
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => { setStartData(null); setAnswers({}); }}>Отмена</Button>
+            <Button variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
             <Button onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Отправить решение'}</Button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
+
+export default React.memo(MathTaskSolve);

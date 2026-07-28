@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen, ChevronRight, GraduationCap, Loader2 } from 'lucide-react';
-import Layout from '../components/Layout';
 import { getMainCourse } from '../api/courses';
 import { getLearningCourseTree } from '../api/learning';
 
@@ -45,7 +44,7 @@ export default function MainCoursePage() {
   const directModules = examModules.length > 0 ? examModules : learningRoots;
 
   return (
-    <Layout>
+    <>
       <Link to="/" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300"><ArrowLeft size={16} />Назад к курсам</Link>
       {error && <div className="mb-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">{error}</div>}
       {loading ? (
@@ -74,6 +73,6 @@ export default function MainCoursePage() {
           </section>
         </>
       )}
-    </Layout>
+    </>
   );
 }

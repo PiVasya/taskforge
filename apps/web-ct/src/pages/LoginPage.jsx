@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import Layout from "../components/Layout";
 import { Field, Input, Button, Card } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { useLocation, useNavigate, Link } from "react-router-dom";
@@ -40,7 +39,7 @@ export default function LoginPage() {
   }, [access, nav, from]);
   
   return (
-    <Layout>
+    <>
       <div className="max-w-md mx-auto">
         <Card>
           <h1 className="text-2xl font-semibold mb-4">Вход</h1>
@@ -90,6 +89,6 @@ export default function LoginPage() {
           </Link>
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

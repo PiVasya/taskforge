@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Badge, Button } from '../components/ui';
 import {
   ArrowRight,
@@ -15,8 +14,9 @@ import {
 import { getUpdatesIndex } from '../api/updates';
 import { getProfile } from '../api/profile';
 import { useAuth } from '../auth/AuthContext';
+import useQuery from '../hooks/useQuery';
 
-function UpdateCard({ item, index }) {
+const UpdateCard = React.memo(function UpdateCard({ item, index }) {
   const isMinecraft = String(item.id || '').startsWith('minecraft-');
   const Icon = isMinecraft ? Gamepad2 : Wrench;
 
@@ -74,39 +74,32 @@ function UpdateCard({ item, index }) {
       </div>
     </article>
   );
-}
+});
 
 export default function NewsPage() {
   const nav = useNavigate();
   const { access } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [items, setItems] = useState([]);
-  const [profile, setProfile] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const [index, currentProfile] = await Promise.all([
-          getUpdatesIndex(),
-          access ? getProfile().catch(() => null) : Promise.resolve(null),
-        ]);
-        setItems(index);
-        setProfile(currentProfile);
-      } catch {
-        setError('Не удалось загрузить ленту');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [access]);
+  const updatesQuery = useQuery({
+    queryKey: ['updates', 'index'],
+    queryFn: getUpdatesIndex,
+    staleTime: 5 * 60_000,
+    keepPreviousData: true,
+  });
+  const profileQuery = useQuery({
+    queryKey: ['profile', 'me'],
+    queryFn: getProfile,
+    enabled: Boolean(access),
+    staleTime: 60_000,
+  });
+  const loading = updatesQuery.isLoading;
+  const error = updatesQuery.error ? 'Не удалось загрузить ленту' : null;
+  const items = Array.isArray(updatesQuery.data) ? updatesQuery.data : [];
+  const profile = profileQuery.data || null;
 
   const score = profile?.score ?? profile?.rating ?? profile?.points;
 
   return (
-    <Layout>
+    <>
       <div className="mx-auto flex max-w-[1280px] flex-col gap-6 pb-10">
         <section className="changelog-hero">
           <div className="relative z-10 grid gap-7 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -166,6 +159,6 @@ export default function NewsPage() {
           </div>
         ) : null}
       </div>
-    </Layout>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Zap, Trophy } from 'lucide-react';
-import { useQuota } from '../contexts/QuotaContext';
+import { useQuotaBucket } from '../contexts/QuotaContext';
 
 function fmtEta(sec) {
   const total = Math.max(0, Math.ceil(Number(sec) || 0));
@@ -59,8 +59,9 @@ function BucketChip({ icon: Icon, title, bucket, compact = false, mobile = false
   );
 }
 
-export default function QuotaStatusBar({ className = '', compact = false, mobile = false }) {
-  const { tasks, top } = useQuota();
+function QuotaStatusBar({ className = '', compact = false, mobile = false }) {
+  const tasks = useQuotaBucket('tasks');
+  const top = useQuotaBucket('top');
 
   if (!tasks && !top) return null;
 
@@ -78,3 +79,5 @@ export default function QuotaStatusBar({ className = '', compact = false, mobile
     </div>
   );
 }
+
+export default React.memo(QuotaStatusBar);

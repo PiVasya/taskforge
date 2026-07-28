@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import Layout from '../../components/Layout';
 import { Card, Button, Input, Select } from '../../components/ui';
 import { AlertTriangle } from 'lucide-react';
 import { searchUsersOnce } from '../../api/admin';
@@ -189,7 +188,7 @@ export default function AdminBadgesPage() {
   const selectedUser = users.find((u) => u.id === userId) || null;
 
   return (
-    <Layout>
+    <>
       <div className="py-6 space-y-4 min-w-0">
         <h1 className="text-2xl font-semibold">Бейджи</h1>
 
@@ -399,6 +398,6 @@ export default function AdminBadgesPage() {
           </Card>
         )}
       </div>
-    </Layout>
+    </>
   );
 }

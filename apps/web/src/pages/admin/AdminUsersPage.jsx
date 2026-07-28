@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Layout from '../../components/Layout';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
 import { searchUsersOnce } from '../../api/admin';
@@ -166,7 +165,7 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -260,6 +259,6 @@ export default function AdminUsersPage() {
           ))}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

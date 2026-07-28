@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCcw,
 } from "lucide-react";
-import Layout from "../components/Layout";
 import { exportAllCtPdf } from "../utils/learningExport";
 import {
   CT_PARTS,
@@ -172,7 +171,7 @@ export default function SimpleHomePage() {
   }
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="mx-auto max-w-6xl px-4 py-8 md:py-12">
           <section className="mb-8 rounded-[2rem] border border-neutral-200/80 bg-white p-6 text-center shadow-soft dark:border-neutral-800 dark:bg-neutral-900 md:p-10">
@@ -337,6 +336,6 @@ export default function SimpleHomePage() {
           )}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

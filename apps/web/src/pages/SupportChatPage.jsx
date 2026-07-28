@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Field, Textarea, Button, Card } from '../components/ui';
 import { getSupportChat, getSupportTicket, sendSupportChatMessage, sendSupportMessage } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -236,7 +235,7 @@ export default function SupportChatPage() {
   };
 
   return (
-    <Layout>
+    <>
       <div className="max-w-4xl mx-auto">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
@@ -302,6 +301,6 @@ export default function SupportChatPage() {
           </Card>
         )}
       </div>
-    </Layout>
+    </>
   );
 }

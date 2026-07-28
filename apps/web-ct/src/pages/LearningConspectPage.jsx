@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen, ChevronRight, Loader2, Settings } from 'lucide-react';
-import Layout from '../components/Layout';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getLearningConspect, getLearningCourseOutline } from '../api/learning';
 
@@ -43,7 +42,7 @@ export default function LearningConspectPage() {
   const tasksBasePath = courseSlug ? `/courses/${courseSlug}/tasks` : '/tasks';
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="container-app py-6 lg:py-8">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -101,6 +100,6 @@ export default function LearningConspectPage() {
           ) : null}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

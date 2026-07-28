@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import Layout from '../components/Layout';
 import { Button, Card } from '../components/ui';
 import { getAssignment, getTopSolutions } from '../api/assignments';
 import { getApiErrorMessage } from '../api/http';
@@ -36,21 +35,21 @@ export default function AssignmentTopSolutionsPage() {
 
   if (loading) {
     return (
-      <Layout>
+      <>
         <div className="text-neutral-500">Загрузка…</div>
-      </Layout>
+      </>
     );
   }
   if (error) {
     return (
-      <Layout>
+      <>
         <div className="text-red-500">{error}</div>
-      </Layout>
+      </>
     );
   }
 
   return (
-    <Layout>
+    <>
       <div className="mb-6">
         <Button variant="outline" onClick={() => nav(`/assignment/${assignmentId}`)}>
           ← Назад к заданию
@@ -104,6 +103,6 @@ export default function AssignmentTopSolutionsPage() {
           </div>
         )}
       </Card>
-    </Layout>
+    </>
   );
 }

@@ -6,6 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import Editor, { loader } from "@monaco-editor/react";
+import { useEditorUiSettings, useUiTheme } from "../contexts/UiSettingsContext";
 
 function getMonacoVsPath() {
   const base = String(process.env.PUBLIC_URL || "").replace(/\/$/, "");
@@ -52,25 +53,8 @@ class MonacoCrashBoundary extends React.Component {
   }
 }
 
-const CODE_EDITOR_STYLE_KEY = "codeEditorStyle";
-
 function normalizeEditorStyle(value) {
   return value === "mono" ? "mono" : "color";
-}
-
-function readCodeEditorStyle() {
-  try {
-    return normalizeEditorStyle(localStorage.getItem(CODE_EDITOR_STYLE_KEY));
-  } catch {
-    return "color";
-  }
-}
-
-function isDarkMode() {
-  return (
-    typeof document !== "undefined" &&
-    document.documentElement.classList.contains("dark")
-  );
 }
 
 function cssRgbToHex(value, fallback) {
@@ -210,16 +194,19 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
   });
 }
 
-export default function CodeEditor({
+function CodeEditor({
   language = "cpp",
   value,
   onChange,
+  modelPath,
   height = 320,
   lineNumbers = "on",
   readOnly = false,
 }) {
-  const [isDark, setIsDark] = useState(isDarkMode);
-  const [editorStyle, setEditorStyle] = useState(readCodeEditorStyle);
+  const { mode } = useUiTheme();
+  const { codeEditorStyle } = useEditorUiSettings();
+  const isDark = mode === "dark";
+  const editorStyle = normalizeEditorStyle(codeEditorStyle);
   const [loadFailed, setLoadFailed] = useState(false);
   const [monacoReady, setMonacoReady] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -229,6 +216,7 @@ export default function CodeEditor({
   const monacoRef = useRef(null);
   const roRef = useRef(null);
   const cleanupRef = useRef(null);
+  const applyThemeRef = useRef(null);
 
   const monacoLang = useMemo(() => {
     switch (String(language || "").toLowerCase()) {
@@ -258,11 +246,10 @@ export default function CodeEditor({
   }, [language]);
 
   const pickThemeName = useCallback(() => {
-    const dark = isDarkMode();
-    return dark
+    return isDark
       ? `taskforge-dynamic-dark-${editorStyle}`
       : `taskforge-dynamic-light-${editorStyle}`;
-  }, [editorStyle]);
+  }, [editorStyle, isDark]);
 
   const applyTheme = useCallback(
     (monaco) => {
@@ -273,6 +260,41 @@ export default function CodeEditor({
       } catch {}
     },
     [editorStyle, pickThemeName],
+  );
+
+  const handleValueChange = useCallback(
+    (nextValue) => onChange?.(nextValue ?? ""),
+    [onChange],
+  );
+
+  const handleEditorCrash = useCallback(() => {
+    setLoadFailed(true);
+  }, []);
+
+  const editorOptions = useMemo(
+    () => ({
+      readOnly,
+      lineNumbers,
+      lineNumbersMinChars: 2,
+      lineDecorationsWidth: 12,
+      glyphMargin: false,
+      folding: false,
+      fontSize: 14,
+      lineHeight: 20,
+      letterSpacing: 0.2,
+      padding: { top: 8, bottom: 8 },
+      minimap: { enabled: false },
+      automaticLayout: false,
+      wordWrap: "on",
+      tabSize: 2,
+      insertSpaces: true,
+      renderWhitespace: "selection",
+      renderLineHighlight: "line",
+      scrollBeyondLastLine: false,
+      smoothScrolling: true,
+      mouseWheelZoom: true,
+    }),
+    [lineNumbers, readOnly],
   );
 
   const handleBeforeMount = useCallback(
@@ -330,35 +352,14 @@ export default function CodeEditor({
   );
 
   useEffect(() => {
-    const refresh = () => {
-      setIsDark(isDarkMode());
-      setEditorStyle(readCodeEditorStyle());
-    };
+    applyThemeRef.current = applyTheme;
+    if (monacoRef.current?.editor) applyTheme(monacoRef.current);
+  }, [applyTheme]);
 
-    const mo =
-      typeof MutationObserver !== "undefined"
-        ? new MutationObserver(refresh)
-        : null;
-    mo?.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    window.addEventListener("tf-ui-settings-changed", refresh);
-    window.addEventListener("storage", refresh);
-
-    return () => {
-      mo?.disconnect();
-      window.removeEventListener("tf-ui-settings-changed", refresh);
-      window.removeEventListener("storage", refresh);
-      cleanupRef.current?.();
-      cleanupRef.current = null;
-    };
+  useEffect(() => () => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
   }, []);
-
-  useEffect(() => {
-    if (!monacoRef.current?.editor) return;
-    applyTheme(monacoRef.current);
-  }, [applyTheme, isDark, editorStyle]);
 
   useEffect(() => {
     let alive = true;
@@ -385,7 +386,7 @@ export default function CodeEditor({
             return;
           }
           monacoRef.current = monaco;
-          applyTheme(monaco);
+          applyThemeRef.current?.(monaco);
           setMonacoReady(true);
           setLoadFailed(false);
         })
@@ -403,7 +404,7 @@ export default function CodeEditor({
         cancelable.cancel();
       }
     };
-  }, [applyTheme, retryNonce]);
+  }, [retryNonce]);
 
   const fallbackEditor = (
     <div
@@ -422,7 +423,7 @@ export default function CodeEditor({
       <textarea
         className="w-full resize-none outline-none"
         value={value ?? ""}
-        onChange={(e) => onChange?.(e.target.value)}
+        onChange={(event) => handleValueChange(event.target.value)}
         readOnly={readOnly}
         spellCheck={false}
         style={{
@@ -472,14 +473,15 @@ export default function CodeEditor({
       <MonacoCrashBoundary
         resetKey={`${retryNonce}-${monacoLang}-${editorStyle}-${isDark ? "dark" : "light"}`}
         fallback={fallbackEditor}
-        onCrash={() => setLoadFailed(true)}
+        onCrash={handleEditorCrash}
       >
         <Editor
           height={height}
           language={monacoLang}
+          path={modelPath}
           theme={pickThemeName()}
           value={value}
-          onChange={(v) => onChange?.(v ?? "")}
+          onChange={handleValueChange}
           beforeMount={handleBeforeMount}
           onMount={handleMount}
           loading={
@@ -493,32 +495,11 @@ export default function CodeEditor({
               Загрузка редактора...
             </div>
           }
-          options={{
-            readOnly,
-            lineNumbers,
-            lineNumbersMinChars: 2,
-            lineDecorationsWidth: 12,
-            glyphMargin: false,
-            folding: false,
-
-            fontSize: 14,
-            lineHeight: 20,
-            letterSpacing: 0.2,
-            padding: { top: 8, bottom: 8 },
-
-            minimap: { enabled: false },
-            automaticLayout: false,
-            wordWrap: "on",
-            tabSize: 2,
-            insertSpaces: true,
-            renderWhitespace: "selection",
-            renderLineHighlight: "line",
-            scrollBeyondLastLine: false,
-            smoothScrolling: true,
-            mouseWheelZoom: true,
-          }}
+          options={editorOptions}
         />
       </MonacoCrashBoundary>
     </div>
   );
 }
+
+export default React.memo(CodeEditor);

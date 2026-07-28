@@ -128,7 +128,7 @@ grep -Fq 'configuredChance = drop.getDouble("chance", 0.0D)' "$cmt_legacy" \
   || fail 'extra-loot chance is not read from configuration'
 grep -Fq 'effectiveChance=' "$cmt_legacy" \
   || fail 'extra-loot roll diagnostics do not expose the effective chance'
-if ! grep -A4 -F '      elytra:' "$cmt_config" | grep -Fq 'chance: 0.05'; then
+if ! grep -A4 -F '      elytra:' "$cmt_config" | grep -F 'chance: 0.05' >/dev/null; then
   fail 'default Breeze Elytra chance is not 5%'
 fi
 grep -Fq 'rememberLootAttribution' "$cmt_legacy" \
@@ -175,10 +175,10 @@ grep -Fq 'entity.getPersistentDataContainer().has(illusionerCloneKey' "$cmt_lega
 if grep -Eq 'runAtFixedRate|GlobalRegionScheduler' "$cmt_clones"; then
   fail 'Illusioner clone runtime introduced global polling'
 fi
-if ! grep -A8 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'max-active-per-original: 30'; then
+if ! grep -A8 -F 'illusioner-clones:' "$cmt_config" | grep -F 'max-active-per-original: 30' >/dev/null; then
   fail 'bundled Illusioner clone cap is not 30'
 fi
-if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -Fq 'minimum-lifetime-ticks: 60'; then
+if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -F 'minimum-lifetime-ticks: 60' >/dev/null; then
   fail 'bundled Illusioner clone minimum lifetime is not three seconds'
 fi
 
@@ -209,10 +209,10 @@ if grep -Eq 'Bukkit\.getScheduler\(|GlobalRegionScheduler' "$cmt_phantom_dive_cl
 fi
 grep -Fq 'phantom-dive-clones:' "$cmt_config" \
   || fail 'phantom dive clone config section is missing'
-if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -Fq 'health: 1.0'; then
+if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -F 'health: 1.0' >/dev/null; then
   fail 'default phantom dive copy health is not 1 HP'
 fi
-if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -Fq 'size: 0'; then
+if ! grep -A20 -F 'phantom-dive-clones:' "$cmt_config" | grep -F 'size: 0' >/dev/null; then
   fail 'default phantom dive copy is not the minimum phantom size'
 fi
 
@@ -271,43 +271,43 @@ if [ -e "$cmt_dragon_root/DragonlingManager.java" ] || [ -e "$cmt_dragon_root/Dr
 fi
 
 grep -Fq 'isDragonPhantom(phantom)' "$cmt_dragon"   || fail 'phantom combat/death handlers are not PDC-scoped'
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'replace-perched-breath: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'replace-perched-breath: true' >/dev/null; then
   fail 'vanilla perched breath replacement is not enabled by default'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'replace-strafing-fireball: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'replace-strafing-fireball: true' >/dev/null; then
   fail 'vanilla strafing fireball replacement is not enabled by default'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'duration-ticks: 140'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'duration-ticks: 140' >/dev/null; then
   fail 'default dragon fire stream duration is not seven seconds'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'place-fire: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'place-fire: true' >/dev/null; then
   fail 'real dragon ground fire is not enabled by default'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'create-dragon-breath-clouds: true'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'create-dragon-breath-clouds: true' >/dev/null; then
   fail 'dragon-breath ground clouds are not enabled by default'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'flock-size-min: 5'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'flock-size-min: 5' >/dev/null; then
   fail 'default minimum dragon phantom flock size is not 5'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'flock-size-max: 6'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'flock-size-max: 6' >/dev/null; then
   fail 'default maximum dragon phantom flock size is not 6'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'maximum-active: 12'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'maximum-active: 12' >/dev/null; then
   fail 'default maximum active dragon phantoms is not 12'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'size-min: 1'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'size-min: 1' >/dev/null; then
   fail 'default minimum dragon phantom size is not 1'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'size-max: 3'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'size-max: 3' >/dev/null; then
   fail 'default maximum dragon phantom size is not 3'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'health: 20.0'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'health: 20.0' >/dev/null; then
   fail 'default dragon phantom health is not 20.0'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'purple-dust-particles: 8'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'purple-dust-particles: 8' >/dev/null; then
   fail 'default dragon phantom purple dust aura is missing'
 fi
-if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -Fq 'landing-confirmation-samples: 2'; then
+if ! grep -A180 -F 'ender-dragon-rework:' "$cmt_config" | grep -F 'landing-confirmation-samples: 2' >/dev/null; then
   fail 'default phantom landing confirmation sample count is not 2'
 fi
 

@@ -10,7 +10,6 @@ import {
   RotateCcw,
   XCircle,
 } from "lucide-react";
-import Layout from "../components/Layout";
 import InlineSectionEditor from "../components/InlineSectionEditor";
 import RichConspectRenderer from "../components/RichConspectRenderer";
 import { exportSectionPdf } from "../utils/learningExport";
@@ -748,7 +747,7 @@ export default function SimpleSectionPage({ sectionCode }) {
   }
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950">
         <div className="mx-auto max-w-6xl px-4 py-5 md:py-8">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -848,6 +847,6 @@ export default function SimpleSectionPage({ sectionCode }) {
           ) : null}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

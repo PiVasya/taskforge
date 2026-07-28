@@ -1,6 +1,6 @@
 import React from 'react';
 import { Trophy, Zap } from 'lucide-react';
-import { useQuota } from '../contexts/QuotaContext';
+import { useQuotaBucket } from '../contexts/QuotaContext';
 
 function fmtSeconds(sec) {
   const total = Math.max(0, Math.ceil(Number(sec) || 0));
@@ -11,9 +11,8 @@ function fmtSeconds(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export default function QuotaPill({ bucket = 'tasks', className = '' }) {
-  const quota = useQuota();
-  const view = bucket === 'top' ? quota.top : quota.tasks;
+function QuotaPill({ bucket = 'tasks', className = '' }) {
+  const view = useQuotaBucket(bucket === 'top' ? 'top' : 'tasks');
 
   if (!view) return null;
 
@@ -42,3 +41,5 @@ export default function QuotaPill({ bucket = 'tasks', className = '' }) {
     </div>
   );
 }
+
+export default React.memo(QuotaPill);

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { setAccessToken } from '../api/http';
 import { AuthApi } from '../api/auth';
 import { getMyUiSettings } from '../api/uiSettings';
@@ -56,10 +56,10 @@ export default function AuthProvider({ children }) {
   
   const uiLoadedRef = useRef(false);
 
-  const applyAccess = (token) => {
+  const applyAccess = useCallback((token) => {
     _setAccess(token || null);
     setAccessToken(token || null);
-  };
+  }, []);
 
 
   const pullProfileOnce = useCallback(async () => {
@@ -88,14 +88,14 @@ export default function AuthProvider({ children }) {
     await pullProfileOnce();
     
     await pullUiSettingsOnce();
-  }, [pullProfileOnce, pullUiSettingsOnce]);
+  }, [applyAccess, pullProfileOnce, pullUiSettingsOnce]);
 
   const doLogout = useCallback(async () => {
     try { await AuthApi.logout(); } catch { }
     applyAccess(null);
     setUser(null);
     uiLoadedRef.current = false;
-  }, []);
+  }, [applyAccess]);
 
   const doRefresh = useCallback(async () => {
     const res = await AuthApi.refresh();
@@ -104,7 +104,7 @@ export default function AuthProvider({ children }) {
     
     await pullUiSettingsOnce();
     return res;
-  }, [pullProfileOnce, pullUiSettingsOnce]);
+  }, [applyAccess, pullProfileOnce, pullUiSettingsOnce]);
 
   
   useEffect(() => {
@@ -117,7 +117,7 @@ export default function AuthProvider({ children }) {
         setReady(true);
       }
     })();
-  }, [doRefresh]);
+  }, [applyAccess, doRefresh]);
 
   
   useEffect(() => {
@@ -128,9 +128,10 @@ export default function AuthProvider({ children }) {
     return () => clearInterval(id);
   }, [access, doRefresh]);
 
-  return (
-    <Ctx.Provider value={{ ready, user, access, login: doLogin, logout: doLogout, refresh: doRefresh }}>
-      {children}
-    </Ctx.Provider>
+  const value = useMemo(
+    () => ({ ready, user, access, login: doLogin, logout: doLogout, refresh: doRefresh }),
+    [access, doLogin, doLogout, doRefresh, ready, user],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

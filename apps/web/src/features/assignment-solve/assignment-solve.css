@@ -1,0 +1,314 @@
+.solve-tests-card {
+  overflow: hidden;
+}
+
+.solve-tests-height-reveal {
+  border-radius: 0.9rem;
+}
+
+.solve-test-list {
+  padding-top: 0.1rem;
+}
+
+.solve-test-case-reveal {
+  opacity: 0;
+  animation: solve-test-case-reveal 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--solve-test-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+@keyframes solve-reveal-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.998);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes typewriter-cursor-blink {
+  from { opacity: 0.2; transform: scaleY(0.72); }
+  to { opacity: 0.95; transform: scaleY(1); }
+}
+
+@keyframes solve-test-case-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.typewriter-text {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.typewriter-cursor {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1em;
+  margin-left: 0.08ch;
+  vertical-align: -0.12em;
+  border-radius: 999px;
+  background: rgb(var(--accent));
+  opacity: 0.85;
+  animation: typewriter-cursor-blink 520ms ease-in-out infinite alternate;
+}
+
+.typewriter-text--done .typewriter-cursor {
+  display: none;
+}
+
+.solve-page-shell {
+  animation: solve-page-soft-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.solve-page-shell--loading {
+  opacity: 0.9;
+}
+
+.user-flow-reveal,
+.assignment-reveal,
+.solve-part--ready,
+.solve-user-reveal-block {
+  animation: solve-part-reveal 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--solve-part-delay, 0ms);
+}
+
+.solve-part--loading {
+  opacity: 0.92;
+}
+
+.solve-skeleton-lines {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.1rem 0;
+}
+
+.solve-skeleton-line,
+.solve-skeleton-pill {
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    rgba(var(--muted) / 0.22),
+    rgba(var(--accent) / 0.10),
+    rgba(var(--muted) / 0.22));
+  background-size: 220% 100%;
+  animation: tfSkeletonPulse 1.25s ease-in-out infinite;
+}
+
+.solve-skeleton-line {
+  height: 0.85rem;
+}
+
+.solve-skeleton-pill {
+  height: 2.25rem;
+}
+
+@keyframes solve-page-soft-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes solve-part-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.solve-action-dock {
+  position: fixed;
+  right: 1.5rem;
+  bottom: calc(env(safe-area-inset-bottom) + 84px);
+  z-index: 50;
+  width: 16.5rem;
+  max-width: calc(100vw - 2rem);
+  pointer-events: none;
+}
+
+.solve-action-dock-panel {
+  pointer-events: auto;
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px solid rgba(var(--border) / 0.70);
+  border-radius: 1rem;
+  background: rgba(var(--card) / 0.74);
+  box-shadow: 0 18px 44px rgba(0 0 0 / 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transform: translateZ(0);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1), background-color 220ms ease, border-color 220ms ease;
+  contain: paint;
+}
+
+.solve-action-dock-panel:hover {
+  transform: translateY(-1px) translateZ(0);
+  box-shadow: 0 22px 54px rgba(0 0 0 / 0.22);
+}
+
+.solve-action-floating-status {
+  pointer-events: none;
+  position: absolute;
+  left: 0.4rem;
+  right: 0.4rem;
+  bottom: calc(100% + 0.5rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(var(--border) / 0.64);
+  border-radius: 999px;
+  background: rgba(var(--card) / 0.82);
+  color: rgb(var(--text-muted));
+  font-size: 0.76rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 12px 32px rgba(0 0 0 / 0.14);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: solve-floating-status-in 180ms ease-out both;
+}
+
+@keyframes solve-floating-status-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.solve-action-button {
+  width: 100%;
+  min-height: 2.75rem;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.solve-action-button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .solve-action-dock {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
+}
+
+.tf-modal-backdrop {
+  animation: tfModalBackdropIn 180ms ease-out both;
+}
+
+.tf-modal-panel {
+  animation: tfModalPanelIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tf-choice-card {
+  transform: translateY(0) scale(1);
+  box-shadow: 0 0 0 rgba(0 0 0 / 0);
+}
+
+.tf-choice-card:hover,
+.tf-choice-card:focus-visible {
+  transform: translateY(-3px) scale(1.01);
+  border-color: rgba(var(--accent) / 0.72);
+  background: rgba(var(--accent) / 0.10);
+  box-shadow: 0 18px 48px rgba(var(--accent) / 0.10);
+}
+
+.card,
+.btn-primary,
+.btn-outline,
+.btn-ghost,
+.input,
+.select,
+.textarea {
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform, filter;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auto-fill-grid > * {
+  animation: tfRevealIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auto-fill-grid > *:nth-child(2) { animation-delay: 35ms; }
+.auto-fill-grid > *:nth-child(3) { animation-delay: 70ms; }
+.auto-fill-grid > *:nth-child(4) { animation-delay: 105ms; }
+.auto-fill-grid > *:nth-child(5) { animation-delay: 140ms; }
+.auto-fill-grid > *:nth-child(6) { animation-delay: 175ms; }
+.auto-fill-grid > *:nth-child(n+7) { animation-delay: 205ms; }
+
+@keyframes tfModalBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tfModalPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-modal-backdrop,
+  .tf-modal-panel,
+  .auto-fill-grid > *,
+  .assignment-reveal,
+  .solve-part--ready,
+  .solve-page-shell,
+  .animated-statement-rich,
+  .solve-test-case-reveal,
+  .typewriter-cursor {
+    animation: none !important;
+  }
+
+  .solve-test-case-reveal,
+  .animated-statement-rich,
+  .solve-statement-frame-layer--content {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  .typewriter-cursor {
+    display: none;
+  }
+
+  .tf-choice-card:hover,
+  .tf-choice-card:focus-visible {
+    transform: none;
+  }
+}
+

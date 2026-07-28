@@ -38,7 +38,6 @@ import {
   Minus,
 } from "lucide-react";
 
-import { Button } from "../ui";
 import { uploadImage } from "../../api/files";
 
 import { FontSize } from "./extensions/FontSize";

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import Layout from '../components/Layout';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getCourseConspects, getLearningConspect } from '../api/learning';
 
@@ -36,7 +35,7 @@ export default function ConspectPage() {
   const badges = useMemo(() => parseBadges(details?.conspect?.badgesJson), [details]);
 
   return (
-    <Layout fullWidth>
+    <>
       <div className="min-h-[calc(100vh-57px)] bg-neutral-50 dark:bg-neutral-950"><div className="container-app py-6 lg:py-8"><div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="space-y-4 lg:sticky lg:top-[77px] lg:self-start">
           <Link to={backHref} className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300"><ArrowLeft size={16} />Назад к разделу</Link>
@@ -48,6 +47,6 @@ export default function ConspectPage() {
           {loading ? <div className="rounded-[2rem] border border-neutral-200 bg-white p-10 text-center shadow-soft dark:border-neutral-800 dark:bg-neutral-900"><Loader2 className="mx-auto animate-spin text-brand-600" /><div className="mt-3 text-neutral-600 dark:text-neutral-300">Загружаю конспект...</div></div> : details ? <RichConspectRenderer details={details} /> : null}
         </main>
       </div></div></div>
-    </Layout>
+    </>
   );
 }

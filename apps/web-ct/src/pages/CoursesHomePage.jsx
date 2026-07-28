@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BookOpen, GraduationCap, Loader2, Search, Sparkles } from 'lucide-react';
-import Layout from '../components/Layout';
 import { getMainCourses } from '../api/courses';
 
 export default function CoursesHomePage() {
@@ -35,7 +34,7 @@ export default function CoursesHomePage() {
   }, [courses, query]);
 
   return (
-    <Layout>
+    <>
       <section className="rounded-[2rem] border border-neutral-200/80 bg-white p-6 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
@@ -94,6 +93,6 @@ export default function CoursesHomePage() {
       )}
 
       {!loading && filtered.length === 0 && <div className="mt-6 rounded-[2rem] border border-neutral-200 bg-white p-10 text-center text-neutral-500 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">Курсов пока нет или они не найдены.</div>}
-    </Layout>
+    </>
   );
 }

@@ -402,7 +402,7 @@ void main() {
   outColor = vec4(color, uOpacity);
 }`;
 
-export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
+export default function BgFxSolarWebgl({ enabled, intensity = 1, paletteKey = 'default' }) {
   const canvasRef = useRef(null);
   const runtimeRef = useRef(null);
   const latestIntensityRef = useRef(intensity);
@@ -756,7 +756,7 @@ export default function BgFxSolarWebgl({ enabled, intensity = 1, uiRev = 0 }) {
     runtime.updateTheme(intensity);
     const frame = requestAnimationFrame(() => runtime.updateTheme(intensity));
     return () => cancelAnimationFrame(frame);
-  }, [enabled, intensity, uiRev, canvasGeneration]);
+  }, [enabled, intensity, paletteKey, canvasGeneration]);
 
   if (!enabled) return null;
 

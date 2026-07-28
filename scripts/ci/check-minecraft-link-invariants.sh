@@ -4,7 +4,7 @@ set -euo pipefail
 links='services/minecraft/api/Endpoints/Links/LinksEndpoints.cs'
 death='services/minecraft/api/Endpoints/DeathRecovery/DeathRecoveryEndpoints.cs'
 common='services/minecraft/api/Services/Common/MinecraftApiCommonService.cs'
-front='apps/web/src/pages/SettingsPage.jsx'
+front='apps/web/src/features/settings/SettingsFeature.jsx'
 client='apps/web/src/api/minecraftLink.js'
 rules='00_AI_READ_THIS_FIRST.md'
 
