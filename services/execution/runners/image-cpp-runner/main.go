@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -190,19 +191,143 @@ func decodeJSON(r *http.Request, out any) error {
 	return dec.Decode(out)
 }
 
+var forbiddenCppExternalSymbols = map[string]struct{}{
+	"system": {}, "__libc_system": {}, "popen": {}, "pclose": {},
+	"fork": {}, "vfork": {}, "clone": {}, "clone3": {},
+	"execl": {}, "execlp": {}, "execle": {}, "execv": {}, "execvp": {},
+	"execvpe": {}, "execve": {}, "execveat": {}, "fexecve": {},
+	"posix_spawn": {}, "posix_spawnp": {},
+	"dlopen": {}, "dlmopen": {}, "dlsym": {}, "dlvsym": {},
+	"syscall": {}, "ptrace": {}, "unshare": {}, "setns": {},
+	"mount": {}, "umount": {}, "umount2": {}, "chroot": {}, "pivot_root": {},
+	"socket": {}, "socketpair": {}, "connect": {}, "bind": {}, "listen": {},
+	"accept": {}, "accept4": {}, "send": {}, "sendto": {}, "sendmsg": {},
+	"recv": {}, "recvfrom": {}, "recvmsg": {}, "getaddrinfo": {},
+	"kill": {}, "tkill": {}, "tgkill": {},
+	"mmap": {}, "mmap64": {}, "mprotect": {}, "memfd_create": {},
+}
+
+func normalizeELFSymbol(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.IndexByte(name, '@'); i >= 0 {
+		name = name[:i]
+	}
+	return strings.TrimPrefix(name, "__GI_")
+}
+
+func forbiddenUndefinedELFSymbols(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	all := make([]elf.Symbol, 0, 64)
+	if symbols, symErr := f.Symbols(); symErr == nil {
+		all = append(all, symbols...)
+	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
+		return nil, symErr
+	}
+	if symbols, symErr := f.DynamicSymbols(); symErr == nil {
+		all = append(all, symbols...)
+	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
+		return nil, symErr
+	}
+
+	blocked := make(map[string]struct{})
+	for _, symbol := range all {
+		if symbol.Section != elf.SHN_UNDEF {
+			continue
+		}
+		name := normalizeELFSymbol(symbol.Name)
+		if _, forbidden := forbiddenCppExternalSymbols[name]; forbidden {
+			blocked[name] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func forbiddenExecutableInstructions(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	patterns := []struct {
+		name  string
+		bytes []byte
+	}{
+		{name: "machine.syscall", bytes: []byte{0x0f, 0x05}},
+		{name: "machine.sysenter", bytes: []byte{0x0f, 0x34}},
+		{name: "machine.int80", bytes: []byte{0xcd, 0x80}},
+	}
+	blocked := make(map[string]struct{})
+	for _, section := range f.Sections {
+		if section.Flags&elf.SHF_EXECINSTR == 0 || section.Size == 0 {
+			continue
+		}
+		data, readErr := section.Data()
+		if readErr != nil {
+			return nil, readErr
+		}
+		for _, pattern := range patterns {
+			if bytes.Contains(data, pattern.bytes) {
+				blocked[pattern.name] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func compileCpp(source string, dir string, timeoutSec int) (string, string, int) {
 	src := filepath.Join(dir, "main.cpp")
+	obj := filepath.Join(dir, "main.o")
 	exe := filepath.Join(dir, "main")
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
 		return sanitizeRunnerText(err.Error()), "", 1
 	}
-	res := runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-I/opt/taskforge/include", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
-	if res.ExitCode == 0 {
-		if err := os.Chmod(exe, 0o700); err != nil {
+	compile := runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-fno-asm", "-I/opt/taskforge/include", "-c", "-o", obj}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	if compile.ExitCode != 0 {
+		return sanitizeRunnerText(compile.Stdout + compile.Stderr), "", compile.ExitCode
+	}
+	blocked, scanErr := forbiddenUndefinedELFSymbols(obj)
+	if scanErr != nil {
+		log.Printf("image-cpp-runner failed to inspect compiled object: %v", scanErr)
+		return "Решение отклонено системой безопасности.", "", 126
+	}
+	if len(blocked) > 0 {
+		log.Printf("image-cpp-runner blocked forbidden external symbols: %s", strings.Join(blocked, ","))
+		return "Решение отклонено системой безопасности.", "", 126
+	}
+	blockedInstructions, instructionScanErr := forbiddenExecutableInstructions(obj)
+	if instructionScanErr != nil {
+		log.Printf("image-cpp-runner failed to inspect executable instructions: %v", instructionScanErr)
+		return "Решение отклонено системой безопасности.", "", 126
+	}
+	if len(blockedInstructions) > 0 {
+		log.Printf("image-cpp-runner blocked forbidden machine instructions: %s", strings.Join(blockedInstructions, ","))
+		return "Решение отклонено системой безопасности.", "", 126
+	}
+	link := runCommand("g++", []string{obj, "-Wl,-z,relro,-z,now,-z,noexecstack", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	if link.ExitCode == 0 {
+		if err := os.Chmod(exe, 0o500); err != nil {
 			return "Не удалось подготовить программу к запуску.", "", 1
 		}
 	}
-	return sanitizeRunnerText(res.Stdout + res.Stderr), exe, res.ExitCode
+	return sanitizeRunnerText(link.Stdout + link.Stderr), exe, link.ExitCode
 }
 
 func preparePython(source string, dir string, timeoutSec int) (string, string, int) {

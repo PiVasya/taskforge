@@ -156,17 +156,6 @@ services:
       start_period: 20s
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
-      ConnectionStrings__Redis: redis:6379,abortConnect=false
-      Redis__ConnectionString: redis:6379,abortConnect=false
-      Cache__Enabled: ${CACHE_ENABLED:-true}
-      Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
-      Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
-      Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
-      Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
-      Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
-    depends_on:
-      redis:
-        condition: service_healthy
   cpp-runner:
     security_opt: *id001
     cap_drop: *id002

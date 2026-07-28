@@ -210,7 +210,138 @@ fn match_part_at(s: &str, pos: usize, part: &str) -> bool {
     s[pos..].starts_with(part)
 }
 
+fn is_c_family(lang: &str) -> bool {
+    matches!(lang, "c" | "cpp" | "c++")
+}
 
+/// C/C++ translation phase 2 removes a backslash immediately followed by a
+/// line break before tokenization. Security checks must inspect the translated
+/// token stream, otherwise a continued identifier can hide a forbidden call.
+fn splice_c_line_continuations(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i += 2;
+                continue;
+            }
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\r' {
+                i += if i + 2 < bytes.len() && bytes[i + 2] == b'\n' {
+                    3
+                } else {
+                    2
+                };
+                continue;
+            }
+        }
+        let ch = src[i..].chars().next().expect("valid utf-8 boundary");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+#[derive(Debug)]
+struct StaticPolicyHit {
+    id: &'static str,
+    needle: &'static str,
+    message: &'static str,
+    position: usize,
+}
+
+fn find_identifier_pos(source: &str, name: &str) -> Option<usize> {
+    if name.is_empty() {
+        return None;
+    }
+    let mut start = 0usize;
+    while let Some(relative) = source[start..].find(name) {
+        let pos = start + relative;
+        let before = source[..pos].chars().next_back();
+        let after_pos = pos + name.len();
+        let after = source[after_pos..].chars().next();
+        if before.map(is_ident_char).unwrap_or(false)
+            || after.map(is_ident_char).unwrap_or(false)
+        {
+            start = after_pos;
+            continue;
+        }
+        return Some(pos);
+    }
+    None
+}
+
+/// Security-sensitive C/C++ identifiers are rejected as tokens, not only as
+/// the literal substring `name(`. This catches macro aliases, function-pointer
+/// assignments and other source-level indirection. A linked-object scan in the
+/// C++ runner is still the final fail-closed layer.
+fn c_family_platform_hits(cleaned: &str) -> Vec<StaticPolicyHit> {
+    let mut hits = Vec::new();
+
+    if let Some(position) = cleaned.find("##") {
+        hits.push(StaticPolicyHit {
+            id: "c.preprocessor_token_paste",
+            needle: "##",
+            message: "Запрещено использовать склейку токенов препроцессора (##)",
+            position,
+        });
+    }
+    if let Some(position) = cleaned.find("%:%:") {
+        hits.push(StaticPolicyHit {
+            id: "c.preprocessor_token_paste",
+            needle: "%:%:",
+            message: "Запрещено использовать склейку токенов препроцессора (%:%:)",
+            position,
+        });
+    }
+
+    const RULES: &[(&str, &str, &str)] = &[
+        ("c.system", "system", "Запрещено использовать system()"),
+        ("c.popen", "popen", "Запрещено использовать popen()"),
+        ("c.fork", "fork", "Запрещено создавать процессы через fork()"),
+        ("c.vfork", "vfork", "Запрещено создавать процессы через vfork()"),
+        ("c.clone", "clone", "Запрещено создавать процессы через clone()"),
+        ("c.clone3", "clone3", "Запрещено создавать процессы через clone3()"),
+        ("c.execl", "execl", "Запрещено использовать exec*()"),
+        ("c.execlp", "execlp", "Запрещено использовать exec*()"),
+        ("c.execle", "execle", "Запрещено использовать exec*()"),
+        ("c.execv", "execv", "Запрещено использовать exec*()"),
+        ("c.execvp", "execvp", "Запрещено использовать exec*()"),
+        ("c.execvpe", "execvpe", "Запрещено использовать exec*()"),
+        ("c.execve", "execve", "Запрещено использовать exec*()"),
+        ("c.execveat", "execveat", "Запрещено использовать exec*()"),
+        ("c.posix_spawn", "posix_spawn", "Запрещено создавать внешние процессы"),
+        ("c.posix_spawnp", "posix_spawnp", "Запрещено создавать внешние процессы"),
+        ("c.dlopen", "dlopen", "Запрещена динамическая загрузка библиотек"),
+        ("c.dlmopen", "dlmopen", "Запрещена динамическая загрузка библиотек"),
+        ("c.dlsym", "dlsym", "Запрещён динамический поиск системных функций"),
+        ("c.dlvsym", "dlvsym", "Запрещён динамический поиск системных функций"),
+        ("c.syscall", "syscall", "Запрещены прямые системные вызовы"),
+        ("c.prctl", "prctl", "Запрещено изменять политику процесса через prctl()"),
+        ("c.seccomp", "seccomp", "Запрещено изменять seccomp-политику процесса"),
+        ("c.ptrace", "ptrace", "Запрещено использовать ptrace()"),
+        ("c.unshare", "unshare", "Запрещено изменять пространства имён процесса"),
+        ("c.setns", "setns", "Запрещено изменять пространства имён процесса"),
+        ("c.chroot", "chroot", "Запрещено изменять корневую файловую систему"),
+        ("c.pivot_root", "pivot_root", "Запрещено изменять корневую файловую систему"),
+        ("c.mprotect", "mprotect", "Запрещено изменять права исполняемой памяти"),
+        ("c.memfd_create", "memfd_create", "Запрещено создавать исполняемые файлы в памяти"),
+    ];
+
+    for &(id, name, message) in RULES {
+        if let Some(position) = find_identifier_pos(cleaned, name) {
+            hits.push(StaticPolicyHit {
+                id,
+                needle: name,
+                message,
+                position,
+            });
+        }
+    }
+
+    hits
+}
 
 #[tokio::main]
 async fn main() {
@@ -272,8 +403,13 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let lang = req.language.to_lowercase();
     tracing::debug!("normalized lang={}", lang);
 
-    let no_comments = strip_comments_only(&lang, &req.source);
-    let cleaned = strip_comments_and_strings(&lang, &req.source);
+    let analysis_source = if is_c_family(&lang) {
+        splice_c_line_continuations(&req.source)
+    } else {
+        req.source.clone()
+    };
+    let no_comments = strip_comments_only(&lang, &analysis_source);
+    let cleaned = strip_comments_and_strings(&lang, &analysis_source);
     tracing::debug!("cleaned.len={} (orig.len={})", cleaned.len(), req.source.len());
     debug_log!(
         "[code-analyzer] cleaned.len={} orig.len={} (no_comments.len={})",
@@ -293,7 +429,7 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
     let mut hits: Vec<Hit> = Vec::new();
     let mut errors: Vec<Violation> = Vec::new();
 
-    if let Some((pos, ch)) = find_cyrillic_in_code(&lang, &req.source) {
+    if let Some((pos, ch)) = find_cyrillic_in_code(&lang, &analysis_source) {
         hits.push(Hit {
             pattern_id: Some("unicode.cyrillic_in_code".to_string()),
             needle: ch.to_string(),
@@ -305,6 +441,22 @@ async fn analyze(Json(req): Json<AnalyzeRequest>) -> Json<AnalyzeResponse> {
             message: cyrillic_policy_message().to_string(),
             pattern_id: Some("unicode.cyrillic_in_code".to_string()),
         });
+    }
+
+    if is_c_family(&lang) {
+        for platform_hit in c_family_platform_hits(&cleaned) {
+            hits.push(Hit {
+                pattern_id: Some(platform_hit.id.to_string()),
+                needle: platform_hit.needle.to_string(),
+                position: platform_hit.position,
+                preview: make_preview(&cleaned, platform_hit.position, platform_hit.needle.len()),
+            });
+            errors.push(Violation {
+                code: "forbidden".to_string(),
+                message: platform_hit.message.to_string(),
+                pattern_id: Some(platform_hit.id.to_string()),
+            });
+        }
     }
 
     // We scan once per pattern; patterns are small. Later we can optimize with Aho–Corasick.
@@ -1097,5 +1249,38 @@ mod tests {
         assert_eq!(hit.1, 'ч');
     }
 
+    #[test]
+    fn cpp_token_paste_macro_is_rejected() {
+        let src = "#define RUN(a, b) a##b\nint main(){ RUN(sys, tem)(\"id\"); }";
+        let cleaned = strip_comments_and_strings("cpp", src);
+        let hits = c_family_platform_hits(&cleaned);
+        assert!(hits
+            .iter()
+            .any(|h| h.id == "c.preprocessor_token_paste"));
+    }
+
+    #[test]
+    fn cpp_macro_alias_to_system_is_rejected() {
+        let src = "#define RUN system\nint main(){ RUN(\"id\"); }";
+        let cleaned = strip_comments_and_strings("cpp", src);
+        let hits = c_family_platform_hits(&cleaned);
+        assert!(hits.iter().any(|h| h.id == "c.system"));
+    }
+
+    #[test]
+    fn cpp_line_splice_cannot_hide_system_identifier() {
+        let src = "int main(){ sys\\\ntem(\"id\"); }";
+        let translated = splice_c_line_continuations(src);
+        let cleaned = strip_comments_and_strings("cpp", &translated);
+        let hits = c_family_platform_hits(&cleaned);
+        assert!(hits.iter().any(|h| h.id == "c.system"));
+    }
+
+    #[test]
+    fn cpp_platform_identifier_uses_token_boundaries() {
+        let src = "int filesystem = 1; int ecosystem = 2;";
+        let hits = c_family_platform_hits(src);
+        assert!(!hits.iter().any(|h| h.id == "c.system"));
+    }
 }
 

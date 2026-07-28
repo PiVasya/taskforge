@@ -10,6 +10,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
+COPY security/sandbox_guard.c /tmp/taskforge_cpp_sandbox_guard.c
+RUN gcc -O2 -fPIC -Wall -Wextra -Werror \
+      -c /tmp/taskforge_cpp_sandbox_guard.c \
+      -o /app/taskforge_cpp_sandbox_guard.o \
+  && chmod 0444 /app/taskforge_cpp_sandbox_guard.o \
+  && rm -f /tmp/taskforge_cpp_sandbox_guard.c
 ENV RUNNER_KIND=cpp PORT=8080
 EXPOSE 8080
 USER 65534

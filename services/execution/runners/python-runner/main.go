@@ -164,6 +164,20 @@ func strValue(v *string) string {
 	return *v
 }
 
+func runnerChildEnvironment() []string {
+	result := []string{
+		"HOME=/tmp",
+		"TMPDIR=/tmp",
+		"TASKFORGE_SUBMISSION=1",
+	}
+	for _, key := range []string{"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "JAVA_HOME", "NODE_PATH"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			result = append(result, key+"="+value)
+		}
+	}
+	return result
+}
+
 func defaultTimeMs(kind string) int {
 	switch kind {
 	case "cpp":
@@ -203,6 +217,7 @@ func runCommand(name string, args []string, cwd string, input string, timeout ti
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
+	cmd.Env = runnerChildEnvironment()
 	cmd.Stdin = strings.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

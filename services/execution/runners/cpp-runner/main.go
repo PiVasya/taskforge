@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -164,6 +166,20 @@ func strValue(v *string) string {
 	return *v
 }
 
+func runnerChildEnvironment() []string {
+	result := []string{
+		"HOME=/tmp",
+		"TMPDIR=/tmp",
+		"TASKFORGE_SUBMISSION=1",
+	}
+	for _, key := range []string{"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "JAVA_HOME", "NODE_PATH"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			result = append(result, key+"="+value)
+		}
+	}
+	return result
+}
+
 func defaultTimeMs(kind string) int {
 	switch kind {
 	case "cpp":
@@ -203,6 +219,7 @@ func runCommand(name string, args []string, cwd string, input string, timeout ti
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
+	cmd.Env = runnerChildEnvironment()
 	cmd.Stdin = strings.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -275,24 +292,345 @@ func nodeHeapMb(memMb int) int {
 	return heap
 }
 
+var forbiddenCppExternalSymbols = map[string]struct{}{
+	"system": {}, "__libc_system": {}, "popen": {}, "pclose": {},
+	"fork": {}, "vfork": {}, "clone": {}, "clone3": {},
+	"execl": {}, "execlp": {}, "execle": {}, "execv": {}, "execvp": {},
+	"execvpe": {}, "execve": {}, "execveat": {}, "fexecve": {},
+	"posix_spawn": {}, "posix_spawnp": {},
+	"dlopen": {}, "dlmopen": {}, "dlsym": {}, "dlvsym": {},
+	"syscall": {}, "prctl": {}, "seccomp": {}, "ptrace": {}, "unshare": {}, "setns": {},
+	"mount": {}, "umount": {}, "umount2": {}, "chroot": {}, "pivot_root": {},
+	"socket": {}, "socketpair": {}, "connect": {}, "bind": {}, "listen": {},
+	"accept": {}, "accept4": {}, "send": {}, "sendto": {}, "sendmsg": {},
+	"recv": {}, "recvfrom": {}, "recvmsg": {}, "getaddrinfo": {},
+	"kill": {}, "tkill": {}, "tgkill": {},
+	"mmap": {}, "mmap64": {}, "mprotect": {}, "memfd_create": {},
+}
+
+func normalizeELFSymbol(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.IndexByte(name, '@'); i >= 0 {
+		name = name[:i]
+	}
+	return strings.TrimPrefix(name, "__GI_")
+}
+
+var forbiddenCppDefinedSymbols = map[string]struct{}{
+	"__libc_start_main": {}, "__libc_start_call_main": {},
+	"_start": {}, "_init": {}, "_fini": {},
+	"taskforge_sandbox_init": {},
+}
+
+func isForbiddenCppDefinedSymbol(name string) bool {
+	if _, forbidden := forbiddenCppDefinedSymbols[name]; forbidden {
+		return true
+	}
+	return strings.HasPrefix(name, "_dl_") ||
+		strings.HasPrefix(name, "__libc_start_") ||
+		strings.HasPrefix(name, "taskforge_sandbox_")
+}
+
+func forbiddenDefinedELFSymbols(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	symbols, symErr := f.Symbols()
+	if symErr != nil {
+		if errors.Is(symErr, elf.ErrNoSymbols) {
+			return nil, nil
+		}
+		return nil, symErr
+	}
+
+	blocked := make(map[string]struct{})
+	for _, symbol := range symbols {
+		if symbol.Section == elf.SHN_UNDEF {
+			continue
+		}
+		binding := elf.ST_BIND(symbol.Info)
+		if binding != elf.STB_GLOBAL && binding != elf.STB_WEAK {
+			continue
+		}
+		name := normalizeELFSymbol(symbol.Name)
+		if isForbiddenCppDefinedSymbol(name) {
+			blocked[name] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func forbiddenUndefinedELFSymbols(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	all := make([]elf.Symbol, 0, 64)
+	if symbols, symErr := f.Symbols(); symErr == nil {
+		all = append(all, symbols...)
+	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
+		return nil, symErr
+	}
+	if symbols, symErr := f.DynamicSymbols(); symErr == nil {
+		all = append(all, symbols...)
+	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
+		return nil, symErr
+	}
+
+	blocked := make(map[string]struct{})
+	for _, symbol := range all {
+		if symbol.Section != elf.SHN_UNDEF {
+			continue
+		}
+		name := normalizeELFSymbol(symbol.Name)
+		if _, forbidden := forbiddenCppExternalSymbols[name]; forbidden {
+			blocked[name] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func forbiddenExecutableInstructions(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	patterns := []struct {
+		name  string
+		bytes []byte
+	}{
+		{name: "machine.syscall", bytes: []byte{0x0f, 0x05}},
+		{name: "machine.sysenter", bytes: []byte{0x0f, 0x34}},
+		{name: "machine.int80", bytes: []byte{0xcd, 0x80}},
+	}
+	blocked := make(map[string]struct{})
+	for _, section := range f.Sections {
+		if section.Flags&elf.SHF_EXECINSTR == 0 || section.Size == 0 {
+			continue
+		}
+		data, readErr := section.Data()
+		if readErr != nil {
+			return nil, readErr
+		}
+		for _, pattern := range patterns {
+			if bytes.Contains(data, pattern.bytes) {
+				blocked[pattern.name] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func forbiddenELFMetadata(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	blocked := make(map[string]struct{})
+	if section := f.Section(".preinit_array"); section != nil && section.Size > 0 {
+		blocked["elf.preinit_array"] = struct{}{}
+	}
+	if symbols, symErr := f.Symbols(); symErr == nil {
+		for _, symbol := range symbols {
+			if elf.ST_TYPE(symbol.Info) == elf.STT_GNU_IFUNC {
+				blocked["elf.ifunc"] = struct{}{}
+			}
+		}
+	} else if !errors.Is(symErr, elf.ErrNoSymbols) {
+		return nil, symErr
+	}
+
+	result := make([]string, 0, len(blocked))
+	for name := range blocked {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func forbiddenELFRelocations(path string) ([]string, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	if f.Class != elf.ELFCLASS64 {
+		return []string{"elf.unsupported_class"}, nil
+	}
+
+	var forbiddenType uint32
+	switch f.Machine {
+	case elf.EM_X86_64:
+		forbiddenType = uint32(elf.R_X86_64_IRELATIVE)
+	case elf.EM_AARCH64:
+		forbiddenType = uint32(elf.R_AARCH64_IRELATIVE)
+	default:
+		return []string{"elf.unsupported_machine"}, nil
+	}
+
+	for _, section := range f.Sections {
+		if section.Type != elf.SHT_RELA && section.Type != elf.SHT_REL {
+			continue
+		}
+		data, readErr := section.Data()
+		if readErr != nil {
+			return nil, readErr
+		}
+		entrySize := int(section.Entsize)
+		if entrySize == 0 {
+			if section.Type == elf.SHT_RELA {
+				entrySize = 24
+			} else {
+				entrySize = 16
+			}
+		}
+		if entrySize < 16 {
+			return nil, fmt.Errorf("invalid relocation entry size %d", entrySize)
+		}
+		for offset := 0; offset+entrySize <= len(data); offset += entrySize {
+			info := f.ByteOrder.Uint64(data[offset+8 : offset+16])
+			if uint32(info) == forbiddenType {
+				return []string{"elf.irelative"}, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func cppSandboxGuardObject() (string, error) {
+	path := strings.TrimSpace(os.Getenv("TASKFORGE_CPP_SANDBOX_GUARD"))
+	if path == "" {
+		path = "/app/taskforge_cpp_sandbox_guard.o"
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("sandbox guard is not a regular file")
+	}
+	return path, nil
+}
+
+func cppSecurityPolicyResult(blocked []string) *processResult {
+	if len(blocked) > 0 {
+		log.Printf("cpp-runner blocked security-policy markers: %s", strings.Join(blocked, ","))
+	}
+	return &processResult{
+		Status:        "policy_error",
+		ExitCode:      126,
+		Stdout:        "",
+		Stderr:        "Решение отклонено системой безопасности.",
+		CompileStderr: nil,
+	}
+}
+
 func compileProgram(kind, code, cwd string, timeMs, memMb int) (*preparedProgram, *processResult) {
 	switch kind {
 	case "cpp":
 		src := filepath.Join(cwd, "main.cpp")
+		obj := filepath.Join(cwd, "main.o")
 		bin := filepath.Join(cwd, "a.out")
 		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
 			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
-		res := runCommand("g++", []string{"-std=c++17", "-O2", "-pipe", "-static-libgcc", "-static-libstdc++", "main.cpp", "-o", "a.out"}, cwd, "", timeoutDuration(timeMs))
-		if res.ExitCode != 0 {
-			msg := strings.TrimSpace(res.Stdout + res.Stderr)
+
+		compile := runCommand("g++", []string{"-std=c++17", "-O2", "-pipe", "-fno-asm", "-c", "main.cpp", "-o", "main.o"}, cwd, "", timeoutDuration(timeMs))
+		if compile.ExitCode != 0 {
+			msg := strings.TrimSpace(compile.Stdout + compile.Stderr)
 			if msg == "" {
 				msg = "Compilation error"
 			}
 			msg = sanitizeRunnerText(msg)
-			return nil, &processResult{Status: "compile_error", ExitCode: res.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+			return nil, &processResult{Status: "compile_error", ExitCode: compile.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
 		}
-		if err := os.Chmod(bin, 0o700); err != nil {
+
+		blockedDefinitions, definitionScanErr := forbiddenDefinedELFSymbols(obj)
+		if definitionScanErr != nil {
+			log.Printf("cpp-runner failed to inspect defined object symbols: %v", definitionScanErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		if len(blockedDefinitions) > 0 {
+			return nil, cppSecurityPolicyResult(blockedDefinitions)
+		}
+
+		blocked, scanErr := forbiddenUndefinedELFSymbols(obj)
+		if scanErr != nil {
+			log.Printf("cpp-runner failed to inspect compiled object: %v", scanErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		if len(blocked) > 0 {
+			return nil, cppSecurityPolicyResult(blocked)
+		}
+		blockedInstructions, instructionScanErr := forbiddenExecutableInstructions(obj)
+		if instructionScanErr != nil {
+			log.Printf("cpp-runner failed to inspect executable instructions: %v", instructionScanErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		if len(blockedInstructions) > 0 {
+			return nil, cppSecurityPolicyResult(blockedInstructions)
+		}
+		blockedMetadata, metadataScanErr := forbiddenELFMetadata(obj)
+		if metadataScanErr != nil {
+			log.Printf("cpp-runner failed to inspect ELF metadata: %v", metadataScanErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		if len(blockedMetadata) > 0 {
+			return nil, cppSecurityPolicyResult(blockedMetadata)
+		}
+		blockedRelocations, relocationScanErr := forbiddenELFRelocations(obj)
+		if relocationScanErr != nil {
+			log.Printf("cpp-runner failed to inspect ELF relocations: %v", relocationScanErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		if len(blockedRelocations) > 0 {
+			return nil, cppSecurityPolicyResult(blockedRelocations)
+		}
+
+		guardObject, guardErr := cppSandboxGuardObject()
+		if guardErr != nil {
+			log.Printf("cpp-runner sandbox guard is unavailable: %v", guardErr)
+			return nil, cppSecurityPolicyResult(nil)
+		}
+		link := runCommand("g++", []string{"main.o", guardObject, "-static-libgcc", "-static-libstdc++", "-Wl,-init,taskforge_sandbox_init,-z,relro,-z,now,-z,noexecstack", "-o", "a.out"}, cwd, "", timeoutDuration(timeMs))
+		if link.ExitCode != 0 {
+			msg := strings.TrimSpace(link.Stdout + link.Stderr)
+			if msg == "" {
+				msg = "Linking error"
+			}
+			msg = sanitizeRunnerText(msg)
+			return nil, &processResult{Status: "compile_error", ExitCode: link.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+		}
+
+		if err := os.Chmod(bin, 0o500); err != nil {
 			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stdout: "", Stderr: "Не удалось подготовить программу к запуску.", CompileStderr: nil}
 		}
 		return &preparedProgram{Cwd: cwd, Cmd: "./a.out"}, nil

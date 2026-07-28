@@ -132,6 +132,22 @@ public sealed partial class Worker
         return false;
     }
 
+    private static bool IsPolicyErrorResult(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return false;
+        return item.TryGetProperty("status", out var status)
+            && (string.Equals(status.ToString(), "policy_error", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status.ToString(), "policy_failed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsPolicyErrorRoot(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        return root.TryGetProperty("status", out var status)
+            && (string.Equals(status.ToString(), "policy_error", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status.ToString(), "policy_failed", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static JsonElement? CloneJson(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;

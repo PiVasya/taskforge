@@ -55,6 +55,23 @@ public sealed class ExecutionService : IExecutionService
             CreateNoWindow = true
         };
 
+        var inheritedPath = Environment.GetEnvironmentVariable("PATH");
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        var globalizationInvariant = Environment.GetEnvironmentVariable("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
+        var language = Environment.GetEnvironmentVariable("LANG");
+        var locale = Environment.GetEnvironmentVariable("LC_ALL");
+        var timezone = Environment.GetEnvironmentVariable("TZ");
+        psi.Environment.Clear();
+        if (!string.IsNullOrWhiteSpace(inheritedPath)) psi.Environment["PATH"] = inheritedPath;
+        if (!string.IsNullOrWhiteSpace(dotnetRoot)) psi.Environment["DOTNET_ROOT"] = dotnetRoot;
+        if (!string.IsNullOrWhiteSpace(globalizationInvariant)) psi.Environment["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = globalizationInvariant;
+        if (!string.IsNullOrWhiteSpace(language)) psi.Environment["LANG"] = language;
+        if (!string.IsNullOrWhiteSpace(locale)) psi.Environment["LC_ALL"] = locale;
+        if (!string.IsNullOrWhiteSpace(timezone)) psi.Environment["TZ"] = timezone;
+        psi.Environment["HOME"] = "/tmp";
+        psi.Environment["TMPDIR"] = "/tmp";
+        psi.Environment["TASKFORGE_SUBMISSION"] = "1";
+
         using var p = new Process { StartInfo = psi, EnableRaisingEvents = false };
 
         try

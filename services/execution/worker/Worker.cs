@@ -187,10 +187,12 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             var total = results.HasValue && results.Value.ValueKind == JsonValueKind.Array ? results.Value.GetArrayLength() : 0;
             var passed = results.HasValue && results.Value.ValueKind == JsonValueKind.Array ? results.Value.EnumerateArray().Count(IsPassedResult) : 0;
             var allPassed = total > 0 && passed == total;
-            var compileError = IsCompileErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsCompileErrorResult));
-            var verdict = allPassed ? "Accepted" : compileError ? "CompileError" : "Rejected";
+            var policyError = IsPolicyErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsPolicyErrorResult));
+            var compileError = !policyError && (IsCompileErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsCompileErrorResult)));
+            var verdict = allPassed ? "Accepted" : policyError ? "PolicyFailed" : compileError ? "CompileError" : "Rejected";
             var score = total <= 0 ? 0 : (int)System.Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
-            return new RunnerResult(verdict, score, allPassed, root, results, null, null, null, compileError);
+            var policyMessage = policyError ? "Решение отклонено системой безопасности." : null;
+            return new RunnerResult(verdict, score, allPassed, root, results, null, policyMessage, null, compileError);
         }
         catch (Exception ex)
         {
