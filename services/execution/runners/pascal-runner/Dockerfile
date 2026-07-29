@@ -10,7 +10,7 @@ RUN gcc -c -fPIC -O2 -Wall -Wextra -Werror -fvisibility=hidden -fno-stack-protec
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates fpc \
+  && apt-get install -y --no-install-recommends curl ca-certificates fpc util-linux \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
@@ -22,7 +22,7 @@ RUN mkdir -p /opt/taskforge/pascal-guard \
   && chmod 0444 /app/taskforge_pascal_sandbox_guard.o \
   && rm -f /tmp/TaskForgeSandboxGuard.pas
 ENV RUNNER_KIND=pascal PORT=8080
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65534
 ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

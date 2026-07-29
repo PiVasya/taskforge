@@ -125,6 +125,8 @@ public static class TaskForgeRequestSecurity
         if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks")) return path.EndsWith("/edit") ? Requirement.Editor : Requirement.Authenticated;
         if (path.StartsWith("/api/tests")) return Requirement.Editor;
 
+        if (path.StartsWith("/api/compiler/sessions/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/socket", StringComparison.OrdinalIgnoreCase)) return Requirement.Public;
+        if (string.Equals(path, "/api/compiler/sessions", StringComparison.OrdinalIgnoreCase)) return Requirement.Authenticated;
         if (path.StartsWith("/api/compiler") || path.StartsWith("/api/execution") || path.StartsWith("/api/image-runners")) return Requirement.Editor;
         if (path.Contains("/image-test/reference")) return Requirement.Editor;
         if (path.Contains("/image-test")) return Requirement.Authenticated;

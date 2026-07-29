@@ -11,13 +11,13 @@ RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORT
 
 FROM eclipse-temurin:21-jdk-jammy
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && apt-get install -y --no-install-recommends curl ca-certificates util-linux \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY --from=build /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 ENV RUNNER_KIND=java PORT=8080
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65534
 ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

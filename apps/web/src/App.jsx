@@ -42,6 +42,7 @@ const AdminAssignmentInsightsPage = lazy(() => import('./pages/admin/AdminAssign
 const AdminAnalyticsPage = lazy(() => import('./pages/admin/AdminAnalyticsPage'));
 const AdminUserActionsPage = lazy(() => import('./pages/admin/AdminUserActionsPage'));
 const MinecraftChatPage = lazy(() => import('./pages/minecraft/MinecraftChatPage'));
+const CompilerPage = lazy(() => import('./pages/CompilerPage'));
 
 function NotFound() {
   return <div className="py-10">Страница не найдена</div>;
@@ -67,6 +68,7 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route path="/courses" element={<CoursesPage />} />
+            <Route path="/compiler" element={<CompilerPage />} />
             <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
             <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
             <Route path="/assignment/:assignmentId/results" element={<AssignmentResultsPage />} />

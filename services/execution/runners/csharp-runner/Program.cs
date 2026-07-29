@@ -6,6 +6,13 @@ using System.Text.Json.Serialization;
 using Runner.Services;
 
 const string ExecArg = "--exec";
+const string InteractiveExecArg = "--interactive-exec";
+
+if (args.Length > 0 && string.Equals(args[0], InteractiveExecArg, StringComparison.OrdinalIgnoreCase))
+{
+    InteractiveExecMode.Run(args);
+    return;
+}
 
 if (args.Any(argument => string.Equals(argument, ExecArg, StringComparison.OrdinalIgnoreCase)))
 {
@@ -35,6 +42,7 @@ builder.Services.AddSingleton<IRoslynCompilationService, RoslynCompilationServic
 builder.Services.AddSingleton<IExecutionService, ExecutionService>();
 builder.Services.AddSingleton<RunnerJobGate>();
 builder.Services.AddSingleton<PolicyAttestationVerifier>();
+builder.Services.AddHostedService<InteractiveConsoleServer>();
 
 var app = builder.Build();
 _ = app.Services.GetRequiredService<PolicyAttestationVerifier>();
@@ -45,6 +53,50 @@ app.MapGet("/ready", (PolicyAttestationVerifier _) => File.Exists(Environment.Ge
     : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 app.MapControllers();
 app.Run();
+
+
+static class InteractiveExecMode
+{
+    public static void Run(string[] arguments)
+    {
+        try
+        {
+            if (arguments.Length < 2)
+            {
+                Console.Error.WriteLine("Interactive assembly path is missing.");
+                Environment.Exit(2);
+            }
+            var assemblyPath = Path.GetFullPath(arguments[1]);
+            var pdbPath = arguments.Length > 2 ? Path.GetFullPath(arguments[2]) : null;
+            var loadContext = new AssemblyLoadContext("interactive-user-submission", isCollectible: false);
+            Assembly assembly;
+            using (var pe = File.OpenRead(assemblyPath))
+            {
+                if (!string.IsNullOrWhiteSpace(pdbPath) && File.Exists(pdbPath))
+                {
+                    using var pdb = File.OpenRead(pdbPath);
+                    assembly = loadContext.LoadFromStream(pe, pdb);
+                }
+                else
+                {
+                    assembly = loadContext.LoadFromStream(pe);
+                }
+            }
+            NativeLibrary.SetDllImportResolver(assembly, static (libraryName, _, _) =>
+                throw new DllNotFoundException($"Native library '{libraryName}' is not available in the runner."));
+            var entryPoint = assembly.EntryPoint ?? throw new InvalidOperationException("Entry point not found.");
+            object? result = entryPoint.GetParameters().Length == 0
+                ? entryPoint.Invoke(null, null)
+                : entryPoint.Invoke(null, [Array.Empty<string>()]);
+            if (result is Task task) task.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.InnerException?.Message ?? ex.Message);
+            Environment.Exit(1);
+        }
+    }
+}
 
 static class ExecMode
 {

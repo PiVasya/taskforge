@@ -882,16 +882,17 @@ func main() {
 		log.Fatalf("%s-runner sandbox assets are unavailable: %v", kind, err)
 	}
 	// One active submission per container prevents cross-submission /proc and /tmp interference.
-	jobSlots := make(chan struct{}, 1)
 	withJobSlot := func(w http.ResponseWriter, r *http.Request, action func()) {
 		select {
-		case jobSlots <- struct{}{}:
-			defer func() { <-jobSlots }()
+		case runnerJobSlots <- struct{}{}:
+			defer func() { <-runnerJobSlots }()
 			action()
 		case <-r.Context().Done():
 			sendJSON(w, http.StatusRequestTimeout, map[string]any{"message": "request cancelled"})
 		}
 	}
+
+	startInteractiveServer(kind)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

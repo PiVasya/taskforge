@@ -11,14 +11,14 @@ RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -fstack-protector-strong -D_FORT
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates python3 \
+  && apt-get install -y --no-install-recommends curl ca-certificates python3 util-linux \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY --from=build /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 COPY security/python_policy.py /opt/taskforge/python_policy.py
 ENV RUNNER_KIND=python PORT=8080 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65534
 ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

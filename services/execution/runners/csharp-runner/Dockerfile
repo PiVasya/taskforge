@@ -13,13 +13,13 @@ RUN dotnet publish -c Release -o /out
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates util-linux \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out ./
 COPY --from=sandbox /out/libtaskforge_sandbox.so /app/libtaskforge_sandbox.so
 ENV ASPNETCORE_URLS=http://+:8080
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65534
 ARG TASKFORGE_DEBUG_LOGS=1
 ENV TASKFORGE_DEBUG_LOGS=${TASKFORGE_DEBUG_LOGS}

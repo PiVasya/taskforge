@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Execution.Api.Data;
 using TaskForge.Execution.Api.Domain;
+using TaskForge.Execution.Api.Services.Interactive;
 
 using TaskForge.Execution.Api.Endpoints;
 using static TaskForge.Execution.Api.Services.Mapping.ExecutionApiMappingService;
@@ -18,6 +19,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<InteractiveSessionRegistry>();
 builder.Services.AddDbContext<ExecutionDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
@@ -26,6 +28,10 @@ builder.Services.AddDbContext<ExecutionDbContext>(options =>
 var app = builder.Build();
 
 app.UseTaskForgeDebugRequestLogging("execution-api");
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(20)
+});
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
 {

@@ -97,6 +97,11 @@ const pageMetaRules = [
     description: 'История решений пользователя в TaskForge: отправки, статусы проверки и результаты заданий.',
   },
   {
+    path: '/compiler',
+    title: 'онлайн-компилятор',
+    description: 'Онлайн-компилятор TaskForge с редактором кода и интерактивной консолью для C++, C#, Java, Python и Pascal.',
+  },
+  {
     path: '/leaderboard',
     title: 'рейтинг',
     description: 'Рейтинг студентов TaskForge по решённым задачам, баллам и учебной активности.',

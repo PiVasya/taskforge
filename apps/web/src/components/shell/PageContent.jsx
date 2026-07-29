@@ -11,6 +11,7 @@ const FULL_WIDTH_ROUTES = [
   '/admin/ai',
   '/agent',
   '/ai',
+  '/compiler',
 ];
 
 function isFullWidthRoute(pathname) {

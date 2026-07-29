@@ -18,6 +18,7 @@ internal static partial class ExecutionApiEndpoints
         app.MapPost("/api/compiler/compile-run", async (RunnerRequest request, IHttpClientFactory factory, IConfiguration cfg) => await ProxyRunAsync(request, factory, cfg, tests: false));
 
         app.MapPost("/api/compiler/run-tests", async (RunnerRequest request, IHttpClientFactory factory, IConfiguration cfg) => await ProxyRunAsync(request, factory, cfg, tests: true));
+        MapInteractiveCompilerEndpoints(app);
 
         return app;
     }

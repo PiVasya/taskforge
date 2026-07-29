@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/seccomp.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -92,10 +93,29 @@ static void tf_set_limit(int resource, rlim_t value)
 #endif
 }
 
+static rlim_t tf_read_cpu_limit(void)
+{
+    const char *raw = getenv("TASKFORGE_LIMIT_CPU_SECONDS");
+    if (raw == NULL || *raw == '\0') {
+        return 40;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    long parsed = strtol(raw, &end, 10);
+    if (errno != 0 || end == raw || *end != '\0' || parsed < 1) {
+        return 40;
+    }
+    if (parsed > 122) {
+        parsed = 122;
+    }
+    return (rlim_t)parsed;
+}
+
 static void tf_apply_limits(void)
 {
     tf_set_limit(RLIMIT_CORE, 0);
-    tf_set_limit(RLIMIT_CPU, 40);
+    tf_set_limit(RLIMIT_CPU, tf_read_cpu_limit());
     tf_set_limit(RLIMIT_FSIZE, (rlim_t)16 * 1024U * 1024U);
     tf_set_limit(RLIMIT_NOFILE, 128);
 }

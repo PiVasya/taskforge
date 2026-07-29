@@ -17,3 +17,25 @@ export async function runTests({ language, code, testCases }) {
   });
   return data; 
 }
+
+
+export async function createInteractiveCompilerSession({
+  language,
+  code,
+  columns,
+  rows,
+  timeLimitMs,
+  memoryLimitMb,
+}) {
+  const { data } = await api.post(`${BASE}/sessions`, {
+    language,
+    code,
+    columns,
+    rows,
+    timeLimitMs,
+    memoryLimitMb,
+  }, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return data;
+}

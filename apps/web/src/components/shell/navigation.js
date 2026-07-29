@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Shield,
   Trophy,
+  Terminal,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ function titleForPath(pathname) {
   if (pathname.startsWith('/course') || pathname.startsWith('/courses')) return 'Курсы';
   if (pathname.startsWith('/assignment/')) return 'Задание';
   if (pathname.startsWith('/leaderboard')) return 'Рейтинг';
+  if (pathname.startsWith('/compiler')) return 'Компилятор';
   if (pathname.startsWith('/settings')) return 'Настройки';
   if (pathname.startsWith('/profile')) return 'Профиль';
   if (pathname.startsWith('/my/solutions')) return 'Мои решения';
@@ -74,6 +76,13 @@ export function useShellNavigation() {
         subtitle: 'История отправок',
         icon: ListOrdered,
         active: active('/my/solutions'),
+      },
+      access && {
+        to: '/compiler',
+        label: 'Компилятор',
+        subtitle: 'Код и живая консоль',
+        icon: Terminal,
+        active: active('/compiler'),
       },
       access && {
         to: '/leaderboard',

@@ -195,6 +195,7 @@ services:
     restart: unless-stopped
     expose:
     - '8080'
+    - '9090'
     healthcheck:
       test:
       - CMD-SHELL
@@ -238,6 +239,7 @@ services:
     restart: unless-stopped
     expose:
     - '8080'
+    - '9090'
     healthcheck:
       test:
       - CMD-SHELL
@@ -279,6 +281,7 @@ services:
     restart: unless-stopped
     expose:
     - '8080'
+    - '9090'
     healthcheck:
       test:
       - CMD-SHELL
@@ -361,6 +364,7 @@ services:
     restart: unless-stopped
     expose:
     - '8080'
+    - '9090'
     healthcheck:
       test:
       - CMD-SHELL
@@ -402,6 +406,7 @@ services:
     restart: unless-stopped
     expose:
     - '8080'
+    - '9090'
     healthcheck:
       test:
       - CMD-SHELL
