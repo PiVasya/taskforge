@@ -121,10 +121,13 @@
 }
 
 .compiler-toolbar {
+  position: relative;
+  z-index: 30;
   display: flex;
   min-height: var(--compiler-toolbar-height);
   align-items: center;
   gap: 0.75rem;
+  overflow: visible;
   padding: 0.55rem 0.65rem;
   border-radius: 1.15rem;
   background: rgb(var(--card) / 0.74);
@@ -337,6 +340,8 @@
 }
 
 .compiler-workspace {
+  position: relative;
+  z-index: 1;
   display: grid;
   min-width: 0;
   min-height: 34rem;
