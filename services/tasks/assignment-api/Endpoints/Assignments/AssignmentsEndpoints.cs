@@ -59,10 +59,10 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var includeHidden = IsEditor(http, cfg);
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             var allowedIds = requestedIds;
             if (!includeHidden)
             {
-                var userId = TaskForgeRequestSecurity.UserId(http, cfg);
                 if (!userId.HasValue)
                 {
                     return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAssignmentProgressDto>());
@@ -84,7 +84,6 @@ internal static partial class AssignmentApiEndpoints
                 .Select(x => new { x.Id, x.CourseId })
                 .ToListAsync(ct);
 
-            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             var solvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
