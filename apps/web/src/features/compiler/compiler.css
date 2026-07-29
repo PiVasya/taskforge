@@ -1,5 +1,8 @@
 .compiler-page {
   --compiler-toolbar-height: 3.75rem;
+  --compiler-terminal-bg: rgb(var(--card));
+  --compiler-terminal-surface: rgb(var(--page-bg) / 0.74);
+  --compiler-terminal-border: rgb(var(--border) / 0.52);
   display: flex;
   min-width: 0;
   min-height: calc(100vh - 9rem);
@@ -122,37 +125,130 @@
 
 .compiler-language-select {
   position: relative;
-  display: flex;
+  z-index: 12;
   min-width: 12.5rem;
+}
+
+.compiler-language-select__trigger {
+  display: flex;
+  width: 100%;
+  min-height: 2.55rem;
   align-items: center;
   gap: 0.55rem;
   border: 1px solid rgb(var(--border) / 0.62);
   border-radius: 0.8rem;
   padding: 0 0.72rem;
   color: rgb(var(--text));
-  background: rgb(var(--page-bg) / 0.6);
-}
-
-.compiler-language-select > svg:last-child {
-  pointer-events: none;
-  color: rgb(var(--text-muted));
-}
-
-.compiler-language-select select {
-  min-width: 0;
-  flex: 1;
-  appearance: none;
-  border: 0;
-  outline: none;
-  padding: 0.7rem 0;
-  color: inherit;
-  background: transparent;
+  background: rgb(var(--page-bg) / 0.62);
   font-size: 0.82rem;
   font-weight: 650;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
-.compiler-language-select select:disabled {
-  opacity: 0.65;
+.compiler-language-select__trigger > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compiler-language-select__trigger > svg:last-child {
+  flex: 0 0 auto;
+  color: rgb(var(--text-muted));
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.compiler-language-select.is-open .compiler-language-select__trigger {
+  border-color: rgb(var(--accent) / 0.72);
+  background: rgb(var(--card) / 0.96);
+  box-shadow: 0 0 0 3px rgb(var(--accent) / 0.1);
+}
+
+.compiler-language-select.is-open .compiler-language-select__trigger > svg:last-child {
+  transform: rotate(180deg);
+  color: rgb(var(--accent));
+}
+
+.compiler-language-select__trigger:hover:not(:disabled) {
+  border-color: rgb(var(--accent) / 0.55);
+  background: rgb(var(--card) / 0.9);
+}
+
+.compiler-language-select__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.compiler-language-select__menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 40;
+  width: max(100%, 14.25rem);
+  overflow: hidden;
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: 0.9rem;
+  padding: 0.35rem;
+  background: rgb(var(--card) / 0.98);
+  box-shadow: 0 22px 54px rgb(0 0 0 / 0.32), 0 0 0 1px rgb(var(--accent) / 0.04);
+  backdrop-filter: blur(22px);
+}
+
+.compiler-language-select__option {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 0.65rem;
+  padding: 0.58rem 0.62rem;
+  color: rgb(var(--text));
+  background: transparent;
+  font-size: 0.79rem;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.compiler-language-select__option:hover,
+.compiler-language-select__option:focus-visible {
+  outline: none;
+  background: rgb(var(--border) / 0.18);
+}
+
+.compiler-language-select__option.is-selected {
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / 0.12);
+}
+
+.compiler-language-select__option-mark {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 0.42rem;
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / 0.1);
+}
+
+.compiler-language-select__option:not(.is-selected) .compiler-language-select__option-mark {
+  background: transparent;
+}
+
+.compiler-language-select__option > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compiler-language-select__option small {
+  color: rgb(var(--text-muted));
+  font-size: 0.67rem;
+  font-weight: 500;
 }
 
 .compiler-toolbar__meta {
@@ -224,7 +320,7 @@
 
 .compiler-button--stop {
   border-color: rgb(239 68 68 / 0.62);
-  color: #fff;
+  color: white;
   background: rgb(220 38 38 / 0.92);
 }
 
@@ -322,13 +418,13 @@
 }
 
 .compiler-pane--terminal {
-  background: #0b0d10;
+  background: var(--compiler-terminal-bg);
 }
 
 .compiler-pane__header--terminal {
-  border-bottom-color: rgb(255 255 255 / 0.08);
-  color: #e5e7eb;
-  background: #101318;
+  border-bottom-color: var(--compiler-terminal-border);
+  color: rgb(var(--text));
+  background: var(--compiler-terminal-surface);
 }
 
 .compiler-console-actions {
@@ -342,10 +438,10 @@
   width: 1.85rem;
   height: 1.85rem;
   place-items: center;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(var(--border) / 0.55);
   border-radius: 0.55rem;
-  color: #aab2bf;
-  background: rgb(255 255 255 / 0.025);
+  color: rgb(var(--text-muted));
+  background: rgb(var(--border) / 0.08);
 }
 
 .compiler-console-actions button:hover {
@@ -361,8 +457,8 @@
   cursor: text;
   scrollbar-color: rgb(255 255 255 / 0.2) transparent;
   background:
-    radial-gradient(circle at 100% 0%, rgb(var(--accent) / 0.07), transparent 34%),
-    #0b0d10;
+    radial-gradient(circle at 100% 0%, rgb(var(--accent) / 0.08), transparent 34%),
+    var(--compiler-terminal-bg);
 }
 
 .tf-terminal__screen {
@@ -370,7 +466,7 @@
   min-height: 100%;
   margin: 0;
   padding: 0.85rem 0.95rem 1.2rem;
-  color: #d7dde8;
+  color: rgb(var(--text));
   font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   font-variant-ligatures: none;
@@ -387,8 +483,8 @@
 }
 
 .tf-terminal__cursor.is-visible {
-  color: #0b0d10;
-  background: #e5e7eb;
+  color: var(--compiler-terminal-bg);
+  background: rgb(var(--text));
   animation: terminal-cursor-blink 1.05s steps(1, end) infinite;
 }
 
@@ -424,7 +520,7 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  color: #697180;
+  color: rgb(var(--text-muted) / 0.72);
   font-size: 0.76rem;
 }
 
@@ -434,10 +530,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border-top: 1px solid rgb(255 255 255 / 0.07);
+  border-top: 1px solid var(--compiler-terminal-border);
   padding: 0 0.8rem;
-  color: #6f7784;
-  background: #101318;
+  color: rgb(var(--text-muted) / 0.78);
+  background: var(--compiler-terminal-surface);
   font-size: 0.64rem;
 }
 

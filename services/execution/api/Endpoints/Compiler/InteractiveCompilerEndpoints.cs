@@ -151,7 +151,24 @@ internal static partial class ExecutionApiEndpoints
 
             var runnerToBrowser = RelayRunnerToBrowserAsync(runnerStream, browserSocket, linkedCts.Token);
             var browserToRunner = RelayBrowserToRunnerAsync(browserSocket, runnerStream, linkedCts.Token);
-            await Task.WhenAny(runnerToBrowser, browserToRunner);
+            var completed = await Task.WhenAny(runnerToBrowser, browserToRunner);
+
+            if (completed == runnerToBrowser)
+            {
+                try { await runnerToBrowser; } catch (OperationCanceledException) { }
+                if (browserSocket.State == WebSocketState.Open)
+                {
+                    try
+                    {
+                        await browserSocket.CloseOutputAsync(
+                            WebSocketCloseStatus.NormalClosure,
+                            "runner session ended",
+                            CancellationToken.None);
+                    }
+                    catch { }
+                }
+            }
+
             linkedCts.Cancel();
             try { await Task.WhenAll(runnerToBrowser, browserToRunner); } catch { }
         }

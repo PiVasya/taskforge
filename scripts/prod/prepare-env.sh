@@ -319,22 +319,32 @@ PUBLIC_KEY="$(read_env_value CODE_ANALYZER_PUBLIC_KEY_PATH)"
 [ -n "$PRIVATE_KEY" ] || { echo "error: CODE_ANALYZER_PRIVATE_KEY_PATH is empty" >&2; exit 2; }
 [ -n "$PUBLIC_KEY" ] || { echo "error: CODE_ANALYZER_PUBLIC_KEY_PATH is empty" >&2; exit 2; }
 
-if [ ! -s "$PRIVATE_KEY" ] || [ ! -s "$PUBLIC_KEY" ]; then
-  command -v openssl >/dev/null 2>&1 || { echo "error: openssl is required to generate code-analyzer keys" >&2; exit 2; }
-  mkdir -p "$(dirname "$PRIVATE_KEY")" "$(dirname "$PUBLIC_KEY")"
-  tmp_private="${PRIVATE_KEY}.tmp.$$"
-  tmp_public="${PUBLIC_KEY}.tmp.$$"
-  trap 'rm -f "$PLAN_FILE" "${tmp_private:-}" "${tmp_public:-}"' EXIT
-  umask 077
+command -v openssl >/dev/null 2>&1 || { echo "error: openssl is required to prepare code-analyzer keys" >&2; exit 2; }
+mkdir -p "$(dirname "$PRIVATE_KEY")" "$(dirname "$PUBLIC_KEY")"
+tmp_private="${PRIVATE_KEY}.tmp.$$"
+tmp_public="${PUBLIC_KEY}.tmp.$$"
+trap 'rm -f "$PLAN_FILE" "${tmp_private:-}" "${tmp_public:-}"' EXIT
+umask 077
+
+if [ ! -s "$PRIVATE_KEY" ]; then
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$tmp_private" 2>/dev/null
-  openssl pkey -in "$tmp_private" -pubout -out "$tmp_public"
   openssl pkey -in "$tmp_private" -check -noout >/dev/null
   install -m 0600 "$tmp_private" "$PRIVATE_KEY"
-  install -m 0644 "$tmp_public" "$PUBLIC_KEY"
-  rm -f "$tmp_private" "$tmp_public"
-  echo "Generated code-analyzer RSA keypair."
+  echo "Generated code-analyzer RSA private key."
+else
+  if ! openssl pkey -in "$PRIVATE_KEY" -check -noout >/dev/null; then
+    echo "error: code-analyzer private key is invalid: $PRIVATE_KEY" >&2
+    exit 2
+  fi
 fi
 
+openssl pkey -in "$PRIVATE_KEY" -pubout -out "$tmp_public"
+if [ ! -s "$PUBLIC_KEY" ] || ! cmp -s "$tmp_public" "$PUBLIC_KEY"; then
+  install -m 0644 "$tmp_public" "$PUBLIC_KEY"
+  echo "Synchronized code-analyzer public key with the private signing key."
+fi
+
+rm -f "$tmp_private" "$tmp_public"
 chmod 600 "$PRIVATE_KEY" 2>/dev/null || true
 chmod 644 "$PUBLIC_KEY" 2>/dev/null || true
 

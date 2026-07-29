@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Braces,
+  Check,
   ChevronDown,
   CircleStop,
   Clipboard,
@@ -114,9 +115,10 @@ function statusText(status, exitInfo) {
   if (status === 'stopping') return 'Остановка';
   if (status === 'error') return 'Ошибка';
   if (status === 'finished') {
-    if (exitInfo?.reason === 'time_limit') return 'Лимит времени';
-    if (exitInfo?.reason === 'output_limit') return 'Лимит вывода';
-    return exitInfo?.exitCode === 0 ? 'Завершено' : `Код выхода ${exitInfo?.exitCode ?? 1}`;
+    if (!exitInfo) return 'Сессия закрыта';
+    if (exitInfo.reason === 'time_limit') return 'Лимит времени';
+    if (exitInfo.reason === 'output_limit') return 'Лимит вывода';
+    return exitInfo.exitCode === 0 ? 'Завершено' : `Код выхода ${exitInfo.exitCode}`;
   }
   return 'Готово к запуску';
 }
@@ -130,13 +132,16 @@ function CompilerFeature() {
   const [editorPercent, setEditorPercent] = useState(55);
   const [mobileTab, setMobileTab] = useState('code');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   const pageRef = useRef(null);
+  const languageSelectRef = useRef(null);
   const workspaceRef = useRef(null);
   const terminalRef = useRef(null);
   const socketRef = useRef(null);
   const runSequenceRef = useRef(0);
   const terminalStatusRef = useRef('idle');
+  const terminalOutcomeRef = useRef(false);
 
   const selectedLanguage = LANGUAGE_MAP[language] || LANGUAGES[0];
   const active = ['creating', 'connecting', 'compiling', 'running', 'stopping'].includes(status);
@@ -153,6 +158,23 @@ function CompilerFeature() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreen);
   }, []);
 
+
+  useEffect(() => {
+    if (!languageMenuOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (!languageSelectRef.current?.contains(event.target)) setLanguageMenuOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setLanguageMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [languageMenuOpen]);
+
   useEffect(() => () => {
     runSequenceRef.current += 1;
     const socket = socketRef.current;
@@ -163,7 +185,9 @@ function CompilerFeature() {
   }, []);
 
   const changeLanguage = useCallback((nextLanguage) => {
-    if (!LANGUAGE_MAP[nextLanguage] || nextLanguage === language) return;
+    if (!LANGUAGE_MAP[nextLanguage]) return;
+    setLanguageMenuOpen(false);
+    if (nextLanguage === language) return;
     saveDraft(language, code);
     setLanguage(nextLanguage);
     setCode(readDraft(nextLanguage));
@@ -203,6 +227,7 @@ function CompilerFeature() {
     runSequenceRef.current = sequence;
     closeCurrentSocket(true);
     terminalStatusRef.current = 'idle';
+    terminalOutcomeRef.current = false;
     if (!preserveConsole) terminalRef.current?.clear();
     terminalRef.current?.writeSystem(`[TaskForge] ${selectedLanguage.label} · ${selectedLanguage.runtime}`);
     terminalRef.current?.writeSystem('[TaskForge] Проверка безопасности и подготовка сессии...');
@@ -257,6 +282,7 @@ function CompilerFeature() {
           return;
         }
         if (message.type === 'exit') {
+          terminalOutcomeRef.current = true;
           const nextExitInfo = {
             exitCode: Number(message.exitCode ?? 0),
             reason: message.reason || 'completed',
@@ -271,13 +297,15 @@ function CompilerFeature() {
           return;
         }
         if (message.type === 'error') {
+          terminalOutcomeRef.current = true;
           setStatus('error');
           terminalRef.current?.writeSystem(`[TaskForge] ${message.message || 'Сессия завершилась с ошибкой.'}`);
         }
       });
 
       socket.addEventListener('error', () => {
-        if (sequence !== runSequenceRef.current) return;
+        if (sequence !== runSequenceRef.current || terminalOutcomeRef.current) return;
+        terminalOutcomeRef.current = true;
         setStatus('error');
         terminalRef.current?.writeSystem('[TaskForge] Соединение с консолью прервано.');
       });
@@ -286,9 +314,10 @@ function CompilerFeature() {
         if (socketRef.current === socket) socketRef.current = null;
         if (sequence !== runSequenceRef.current) return;
         setStatus((current) => {
-          if (current === 'finished' || current === 'error' || current === 'idle') return current;
-          terminalRef.current?.writeSystem('[TaskForge] Консольная сессия закрыта.');
-          return 'finished';
+          if (terminalOutcomeRef.current || current === 'finished' || current === 'error' || current === 'idle') return current;
+          terminalOutcomeRef.current = true;
+          terminalRef.current?.writeSystem('[TaskForge] Сессия закрылась до запуска программы. Проверьте раннер и ключ безопасности.');
+          return 'error';
         });
       });
     } catch (error) {
@@ -409,15 +438,43 @@ function CompilerFeature() {
       </div>
 
       <div className="compiler-toolbar card">
-        <label className="compiler-language-select">
-          <FileCode2 size={17} />
-          <select value={language} onChange={(event) => changeLanguage(event.target.value)} disabled={active}>
-            {LANGUAGES.map((item) => (
-              <option key={item.id} value={item.id}>{item.label} · {item.runtime}</option>
-            ))}
-          </select>
-          <ChevronDown size={15} aria-hidden="true" />
-        </label>
+        <div ref={languageSelectRef} className={`compiler-language-select ${languageMenuOpen ? 'is-open' : ''}`}>
+          <button
+            type="button"
+            className="compiler-language-select__trigger"
+            onClick={() => setLanguageMenuOpen((open) => !open)}
+            disabled={active}
+            aria-haspopup="listbox"
+            aria-expanded={languageMenuOpen}
+          >
+            <FileCode2 size={17} />
+            <span>{selectedLanguage.label} · {selectedLanguage.runtime}</span>
+            <ChevronDown size={15} aria-hidden="true" />
+          </button>
+          {languageMenuOpen ? (
+            <div className="compiler-language-select__menu" role="listbox" aria-label="Язык компилятора">
+              {LANGUAGES.map((item) => {
+                const selected = item.id === language;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={`compiler-language-select__option ${selected ? 'is-selected' : ''}`}
+                    onClick={() => changeLanguage(item.id)}
+                  >
+                    <span className="compiler-language-select__option-mark">
+                      {selected ? <Check size={14} strokeWidth={2.4} /> : null}
+                    </span>
+                    <span>{item.label}</span>
+                    <small>{item.runtime}</small>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
 
         <div className="compiler-toolbar__meta">
           <span>{selectedLanguage.fileName}</span>
