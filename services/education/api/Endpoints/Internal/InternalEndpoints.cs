@@ -53,6 +53,47 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { courseId, userId, canView = CanViewCourse(access, course), canEdit = CanEditCourse(access, course), isPublic = course.IsPublic });
         });
 
+
+        app.MapPost("/api/internal/courses/access", async (CourseAccessBatchRequest request, EducationDbContext db, CancellationToken ct) =>
+        {
+            var courseIds = (request.CourseIds ?? Array.Empty<Guid>())
+                .Where(x => x != Guid.Empty)
+                .Distinct()
+                .Take(2000)
+                .ToArray();
+
+            if (request.UserId == Guid.Empty || courseIds.Length == 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAccessDto>());
+            }
+
+            var groupIds = await db.GroupMembers.AsNoTracking()
+                .Where(x => x.UserId == request.UserId)
+                .Select(x => x.GroupId)
+                .ToListAsync(ct);
+            var access = new EducationAccessContext(request.UserId, false, groupIds.ToHashSet());
+            var courses = await db.Courses.AsNoTracking()
+                .Where(x => courseIds.Contains(x.Id))
+                .ToListAsync(ct);
+
+            var byId = courses.ToDictionary(x => x.Id);
+            var rows = courseIds
+                .Where(byId.ContainsKey)
+                .Select(id =>
+                {
+                    var course = byId[id];
+                    return new CourseAccessDto(
+                        course.Id,
+                        request.UserId,
+                        CanViewCourse(access, course),
+                        CanEditCourse(access, course),
+                        course.IsPublic);
+                })
+                .ToArray();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(rows);
+        });
+
         app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
             var rows = await db.Courses.AsNoTracking()

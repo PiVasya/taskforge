@@ -62,15 +62,14 @@ internal static partial class AssignmentApiEndpoints
             var allowedIds = requestedIds;
             if (!includeHidden)
             {
-                var allowed = new List<Guid>();
-                foreach (var id in requestedIds)
+                var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+                if (!userId.HasValue)
                 {
-                    if (await CanUserAccessCourseAsync(id, http, cfg, clients, ct))
-                    {
-                        allowed.Add(id);
-                    }
+                    return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAssignmentProgressDto>());
                 }
-                allowedIds = allowed.ToArray();
+
+                var allowed = await LoadAccessibleCourseIdsAsync(requestedIds, userId.Value, clients, cfg, ct);
+                allowedIds = requestedIds.Where(allowed.Contains).ToArray();
             }
 
             if (allowedIds.Length == 0)

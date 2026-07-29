@@ -100,12 +100,20 @@
   box-shadow: 0 0 0 4px rgb(34 197 94 / 0.14);
 }
 
-.compiler-status.is-error .compiler-status__dot {
+.compiler-status.is-error .compiler-status__dot,
+.compiler-status.is-failed .compiler-status__dot {
   background: #ef4444;
+  box-shadow: 0 0 0 4px rgb(239 68 68 / 0.12);
+}
+
+.compiler-status.is-limited .compiler-status__dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgb(245 158 11 / 0.12);
 }
 
 .compiler-status.is-finished .compiler-status__dot {
   background: #22c55e;
+  box-shadow: 0 0 0 4px rgb(34 197 94 / 0.12);
 }
 
 @keyframes compiler-pulse {

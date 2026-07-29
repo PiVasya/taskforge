@@ -1,6 +1,6 @@
 import api from './http';
 
-
+const courseProgressRequests = new Map();
 
 
 export async function getAssignmentsByCourse(courseId) {
@@ -10,10 +10,23 @@ export async function getAssignmentsByCourse(courseId) {
 
 
 export async function getCourseProgressByCourses(courseIds) {
-  const ids = Array.isArray(courseIds) ? courseIds.filter(Boolean) : [];
+  const ids = Array.from(new Set(Array.isArray(courseIds) ? courseIds.filter(Boolean).map(String) : []))
+    .sort();
   if (ids.length === 0) return [];
-  const res = await api.post('/api/assignments/course-progress', { courseIds: ids });
-  return res.data;
+
+  const key = ids.join(',');
+  const existing = courseProgressRequests.get(key);
+  if (existing) return existing;
+
+  const request = api
+    .post('/api/assignments/course-progress', { courseIds: ids })
+    .then((res) => res.data)
+    .finally(() => {
+      if (courseProgressRequests.get(key) === request) courseProgressRequests.delete(key);
+    });
+
+  courseProgressRequests.set(key, request);
+  return request;
 }
 
 

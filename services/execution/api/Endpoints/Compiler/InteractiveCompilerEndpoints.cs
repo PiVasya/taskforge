@@ -26,7 +26,8 @@ internal static partial class ExecutionApiEndpoints
         HttpContext context,
         IHttpClientFactory factory,
         IConfiguration configuration,
-        InteractiveSessionRegistry registry)
+        InteractiveSessionRegistry registry,
+        ILoggerFactory loggerFactory)
     {
         var language = NormalizeLanguage(request.Language);
         if (language == "javascript")
@@ -80,10 +81,32 @@ internal static partial class ExecutionApiEndpoints
         }
 
         var (payload, ticket) = created.Value;
+        var cookieName = InteractiveTicketCookieName(payload.Id);
+        var cookiePath = $"/api/compiler/sessions/{payload.Id}/socket";
+        var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].ToString();
+        context.Response.Cookies.Append(cookieName, ticket, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps || string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase),
+            SameSite = SameSiteMode.Strict,
+            IsEssential = true,
+            Path = cookiePath,
+            MaxAge = TimeSpan.FromSeconds(90)
+        });
+
+        loggerFactory.CreateLogger("InteractiveCompilerSession").LogInformation(
+            "Interactive compiler session {SessionId} created for language {Language}; runner={Runner}; admin={IsAdmin}; limits={TimeLimitMs}ms/{MemoryLimitMb}MB",
+            payload.Id,
+            payload.Language,
+            payload.RunnerService,
+            isAdmin,
+            payload.TimeLimitMs,
+            payload.MemoryLimitMb);
+
         return Results.Ok(new
         {
             sessionId = payload.Id,
-            websocketUrl = $"/api/compiler/sessions/{payload.Id}/socket?ticket={ticket}",
+            websocketUrl = cookiePath,
             expiresAt = payload.ExpiresAt,
             language = payload.Language,
             limits = new
@@ -107,7 +130,13 @@ internal static partial class ExecutionApiEndpoints
             await context.Response.WriteAsJsonAsync(new { message = "Ожидалось WebSocket-подключение." });
             return;
         }
-        var ticket = context.Request.Query["ticket"].ToString();
+        var cookieName = InteractiveTicketCookieName(sessionId);
+        var ticket = context.Request.Cookies[cookieName];
+        if (string.IsNullOrWhiteSpace(ticket))
+        {
+            // Compatibility with frontend/backend instances during a rolling deploy.
+            ticket = context.Request.Query["ticket"].ToString();
+        }
         if (!registry.TryActivate(sessionId, ticket, out var session))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -115,7 +144,16 @@ internal static partial class ExecutionApiEndpoints
         }
 
         var logger = loggerFactory.CreateLogger("InteractiveCompilerProxy");
+        context.Response.Cookies.Delete(cookieName, new CookieOptions
+        {
+            Path = $"/api/compiler/sessions/{sessionId}/socket"
+        });
         using var browserSocket = await context.WebSockets.AcceptWebSocketAsync();
+        logger.LogInformation(
+            "Interactive compiler session {SessionId} activated; language={Language}; runner={Runner}",
+            sessionId,
+            session.Language,
+            session.RunnerService);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         linkedCts.CancelAfter(TimeSpan.FromMinutes(3));
         try
@@ -124,6 +162,10 @@ internal static partial class ExecutionApiEndpoints
             try
             {
                 await runnerClient.ConnectAsync(session.RunnerService, 9090, linkedCts.Token);
+                logger.LogInformation(
+                    "Interactive compiler session {SessionId} connected to runner {Runner}:9090",
+                    sessionId,
+                    session.RunnerService);
             }
             catch (Exception ex)
             {
@@ -164,6 +206,11 @@ internal static partial class ExecutionApiEndpoints
                             WebSocketCloseStatus.NormalClosure,
                             "runner session ended",
                             CancellationToken.None);
+
+                        // Give the browser a short chance to answer the close frame.
+                        // Cancelling ReceiveAsync immediately makes nginx report a noisy
+                        // "connection reset by peer" even for a correctly ended session.
+                        await Task.WhenAny(browserToRunner, Task.Delay(TimeSpan.FromSeconds(2)));
                     }
                     catch { }
                 }
@@ -171,6 +218,10 @@ internal static partial class ExecutionApiEndpoints
 
             linkedCts.Cancel();
             try { await Task.WhenAll(runnerToBrowser, browserToRunner); } catch { }
+            logger.LogInformation(
+                "Interactive compiler session {SessionId} relay finished; browserState={BrowserState}",
+                sessionId,
+                browserSocket.State);
         }
         catch (OperationCanceledException)
         {
@@ -184,8 +235,20 @@ internal static partial class ExecutionApiEndpoints
             registry.Release(sessionId);
             if (browserSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
             {
-                try { await browserSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "session closed", CancellationToken.None); } catch { }
+                using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await browserSocket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "session closed",
+                        closeCts.Token);
+                }
+                catch { }
             }
+            logger.LogInformation(
+                "Interactive compiler session {SessionId} released; finalBrowserState={BrowserState}",
+                sessionId,
+                browserSocket.State);
         }
     }
 
@@ -230,6 +293,8 @@ internal static partial class ExecutionApiEndpoints
             await runnerStream.FlushAsync(cancellationToken);
         }
     }
+
+    private static string InteractiveTicketCookieName(Guid sessionId) => $"tf_compiler_{sessionId:N}";
 
     private static async Task SendWebSocketJsonAsync(WebSocket socket, object payload, CancellationToken cancellationToken)
     {

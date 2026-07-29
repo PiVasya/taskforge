@@ -9,6 +9,8 @@ namespace TaskForge.Education.Api.Contracts;
 
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 
+public sealed record CourseAccessBatchRequest(Guid UserId, Guid[]? CourseIds);
+
 public sealed record CourseGroupsRequest(Guid[]? GroupIds);
 
 public sealed record CourseOwnersRequest(Guid[]? OwnerIds);

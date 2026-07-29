@@ -42,6 +42,27 @@ internal static class AssignmentApiAccessService
         return await GetInternalAsync<CourseAccessDto>(clients, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/access/{userId:D}", ct);
     }
 
+
+    internal static async Task<HashSet<Guid>> LoadAccessibleCourseIdsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    {
+        var ids = courseIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+        if (ids.Length == 0 || userId == Guid.Empty) return new HashSet<Guid>();
+
+        var rows = await PostInternalAsync<List<CourseAccessDto>>(
+            clients,
+            cfg,
+            ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+            "/api/internal/courses/access",
+            new { userId, courseIds = ids },
+            ct);
+
+        return rows?
+            .Where(x => x.CanView)
+            .Select(x => x.CourseId)
+            .ToHashSet()
+            ?? new HashSet<Guid>();
+    }
+
     internal static bool IsEditor(HttpContext http, IConfiguration cfg)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);

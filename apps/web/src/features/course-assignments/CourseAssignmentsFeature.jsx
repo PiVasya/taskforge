@@ -46,6 +46,14 @@ import {
 } from './courseAssignmentsModel';
 import CourseContentCard from './components/CourseContentCard';
 
+const EMPTY_LIST = Object.freeze([]);
+const EMPTY_COURSE_BUNDLE = Object.freeze({
+  course: null,
+  allCourses: EMPTY_LIST,
+  childCourses: EMPTY_LIST,
+  courseCanEdit: true,
+});
+
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -93,11 +101,11 @@ export default function CourseAssignmentsPage() {
     keepPreviousData: true,
   });
 
-  const items = assignmentsQuery.data || [];
-  const courseBundle = courseBundleQuery.data || {};
+  const items = assignmentsQuery.data || EMPTY_LIST;
+  const courseBundle = courseBundleQuery.data || EMPTY_COURSE_BUNDLE;
   const course = courseBundle.course || null;
-  const childCourses = courseBundle.childCourses || [];
-  const allCourses = courseBundle.allCourses || [];
+  const childCourses = courseBundle.childCourses || EMPTY_LIST;
+  const allCourses = courseBundle.allCourses || EMPTY_LIST;
   const courseCanEdit = courseBundle.courseCanEdit !== false;
   const loading = assignmentsQuery.isLoading || courseBundleQuery.isLoading;
   const err = assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '';
@@ -205,42 +213,59 @@ export default function CourseAssignmentsPage() {
     return [...courses, ...assignments];
   }, [childCourses, items]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const knownCourses = [...(allCourses || [])];
-    if (course?.id && !knownCourses.some((x) => String(x?.id || '') === String(course.id))) {
+
+  const progressContext = useMemo(() => {
+    if (!courseId || !courseBundleQuery.isSuccess) return null;
+    const knownCourses = [...allCourses];
+    if (course?.id && !knownCourses.some((item) => String(item?.id || '') === String(course.id))) {
       knownCourses.push(course);
     }
-
     const childrenByParent = buildChildrenByParent(knownCourses);
-    const subtreeIds = collectCourseSubtreeIds(courseId, childrenByParent);
-    if (subtreeIds.length === 0) {
-      setCourseProgressByCourseId({});
-      setChildProgressByCourseId({});
+    const courseIds = collectCourseSubtreeIds(courseId, childrenByParent);
+    return {
+      childrenByParent,
+      courseIds,
+      requestKey: courseIds.map(String).sort().join(','),
+    };
+  }, [allCourses, course, courseBundleQuery.isSuccess, courseId]);
+
+  const progressRevision = `${courseBundleQuery.updatedAt || 0}:${assignmentsQuery.updatedAt || 0}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!progressContext || assignmentsQuery.isLoading || !progressContext.requestKey) {
       return () => {
         cancelled = true;
       };
     }
 
-    setCourseProgressByCourseId((prev) => ({
-      ...prev,
-      [courseId]: prev[courseId] || { loading: true, total: 0, solved: 0, percent: 0, isComplete: false },
-    }));
-    setChildProgressByCourseId((prev) => {
-      const next = { ...prev };
-      for (const child of childCourses || []) {
-        if (child?.id && !next[child.id]) next[child.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
+    const { childrenByParent, courseIds } = progressContext;
+    setCourseProgressByCourseId((previous) => {
+      if (previous[courseId]?.loading) return previous;
+      return {
+        ...previous,
+        [courseId]: previous[courseId] || { loading: true, total: 0, solved: 0, percent: 0, isComplete: false },
+      };
+    });
+    setChildProgressByCourseId((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const child of childCourses) {
+        if (child?.id && !next[child.id]) {
+          next[child.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
+          changed = true;
+        }
       }
-      return next;
+      return changed ? next : previous;
     });
 
-    getCourseProgressByCourses(subtreeIds)
+    getCourseProgressByCourses(courseIds)
       .then((rows) => {
         if (cancelled) return;
         const directProgress = normalizeProgressRows(rows);
-        const currentProgress = sumCourseProgress(subtreeIds, directProgress);
+        const currentProgress = sumCourseProgress(courseIds, directProgress);
         const nextChildProgress = {};
-        for (const child of childCourses || []) {
+        for (const child of childCourses) {
           if (!child?.id) continue;
           const childSubtreeIds = collectCourseSubtreeIds(child.id, childrenByParent);
           nextChildProgress[child.id] = sumCourseProgress(childSubtreeIds, directProgress);
@@ -250,12 +275,12 @@ export default function CourseAssignmentsPage() {
       })
       .catch(() => {
         if (cancelled) return;
-        const directTotal = (items || []).length;
-        const directSolved = (items || []).filter(isAssignmentSolved).length;
+        const directTotal = items.length;
+        const directSolved = items.filter(isAssignmentSolved).length;
         const directPercent = directTotal > 0 ? Math.round((directSolved / directTotal) * 100) : 0;
         const failedCurrent = { total: directTotal, solved: directSolved, percent: directPercent, isComplete: directTotal > 0 && directSolved === directTotal, loading: false, failed: true };
         const failedChildren = {};
-        for (const child of childCourses || []) {
+        for (const child of childCourses) {
           if (child?.id) failedChildren[child.id] = failedCurrent;
         }
         setCourseProgressByCourseId({ [courseId]: failedCurrent });
@@ -265,7 +290,8 @@ export default function CourseAssignmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [allCourses, childCourses, course, courseId, items]);
+  }, [assignmentsQuery.isLoading, childCourses, courseId, items, progressContext, progressRevision]);
+
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();

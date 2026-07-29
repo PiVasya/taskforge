@@ -161,7 +161,8 @@ export default function CoursesPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
-  const [progressByCourseId, setProgressByCourseId] = useState({});
+  const [directProgressByCourseId, setDirectProgressByCourseId] = useState(new Map());
+  const [progressLoading, setProgressLoading] = useState(false);
   const [draggedCourseId, setDraggedCourseId] = useState(null);
   const [dragOverCourseId, setDragOverCourseId] = useState(null);
   const [dragOverMode, setDragOverMode] = useState("before");
@@ -183,6 +184,29 @@ export default function CoursesPage() {
       })
       .sort(compareCourses);
   }, [items, q]);
+
+
+  const visibleCourses = useMemo(
+    () => (items || []).filter((course) => course?.id),
+    [items],
+  );
+  const visibleCourseIdsKey = useMemo(
+    () => visibleCourses.map((course) => String(course.id)).sort().join(','),
+    [visibleCourses],
+  );
+
+  const progressByCourseId = useMemo(() => {
+    const childrenByParent = buildChildrenByParent(visibleCourses);
+    const next = {};
+    for (const course of rootCourses) {
+      const subtreeIds = collectCourseSubtreeIds(course.id, childrenByParent);
+      const progress = sumCourseProgress(subtreeIds, directProgressByCourseId);
+      next[course.id] = progressLoading
+        ? { ...progress, loading: true }
+        : progress;
+    }
+    return next;
+  }, [directProgressByCourseId, progressLoading, rootCourses, visibleCourses]);
 
   const loadCourses = async ({ reset = false } = {}) => {
     const nextPage = reset ? 1 : page + 1;
@@ -212,47 +236,33 @@ export default function CoursesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const visibleCourses = (items || []).filter((course) => course?.id);
-    if (visibleCourses.length === 0) {
-      setProgressByCourseId({});
+    if (!visibleCourseIdsKey) {
+      setDirectProgressByCourseId(new Map());
+      setProgressLoading(false);
       return () => {
         cancelled = true;
       };
     }
 
-    setProgressByCourseId((prev) => {
-      const next = { ...prev };
-      for (const course of rootCourses) {
-        if (!next[course.id]) next[course.id] = { loading: true, total: 0, solved: 0, percent: 0, isComplete: false };
-      }
-      return next;
-    });
-
-    getCourseProgressByCourses(visibleCourses.map((course) => course.id))
+    setProgressLoading(true);
+    getCourseProgressByCourses(visibleCourseIdsKey.split(','))
       .then((rows) => {
         if (cancelled) return;
-        const directProgress = normalizeProgressRows(rows);
-        const childrenByParent = buildChildrenByParent(visibleCourses);
-        const next = {};
-        for (const course of rootCourses) {
-          const subtreeIds = collectCourseSubtreeIds(course.id, childrenByParent);
-          next[course.id] = sumCourseProgress(subtreeIds, directProgress);
-        }
-        setProgressByCourseId(next);
+        setDirectProgressByCourseId(normalizeProgressRows(rows));
       })
       .catch(() => {
         if (cancelled) return;
-        const failed = {};
-        for (const course of rootCourses) {
-          failed[course.id] = { total: 0, solved: 0, percent: 0, isComplete: false, loading: false, failed: true };
-        }
-        setProgressByCourseId(failed);
+        setDirectProgressByCourseId(new Map());
+      })
+      .finally(() => {
+        if (!cancelled) setProgressLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [items, rootCourses]);
+  }, [visibleCourseIdsKey]);
+
 
   const handleCreate = async () => {
     try {

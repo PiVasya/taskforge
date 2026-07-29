@@ -419,6 +419,11 @@ function CompilerFeature() {
   }, []);
 
   const statusLabel = useMemo(() => statusText(status, exitInfo), [exitInfo, status]);
+  const statusTone = useMemo(() => {
+    if (status !== 'finished' || !exitInfo) return status;
+    if (exitInfo.reason === 'time_limit' || exitInfo.reason === 'output_limit') return 'limited';
+    return exitInfo.exitCode === 0 ? 'finished' : 'failed';
+  }, [exitInfo, status]);
 
   return (
     <div ref={pageRef} className={`compiler-page ${isFullscreen ? 'is-fullscreen' : ''}`}>
@@ -430,7 +435,7 @@ function CompilerFeature() {
             <p>Пишите код и общайтесь с программой через живую интерактивную консоль.</p>
           </div>
         </div>
-        <div className={`compiler-status is-${status}`}>
+        <div className={`compiler-status is-${statusTone}`}>
           <span className="compiler-status__dot" />
           <span>{statusLabel}</span>
           {exitInfo?.durationMs > 0 ? <small>{exitInfo.durationMs} мс</small> : null}
