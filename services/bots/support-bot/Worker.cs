@@ -15,6 +15,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     private TelegramBotClient? _bot;
     private long _supportGroupId;
 
+    public bool TelegramReady => _bot != null;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var token = FirstNonEmpty(
@@ -36,9 +38,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
         if (!long.TryParse(groupIdRaw, out _supportGroupId) || _supportGroupId == 0)
         {
-            logger.LogWarning("Support bot is disabled: Telegram support group id is not configured or invalid.");
-            await WaitUntilCancelledAsync(stoppingToken);
-            return;
+            _supportGroupId = 0;
+            logger.LogWarning("Telegram support group id is not configured or invalid. Private Telegram features remain available, but support group relay is disabled.");
         }
 
         _bot = new TelegramBotClient(token);
@@ -77,7 +78,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
     private async Task SendPendingUserMessagesToGroupAsync(CancellationToken ct)
     {
-        if (_bot == null) return;
+        if (_bot == null || _supportGroupId == 0) return;
         var support = SupportClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/internal/support/telegram/pending-user-messages");
         AddInternalKey(request);
@@ -146,6 +147,53 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             {
                 logger.LogWarning("Failed to mark admin reply {MessageId} as delivered. Status: {Status}", reply.MessageId, markResponse.StatusCode);
             }
+        }
+    }
+
+
+    public async Task<PasswordRecoveryDeliveryResult> SendPasswordRecoveryCodeAsync(
+        PasswordRecoveryDeliveryRequest request,
+        CancellationToken ct)
+    {
+        var bot = _bot;
+        if (bot == null)
+        {
+            return PasswordRecoveryDeliveryResult.TelegramNotReady;
+        }
+
+        var lifetimeMinutes = Math.Clamp(request.LifetimeMinutes, 3, 30);
+        var accountName = string.IsNullOrWhiteSpace(request.AccountName)
+            ? "Пользователь TaskForge"
+            : request.AccountName.Trim();
+        var login = string.IsNullOrWhiteSpace(request.Login)
+            ? "не указан"
+            : request.Login.Trim();
+
+        var text =
+            "🔐 Восстановление аккаунта TaskForge\n\n" +
+            $"Аккаунт: {accountName}\n" +
+            $"Логин: {login}\n" +
+            $"Код восстановления: {request.VerificationCode}\n\n" +
+            $"Код действует {lifetimeMinutes} мин. Никому его не сообщайте.\n" +
+            "Если вы не запрашивали восстановление, просто проигнорируйте это сообщение.";
+
+        try
+        {
+            await bot.SendTextMessageAsync(
+                request.TelegramChatId,
+                text,
+                cancellationToken: ct);
+            logger.LogInformation("Password recovery code delivered by support-bot.");
+            return PasswordRecoveryDeliveryResult.Success;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Password recovery Telegram delivery failed in support-bot. Exception type: {ExceptionType}", ex.GetType().Name);
+            return PasswordRecoveryDeliveryResult.DeliveryFailed;
         }
     }
 

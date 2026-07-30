@@ -65,6 +65,7 @@ services:
       SupportApi__InternalKey: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
       SupportApi__BaseUrl: http://support-api:8080
       IdentityApi__BaseUrl: http://identity-api:8080
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -85,6 +86,8 @@ services:
       Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
+    expose:
+      - '8080'
     depends_on:
       support-api:
         condition: service_healthy

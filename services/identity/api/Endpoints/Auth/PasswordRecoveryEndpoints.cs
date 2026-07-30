@@ -19,7 +19,7 @@ internal static partial class IdentityApiEndpoints
     private const string PasswordRecoveryChallengeCookie = "tf_prc";
     private const string PasswordRecoveryResetCookie = "tf_prt";
 
-    private static readonly HttpClient PasswordRecoveryTelegramClient = new(new SocketsHttpHandler
+    private static readonly HttpClient PasswordRecoverySupportBotClient = new(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
@@ -154,17 +154,6 @@ internal static partial class IdentityApiEndpoints
                 return PasswordRecoveryUnavailable();
             }
 
-            var botToken = PasswordRecoveryBotToken(cfg);
-            if (string.IsNullOrWhiteSpace(botToken))
-            {
-                return Microsoft.AspNetCore.Http.Results.Json(new
-                {
-                    available = false,
-                    message = "Сервис восстановления через Telegram сейчас недоступен. Попробуйте позже.",
-                    code = "RECOVERY_DELIVERY_UNAVAILABLE"
-                }, statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
-
             var now = DateTimeOffset.UtcNow;
             var throttle = await TryConsumeTelegramThrottleAsync(
                 cache,
@@ -214,8 +203,8 @@ internal static partial class IdentityApiEndpoints
                 ct);
             SetPasswordRecoveryCookie(http, PasswordRecoveryChallengeCookie, challengeId, expiresAt);
 
-            var delivered = await SendPasswordRecoveryTelegramAsync(
-                botToken,
+            var delivered = await SendPasswordRecoveryViaSupportBotAsync(
+                cfg,
                 user,
                 verificationCode,
                 PasswordRecoveryCodeLifetimeMinutes(cfg),
@@ -443,8 +432,8 @@ internal static partial class IdentityApiEndpoints
         code = "RECOVERY_NOT_AVAILABLE"
     });
 
-    private static async Task<bool> SendPasswordRecoveryTelegramAsync(
-        string botToken,
+    private static async Task<bool> SendPasswordRecoveryViaSupportBotAsync(
+        IConfiguration cfg,
         IdentityUser user,
         string verificationCode,
         int lifetimeMinutes,
@@ -453,26 +442,30 @@ internal static partial class IdentityApiEndpoints
     {
         if (user.TelegramChatId == null) return false;
 
-        var text =
-            "🔐 Восстановление аккаунта TaskForge\n\n" +
-            $"Аккаунт: {DisplayName(user)}\n" +
-            $"Логин: {UserLoginOrFallback(user)}\n" +
-            $"Код восстановления: {verificationCode}\n\n" +
-            $"Код действует {lifetimeMinutes} мин. Никому его не сообщайте.\n" +
-            "Если вы не запрашивали восстановление, просто проигнорируйте это сообщение.";
+        var supportBotBaseUrl = ServiceUrl(cfg, "SupportBot", "http://support-bot:8080");
+        var endpoint = new Uri($"{supportBotBaseUrl.TrimEnd('/')}/api/internal/password-recovery/send");
 
         try
         {
-            var endpoint = new Uri($"https://api.telegram.org/bot{botToken}/sendMessage");
-            using var response = await PasswordRecoveryTelegramClient.PostAsJsonAsync(endpoint, new
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
-                chat_id = user.TelegramChatId.Value,
-                text,
-                disable_web_page_preview = true
-            }, ct);
+                Content = JsonContent.Create(new
+                {
+                    telegramChatId = user.TelegramChatId.Value,
+                    verificationCode,
+                    accountName = DisplayName(user),
+                    login = UserLoginOrFallback(user),
+                    lifetimeMinutes
+                })
+            };
+            AddInternalKey(request, cfg);
+
+            using var response = await PasswordRecoverySupportBotClient.SendAsync(request, ct);
             if (response.IsSuccessStatusCode) return true;
 
-            logger.LogWarning("Password recovery Telegram delivery failed with status {StatusCode}.", (int)response.StatusCode);
+            logger.LogWarning(
+                "Password recovery delivery through support-bot failed with status {StatusCode}.",
+                (int)response.StatusCode);
             return false;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -481,15 +474,12 @@ internal static partial class IdentityApiEndpoints
         }
         catch (Exception ex)
         {
-            logger.LogWarning("Password recovery Telegram delivery failed. Exception type: {ExceptionType}", ex.GetType().Name);
+            logger.LogWarning(
+                "Password recovery delivery through support-bot failed. Exception type: {ExceptionType}",
+                ex.GetType().Name);
             return false;
         }
     }
-
-    private static string PasswordRecoveryBotToken(IConfiguration cfg) => FirstNonEmpty(
-        cfg["Telegram:BotToken"],
-        cfg["SUPPORT_BOT_TOKEN"],
-        cfg["TELEGRAM_BOT_TOKEN"]) ?? string.Empty;
 
     private static int PasswordRecoveryCodeLifetimeMinutes(IConfiguration cfg)
         => Math.Clamp(cfg.GetValue("PasswordRecovery:CodeLifetimeMinutes", 10), 3, 30);

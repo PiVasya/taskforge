@@ -5,7 +5,7 @@ RUN dotnet restore services/bots/support-bot/TaskForge.SupportBot.csproj
 COPY services/bots/support-bot services/bots/support-bot
 RUN dotnet publish services/bots/support-bot/TaskForge.SupportBot.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
 ARG TASKFORGE_DEBUG_LOGS=1

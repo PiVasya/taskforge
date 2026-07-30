@@ -1,7 +1,14 @@
 # support-bot
 
-Новая микросервисная роль: bot adapter.
+Telegram adapter for TaskForge.
 
-Бот не владеет БД и не подключается напрямую к `taskforge_support`. Он должен ходить в `support-api`.
+This is the only service that receives `SUPPORT_BOT_TOKEN` / `Telegram__BotToken` and the only service allowed to call Telegram Bot API.
 
-Старый исходник не хранится рядом с runtime-кодом бота. При необходимости смотреть историю через git/архивы, а не через `docs/original`.
+Responsibilities:
+
+- Telegram account linking and private support messages;
+- support group relay;
+- delivery of password-recovery codes through the internal endpoint
+  `POST /api/internal/password-recovery/send`.
+
+The internal delivery endpoint is available only inside the Docker network and requires `X-Internal-Key`. `identity-api` owns password-recovery state and verification, but never receives the Telegram bot token and never calls Telegram directly.

@@ -81,6 +81,31 @@ for env in dev prod; do
   printf '%s\n' "$analyzer_block" | grep -q 'code_analyzer_private_key' || fail "$analyzer: code-analyzer private key secret is missing"
 done
 
+# Telegram bot token boundary: only support-bot may receive or use the bot token.
+if grep -R -n -E 'api\.telegram\.org|SUPPORT_BOT_TOKEN|TELEGRAM_BOT_TOKEN|Telegram__BotToken' services/identity/api >/dev/null 2>&1; then
+  grep -R -n -E 'api\.telegram\.org|SUPPORT_BOT_TOKEN|TELEGRAM_BOT_TOKEN|Telegram__BotToken' services/identity/api >&2 || true
+  fail "identity-api must never access Telegram Bot API or receive the bot token"
+fi
+
+for env in dev prod; do
+  core="deploy/$env/compose/20-core-services.yaml"
+  integrations="deploy/$env/compose/50-integrations.yaml"
+  identity_block="$(service_block "$core" identity-api)"
+  support_bot_block="$(service_block "$integrations" support-bot)"
+
+  printf '%s\n' "$identity_block" | grep -q 'Services__SupportBot: http://support-bot:8080' \
+    || fail "$core: identity-api must deliver recovery messages through support-bot"
+  if printf '%s\n' "$identity_block" | grep -Eq 'SUPPORT_BOT_TOKEN|TELEGRAM_BOT_TOKEN|Telegram__BotToken'; then
+    fail "$core: Telegram bot token must not be injected into identity-api"
+  fi
+  printf '%s\n' "$support_bot_block" | grep -q 'Telegram__BotToken:' \
+    || fail "$integrations: support-bot must receive the Telegram bot token"
+  printf '%s\n' "$support_bot_block" | grep -q 'ASPNETCORE_URLS: http://+:8080' \
+    || fail "$integrations: support-bot internal delivery API must listen on port 8080"
+  printf '%s\n' "$support_bot_block" | grep -q -- "- '8080'" \
+    || fail "$integrations: support-bot internal delivery API must expose port 8080"
+done
+
 if [ "${TASKFORGE_PACKAGING_CHECK:-0}" = "1" ] && [ -d deploy/dev/build-logs ]; then
   fail "deploy/dev/build-logs must not be packed into runnable archives"
 fi
