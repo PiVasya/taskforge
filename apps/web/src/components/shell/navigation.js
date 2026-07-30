@@ -4,7 +4,7 @@ import {
   Activity,
   Award,
   BarChart2,
-  Bot,
+  BrainCircuit,
   GraduationCap,
   House,
   LifeBuoy,
@@ -29,7 +29,7 @@ function titleForPath(pathname) {
     pathname.startsWith('/admin/ai') ||
     pathname.startsWith('/ai') ||
     pathname.startsWith('/agent')
-  ) return 'Админ AI';
+  ) return 'ИИ';
   if (pathname.startsWith('/admin/')) return 'Админ-панель';
   if (pathname.startsWith('/minecraft/')) return 'Minecraft';
   if (pathname.startsWith('/support')) return 'Поддержка';
@@ -110,10 +110,10 @@ export function useShellNavigation() {
     const adminPrimaryNav = isAdmin
       ? [
           {
-            to: '/admin/ai',
-            label: 'AI-ассистент',
-            subtitle: 'Курсы, аудит, генерация',
-            icon: Bot,
+            to: '/admin/ai/account-manager',
+            label: 'ИИ',
+            subtitle: 'Менеджер аккаунтов',
+            icon: BrainCircuit,
             active: active('/admin/ai') || active('/ai') || active('/agent'),
           },
           {

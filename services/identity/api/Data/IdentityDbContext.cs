@@ -63,8 +63,11 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.ToTable("UserLoginLogs");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.UserId, x.LoginAt });
+            entity.HasIndex(x => x.LoginAt);
             entity.Property(x => x.IpAddress).HasMaxLength(80);
             entity.Property(x => x.UserAgent).HasMaxLength(800);
+            entity.Property(x => x.DeviceHash).HasMaxLength(128);
+            entity.HasIndex(x => new { x.DeviceHash, x.LoginAt });
         });
 
         modelBuilder.Entity<FeatureRole>(entity =>

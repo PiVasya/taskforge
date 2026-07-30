@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Ai.Api.Data;
 using TaskForge.Ai.Api.Domain;
+using TaskForge.Ai.Api.Services.AccountIntelligence;
 
 using TaskForge.Ai.Api.Endpoints;
 using static TaskForge.Ai.Api.Services.Access.AiApiAccessService;
@@ -25,6 +26,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<AccountIntelligenceScanner>();
+builder.Services.AddHostedService<AccountIntelligenceWorker>();
 builder.Services.AddDbContext<AiDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));

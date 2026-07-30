@@ -19,6 +19,7 @@ internal static partial class EducationApiEndpoints
         MapServiceInfoEndpoints(app);
         MapCoursesEndpoints(app);
         MapInternalEndpoints(app);
+        MapAccountIntelligenceInternalEndpoints(app);
         MapGroupsEndpoints(app);
 
         return app;

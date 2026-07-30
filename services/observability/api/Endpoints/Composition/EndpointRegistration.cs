@@ -17,6 +17,7 @@ internal static partial class ObservabilityApiEndpoints
     {
         MapServiceInfoEndpoints(app);
         MapActivityEndpoints(app);
+        MapAccountIntelligenceInternalEndpoints(app);
         MapSystemStatusEndpoints(app);
         MapAnalyticsEndpoints(app);
 

@@ -99,7 +99,8 @@ internal static partial class IdentityApiEndpoints
             {
                 UserId = user.Id,
                 IpAddress = http.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = http.Request.Headers.UserAgent.ToString()
+                UserAgent = http.Request.Headers.UserAgent.ToString(),
+                DeviceHash = ResolveDeviceHash(http, cfg)
             });
             await db.SaveChangesAsync();
 

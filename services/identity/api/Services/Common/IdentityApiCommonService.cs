@@ -248,6 +248,36 @@ internal static class IdentityApiCommonService
         return "Пользователь";
     }
 
+    internal static string ResolveDeviceHash(HttpContext http, IConfiguration cfg)
+    {
+        var token = ReadCookie(http, "tf_did");
+        if (string.IsNullOrWhiteSpace(token) || token.Length < 32 || token.Length > 160)
+        {
+            token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
+            http.Response.Cookies.Append("tf_did", token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = secure,
+                SameSite = SameSiteMode.Lax,
+                Expires = DateTimeOffset.UtcNow.AddYears(2),
+                Path = "/",
+                IsEssential = true
+            });
+        }
+
+        var key = cfg["AccountIntelligence:DeviceHashKey"]
+            ?? cfg["InternalApi:Key"]
+            ?? cfg["TaskForgeInternalApi:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("TASKFORGE_AGENT_INTERNAL_KEY")
+            ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY")
+            ?? cfg["Jwt:Key"]
+            ?? cfg["Jwt:SigningKey"]
+            ?? "taskforge-device-hash-dev-key";
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+    }
+
     internal static void SetAuthCookies(HttpContext http, string access, string refresh, TimeSpan accessLifetime, TimeSpan refreshLifetime)
     {
         var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;

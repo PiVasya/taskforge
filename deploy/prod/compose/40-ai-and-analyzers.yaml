@@ -22,9 +22,16 @@ services:
       S3__PublicEndpoint: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT}
       S3__AccessKey: ${MINIO_ROOT_USER:-taskforge}
       InternalApi__Key: ${TASKFORGE_AGENT_INTERNAL_KEY:?set TASKFORGE_AGENT_INTERNAL_KEY}
+      AccountIntelligence__InternalApiKey: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       AiWorker__BaseUrl: http://ai-worker:8080
       AiWorker__WakeTimeoutSeconds: 5
       AiWorker__WakeAttempts: 3
+      Services__IdentityApi: http://identity-api:8080
+      Services__EducationApi: http://education-api:8080
+      Services__TasksApi: http://tasks-api:8080
+      Services__SolutionsApi: http://solutions-api:8080
+      Services__ObservabilityApi: http://observability-api:8080
+      Services__MinecraftApi: http://minecraft-api:8080
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}

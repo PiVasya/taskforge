@@ -7,4 +7,5 @@ public sealed class UserLoginLog
     public DateTimeOffset LoginAt { get; set; } = DateTimeOffset.UtcNow;
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
+    public string? DeviceHash { get; set; }
 }

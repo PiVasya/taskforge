@@ -11,6 +11,9 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
     public DbSet<AiRun> Runs => Set<AiRun>();
     public DbSet<AiStep> Steps => Set<AiStep>();
     public DbSet<AiArtifact> Artifacts => Set<AiArtifact>();
+    public DbSet<AccountAnalysisRun> AccountAnalysisRuns => Set<AccountAnalysisRun>();
+    public DbSet<AccountAnalysisFinding> AccountAnalysisFindings => Set<AccountAnalysisFinding>();
+    public DbSet<AccountAnalysisReview> AccountAnalysisReviews => Set<AccountAnalysisReview>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -78,6 +81,45 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
             entity.HasIndex(x => new { x.ConversationId, x.CreatedAtUtc });
             entity.Property(x => x.Type).HasMaxLength(120).IsRequired();
             entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<AccountAnalysisRun>(entity =>
+        {
+            entity.ToTable("AccountAnalysisRuns");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Phase).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.AlgorithmVersion).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.SourcesJson).HasColumnType("jsonb");
+            entity.Property(x => x.ErrorJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<AccountAnalysisFinding>(entity =>
+        {
+            entity.ToTable("AccountAnalysisFindings");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RunId, x.Kind, x.Score });
+            entity.HasIndex(x => new { x.RunId, x.FindingKey }).IsUnique();
+            entity.HasIndex(x => new { x.PrimaryUserId, x.SecondaryUserId });
+            entity.Property(x => x.FindingKey).HasMaxLength(180).IsRequired();
+            entity.Property(x => x.Kind).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<AccountAnalysisReview>(entity =>
+        {
+            entity.ToTable("AccountAnalysisReviews");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.SubjectType, x.SubjectKey }).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.Property(x => x.SubjectType).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.SubjectKey).HasMaxLength(180).IsRequired();
+            entity.Property(x => x.Decision).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Note).HasMaxLength(1000);
+            entity.Property(x => x.SignalsJson).HasColumnType("jsonb");
             entity.Property(x => x.DataJson).HasColumnType("jsonb");
         });
     }

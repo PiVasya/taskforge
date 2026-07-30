@@ -20,6 +20,7 @@ internal static partial class MinecraftApiEndpoints
         MapServiceInfoEndpoints(app);
         MapLinksEndpoints(app);
         MapAdminEndpoints(app);
+        MapAccountIntelligenceInternalEndpoints(app);
         MapChatEndpoints(app);
         MapDeathRecoveryEndpoints(app);
 

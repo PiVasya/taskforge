@@ -182,19 +182,29 @@ const pageMetaRules = [
     description: 'Администрирование Minecraft-связей пользователей TaskForge.',
   },
   {
-    path: '/admin/ai',
-    title: 'AI-ассистент',
+    path: '/admin/ai/assistant',
+    title: 'админ · AI-ассистент',
     description: 'AI-ассистент TaskForge для генерации, проверки и подготовки учебных материалов.',
   },
   {
+    path: '/admin/ai/account-manager',
+    title: 'админ · менеджер аккаунтов',
+    description: 'Менеджер аккаунтов TaskForge: поиск дублей, твинков и подозрительных регистраций с объяснимыми уликами.',
+  },
+  {
+    path: '/admin/ai',
+    title: 'админ · ИИ',
+    description: 'Инструменты ИИ TaskForge для администрирования и анализа платформы.',
+  },
+  {
     path: '/agent',
-    title: 'AI-ассистент',
-    description: 'AI-ассистент TaskForge для работы с заданиями и материалами.',
+    title: 'админ · менеджер аккаунтов',
+    description: 'Менеджер аккаунтов TaskForge для поиска дублей и подозрительных регистраций.',
   },
   {
     path: '/ai',
-    title: 'AI-ассистент',
-    description: 'AI-ассистент TaskForge для работы с заданиями и материалами.',
+    title: 'админ · менеджер аккаунтов',
+    description: 'Менеджер аккаунтов TaskForge для поиска дублей и подозрительных регистраций.',
   },
 ];
 

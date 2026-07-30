@@ -29,6 +29,7 @@ internal static partial class IdentityApiEndpoints
         MapAuthEndpoints(app);
         MapProfileEndpoints(app);
         MapInternalEndpoints(app);
+        MapAccountIntelligenceInternalEndpoints(app);
         MapAdminUsersEndpoints(app);
         MapFeatureRolesEndpoints(app);
         MapIntegrationsEndpoints(app);

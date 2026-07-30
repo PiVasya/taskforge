@@ -11,13 +11,11 @@ import { getTaskTestEdit, saveTaskTestEdit } from "../../api/taskTests";
 import { getMathTaskEdit, saveMathTaskEdit } from "../../api/mathTasks";
 
 import { Button, Field, Input, Textarea, Select, Badge } from "../../components/ui";
-import { Save, Trash2, ArrowLeft, PlusCircle, Bot, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
+import { Save, Trash2, ArrowLeft, PlusCircle, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
 import TaskTestEditor from "../../pages/TaskTestEditor";
 import MathTaskEditor from "../../pages/MathTaskEditor";
 import StatementEditor from "../../components/tiptap/StatementEditor";
 import { uploadImageTestReference, uploadImageTestExpectedImage } from "../../api/imageTests";
-import { useRoleFlags } from "../../contexts/EditorModeContext";
-
 import { EditorSection, SmallCheck } from './components/EditorSection';
 import { normalizeCodeTestCases, LANGS_BY_TYPE, DEFAULT_ANALYTICS_SETTINGS, ANALYTICS_MODE_LABELS } from './assignmentEditModel';
 import useQuery from '../../hooks/useQuery';
@@ -27,7 +25,6 @@ export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
   const notify = useNotify();
-  const { isAdmin } = useRoleFlags();
   const queryClient = useQueryClient();
   const editQueryKey = useMemo(() => ['assignment-edit', assignmentId], [assignmentId]);
   const editQuery = useQuery({
@@ -620,16 +617,6 @@ export default function AssignmentEditPage() {
             onClick={() => nav(`/course/${courseId}`)}
           >
             <ArrowLeft size={16} /> к заданиям курса
-          </Button>
-        )}
-        {isAdmin && (
-          <Button
-            variant="outline"
-            className="inline-flex items-center gap-2"
-            onClick={() => nav(`/admin/ai?assignmentId=${assignmentId}${courseId ? `&courseId=${courseId}` : ''}`)}
-            title="Открыть AI-ассистент для этого задания"
-          >
-            <Bot size={16} /> AI по заданию
           </Button>
         )}
       </div>
