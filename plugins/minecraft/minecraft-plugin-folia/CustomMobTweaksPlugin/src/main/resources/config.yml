@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.6.0
+# CustomMobTweaks 2.7.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -292,6 +292,21 @@ happy-ghast-bomber:
   projectile-count: 5
   projectile-spread: 2.0
   projectile-speed: 0.8
+
+# -----------------------------------------------------------------------------
+# Phantom aggro repair: phantoms created manually from spawn eggs or commands
+# are explicitly given the nearest Survival/Adventure player as a target.
+# Natural phantoms, dragon phantoms and temporary dive copies are untouched.
+# -----------------------------------------------------------------------------
+phantom-aggro:
+  enabled: true
+  debug: true
+  manage-spawner-egg: true
+  manage-command: true
+  manage-custom: false
+  target-range: 96.0
+  controller-period-ticks: 10
+  target-refresh-period-ticks: 20
 
 # -----------------------------------------------------------------------------
 # Phantom: every ordinary or dragon-spawned phantom creates one small 1 HP copy

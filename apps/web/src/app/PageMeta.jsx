@@ -144,12 +144,12 @@ const pageMetaRules = [
   {
     path: '/admin/users/:userId',
     title: 'админ · управление пользователем',
-    description: 'Полное административное управление пользователем TaskForge: профиль, группы, роли, рейтинг и решения.',
+    description: 'Полное управление аккаунтом TaskForge: профиль, роли, группы, Telegram, Minecraft, блокировка, объединение и безопасное удаление.',
   },
   {
     path: '/admin/users',
     title: 'админ · пользователи',
-    description: 'Управление пользователями TaskForge, ролями и доступами.',
+    description: 'Актуальный реестр пользователей TaskForge с состояниями аккаунтов, Telegram и всеми Minecraft-профилями.',
   },
   {
     path: '/admin/solutions',
@@ -184,7 +184,7 @@ const pageMetaRules = [
   {
     path: '/admin/minecraft-links',
     title: 'админ · Minecraft связи',
-    description: 'Администрирование Minecraft-связей пользователей TaskForge.',
+    description: 'Администрирование всех Minecraft-профилей пользователей TaskForge, UUID, баланса и отвязки.',
   },
   {
     path: '/admin/ai/assistant',

@@ -49,7 +49,7 @@ Each death shows one button line and accepts exactly one action. The first valid
 
 If a paid action is denied, the menu stays closed and unresolved items fall back to the ordinary death-point drop. Existing multi-action journal/backend rows are normalized on load: any non-empty action means the choice was already consumed.
 
-There is no periodic link-state refresh and no action-completion re-offer. The initial line is delivered only from respawn, reconnect/link recovery, hot reload recovery, or the finite per-death fallback checks.
+There is no periodic link-state refresh and no action-completion re-offer. While an offer is still open, a small per-death reminder repeats the same single-choice line after respawn until the player chooses an action, the offer expires, or the player clicks `[Сообщение вижу — не повторять]`. Chest and coordinate notifications are also retried after the player becomes alive and online if their first entity-scheduler dispatch could not run.
 
 
 ## Config hot reload

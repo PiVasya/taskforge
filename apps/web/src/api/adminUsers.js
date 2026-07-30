@@ -14,7 +14,13 @@ export async function getAdminUser(userId) {
 }
 
 export async function updateAdminUser(userId, payload) {
-  await api.put(`/api/admin/users/${userId}`, payload);
+  const { data } = await api.put(`/api/admin/users/${userId}`, payload);
+  return data;
+}
+
+export async function unlinkAdminTelegram(userId) {
+  const { data } = await api.delete(`/api/admin/users/${userId}/telegram-link`);
+  return data;
 }
 
 export async function deleteAdminUser(userId) {

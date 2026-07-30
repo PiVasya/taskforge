@@ -22,7 +22,10 @@ namespace TaskForge.Identity.Api.Services.Mapping;
 
 internal static class IdentityApiMappingService
 {
-    internal static object ToAdminUserDto(IdentityUser user, IReadOnlyCollection<string>? featureRoles = null) => new
+    internal static object ToAdminUserDto(
+        IdentityUser user,
+        IReadOnlyCollection<string>? featureRoles = null,
+        BlockedAccount? block = null) => new
     {
         user.Id,
         login = UserLoginOrFallback(user),
@@ -42,8 +45,20 @@ internal static class IdentityApiMappingService
         user.AccountStatus,
         user.MergedIntoUserId,
         user.DeletedAtUtc,
+        user.DeletedByUserId,
+        user.DeletionReason,
+        telegramLinked = user.TelegramChatId.HasValue,
+        telegramChatId = user.TelegramChatId?.ToString(),
         telegramUsername = user.TelegramUsername,
         telegramLinkedAtUtc = user.TelegramLinkedAtUtc,
+        telegramLinkCount = user.TelegramLinkCount,
+        blocked = block != null && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > DateTimeOffset.UtcNow),
+        blockReason = block?.Reason,
+        blockNote = block?.Note,
+        blockedAtUtc = block?.BlockedAtUtc,
+        blockUpdatedAtUtc = block?.UpdatedAtUtc,
+        blockExpiresAtUtc = block?.ExpiresAtUtc,
+        // Minecraft profiles live in minecraft-api and are joined by the admin frontend.
         minecraftNick = (string?)null,
         minecraftLinkedAtUtc = (DateTimeOffset?)null,
         emailConfirmed = true,
@@ -52,7 +67,7 @@ internal static class IdentityApiMappingService
         passedTests = 0,
         imageSolutions = 0,
         mathSolutions = 0,
-        integrationDataReliable = false,
+        integrationDataReliable = true,
         solutionStatsReliable = false
     };
 

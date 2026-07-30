@@ -160,6 +160,85 @@ internal static partial class MinecraftApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { userId, restored = request.Amount, minecraftBalance = balance.balance, balance = balance.balance, effectiveScore = balance.effectiveRating, minecraftSpent = balance.spentTotal, minecraftRestored = balance.restoredTotal });
         });
 
+
+        app.MapDelete("/api/admin/minecraft-links/{linkId:guid}", async (
+            Guid linkId,
+            HttpContext http,
+            MinecraftDbContext db,
+            IConfiguration cfg,
+            IHttpClientFactory httpFactory,
+            ILogger<Program> logger,
+            CancellationToken ct) =>
+        {
+            var actor = UserId(http, cfg);
+            if (!actor.HasValue) return Unauthorized();
+
+            var link = await db.Links.FirstOrDefaultAsync(x => x.Id == linkId && x.Confirmed && x.UnlinkedAtUtc == null, ct);
+            if (link == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Активная Minecraft-привязка не найдена.", code = "MINECRAFT_LINK_NOT_FOUND" });
+            if (!link.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "У привязки отсутствует владелец.", code = "MINECRAFT_LINK_OWNER_MISSING" });
+
+            var userId = link.UserId.Value;
+            link.UnlinkedAtUtc = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+
+            var activeLinksRemaining = await db.Links.AsNoTracking().CountAsync(x => x.UserId == userId && x.Confirmed && x.UnlinkedAtUtc == null, ct);
+            if (activeLinksRemaining == 0)
+                await RemoveMinecraftRoleAsync(userId, cfg, httpFactory, logger, ct);
+
+            logger.LogInformation(
+                "Admin removed Minecraft link: actor={ActorUserId} user={UserId} linkId={LinkId} nick={Nick} uuid={Uuid} activeLinksRemaining={ActiveLinksRemaining}; rating ledger preserved",
+                actor.Value,
+                userId,
+                link.Id,
+                link.PlayerName,
+                link.PlayerUuid,
+                activeLinksRemaining);
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                userId,
+                linkId,
+                unlinked = true,
+                activeLinksRemaining
+            });
+        });
+
+        app.MapDelete("/api/admin/minecraft-links/users/{userId:guid}", async (
+            Guid userId,
+            HttpContext http,
+            MinecraftDbContext db,
+            IConfiguration cfg,
+            IHttpClientFactory httpFactory,
+            ILogger<Program> logger,
+            CancellationToken ct) =>
+        {
+            var actor = UserId(http, cfg);
+            if (!actor.HasValue) return Unauthorized();
+
+            var now = DateTimeOffset.UtcNow;
+            var links = await db.Links
+                .Where(x => x.UserId == userId && x.Confirmed && x.UnlinkedAtUtc == null)
+                .ToListAsync(ct);
+            foreach (var link in links) link.UnlinkedAtUtc = now;
+            await db.SaveChangesAsync(ct);
+            if (links.Count > 0)
+                await RemoveMinecraftRoleAsync(userId, cfg, httpFactory, logger, ct);
+
+            logger.LogInformation(
+                "Admin removed all Minecraft links: actor={ActorUserId} user={UserId} removed={Removed}; rating ledger preserved",
+                actor.Value,
+                userId,
+                links.Count);
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                userId,
+                unlinked = true,
+                removed = links.Count,
+                activeLinksRemaining = 0
+            });
+        });
+
         return app;
     }
 }

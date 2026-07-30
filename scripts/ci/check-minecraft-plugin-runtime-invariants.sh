@@ -15,6 +15,7 @@ cmt="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/Mo
 cmt_listener="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/ListenerComponent.java"
 cmt_legacy="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/LegacyEnhancementsListener.java"
 cmt_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/IllusionerCloneManager.java"
+cmt_phantom_aggro="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/PhantomAggroManager.java"
 cmt_phantom_dive_clones="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/PhantomDiveCloneManager.java"
 cmt_dragon_root="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/dragon"
 cmt_dragon="$cmt_dragon_root/EnderDragonRework.java"
@@ -24,7 +25,7 @@ cmt_dragon_phantom_ai="$cmt_dragon_root/DragonPhantomAttackController.java"
 cmt_main="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/CustomMobTweaksPlugin.java"
 cmt_config="$folia_root/CustomMobTweaksPlugin/src/main/resources/config.yml"
 
-for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_phantom_dive_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragon_phantoms" "$cmt_dragon_phantom_ai" "$cmt_main" "$cmt_config"; do
+for file in "$taskforge" "$taskforge_main" "$taskforge_config" "$cmt" "$cmt_listener" "$cmt_legacy" "$cmt_clones" "$cmt_phantom_aggro" "$cmt_phantom_dive_clones" "$cmt_dragon" "$cmt_dragon_breath" "$cmt_dragon_phantoms" "$cmt_dragon_phantom_ai" "$cmt_main" "$cmt_config"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
@@ -181,6 +182,21 @@ fi
 if ! grep -A20 -F 'illusioner-clones:' "$cmt_config" | grep -F 'minimum-lifetime-ticks: 60' >/dev/null; then
   fail 'bundled Illusioner clone minimum lifetime is not three seconds'
 fi
+
+grep -Fq 'new PhantomAggroManager(this)' "$cmt_main" \
+  || fail 'manual phantom aggro manager is not constructed by CustomMobTweaks'
+grep -Fq 'registerComponent(newPhantomAggroManager);' "$cmt_main" \
+  || fail 'manual phantom aggro manager is not part of the reload lifecycle'
+grep -Fq 'case SPAWNER_EGG' "$cmt_phantom_aggro" \
+  || fail 'spawn-egg phantoms are not explicitly enrolled into aggro repair'
+grep -Fq 'phantom.getTrackedBy()' "$cmt_phantom_aggro" \
+  || fail 'manual phantom target search is not limited to tracking players'
+grep -Fq 'candidate.getScheduler().run' "$cmt_phantom_aggro" \
+  || fail 'manual phantom target validation is not dispatched to player entity schedulers'
+grep -Fq 'phantom.getScheduler().runAtFixedRate' "$cmt_phantom_aggro" \
+  || fail 'manual phantom aggro controller is not attached to the phantom entity scheduler'
+grep -Fq 'phantom-aggro:' "$cmt_config" \
+  || fail 'manual phantom aggro config section is missing'
 
 grep -Fq 'new PhantomDiveCloneManager(this)' "$cmt_main" \
   || fail 'all-phantom dive clone manager is not constructed by CustomMobTweaks'

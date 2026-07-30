@@ -23,6 +23,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     private final Object lifecycleLock = new Object();
     private final AtomicBoolean reloadInProgress = new AtomicBoolean(false);
     private volatile HappyGhastBomberListener bomberListener;
+    private volatile PhantomAggroManager phantomAggroManager;
     private volatile PhantomDiveCloneManager phantomDiveCloneManager;
     private volatile EnderDragonRework enderDragonRework;
     private volatile boolean runtimeStarted;
@@ -99,6 +100,11 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         return bomberListener;
     }
 
+    public String phantomAggroDiagnostics() {
+        PhantomAggroManager manager = phantomAggroManager;
+        return manager == null ? "phantom-aggro=stopped" : manager.diagnosticsSummary();
+    }
+
     public String phantomDiveCloneDiagnostics() {
         PhantomDiveCloneManager manager = phantomDiveCloneManager;
         return manager == null ? "phantom-dive-clones=stopped" : manager.diagnosticsSummary();
@@ -110,7 +116,8 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     }
 
     public boolean enabled(String path) {
-        return getConfig().getBoolean(path + ".enabled", false);
+        boolean fallback = "phantom-aggro".equals(path);
+        return getConfig().getBoolean(path + ".enabled", fallback);
     }
 
     private void startRuntime(String reason) {
@@ -130,6 +137,9 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
+            PhantomAggroManager newPhantomAggroManager = new PhantomAggroManager(this);
+            phantomAggroManager = newPhantomAggroManager;
+            registerComponent(newPhantomAggroManager);
             PhantomDiveCloneManager newPhantomDiveCloneManager = new PhantomDiveCloneManager(this);
             phantomDiveCloneManager = newPhantomDiveCloneManager;
             registerComponent(newPhantomDiveCloneManager);
@@ -165,6 +175,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         }
         components.clear();
         bomberListener = null;
+        phantomAggroManager = null;
         phantomDiveCloneManager = null;
         enderDragonRework = null;
         getLogger().info("[reload] runtime stopped reason=" + reason);
@@ -174,9 +185,17 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                 "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
-                "lava-damage", "dry-weapon", "freezing-snowball", "phantom-dive-clones", "ender-dragon-rework")) {
+                "lava-damage", "dry-weapon", "freezing-snowball", "phantom-aggro", "phantom-dive-clones", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }
+        getLogger().info("[reload] phantomAggro enabled=" + enabled("phantom-aggro")
+                + " targetRange=" + getConfig().getDouble("phantom-aggro.target-range", 96.0D)
+                + " controllerPeriodTicks=" + getConfig().getLong("phantom-aggro.controller-period-ticks", 10L)
+                + " targetRefreshPeriodTicks=" + getConfig().getLong("phantom-aggro.target-refresh-period-ticks", 20L)
+                + " spawnEgg=" + getConfig().getBoolean("phantom-aggro.manage-spawner-egg", true)
+                + " command=" + getConfig().getBoolean("phantom-aggro.manage-command", true)
+                + " custom=" + getConfig().getBoolean("phantom-aggro.manage-custom", false)
+                + " reason=" + reason);
         getLogger().info("[reload] phantomDiveClones enabled=" + enabled("phantom-dive-clones")
                 + " monitorPeriodTicks=" + getConfig().getLong("phantom-dive-clones.monitor-period-ticks", 1L)
                 + " cooldownTicks=" + getConfig().getLong("phantom-dive-clones.cooldown-ticks", 40L)

@@ -31,12 +31,13 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(u => ToAdminUserDto(u)).ToList());
         });
 
-        app.MapGet("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbContext db) =>
+        app.MapGet("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbContext db, CancellationToken ct) =>
         {
-            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId);
+            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId, ct);
             if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
-            var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync();
-            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user, roles));
+            var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync(ct);
+            var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user, roles, block));
         });
 
         app.MapGet("/api/admin/users", async (
@@ -45,37 +46,64 @@ internal static partial class IdentityApiEndpoints
             string? q,
             string? role,
             bool linkedOnly = false,
+            string? accountStatus = null,
+            bool includeInactive = false,
             string? sortBy = "createdAt",
             string? sortDir = "desc",
-            int take = 300) =>
+            int take = 300,
+            CancellationToken ct = default) =>
         {
-            var rows = await SearchUsersAsync(db, query ?? q, role, linkedOnly, sortBy, sortDir, System.Math.Clamp(take, 1, 500));
-            var total = await CountUsersAsync(db, query ?? q, role, linkedOnly);
-            var linked = 0;
-            var admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase));
+            take = System.Math.Clamp(take, 1, 500);
+            var rows = await SearchUsersAsync(db, query ?? q, role, linkedOnly, sortBy, sortDir, take, includeInactive, accountStatus);
+            var total = await CountUsersAsync(db, query ?? q, role, linkedOnly, includeInactive, accountStatus);
+            var ids = rows.Select(x => x.Id).ToArray();
+            var blocks = ids.Length == 0
+                ? new Dictionary<Guid, BlockedAccount>()
+                : await db.BlockedAccounts.AsNoTracking()
+                    .Where(x => ids.Contains(x.UserId))
+                    .ToDictionaryAsync(x => x.UserId, ct);
+            var now = DateTimeOffset.UtcNow;
+            var items = rows.Select(user =>
+            {
+                blocks.TryGetValue(user.Id, out var block);
+                return ToAdminUserDto(user, null, block);
+            }).ToList();
+
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                items = rows.Select(u => ToAdminUserDto(u)).ToList(),
-                stats = new { total, linked, admins }
+                items,
+                stats = new
+                {
+                    total,
+                    shown = rows.Count,
+                    admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase)),
+                    telegramLinked = rows.Count(x => x.TelegramChatId.HasValue),
+                    blocked = rows.Count(x => blocks.TryGetValue(x.Id, out var block) && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > now)),
+                    active = rows.Count(x => string.Equals(x.AccountStatus, "active", StringComparison.OrdinalIgnoreCase)),
+                    merged = rows.Count(x => string.Equals(x.AccountStatus, "merged", StringComparison.OrdinalIgnoreCase)),
+                    deleted = rows.Count(x => string.Equals(x.AccountStatus, "deleted", StringComparison.OrdinalIgnoreCase))
+                }
             });
         });
 
-        app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdateRequest request, IdentityDbContext db) =>
+        app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdateRequest request, IdentityDbContext db, CancellationToken ct) =>
         {
-            var user = await db.Users.FindAsync(userId);
+            var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
             if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
+            if (!string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Удалённый или объединённый аккаунт нельзя редактировать.", code = "ACCOUNT_NOT_ACTIVE" });
             if (!string.IsNullOrWhiteSpace(request.Login))
             {
                 var login = NormalizeLogin(request.Login);
                 if (!IsValidLogin(login, out var loginMessage)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = loginMessage });
-                if (await db.Users.AnyAsync(x => x.Login == login && x.Id != user.Id)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Логин уже занят" });
+                if (await db.Users.AnyAsync(x => x.Login == login && x.Id != user.Id, ct)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Логин уже занят" });
                 user.Login = login;
             }
             if (request.Email != null)
             {
                 var email = NormalizeOptionalEmail(request.Email);
                 if (!string.IsNullOrWhiteSpace(request.Email) && string.IsNullOrWhiteSpace(email)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Email указан в неверном формате" });
-                if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Email уже занят" });
+                if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email && x.Id != user.Id, ct)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Email уже занят" });
                 user.Email = email;
             }
             if (request.FirstName != null) user.FirstName = request.FirstName.Trim();
@@ -83,14 +111,39 @@ internal static partial class IdentityApiEndpoints
             if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
             if (request.ProfilePictureUrl != null) user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl) ? null : request.ProfilePictureUrl.Trim();
             if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
-            await db.SaveChangesAsync();
-            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user));
+            await db.SaveChangesAsync(ct);
+            var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync(ct);
+            var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user, roles, block));
+        });
+
+        app.MapDelete("/api/admin/users/{userId:guid}/telegram-link", async (
+            Guid userId,
+            IdentityDbContext db,
+            IDistributedCache cache,
+            CancellationToken ct) =>
+        {
+            var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
+            if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
+            if (!string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Интеграции неактивного аккаунта уже недоступны.", code = "ACCOUNT_NOT_ACTIVE" });
+
+            user.TelegramChatId = null;
+            user.TelegramUsername = null;
+            user.TelegramLinkedAtUtc = null;
+            await db.TelegramLinkCodes.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
+            await db.SaveChangesAsync(ct);
+            await cache.RemoveAsync(PasswordRecoveryUserChallengeKey(userId), ct);
+
+            var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync(ct);
+            var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user, roles, block));
         });
 
         app.MapDelete("/api/admin/users/{userId:guid}", (Guid userId) =>
             Microsoft.AspNetCore.Http.Results.Conflict(new
             {
-                message = "Прямое удаление отключено: используйте Менеджер аккаунтов, чтобы безопасно удалить данные во всех сервисах.",
+                message = "Прямое удаление отключено: используйте безопасную операцию жизненного цикла аккаунта.",
                 code = "ACCOUNT_LIFECYCLE_REQUIRED",
                 userId
             }));

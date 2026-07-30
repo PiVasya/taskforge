@@ -25,6 +25,15 @@ deathRecovery:
   chestCost: 50
   teleportCost: 100
   inventoryCost: 300
+  # Chat delivery cannot be acknowledged by the Minecraft protocol itself, so the
+  # plugin repeats the offer until the player clicks an action or confirms that
+  # the message is visible. These defaults are intentionally calm enough not to spam.
+  offerDisplayCooldownSeconds: 12
+  offerReminderInitialDelaySeconds: 8
+  offerReminderIntervalSeconds: 20
+  # Coordinates/chest notices are retried while the player is online until the
+  # server-side send finishes successfully. Offline players are retried on join.
+  notificationRetryIntervalSeconds: 10
   backendTimeoutMillis: 5000
   # Link state is checked on join/reload and updated by authoritative backend responses.
   # There is no periodic status polling while a player is online.

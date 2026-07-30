@@ -41,16 +41,37 @@ internal static class IdentityApiCommonService
         if (!string.IsNullOrWhiteSpace(text))
         {
             var q = text.Trim().ToLowerInvariant();
-            query = query.Where(x => ((x.Login != null && x.Login.ToLower().Contains(q)) || (x.Email != null && x.Email.ToLower().Contains(q)) || x.FirstName.ToLower().Contains(q)) || x.LastName.ToLower().Contains(q));
+            query = query.Where(x =>
+                (x.Login != null && x.Login.ToLower().Contains(q)) ||
+                (x.Email != null && x.Email.ToLower().Contains(q)) ||
+                x.FirstName.ToLower().Contains(q) ||
+                x.LastName.ToLower().Contains(q) ||
+                (x.TelegramUsername != null && x.TelegramUsername.ToLower().Contains(q)) ||
+                (x.TelegramChatId != null && x.TelegramChatId.ToString()!.Contains(q)));
         }
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         return query;
     }
 
-    internal static async Task<List<IdentityUser>> SearchUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly, string? sortBy, string? sortDir, int take)
+    internal static async Task<List<IdentityUser>> SearchUsersAsync(
+        IdentityDbContext db,
+        string? text,
+        string? role,
+        bool linkedOnly,
+        string? sortBy,
+        string? sortDir,
+        int take,
+        bool includeInactive = false,
+        string? accountStatus = null)
     {
-        var query = db.Users.AsNoTracking().Where(x => x.AccountStatus == "active");
+        var query = db.Users.AsNoTracking().AsQueryable();
+        if (!includeInactive) query = query.Where(x => x.AccountStatus == "active");
+        if (!string.IsNullOrWhiteSpace(accountStatus))
+        {
+            var normalizedStatus = accountStatus.Trim().ToLowerInvariant();
+            query = query.Where(x => x.AccountStatus == normalizedStatus);
+        }
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
 
@@ -72,20 +93,32 @@ internal static class IdentityApiCommonService
             .ToList();
     }
 
-    internal static async Task<int> CountUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly)
+    internal static async Task<int> CountUsersAsync(
+        IdentityDbContext db,
+        string? text,
+        string? role,
+        bool linkedOnly,
+        bool includeInactive = false,
+        string? accountStatus = null)
     {
-        var query = db.Users.AsNoTracking().Where(x => x.AccountStatus == "active");
+        var query = db.Users.AsNoTracking().AsQueryable();
+        if (!includeInactive) query = query.Where(x => x.AccountStatus == "active");
+        if (!string.IsNullOrWhiteSpace(accountStatus))
+        {
+            var normalizedStatus = accountStatus.Trim().ToLowerInvariant();
+            query = query.Where(x => x.AccountStatus == normalizedStatus);
+        }
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         if (string.IsNullOrWhiteSpace(text))
         {
             if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
             return await query.CountAsync();
         }
-        return (await SearchUsersAsync(db, text, role, linkedOnly, "login", "asc", 5000)).Count;
+        return (await SearchUsersAsync(db, text, role, linkedOnly, "login", "asc", 5000, includeInactive, accountStatus)).Count;
     }
 
     internal static string UserSearchHaystack(IdentityUser user)
-        => NormalizeSearch($"{user.Login} {user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.Id}");
+        => NormalizeSearch($"{user.Login} {user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.TelegramUsername} {user.TelegramChatId} {user.Id}");
 
     internal static int Levenshtein(string a, string b)
     {

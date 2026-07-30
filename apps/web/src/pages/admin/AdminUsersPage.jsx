@@ -1,21 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
-import { getAdminUsers, updateAdminUser } from '../../api/adminUsers';
-import { createAccountOperation } from '../../api/accountIntelligence';
+import { getAdminUsers } from '../../api/adminUsers';
+import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
 import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { ExternalLink, Save, Search, Trash2, UserCog } from 'lucide-react';
+import { Ban, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
-
-const formatTelegramHandle = (value) => {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  return raw.startsWith('@') ? raw : `@${raw}`;
-};
 
 const sortOptions = [
   { value: 'createdAt', label: 'Дата регистрации' },
@@ -28,20 +22,52 @@ const sortOptions = [
   { value: 'telegramUsername', label: 'Telegram username' },
   { value: 'minecraftLinkedAt', label: 'Дата привязки Minecraft' },
   { value: 'telegramLinkedAt', label: 'Дата привязки Telegram' },
-  { value: 'codeSolutions', label: 'Решённые code' },
-  { value: 'passedTests', label: 'Пройденные test' },
-  { value: 'imageSolutions', label: 'Решённые image' },
-  { value: 'mathSolutions', label: 'Решённые math' },
   { value: 'totalSolved', label: 'Всего решённых' },
   { value: 'rating', label: 'Рейтинг' },
   { value: 'linked', label: 'Наличие привязок' },
-  { value: 'emailConfirmed', label: 'Email подтверждён' },
-  { value: 'lockoutEnabled', label: 'Lockout enabled' },
+  { value: 'blocked', label: 'Блокировка' },
 ];
 
-function statValue(user, key) {
-  if (user?.solutionStatsReliable === false && (user?.[key] === 0 || user?.[key] == null)) return '—';
-  return user?.[key] ?? 0;
+const normalize = (value) => String(value || '').trim().toLowerCase();
+const dateValue = (value) => value ? new Date(value).getTime() || 0 : 0;
+const formatDate = (value) => value ? new Date(value).toLocaleString() : '—';
+const formatTelegramHandle = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  return raw.startsWith('@') ? raw : `@${raw}`;
+};
+
+const accountStatusLabel = (user) => {
+  if (user.blocked) return 'Заблокирован';
+  if (user.accountStatus === 'merged') return 'Объединён';
+  if (user.accountStatus === 'deleted') return 'Удалён';
+  return 'Активен';
+};
+
+const accountStatusIntent = (user) => {
+  if (user.blocked || user.accountStatus === 'deleted') return 'danger';
+  if (user.accountStatus === 'merged') return 'outline';
+  return 'success';
+};
+
+const totalSolved = (user) => Number(user.codeSolutions || 0)
+  + Number(user.passedTests || 0)
+  + Number(user.imageSolutions || 0)
+  + Number(user.mathSolutions || 0);
+
+function Metric({ label, value, hint, icon: Icon }) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm opacity-70">{label}</div>
+          <div className="mt-2 text-3xl font-semibold">{value}</div>
+          {hint ? <div className="mt-2 text-xs text-neutral-500">{hint}</div> : null}
+        </div>
+        {Icon ? <Icon size={24} className="opacity-50" /> : null}
+      </div>
+    </Card>
+  );
 }
 
 export default function AdminUsersPage() {
@@ -51,33 +77,41 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
+  const [status, setStatus] = useState('active');
   const [linkedOnly, setLinkedOnly] = useState(false);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
   const [pageError, setPageError] = useState(null);
-  const [stats, setStats] = useState({ total: 0, linked: 0, admins: 0 });
 
   const load = async () => {
     try {
       setLoading(true);
-      const [res, ratingRows] = await Promise.all([
-        getAdminUsers({ query, role, linkedOnly, sortBy, sortDir, take: 300 }),
-        searchUsersOnce(query, 1000).catch(() => []),
+      const [res, ratingRows, minecraftRows] = await Promise.all([
+        getAdminUsers({ includeInactive: true, sortBy: 'createdAt', sortDir: 'desc', take: 500 }),
+        searchUsersOnce('', 1000).catch(() => []),
+        getAdminMinecraftLinks({}).catch(() => []),
       ]);
-      const ratingById = new Map((ratingRows || []).map((x) => [x.id || x.userId, x]));
+
+      const ratingById = new Map((ratingRows || []).map((x) => [String(x.id || x.userId).toLowerCase(), x]));
+      const minecraftByUserId = new Map((minecraftRows || []).map((x) => [String(x.userId || '').toLowerCase(), x]));
       const mergedItems = (Array.isArray(res?.items) ? res.items : []).map((user) => {
-        const rating = ratingById.get(user.id) || {};
+        const key = String(user.id || '').toLowerCase();
+        const rating = ratingById.get(key) || {};
+        const minecraft = minecraftByUserId.get(key) || null;
+        const activeLinks = Array.isArray(minecraft?.activeLinks) ? minecraft.activeLinks : [];
         return {
           ...user,
-          score: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
-          rating: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
-          totalScore: rating.score ?? rating.rating ?? rating.totalScore ?? user.score ?? user.rating ?? 0,
-          solved: rating.solved ?? rating.solvedCount ?? user.solved ?? user.solvedCount ?? 0,
-          solvedCount: rating.solved ?? rating.solvedCount ?? user.solved ?? user.solvedCount ?? 0,
+          score: rating.score ?? rating.rating ?? rating.totalScore ?? 0,
+          codeSolutions: rating.codeSolutions ?? user.codeSolutions ?? 0,
+          passedTests: rating.passedTests ?? user.passedTests ?? 0,
+          imageSolutions: rating.imageSolutions ?? user.imageSolutions ?? 0,
+          mathSolutions: rating.mathSolutions ?? user.mathSolutions ?? 0,
+          minecraft,
+          minecraftLinks: activeLinks,
         };
       });
+
       setItems(mergedItems);
-      setStats(res?.stats || { total: 0, linked: 0, admins: 0 });
       setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить пользователей');
@@ -87,180 +121,161 @@ export default function AdminUsersPage() {
     }
   };
 
-  useEffect(() => { load(); }, []); 
+  useEffect(() => { load(); }, []);
 
-  const sortedItems = useMemo(() => {
+  const filteredItems = useMemo(() => {
+    const search = normalize(query);
+    const rows = items.filter((user) => {
+      if (role && user.role !== role) return false;
+      if (status === 'active' && (user.accountStatus !== 'active' || user.blocked)) return false;
+      if (status === 'blocked' && !user.blocked) return false;
+      if (status === 'merged' && user.accountStatus !== 'merged') return false;
+      if (status === 'deleted' && user.accountStatus !== 'deleted') return false;
+
+      const hasTelegram = !!user.telegramLinked;
+      const hasMinecraft = (user.minecraftLinks || []).length > 0;
+      if (linkedOnly && !hasTelegram && !hasMinecraft) return false;
+
+      if (!search) return true;
+      const haystack = [
+        user.id,
+        user.login,
+        user.email,
+        user.firstName,
+        user.lastName,
+        user.fullName,
+        user.telegramUsername,
+        user.telegramChatId,
+        ...(user.minecraftLinks || []).flatMap((link) => [link.nick, link.uuid]),
+      ].map(normalize).join(' ');
+      return haystack.includes(search);
+    });
+
     const valueFor = (user) => {
+      const firstMinecraft = (user.minecraftLinks || [])[0] || {};
       switch (sortBy) {
-        case 'codeSolutions': return user.codeSolutions ?? 0;
-        case 'passedTests': return user.passedTests ?? 0;
-        case 'imageSolutions': return user.imageSolutions ?? 0;
-        case 'mathSolutions': return user.mathSolutions ?? 0;
-        case 'totalSolved': return (user.codeSolutions ?? 0) + (user.passedTests ?? 0) + (user.imageSolutions ?? 0) + (user.mathSolutions ?? 0);
-        case 'rating': return user.score ?? user.rating ?? user.totalScore ?? 0;
-        case 'linked': return (user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0;
-        case 'emailConfirmed': return user.emailConfirmed ? 1 : 0;
-        case 'lockoutEnabled': return user.lockoutEnabled ? 1 : 0;
-        default: return null;
+        case 'createdAt': return dateValue(user.createdAt);
+        case 'lastLoginAt': return dateValue(user.lastLoginAt);
+        case 'fullName': return normalize(user.fullName || user.displayName);
+        case 'login': return normalize(user.login);
+        case 'email': return normalize(user.email);
+        case 'role': return normalize(user.role);
+        case 'minecraftNick': return normalize(firstMinecraft.nick);
+        case 'telegramUsername': return normalize(user.telegramUsername);
+        case 'minecraftLinkedAt': return dateValue(firstMinecraft.linkedAtUtc);
+        case 'telegramLinkedAt': return dateValue(user.telegramLinkedAtUtc);
+        case 'totalSolved': return totalSolved(user);
+        case 'rating': return Number(user.score || 0);
+        case 'linked': return (user.telegramLinked ? 1 : 0) + ((user.minecraftLinks || []).length ? 1 : 0);
+        case 'blocked': return user.blocked ? 1 : 0;
+        default: return 0;
       }
     };
 
-    if (!['codeSolutions','passedTests','imageSolutions','mathSolutions','totalSolved','rating','linked','emailConfirmed','lockoutEnabled'].includes(sortBy)) {
-      return items;
-    }
-
-    return [...items].sort((a, b) => {
+    return [...rows].sort((a, b) => {
       const av = valueFor(a);
       const bv = valueFor(b);
-      if (av === bv) return 0;
-      return sortDir === 'asc' ? av - bv : bv - av;
+      let result;
+      if (typeof av === 'string' || typeof bv === 'string') result = String(av).localeCompare(String(bv), 'ru');
+      else result = Number(av) - Number(bv);
+      return sortDir === 'asc' ? result : -result;
     });
-  }, [items, sortBy, sortDir]);
+  }, [items, linkedOnly, query, role, sortBy, sortDir, status]);
 
-  const updateLocal = (id, patch) => setItems((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
-
-
-  const save = async (user) => {
-    try {
-      await updateAdminUser(user.id, {
-        login: user.login,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        emailConfirmed: !!user.emailConfirmed,
-        lockoutEnabled: !!user.lockoutEnabled,
-        phoneNumber: user.phoneNumber || null,
-        minecraftNick: user.minecraftNick || null,
-        telegramUsername: user.telegramUsername || null,
-      });
-      notify.success('Пользователь обновлён');
-      setPageError(null);
-      await load();
-    } catch (e) {
-      const parsed = handleApiError(e, notify, 'Не удалось сохранить пользователя');
-      setPageError(parsed);
-    }
-  };
-
-
-  const removeUser = async (user) => {
-    const label = user?.login || user?.email || user?.fullName || user?.id;
-    const ok = window.confirm(`Удалить пользователя ${label}? Аккаунт сначала заблокируется, затем данные будут безопасно удалены во всех сервисах. Ход операции будет виден в ИИ → Менеджер аккаунтов.`);
-    if (!ok) return;
-
-    try {
-      await createAccountOperation({
-        type: 'delete',
-        sourceUserId: user.id,
-        reason: 'Удаление из списка пользователей',
-        confirmation: user.login || user.displayName || user.fullName || user.id,
-        hardDelete: false,
-      });
-      notify.success('Безопасное удаление поставлено в очередь');
-      updateLocal(user.id, { accountStatus: 'deletion-queued' });
-      setPageError(null);
-    } catch (e) {
-      const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя');
-      setPageError(parsed);
-    }
-  };
+  const stats = useMemo(() => ({
+    total: items.length,
+    active: items.filter((x) => x.accountStatus === 'active' && !x.blocked).length,
+    blocked: items.filter((x) => x.blocked).length,
+    linked: items.filter((x) => x.telegramLinked || (x.minecraftLinks || []).length > 0).length,
+  }), [items]);
 
   return (
-    <>
-      <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2"><UserCog size={22} /> Пользователи</h1>
-            <p className="text-sm text-neutral-500 mt-2">Поиск, редактирование базовой информации, ролей и интеграций. Есть гибкая сортировка по регистрации, входам, привязкам и результатам.</p>
-          </div>
-          <Button onClick={load}><Search size={16} /> <span className="ml-1">Обновить</span></Button>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-xl font-semibold sm:text-2xl"><UserCog size={22} /> Управление пользователями</h1>
+          <p className="mt-2 text-sm text-neutral-500">Актуальные аккаунты, блокировки, Telegram и все активные Minecraft-профили. Изменения выполняются в карточке пользователя.</p>
         </div>
+        <Button onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button>
+      </div>
 
-        {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
+      {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-          <Card><div className="text-sm opacity-70">Показано пользователей</div><div className="text-3xl font-semibold mt-2">{stats.total}</div></Card>
-          <Card><div className="text-sm opacity-70">С интеграциями</div><div className="text-3xl font-semibold mt-2">{stats.linked}</div></Card>
-          <Card><div className="text-sm opacity-70">Администраторов</div><div className="text-3xl font-semibold mt-2">{stats.admins}</div></Card>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+        <Metric label="Всего аккаунтов" value={stats.total} hint="Включая удалённые и объединённые" icon={UserCog} />
+        <Metric label="Активные" value={stats.active} hint="Можно редактировать и использовать" icon={ShieldCheck} />
+        <Metric label="Заблокированные" value={stats.blocked} hint="Вход отключён на всей платформе" icon={Ban} />
+        <Metric label="С интеграциями" value={stats.linked} hint="Telegram или Minecraft" icon={Link2} />
+      </div>
+
+      <Card>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr,170px,190px,190px,190px,150px] items-end">
+          <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="логин / email / имя / Telegram / Minecraft nick / UUID" /></Field>
+          <Field label="Базовая роль"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">Все</option>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+          <Field label="Состояние"><Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="active">Активные</option><option value="blocked">Заблокированные</option><option value="merged">Объединённые</option><option value="deleted">Удалённые</option><option value="">Все состояния</option></Select></Field>
+          <Field label="Сортировать по"><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>{sortOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
+          <Field label="Порядок"><Select value={sortDir} onChange={(e) => setSortDir(e.target.value)}><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></Select></Field>
+          <Field label="Только с привязками"><label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={linkedOnly} onChange={(e) => setLinkedOnly(e.target.checked)} /><span className="text-sm">Да</span></label></Field>
         </div>
+      </Card>
 
-        <Card>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1fr,180px,180px,220px,160px,140px] gap-3 items-end">
-            <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="логин / email / имя / minecraft / telegram" /></Field>
-            <Field label="Базовая роль"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">Все</option>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
-            <Field label="Только с привязками"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={linkedOnly} onChange={(e) => setLinkedOnly(e.target.checked)} /><span className="text-sm">Да</span></label></Field>
-            <Field label="Сортировать по"><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>{sortOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
-            <Field label="Порядок"><Select value={sortDir} onChange={(e) => setSortDir(e.target.value)}><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></Select></Field>
-            <Button className="w-full xl:w-auto" onClick={load}>Найти</Button>
-          </div>
-        </Card>
+      {loading ? <div className="text-neutral-500">Загрузка…</div> : null}
+      {!loading && filteredItems.length === 0 ? <Card><div className="text-sm text-neutral-500">Пользователи по выбранным условиям не найдены.</div></Card> : null}
 
-        {loading && <div className="text-neutral-500">Загрузка…</div>}
-
-        <div className="space-y-4">
-          {sortedItems.map((user) => (
-            <Card key={user.id}>
-              <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-[rgb(var(--border))] pb-4">
-                <button
-                  type="button"
-                  className="text-left group min-w-0"
-                  onClick={() => navigate(`/admin/users/${user.id}`)}
-                >
-                  <div className="font-semibold group-hover:text-[rgb(var(--accent-600))] truncate">{user.fullName || user.displayName || user.login || user.email || 'Пользователь'}</div>
-                  <div className="text-xs text-neutral-500 mt-1 break-all">{user.id}</div>
-                </button>
-                <Button variant="outline" className="w-full sm:w-auto" onClick={() => navigate(`/admin/users/${user.id}`)}>
-                  <ExternalLink size={16} /> <span className="ml-1">Открыть управление</span>
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr,1fr] xl:gap-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <Field label="Логин"><Input value={user.login || ''} onChange={(e) => updateLocal(user.id, { login: e.target.value })} /></Field>
-                  <Field label="Email"><Input value={user.email || ''} onChange={(e) => updateLocal(user.id, { email: e.target.value })} /></Field>
-                  <Field label="Базовая роль"><Select value={user.role || 'User'} onChange={(e) => updateLocal(user.id, { role: e.target.value })}>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
-                  <Field label="Имя"><Input value={user.firstName || ''} onChange={(e) => updateLocal(user.id, { firstName: e.target.value })} /></Field>
-                  <Field label="Фамилия"><Input value={user.lastName || ''} onChange={(e) => updateLocal(user.id, { lastName: e.target.value })} /></Field>
-                  <Field label="Телефон"><Input value={user.phoneNumber || ''} onChange={(e) => updateLocal(user.id, { phoneNumber: e.target.value })} /></Field>
-                  <Field label="Minecraft nick"><Input value={user.minecraftNick || ''} onChange={(e) => updateLocal(user.id, { minecraftNick: e.target.value })} /></Field>
-                  <Field label="Telegram username"><Input value={user.telegramUsername || ''} onChange={(e) => updateLocal(user.id, { telegramUsername: e.target.value })} placeholder={user.telegramLinkedAtUtc ? 'username не передан Telegram' : '@username'} /></Field>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Email подтверждён"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.emailConfirmed} disabled={user.integrationDataReliable === false} onChange={(e) => updateLocal(user.id, { emailConfirmed: e.target.checked })} /><span className="text-sm">{user.integrationDataReliable === false ? 'нет данных' : 'Да'}</span></label></Field>
-                    <Field label="Lockout enabled"><label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={!!user.lockoutEnabled} disabled={user.integrationDataReliable === false} onChange={(e) => updateLocal(user.id, { lockoutEnabled: e.target.checked })} /><span className="text-sm">{user.integrationDataReliable === false ? 'нет данных' : 'Да'}</span></label></Field>
+      <div className="space-y-3">
+        {filteredItems.map((user) => {
+          const telegram = formatTelegramHandle(user.telegramUsername);
+          const minecraftLinks = user.minecraftLinks || [];
+          return (
+            <Card key={user.id} className="p-4 sm:p-5">
+              <div className="grid gap-4 xl:grid-cols-[1.1fr,1fr,0.9fr,auto] xl:items-center">
+                <div className="min-w-0">
+                  <button type="button" className="text-left group min-w-0" onClick={() => navigate(`/admin/users/${user.id}`)}>
+                    <div className="truncate text-lg font-semibold group-hover:text-[rgb(var(--accent-600))]">{user.fullName || user.displayName || user.login || user.id}</div>
+                    <div className="mt-1 text-sm text-neutral-500">{user.login || 'без логина'} · {user.email || 'без email'}</div>
+                    <div className="mt-1 break-all text-xs text-neutral-500">{user.id}</div>
+                  </button>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge intent={accountStatusIntent(user)}>{accountStatusLabel(user)}</Badge>
+                    <Badge intent="outline">{user.role || 'User'}</Badge>
+                    {user.mergedIntoUserId ? <Badge intent="outline">Основной: {String(user.mergedIntoUserId).slice(0, 8)}…</Badge> : null}
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-sm opacity-70">Решённые задания</div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <Badge>Рейтинг: {user.score ?? user.rating ?? user.totalScore ?? 0}</Badge>
-                      <Badge>Code: {statValue(user, 'codeSolutions')}</Badge>
-                      <Badge>Test: {statValue(user, 'passedTests')}</Badge>
-                      <Badge>Image: {statValue(user, 'imageSolutions')}</Badge>
-                      <Badge>Math: {statValue(user, 'mathSolutions')}</Badge>
+
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-neutral-500">Интеграции</div>
+                  <div className="mt-2 space-y-2 text-sm">
+                    <div className="rounded-xl border border-[rgb(var(--border))] px-3 py-2">
+                      <div className="font-medium">Telegram</div>
+                      <div className="mt-1 text-xs text-neutral-500">{user.telegramLinked ? `${telegram || 'username не задан'} · ${formatDate(user.telegramLinkedAtUtc)}` : 'Не привязан'}</div>
+                    </div>
+                    <div className="rounded-xl border border-[rgb(var(--border))] px-3 py-2">
+                      <div className="font-medium">Minecraft · {minecraftLinks.length}</div>
+                      <div className="mt-1 text-xs text-neutral-500 break-words">
+                        {minecraftLinks.length ? minecraftLinks.slice(0, 4).map((link) => link.nick || link.uuid).join(', ') : 'Активных профилей нет'}
+                        {minecraftLinks.length > 4 ? ` и ещё ${minecraftLinks.length - 4}` : ''}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-sm opacity-70">Доп. роли</div>
-                    <div className="flex flex-wrap gap-2 mt-2">{(user.featureRoles || []).length ? user.featureRoles.map((x) => <Badge key={x} intent="outline">{x}</Badge>) : <span className="text-sm opacity-60">Нет</span>}</div>
-                  </div>
-                  <div className="text-sm opacity-70 space-y-1 break-words">
-                    <div>Создан: {user.createdAt ? new Date(user.createdAt).toLocaleString() : '—'}</div>
-                    <div>Последний вход: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}</div>
-                    <div>Minecraft привязан: {user.integrationDataReliable === false && !user.minecraftLinkedAtUtc ? '—' : (user.minecraftLinkedAtUtc ? new Date(user.minecraftLinkedAtUtc).toLocaleString() : 'нет')}</div>
-                    <div>Telegram привязан: {user.integrationDataReliable === false && !user.telegramLinkedAtUtc ? '—' : (user.telegramLinkedAtUtc ? new Date(user.telegramLinkedAtUtc).toLocaleString() : 'нет')}</div>
-                    <div>Telegram username: {formatTelegramHandle(user.telegramUsername) || (user.telegramLinkedAtUtc ? 'не задан в Telegram' : 'нет')}</div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-                    <Button className="w-full sm:w-auto" onClick={() => save(user)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
-                    <Button intent="danger" className="w-full sm:w-auto" onClick={() => removeUser(user)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl border border-[rgb(var(--border))] p-3"><div className="text-xs text-neutral-500">Рейтинг</div><div className="mt-1 text-xl font-semibold">{user.score || 0}</div></div>
+                  <div className="rounded-xl border border-[rgb(var(--border))] p-3"><div className="text-xs text-neutral-500">Решено</div><div className="mt-1 text-xl font-semibold">{totalSolved(user)}</div></div>
+                  <div className="col-span-2 rounded-xl border border-[rgb(var(--border))] p-3 text-xs text-neutral-500">
+                    <div>Создан: {formatDate(user.createdAt)}</div>
+                    <div className="mt-1">Последний вход: {formatDate(user.lastLoginAt)}</div>
                   </div>
                 </div>
+
+                <Button variant="outline" className="w-full xl:w-auto" onClick={() => navigate(`/admin/users/${user.id}`)}>
+                  <ExternalLink size={16} /><span className="ml-1">Открыть</span>
+                </Button>
               </div>
             </Card>
-          ))}
-        </div>
+          );
+        })}
       </div>
-    </>
+    </div>
   );
 }
