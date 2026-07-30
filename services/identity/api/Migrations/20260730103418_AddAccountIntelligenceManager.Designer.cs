@@ -12,7 +12,7 @@ using TaskForge.Identity.Api.Data;
 namespace TaskForge.Identity.Api.Migrations
 {
     [DbContext(typeof(IdentityDbContext))]
-    [Migration("20260729161802_AddAccountIntelligenceManager")]
+    [Migration("20260730103418_AddAccountIntelligenceManager")]
     partial class AddAccountIntelligenceManager
     {
         /// <inheritdoc />

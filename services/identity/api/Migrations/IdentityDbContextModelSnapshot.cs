@@ -229,6 +229,10 @@ namespace TaskForge.Identity.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DeviceHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("IpAddress")
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
@@ -244,6 +248,10 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LoginAt");
+
+                    b.HasIndex("DeviceHash", "LoginAt");
 
                     b.HasIndex("UserId", "LoginAt");
 
