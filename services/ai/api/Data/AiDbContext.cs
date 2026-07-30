@@ -14,6 +14,7 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
     public DbSet<AccountAnalysisRun> AccountAnalysisRuns => Set<AccountAnalysisRun>();
     public DbSet<AccountAnalysisFinding> AccountAnalysisFindings => Set<AccountAnalysisFinding>();
     public DbSet<AccountAnalysisReview> AccountAnalysisReviews => Set<AccountAnalysisReview>();
+    public DbSet<AccountManagementOperation> AccountManagementOperations => Set<AccountManagementOperation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -107,6 +108,26 @@ public sealed class AiDbContext(DbContextOptions<AiDbContext> options) : DbConte
             entity.Property(x => x.Kind).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
             entity.Property(x => x.DataJson).HasColumnType("jsonb");
+        });
+
+
+        modelBuilder.Entity<AccountManagementOperation>(entity =>
+        {
+            entity.ToTable("AccountManagementOperations");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.HasIndex(x => new { x.SourceUserId, x.CreatedAtUtc });
+            entity.HasIndex(x => new { x.TargetUserId, x.CreatedAtUtc });
+            entity.Property(x => x.Type).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Phase).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(2000);
+            entity.Property(x => x.OptionsJson).HasColumnType("jsonb");
+            entity.Property(x => x.SourceSnapshotJson).HasColumnType("jsonb");
+            entity.Property(x => x.TargetSnapshotJson).HasColumnType("jsonb");
+            entity.Property(x => x.StepsJson).HasColumnType("jsonb");
+            entity.Property(x => x.ResultJson).HasColumnType("jsonb");
+            entity.Property(x => x.ErrorJson).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<AccountAnalysisReview>(entity =>

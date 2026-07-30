@@ -19,6 +19,9 @@ internal sealed class IdentitySnapshotItem
     public string? PhoneNumber { get; set; }
     public string? ProfilePictureUrl { get; set; }
     public string? Role { get; set; }
+    public string? AccountStatus { get; set; }
+    public bool Blocked { get; set; }
+    public string? BlockReason { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
     public long? TelegramChatId { get; set; }
@@ -143,6 +146,8 @@ internal sealed class AccountIntelligenceAccount
     public ObservabilitySnapshotItem? Observability { get; init; }
     public MinecraftSnapshotItem? Minecraft { get; init; }
     public bool Verified { get; init; }
+    public bool Blocked => Identity.Blocked;
+    public bool IsAnchor => Verified || Blocked;
 
     public Guid UserId => Identity.UserId;
     public string DisplayName => string.Join(' ', new[] { Identity.FirstName, Identity.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } full

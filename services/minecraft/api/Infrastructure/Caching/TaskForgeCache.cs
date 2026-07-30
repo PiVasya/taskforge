@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 public static class TaskForgeCache
 {
@@ -32,6 +33,12 @@ public static class TaskForgeCache
             {
                 options.Configuration = connection;
                 options.InstanceName = instanceName;
+            });
+            services.AddSingleton<IConnectionMultiplexer>(_ =>
+            {
+                var options = ConfigurationOptions.Parse(connection!);
+                options.AbortOnConnectFail = false;
+                return ConnectionMultiplexer.Connect(options);
             });
 
             DebugCacheBoot(serviceName, "redis", enabled, hasConnection, instanceName);

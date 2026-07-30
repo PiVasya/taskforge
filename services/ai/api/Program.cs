@@ -27,7 +27,9 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<AccountIntelligenceScanner>();
+builder.Services.AddSingleton<AccountLifecycleCoordinator>();
 builder.Services.AddHostedService<AccountIntelligenceWorker>();
+builder.Services.AddHostedService<AccountLifecycleWorker>();
 builder.Services.AddDbContext<AiDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));

@@ -19,7 +19,13 @@ internal static partial class IdentityApiEndpoints
             days = Math.Clamp(days, 30, 1095);
             var since = DateTimeOffset.UtcNow.AddDays(-days);
             const int loginSampleLimit = 250_000;
-            var users = await db.Users.AsNoTracking().OrderBy(x => x.CreatedAt).ToListAsync(ct);
+            var users = await db.Users.AsNoTracking()
+                .Where(x => x.AccountStatus == "active")
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+            var blocks = await db.BlockedAccounts.AsNoTracking()
+                .Where(x => !x.ExpiresAtUtc.HasValue || x.ExpiresAtUtc > DateTimeOffset.UtcNow)
+                .ToDictionaryAsync(x => x.UserId, ct);
             var logs = await db.LoginLogs.AsNoTracking()
                 .Where(x => x.LoginAt >= since)
                 .OrderByDescending(x => x.LoginAt)
@@ -54,6 +60,9 @@ internal static partial class IdentityApiEndpoints
                     user.TelegramUsername,
                     user.TelegramLinkedAtUtc,
                     user.TelegramLinkCount,
+                    accountStatus = user.AccountStatus,
+                    blocked = blocks.ContainsKey(user.Id),
+                    blockReason = blocks.GetValueOrDefault(user.Id)?.Reason,
                     location = extra.Location,
                     education = extra.Education,
                     github = extra.Github,

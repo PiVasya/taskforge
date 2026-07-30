@@ -154,6 +154,7 @@ internal static partial class AiApiEndpoints
             review.Decision = decision;
             review.Note = CleanNote(request.Note);
             review.SignalsJson = ExtractSignalCodes(finding.DataJson);
+            review.DataJson = finding.DataJson;
             review.ReviewedByUserId = reviewer.Value;
             review.UpdatedAtUtc = DateTimeOffset.UtcNow;
             finding.Status = decision switch { "duplicate" => "confirmed", "different" => "dismissed", _ => "ignored" };
@@ -212,6 +213,105 @@ internal static partial class AiApiEndpoints
             if (!string.IsNullOrWhiteSpace(subjectType)) query = query.Where(x => x.SubjectType == subjectType.Trim().ToLowerInvariant());
             var rows = await query.OrderByDescending(x => x.UpdatedAtUtc).Take(take).ToListAsync(ct);
             return Results.Ok(rows.Select(ToReviewDto).ToList());
+        });
+
+        app.MapDelete("/api/admin/ai/account-manager/findings/{findingId:guid}/decision", async (
+            Guid findingId,
+            AiDbContext db,
+            CancellationToken ct) =>
+        {
+            var finding = await db.AccountAnalysisFindings.FirstOrDefaultAsync(x => x.Id == findingId, ct);
+            if (finding == null) return Results.NotFound(new { message = "Результат анализа не найден.", code = "ACCOUNT_FINDING_NOT_FOUND" });
+            var review = await db.AccountAnalysisReviews.FirstOrDefaultAsync(x => x.SubjectType == "pair" && x.SubjectKey == finding.FindingKey, ct);
+            if (review != null) db.AccountAnalysisReviews.Remove(review);
+            var matching = await db.AccountAnalysisFindings.Where(x => x.FindingKey == finding.FindingKey).ToListAsync(ct);
+            foreach (var row in matching)
+            {
+                row.Status = "open";
+                row.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { removed = review != null, finding = ToFindingDto(finding) });
+        });
+
+        app.MapDelete("/api/admin/ai/account-manager/accounts/{userId:guid}/decision", async (
+            Guid userId,
+            AiDbContext db,
+            CancellationToken ct) =>
+        {
+            var key = AccountSimilarityEngine.AccountKey(userId);
+            var review = await db.AccountAnalysisReviews.FirstOrDefaultAsync(x => x.SubjectType == "account" && x.SubjectKey == key, ct);
+            if (review != null) db.AccountAnalysisReviews.Remove(review);
+            var findings = await db.AccountAnalysisFindings.Where(x => x.Kind == "suspicious" && x.PrimaryUserId == userId).ToListAsync(ct);
+            foreach (var row in findings)
+            {
+                row.Status = "open";
+                row.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { removed = review != null, userId });
+        });
+
+        app.MapPut("/api/admin/ai/account-manager/reviews/{reviewId:guid}", async (
+            Guid reviewId,
+            AccountDecisionRequest request,
+            HttpContext http,
+            IConfiguration cfg,
+            AiDbContext db,
+            CancellationToken ct) =>
+        {
+            var reviewer = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!reviewer.HasValue) return Results.Unauthorized();
+            var review = await db.AccountAnalysisReviews.FirstOrDefaultAsync(x => x.Id == reviewId, ct);
+            if (review == null) return Results.NotFound(new { message = "Решение не найдено.", code = "ACCOUNT_REVIEW_NOT_FOUND" });
+            var decision = review.SubjectType == "pair" ? NormalizePairDecision(request.Decision) : NormalizeAccountDecision(request.Decision);
+            if (decision == null) return Results.BadRequest(new { message = "Недопустимое решение.", code = "INVALID_ACCOUNT_DECISION" });
+            review.Decision = decision;
+            review.Note = CleanNote(request.Note);
+            review.ReviewedByUserId = reviewer.Value;
+            review.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            if (review.SubjectType == "pair")
+            {
+                var rows = await db.AccountAnalysisFindings.Where(x => x.FindingKey == review.SubjectKey).ToListAsync(ct);
+                foreach (var row in rows)
+                {
+                    row.Status = decision switch { "duplicate" => "confirmed", "different" => "dismissed", _ => "ignored" };
+                    row.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                }
+            }
+            else if (review.UserId.HasValue)
+            {
+                var rows = await db.AccountAnalysisFindings.Where(x => x.Kind == "suspicious" && x.PrimaryUserId == review.UserId.Value).ToListAsync(ct);
+                foreach (var row in rows)
+                {
+                    row.Status = decision == "verified" ? "verified" : decision == "ignored" ? "ignored" : "open";
+                    row.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                }
+            }
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToReviewDto(review));
+        });
+
+        app.MapDelete("/api/admin/ai/account-manager/reviews/{reviewId:guid}", async (
+            Guid reviewId,
+            AiDbContext db,
+            CancellationToken ct) =>
+        {
+            var review = await db.AccountAnalysisReviews.FirstOrDefaultAsync(x => x.Id == reviewId, ct);
+            if (review == null) return Results.NotFound(new { message = "Решение не найдено.", code = "ACCOUNT_REVIEW_NOT_FOUND" });
+            if (review.SubjectType == "pair")
+            {
+                var rows = await db.AccountAnalysisFindings.Where(x => x.FindingKey == review.SubjectKey).ToListAsync(ct);
+                foreach (var row in rows) { row.Status = "open"; row.UpdatedAtUtc = DateTimeOffset.UtcNow; }
+            }
+            else if (review.UserId.HasValue)
+            {
+                var rows = await db.AccountAnalysisFindings.Where(x => x.Kind == "suspicious" && x.PrimaryUserId == review.UserId.Value).ToListAsync(ct);
+                foreach (var row in rows) { row.Status = "open"; row.UpdatedAtUtc = DateTimeOffset.UtcNow; }
+            }
+            db.AccountAnalysisReviews.Remove(review);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { deleted = true, reviewId });
         });
 
         return app;

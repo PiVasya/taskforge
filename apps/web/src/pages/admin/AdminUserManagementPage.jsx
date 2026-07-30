@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { deleteAdminUser, getAdminUser, updateAdminUser } from '../../api/adminUsers';
+import { getAdminUser, updateAdminUser } from '../../api/adminUsers';
+import { createAccountOperation } from '../../api/accountIntelligence';
 import { getAdminMinecraftUserRating, restoreAdminMinecraftUserRating } from '../../api/adminMinecraftLinks';
 import { deleteUserSolutions, getAdminUserGroupIds, getUserImageSolutions, getUserSolutions, searchUsersOnce } from '../../api/admin';
 import { assignFeatureRole, getFeatureRoles, removeFeatureRole } from '../../api/featureRoles';
@@ -242,16 +243,22 @@ export default function AdminUserManagementPage() {
     const label = userTitle(user);
     const ok = await notify.confirm({
       title: 'Удалить пользователя?',
-      message: `Аккаунт ${label} будет удалён. Это действие необратимо.`,
+      message: `Аккаунт ${label} будет заблокирован, затем данные безопасно удалятся во всех сервисах. Операция попадёт в журнал менеджера аккаунтов.`,
       okText: 'Удалить',
       cancelText: 'Отмена',
     });
     if (!ok) return;
 
     try {
-      await deleteAdminUser(userId);
-      notify.success('Пользователь удалён');
-      navigate('/admin/users');
+      await createAccountOperation({
+        type: 'delete',
+        sourceUserId: userId,
+        reason: 'Удаление из карточки пользователя',
+        confirmation: user?.login || user?.displayName || user?.fullName || userId,
+        hardDelete: false,
+      });
+      notify.success('Безопасное удаление поставлено в очередь');
+      navigate('/admin/ai/account-manager?tab=operations');
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя');
       setPageError(parsed);

@@ -15,6 +15,7 @@ internal static partial class NotificationsApiEndpoints
         MapServiceInfoEndpoints(app);
         MapNotificationsEndpoints(app);
         MapInternalEndpoints(app);
+        MapAccountLifecycleInternalEndpoints(app);
 
         return app;
     }

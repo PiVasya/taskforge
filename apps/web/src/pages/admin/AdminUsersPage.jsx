@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
-import { deleteAdminUser, getAdminUsers, updateAdminUser } from '../../api/adminUsers';
+import { getAdminUsers, updateAdminUser } from '../../api/adminUsers';
+import { createAccountOperation } from '../../api/accountIntelligence';
 import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -145,18 +146,19 @@ export default function AdminUsersPage() {
 
   const removeUser = async (user) => {
     const label = user?.login || user?.email || user?.fullName || user?.id;
-    const ok = window.confirm(`Удалить пользователя ${label}? Будут удалены аккаунт, решения и связанные записи.`);
+    const ok = window.confirm(`Удалить пользователя ${label}? Аккаунт сначала заблокируется, затем данные будут безопасно удалены во всех сервисах. Ход операции будет виден в ИИ → Менеджер аккаунтов.`);
     if (!ok) return;
 
     try {
-      await deleteAdminUser(user.id);
-      notify.success('Пользователь удалён');
-      setItems((prev) => prev.filter((x) => x.id !== user.id));
-      setStats((prev) => ({
-        total: Math.max(0, (prev?.total || 0) - 1),
-        linked: Math.max(0, (prev?.linked || 0) - ((user.minecraftLinkedAtUtc || user.telegramLinkedAtUtc) ? 1 : 0)),
-        admins: Math.max(0, (prev?.admins || 0) - (user.role === 'Admin' ? 1 : 0)),
-      }));
+      await createAccountOperation({
+        type: 'delete',
+        sourceUserId: user.id,
+        reason: 'Удаление из списка пользователей',
+        confirmation: user.login || user.displayName || user.fullName || user.id,
+        hardDelete: false,
+      });
+      notify.success('Безопасное удаление поставлено в очередь');
+      updateLocal(user.id, { accountStatus: 'deletion-queued' });
       setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить пользователя');

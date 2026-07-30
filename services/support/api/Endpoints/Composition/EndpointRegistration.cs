@@ -21,6 +21,7 @@ internal static partial class SupportApiEndpoints
         MapTicketsEndpoints(app);
         MapIntegrationsEndpoints(app);
         MapRealtimeEndpoints(app);
+        MapAccountLifecycleInternalEndpoints(app);
 
         return app;
     }

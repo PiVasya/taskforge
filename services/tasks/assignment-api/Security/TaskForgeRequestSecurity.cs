@@ -76,6 +76,15 @@ public static class TaskForgeRequestSecurity
                 return;
             }
 
+            var accountId = UserIdFromPrincipal(principal);
+            if (accountId.HasValue && await IsAccountBlockedAsync(context, accountId.Value))
+            {
+                await WriteProblem(context, StatusCodes.Status423Locked,
+                    "Аккаунт заблокирован или больше недоступен.",
+                    "ACCOUNT_BLOCKED");
+                return;
+            }
+
             context.User = principal;
             await next();
         });
@@ -183,6 +192,37 @@ public static class TaskForgeRequestSecurity
             .Where(c => c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "roles" || c.Type == "primary_role")
             .SelectMany(c => c.Value.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return roles.Any(allowed.Contains);
+    }
+
+
+    private static Guid? UserIdFromPrincipal(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue("sub");
+        return Guid.TryParse(raw, out var id) ? id : null;
+    }
+
+    private static async Task<bool> IsAccountBlockedAsync(HttpContext context, Guid userId)
+    {
+        try
+        {
+            var redis = context.RequestServices.GetService<StackExchange.Redis.IConnectionMultiplexer>();
+            if (redis != null)
+            {
+                return await redis.GetDatabase().KeyExistsAsync($"tf:auth:blocked:{userId:N}");
+            }
+
+            // Development fallback when Redis is intentionally disabled. In production the
+            // raw Redis key is shared by every service and invalidates already issued JWTs.
+            var cache = context.RequestServices.GetService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>();
+            if (cache == null) return false;
+            var value = await cache.GetAsync($"tf:auth:blocked:{userId:N}", context.RequestAborted);
+            return value is { Length: > 0 };
+        }
+        catch
+        {
+            // Authorization remains available during a cache outage; login/refresh still checks the identity database.
+            return false;
+        }
     }
 
     private static bool IsInternalRequest(HttpContext context, IConfiguration config)

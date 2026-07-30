@@ -52,3 +52,29 @@ public sealed class AccountAnalysisReview
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public sealed class AccountManagementOperation
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Type { get; set; } = "merge";
+    public string Status { get; set; } = "queued";
+    public string Phase { get; set; } = "queued";
+    public int ProgressPercent { get; set; }
+    public Guid SourceUserId { get; set; }
+    public Guid? TargetUserId { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public string? Reason { get; set; }
+    public string? OptionsJson { get; set; }
+    public string? SourceSnapshotJson { get; set; }
+    public string? TargetSnapshotJson { get; set; }
+    public string? StepsJson { get; set; }
+    public string? ResultJson { get; set; }
+    public string? ErrorJson { get; set; }
+    public int AttemptCount { get; set; }
+    public bool CancelRequested { get; set; }
+    public DateTimeOffset? StartedAtUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
+    public DateTimeOffset? ArchivedAtUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}

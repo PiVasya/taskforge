@@ -87,6 +87,29 @@ internal static partial class IdentityApiEndpoints
                 return Unauthorized("Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
             }
 
+            if (!string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new
+                {
+                    message = user.AccountStatus == "merged"
+                        ? "Этот аккаунт объединён с другим. Используйте основной аккаунт."
+                        : "Этот аккаунт удалён и больше недоступен.",
+                    code = user.AccountStatus == "merged" ? "ACCOUNT_MERGED" : "ACCOUNT_DELETED"
+                }, statusCode: StatusCodes.Status423Locked);
+            }
+
+            var loginBlock = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id);
+            if (loginBlock != null && (!loginBlock.ExpiresAtUtc.HasValue || loginBlock.ExpiresAtUtc > DateTimeOffset.UtcNow))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new
+                {
+                    message = "Аккаунт заблокирован администратором.",
+                    code = "ACCOUNT_BLOCKED",
+                    reason = loginBlock.Reason,
+                    expiresAtUtc = loginBlock.ExpiresAtUtc
+                }, statusCode: StatusCodes.Status423Locked);
+            }
+
             if (NeedsPasswordRehash(user.PasswordHash))
             {
                 var freshSalt = NewSalt();
@@ -123,6 +146,27 @@ internal static partial class IdentityApiEndpoints
 
             var user = await db.Users.FindAsync(uid.Value);
             if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
+            if (!string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                ClearAuthCookies(http);
+                return Microsoft.AspNetCore.Http.Results.Json(new
+                {
+                    message = "Аккаунт больше недоступен.",
+                    code = user.AccountStatus == "merged" ? "ACCOUNT_MERGED" : "ACCOUNT_DELETED"
+                }, statusCode: StatusCodes.Status423Locked);
+            }
+            var refreshBlock = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id);
+            if (refreshBlock != null && (!refreshBlock.ExpiresAtUtc.HasValue || refreshBlock.ExpiresAtUtc > DateTimeOffset.UtcNow))
+            {
+                ClearAuthCookies(http);
+                return Microsoft.AspNetCore.Http.Results.Json(new
+                {
+                    message = "Аккаунт заблокирован администратором.",
+                    code = "ACCOUNT_BLOCKED",
+                    reason = refreshBlock.Reason,
+                    expiresAtUtc = refreshBlock.ExpiresAtUtc
+                }, statusCode: StatusCodes.Status423Locked);
+            }
 
             var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
             var refreshLifetime = TimeSpan.FromDays(7);

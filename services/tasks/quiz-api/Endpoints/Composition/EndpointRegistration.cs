@@ -24,6 +24,7 @@ internal static partial class QuizTaskEndpoints
         MapServiceInfoEndpoints(app);
         MapQuizEndpoints(app);
         MapAdminQuizEndpoints(app);
+        MapAccountLifecycleInternalEndpoints(app);
 
         return app;
     }

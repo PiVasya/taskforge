@@ -25,6 +25,7 @@ internal static partial class AiApiEndpoints
         MapServiceInfoEndpoints(app);
         MapAgentEndpoints(app);
         MapAccountIntelligenceEndpoints(app);
+        MapAccountLifecycleEndpoints(app);
         MapRealtimeEndpoints(app);
         MapWorkerInternalEndpoints(app);
 

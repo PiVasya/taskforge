@@ -12,6 +12,7 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<FeatureRole> FeatureRoles => Set<FeatureRole>();
     public DbSet<UserFeatureRole> UserFeatureRoles => Set<UserFeatureRole>();
     public DbSet<TelegramLinkCode> TelegramLinkCodes => Set<TelegramLinkCode>();
+    public DbSet<BlockedAccount> BlockedAccounts => Set<BlockedAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,8 +40,23 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.Property(x => x.PhoneNumber).HasMaxLength(40);
             entity.Property(x => x.ProfilePictureUrl).HasMaxLength(2048);
             entity.Property(x => x.AdditionalDataJson);
+            entity.Property(x => x.AccountStatus).HasMaxLength(32).HasDefaultValue("active").IsRequired();
+            entity.Property(x => x.DeletionReason).HasMaxLength(1000);
+            entity.HasIndex(x => x.AccountStatus);
+            entity.HasIndex(x => x.MergedIntoUserId);
             entity.HasIndex(x => x.TelegramChatId).IsUnique();
             entity.Property(x => x.TelegramUsername).HasMaxLength(80);
+        });
+
+
+        modelBuilder.Entity<BlockedAccount>(entity =>
+        {
+            entity.ToTable("BlockedAccounts");
+            entity.HasKey(x => x.UserId);
+            entity.HasIndex(x => x.BlockedAtUtc);
+            entity.HasIndex(x => x.ExpiresAtUtc);
+            entity.Property(x => x.Reason).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Note).HasMaxLength(2000);
         });
 
         modelBuilder.Entity<TelegramLinkCode>(entity =>

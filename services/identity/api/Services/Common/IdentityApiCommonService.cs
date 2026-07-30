@@ -50,7 +50,7 @@ internal static class IdentityApiCommonService
 
     internal static async Task<List<IdentityUser>> SearchUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly, string? sortBy, string? sortDir, int take)
     {
-        var query = db.Users.AsNoTracking();
+        var query = db.Users.AsNoTracking().Where(x => x.AccountStatus == "active");
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
 
@@ -74,7 +74,7 @@ internal static class IdentityApiCommonService
 
     internal static async Task<int> CountUsersAsync(IdentityDbContext db, string? text, string? role, bool linkedOnly)
     {
-        var query = db.Users.AsNoTracking();
+        var query = db.Users.AsNoTracking().Where(x => x.AccountStatus == "active");
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         if (string.IsNullOrWhiteSpace(text))
         {

@@ -32,6 +32,10 @@ services:
       Services__SolutionsApi: http://solutions-api:8080
       Services__ObservabilityApi: http://observability-api:8080
       Services__MinecraftApi: http://minecraft-api:8080
+      Services__QuizApi: http://quiz-api:8080
+      Services__SupportApi: http://support-api:8080
+      Services__NotificationsApi: http://notifications-api:8080
+      Services__ExecutionApi: http://execution-api:8080
       S3__SecretKey: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_ai;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}

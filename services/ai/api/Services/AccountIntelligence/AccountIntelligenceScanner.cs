@@ -76,7 +76,7 @@ internal sealed class AccountIntelligenceScanner(
                 var analysis = AccountSimilarityEngine.AnalyzePair(a, b, learning, now);
                 var confirmedDuplicate = prior?.Decision == "duplicate";
                 if (!confirmedDuplicate && analysis.FinalScore < 42) continue;
-                if (!confirmedDuplicate && a.Verified && b.Verified) continue;
+                if (!confirmedDuplicate && a.IsAnchor && b.IsAnchor) continue;
 
                 var older = a.Identity.CreatedAt <= b.Identity.CreatedAt ? a : b;
                 var newer = older.UserId == a.UserId ? b : a;
@@ -86,7 +86,7 @@ internal sealed class AccountIntelligenceScanner(
                 var aHistory = AccountSimilarityEngine.HistoricalValueScore(a);
                 var bHistory = AccountSimilarityEngine.HistoricalValueScore(b);
                 var historicallyRicher = aHistory >= bHistory ? a : b;
-                var verifiedAnchor = a.Verified ^ b.Verified ? (a.Verified ? a.UserId : b.UserId) : (Guid?)null;
+                var verifiedAnchor = a.IsAnchor ^ b.IsAnchor ? (a.IsAnchor ? a.UserId : b.UserId) : (Guid?)null;
                 var suspect = verifiedAnchor.HasValue ? (verifiedAnchor.Value == a.UserId ? b.UserId : a.UserId) : newer.UserId;
                 var status = prior?.Decision == "duplicate" ? "confirmed" : "open";
 
@@ -138,7 +138,7 @@ internal sealed class AccountIntelligenceScanner(
             run.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
 
-            foreach (var account in accounts.Where(x => !x.Verified))
+            foreach (var account in accounts.Where(x => !x.IsAnchor))
             {
                 var accountKey = AccountSimilarityEngine.AccountKey(account.UserId);
                 if (reviewByKey.TryGetValue(accountKey, out var accountReview) && accountReview.Decision is "ignored" or "verified") continue;
@@ -363,6 +363,8 @@ internal sealed class AccountIntelligenceScanner(
             account.Identity.Location,
             account.Identity.Education,
             verified = account.Verified,
+            blocked = account.Blocked,
+            blockReason = account.Identity.BlockReason,
             groups = account.Groups.Select(x => new { x.GroupId, x.Name, x.Code }).ToArray(),
             minecraft = account.Minecraft?.Links.Select(x => new { x.PlayerName, x.PlayerUuid, x.LinkedAtUtc }).ToArray() ?? [],
             lastActivityAt = last,

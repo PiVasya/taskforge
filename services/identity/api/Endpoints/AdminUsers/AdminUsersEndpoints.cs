@@ -87,14 +87,13 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToAdminUserDto(user));
         });
 
-        app.MapDelete("/api/admin/users/{userId:guid}", async (Guid userId, IdentityDbContext db) =>
-        {
-            var user = await db.Users.FindAsync(userId);
-            if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
-            db.Users.Remove(user);
-            await db.SaveChangesAsync();
-            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Пользователь удалён", deleted = true });
-        });
+        app.MapDelete("/api/admin/users/{userId:guid}", (Guid userId) =>
+            Microsoft.AspNetCore.Http.Results.Conflict(new
+            {
+                message = "Прямое удаление отключено: используйте Менеджер аккаунтов, чтобы безопасно удалить данные во всех сервисах.",
+                code = "ACCOUNT_LIFECYCLE_REQUIRED",
+                userId
+            }));
 
         return app;
     }

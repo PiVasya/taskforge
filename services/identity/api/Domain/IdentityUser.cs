@@ -19,4 +19,9 @@ public sealed class IdentityUser
     public int TelegramLinkCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
+    public string AccountStatus { get; set; } = "active";
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+    public Guid? DeletedByUserId { get; set; }
+    public string? DeletionReason { get; set; }
+    public Guid? MergedIntoUserId { get; set; }
 }
