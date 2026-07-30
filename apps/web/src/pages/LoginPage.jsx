@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Field, Input, Button, Card } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { useLocation, useNavigate, Link } from "react-router-dom";
-import { LogIn } from "lucide-react";
+import { KeyRound, LogIn } from "lucide-react";
 import { getApiErrorMessage } from "../api/http";
 
 export default function LoginPage() {
@@ -14,6 +14,10 @@ export default function LoginPage() {
   const nav = useNavigate();
   const loc = useLocation();
   const from = loc.state?.from?.pathname || "/courses";
+
+  useEffect(() => {
+    if (loc.state?.login) setLoginName(loc.state.login);
+  }, [loc.state?.login]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -71,6 +75,12 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </Field>
+
+            <div className="flex justify-end -mt-2">
+              <Link to="/forgot-password" className="inline-flex items-center gap-1 text-sm text-brand-600 hover:underline">
+                <KeyRound size={14} /> Забыли пароль?
+              </Link>
+            </div>
 
             <Button disabled={busy} className="w-full">
               {busy ? "Входим…" : (

@@ -105,7 +105,7 @@ public static class TaskForgeRequestSecurity
         var safeMethod = HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
         var writeMethod = HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsPatch(method) || HttpMethods.IsDelete(method);
 
-        if (path.StartsWith("/api/auth/login") || path.StartsWith("/api/auth/register") || path.StartsWith("/api/auth/refresh") || path.StartsWith("/api/auth/logout")) return Requirement.Public;
+        if (path.StartsWith("/api/auth/login") || path.StartsWith("/api/auth/register") || path.StartsWith("/api/auth/refresh") || path.StartsWith("/api/auth/logout") || path.StartsWith("/api/auth/password-recovery")) return Requirement.Public;
         if (path.StartsWith("/api/users/") && path.EndsWith("/public-profile")) return Requirement.Public;
         if (path == "/api/system-status") return Requirement.Public;
         if (path == "/api/activity/page-view" && HttpMethods.IsPost(method)) return Requirement.Public;

@@ -183,6 +183,8 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "ok" });
         });
 
+        MapPasswordRecoveryEndpoints(app);
+
         return app;
     }
 }

@@ -18,6 +18,12 @@ public sealed record RegisterRequest(string? Login, string? Email, string? Passw
 
 public sealed record LoginRequest(string? Login, string? Email, string? Password);
 
+public sealed record PasswordRecoveryRequest(string? Identity);
+
+public sealed record PasswordRecoveryVerifyRequest(string? VerificationCode);
+
+public sealed record PasswordRecoveryResetRequest(string? NewPassword);
+
 public sealed record ProfileUpdateRequest(string? Login, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? AdditionalDataJson);
 
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);

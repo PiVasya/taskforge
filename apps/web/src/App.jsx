@@ -10,6 +10,7 @@ import PageMeta from './app/PageMeta';
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const AgentPage = lazy(() => import('./pages/AgentPage'));
@@ -62,6 +63,7 @@ export default function App() {
         <Route element={<RootShell />}>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/news" element={<NewsPage />} />

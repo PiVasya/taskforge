@@ -48,6 +48,9 @@ internal static class TaskForgeAuthRateLimiters
             "register" => (5, TimeSpan.FromMinutes(10)),
             "refresh" => (120, TimeSpan.FromMinutes(5)),
             "password" => (8, TimeSpan.FromMinutes(10)),
+            "password-recovery-request" => (6, TimeSpan.FromMinutes(15)),
+            "password-recovery-verify" => (12, TimeSpan.FromMinutes(10)),
+            "password-recovery-reset" => (6, TimeSpan.FromMinutes(10)),
             _ => (60, TimeSpan.FromMinutes(1))
         };
         return Limiter.Allow(key, limit, window);

@@ -17,6 +17,11 @@ const pageMetaRules = [
     description: 'Вход в TaskForge для продолжения обучения, проверки решений и работы с курсами.',
   },
   {
+    path: '/forgot-password',
+    title: 'восстановление пароля',
+    description: 'Восстановление доступа к аккаунту TaskForge через привязанный Telegram.',
+  },
+  {
     path: '/register',
     title: 'регистрация',
     description: 'Создание аккаунта TaskForge для доступа к курсам, заданиям и сохранению прогресса.',

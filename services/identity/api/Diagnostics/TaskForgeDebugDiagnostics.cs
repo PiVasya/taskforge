@@ -171,7 +171,7 @@ internal static class TaskForgeDebugDiagnostics
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
         var s = value.Replace("\r", " ").Replace("\n", " ");
-        s = Regex.Replace(s, "(?i)(\\\"?(password|token|accessToken|refreshToken|authorization|secret|internalKey|apiKey|x-internal-key)\\\"?\\s*[:=]\\s*)\\\"?[^\\\",} ]+\\\"?", "$1\"[redacted]\"");
+        s = Regex.Replace(s, "(?i)(\\\"?(?:[a-z0-9_]*(?:password|token|secret|internalkey|apikey|recoveryid|verificationcode)[a-z0-9_]*|authorization|x-internal-key)\\\"?\\s*[:=]\\s*)\\\"?[^\\\",} ]+\\\"?", "$1\"[redacted]\"");
         if (s.Length > MaxLoggedBodyChars) s = s[..MaxLoggedBodyChars] + $"...<trimmed {s.Length - MaxLoggedBodyChars} chars>";
         return s;
     }
