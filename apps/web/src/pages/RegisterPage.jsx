@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Field, Input, Button, Textarea } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { registerUser } from "../api/auth";
@@ -32,6 +32,9 @@ function buildAdditionalDataJson(fields) {
 
 export default function RegisterPage() {
     const nav = useNavigate();
+    const [searchParams] = useSearchParams();
+    const requestedAccountType = searchParams.get("accountType")?.toLowerCase() === "ai" ? "ai" : "human";
+    const isAiRegistration = requestedAccountType === "ai";
     const { login: signIn, access } = useAuth();
 
     const [login, setLogin] = useState("");
@@ -77,6 +80,7 @@ export default function RegisterPage() {
                 lastName: lastName.trim(),
                 phoneNumber: phoneNumber.trim() || null,
                 additionalDataJson: buildAdditionalDataJson({ studyPlace, education, skillsText, bio }),
+                accountType: requestedAccountType,
             });
 
             try {
@@ -105,6 +109,12 @@ export default function RegisterPage() {
                         <h1 className="text-2xl font-semibold mb-4 flex items-center gap-2">
                             <UserPlus size={20} /> Регистрация
                         </h1>
+
+                        {isAiRegistration ? (
+                            <div className="mb-4 rounded-xl border border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.08)] px-4 py-3 text-sm">
+                                Этот аккаунт будет помечен как AI. Он получит обычные права пользователя без скрытых привилегий.
+                            </div>
+                        ) : null}
 
                         {err && <div className="text-red-500 mb-3">{err}</div>}
 

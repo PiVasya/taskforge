@@ -62,7 +62,8 @@ def positive_number(key):
     except ValueError: errors.append(f'{key} must be a positive number')
 
 for key in ('IMAGE_REPOSITORY','IMAGE_TAG','DOMAIN','CT_DOMAIN','LETSENCRYPT_EMAIL',
-            'S3_PUBLIC_ENDPOINT','BOOTSTRAP_ADMIN_EMAILS'):
+            'S3_PUBLIC_ENDPOINT','BOOTSTRAP_ADMIN_EMAILS','BROWSER_MAIN_ORIGIN',
+            'BROWSER_CT_ORIGIN','BROWSER_MEM_LIMIT','BROWSER_SHM_SIZE','BROWSER_TMPFS_SIZE'):
     required(key)
 for key,n in {
     'JWT_SIGNING_KEY':64, 'TASKFORGE_INTERNAL_KEY':40, 'TASKFORGE_AGENT_INTERNAL_KEY':40,
@@ -72,9 +73,28 @@ for key,n in {
 }.items(): minlen(key,n)
 for key in ('MINECRAFT_DEATH_COORDINATES_COST','MINECRAFT_DEATH_CHEST_COST',
             'MINECRAFT_DEATH_TELEPORT_COST','MINECRAFT_DEATH_INVENTORY_COST',
-            'RUNNER_PIDS_LIMIT','CODE_ANALYZER_PIDS_LIMIT','WATCHTOWER_POLL_INTERVAL'):
+            'RUNNER_PIDS_LIMIT','CODE_ANALYZER_PIDS_LIMIT','WATCHTOWER_POLL_INTERVAL',
+            'BROWSER_NAVIGATION_TIMEOUT_SECONDS','BROWSER_ACTION_TIMEOUT_SECONDS',
+            'BROWSER_DEFAULT_WAIT_MILLISECONDS','BROWSER_MAX_WAIT_MILLISECONDS',
+            'BROWSER_MIN_VIEWPORT_WIDTH','BROWSER_MAX_VIEWPORT_WIDTH',
+            'BROWSER_MIN_VIEWPORT_HEIGHT','BROWSER_MAX_VIEWPORT_HEIGHT',
+            'BROWSER_MAX_FULL_PAGE_HEIGHT','BROWSER_MAX_SCREENSHOT_PIXELS',
+            'BROWSER_MAX_SNAPSHOT_ELEMENTS','BROWSER_MAX_SNAPSHOT_TEXT_CHARACTERS',
+            'BROWSER_MAX_ARIA_SNAPSHOT_CHARACTERS','BROWSER_ARIA_SNAPSHOT_DEPTH',
+            'BROWSER_MAX_EVENT_ENTRIES','BROWSER_MAX_CACHED_ARTIFACT_BYTES',
+            'BROWSER_MAX_ARTIFACT_RESPONSE_BYTES',
+            'BROWSER_METADATA_LIMIT','BROWSER_METADATA_WINDOW_SECONDS',
+            'BROWSER_SNAPSHOT_LIMIT','BROWSER_SNAPSHOT_WINDOW_SECONDS',
+            'BROWSER_RENDER_LIMIT','BROWSER_RENDER_WINDOW_SECONDS',
+            'BROWSER_SESSION_CREATE_LIMIT','BROWSER_SESSION_CREATE_WINDOW_SECONDS',
+            'BROWSER_SESSION_ACTION_LIMIT','BROWSER_SESSION_ACTION_WINDOW_SECONDS',
+            'BROWSER_RATE_NETWORK_MULTIPLIER','BROWSER_MAX_CONCURRENT_OPERATIONS',
+            'BROWSER_MAX_ACTIVE_SESSIONS','BROWSER_MAX_ANONYMOUS_SESSIONS_PER_OWNER',
+            'BROWSER_MAX_AUTHENTICATED_SESSIONS_PER_OWNER','BROWSER_SESSION_IDLE_MINUTES',
+            'BROWSER_SESSION_ABSOLUTE_MINUTES','BROWSER_PUBLIC_CACHE_SECONDS',
+            'BROWSER_PIDS_LIMIT'):
     positive_int(key)
-for key in ('RUNNER_CPUS','CODE_ANALYZER_CPUS'):
+for key in ('RUNNER_CPUS','CODE_ANALYZER_CPUS','BROWSER_CPUS'):
     positive_number(key)
 
 if env.get('ASPNETCORE_ENVIRONMENT')!='Production': errors.append('ASPNETCORE_ENVIRONMENT must be Production')
@@ -86,6 +106,30 @@ if not env.get('MINECRAFT_WEBHOOK_SEND_CODE_PATH','').startswith('/'):
     errors.append('MINECRAFT_WEBHOOK_SEND_CODE_PATH must start with /')
 if env.get('TASKFORGE_NODE_ROLE','primary') not in {'primary','standby'}:
     errors.append('TASKFORGE_NODE_ROLE must be primary or standby')
+if env.get('BROWSER_RATE_LIMITS_ENABLED')!='true': errors.append('BROWSER_RATE_LIMITS_ENABLED must be true')
+if env.get('BROWSER_IGNORE_HTTPS_ERRORS')!='false': errors.append('BROWSER_IGNORE_HTTPS_ERRORS must be false in production')
+if env.get('BROWSER_REDUCE_MOTION') not in {'true','false'}: errors.append('BROWSER_REDUCE_MOTION must be true or false')
+for key in ('BROWSER_MAIN_ORIGIN','BROWSER_CT_ORIGIN'):
+    value=env.get(key,'')
+    if value and not value.startswith('https://'): errors.append(f'{key} must use https:// in production')
+for value in re.split(r'[,;\s]+',env.get('BROWSER_ALLOWED_EXTERNAL_ORIGINS','').strip()):
+    if value and not value.startswith('https://'):
+        errors.append('every BROWSER_ALLOWED_EXTERNAL_ORIGINS entry must use https://')
+try:
+    if int(env.get('BROWSER_MIN_VIEWPORT_WIDTH','0')) > int(env.get('BROWSER_MAX_VIEWPORT_WIDTH','0')):
+        errors.append('BROWSER_MIN_VIEWPORT_WIDTH cannot exceed BROWSER_MAX_VIEWPORT_WIDTH')
+    if int(env.get('BROWSER_MIN_VIEWPORT_HEIGHT','0')) > int(env.get('BROWSER_MAX_VIEWPORT_HEIGHT','0')):
+        errors.append('BROWSER_MIN_VIEWPORT_HEIGHT cannot exceed BROWSER_MAX_VIEWPORT_HEIGHT')
+    if int(env.get('BROWSER_SESSION_IDLE_MINUTES','0')) > int(env.get('BROWSER_SESSION_ABSOLUTE_MINUTES','0')):
+        errors.append('BROWSER_SESSION_IDLE_MINUTES cannot exceed BROWSER_SESSION_ABSOLUTE_MINUTES')
+    if int(env.get('BROWSER_MAX_ANONYMOUS_SESSIONS_PER_OWNER','0')) > int(env.get('BROWSER_MAX_ACTIVE_SESSIONS','0')):
+        errors.append('BROWSER_MAX_ANONYMOUS_SESSIONS_PER_OWNER cannot exceed BROWSER_MAX_ACTIVE_SESSIONS')
+    if int(env.get('BROWSER_MAX_AUTHENTICATED_SESSIONS_PER_OWNER','0')) > int(env.get('BROWSER_MAX_ACTIVE_SESSIONS','0')):
+        errors.append('BROWSER_MAX_AUTHENTICATED_SESSIONS_PER_OWNER cannot exceed BROWSER_MAX_ACTIVE_SESSIONS')
+    if int(env.get('BROWSER_MAX_CACHED_ARTIFACT_BYTES','0')) > int(env.get('BROWSER_MAX_ARTIFACT_RESPONSE_BYTES','0')):
+        errors.append('BROWSER_MAX_CACHED_ARTIFACT_BYTES cannot exceed BROWSER_MAX_ARTIFACT_RESPONSE_BYTES')
+except ValueError:
+    pass
 repo=env.get('IMAGE_REPOSITORY','')
 if 'CHANGE_ME' in repo.upper() or not repo.startswith('ghcr.io/'):
     errors.append('IMAGE_REPOSITORY must point to ghcr.io')
@@ -146,6 +190,8 @@ fi
 
 ./scripts/verify-runtime-config.sh >/dev/null
 python3 scripts/ci/check-workflow-integrity.py >/dev/null
+python3 scripts/ci/check-migration-tooling-safety.py >/dev/null
+bash scripts/security/check-browser-api-security.sh >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
   ./deploy/prod/compose.sh config >/dev/null

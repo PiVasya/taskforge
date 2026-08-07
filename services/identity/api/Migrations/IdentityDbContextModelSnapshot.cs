@@ -108,6 +108,13 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasColumnType("character varying(32)")
                         .HasDefaultValue("active");
 
+                    b.Property<string>("AccountType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("human");
+
                     b.Property<string>("AdditionalDataJson")
                         .HasColumnType("text");
 
@@ -187,6 +194,8 @@ namespace TaskForge.Identity.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AccountStatus");
+
+                    b.HasIndex("AccountType");
 
                     b.HasIndex("Email")
                         .IsUnique();

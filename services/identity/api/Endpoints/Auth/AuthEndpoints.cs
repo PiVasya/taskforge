@@ -27,7 +27,7 @@ internal static partial class IdentityApiEndpoints
     {
         app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "register", request.Login ?? request.Email) is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "register", request.Login ?? request.Email) is { } limited) return limited;
 
             var login = NormalizeLogin(request.Login);
             if (!IsValidLogin(login, out var loginMessage)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = loginMessage });
@@ -37,6 +37,7 @@ internal static partial class IdentityApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Email указан в неверном формате." });
 
             if (!IsValidPassword(request.Password, out var passwordMessage)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = passwordMessage });
+            if (!TryNormalizeAccountType(request.AccountType, out var accountType)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "accountType должен быть human или ai.", code = "INVALID_ACCOUNT_TYPE" });
             if (await db.Users.AnyAsync(x => x.Login == login)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким логином уже существует." });
             if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
@@ -53,18 +54,19 @@ internal static partial class IdentityApiEndpoints
                 AdditionalDataJson = string.IsNullOrWhiteSpace(request.AdditionalDataJson) ? null : request.AdditionalDataJson,
                 PasswordSalt = salt,
                 PasswordHash = HashPassword(request.Password ?? string.Empty, salt),
-                Role = role
+                Role = role,
+                AccountType = accountType
             };
             db.Users.Add(user);
             db.UiSettings.Add(new UserUiSettings { UserId = user.Id, DataJson = DefaultUiSettingsJson() });
             await db.SaveChangesAsync();
 
-            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role, accountType = user.AccountType, isAi = user.AccountType == "ai" });
         });
 
         app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "login", request.Login ?? request.Email) is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "login", request.Login ?? request.Email) is { } limited) return limited;
 
             var identity = (request.Login ?? request.Email ?? string.Empty).Trim();
             var identityIsEmail = identity.Contains('@');
@@ -138,7 +140,7 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "refresh") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "refresh") is { } limited) return limited;
             var principal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
             var uid = principal == null ? null : TryGetUserId(principal);
             if (uid == null) return Unauthorized("Сессия истекла. Войдите заново.");

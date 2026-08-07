@@ -7,7 +7,7 @@ import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { Ban, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
+import { Ban, Bot, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -18,6 +18,7 @@ const sortOptions = [
   { value: 'login', label: 'Логин' },
   { value: 'email', label: 'Email' },
   { value: 'role', label: 'Базовая роль' },
+  { value: 'accountType', label: 'Тип аккаунта' },
   { value: 'minecraftNick', label: 'Minecraft nick' },
   { value: 'telegramUsername', label: 'Telegram username' },
   { value: 'minecraftLinkedAt', label: 'Дата привязки Minecraft' },
@@ -77,6 +78,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
+  const [accountType, setAccountType] = useState('');
   const [status, setStatus] = useState('active');
   const [linkedOnly, setLinkedOnly] = useState(false);
   const [sortBy, setSortBy] = useState('createdAt');
@@ -127,6 +129,7 @@ export default function AdminUsersPage() {
     const search = normalize(query);
     const rows = items.filter((user) => {
       if (role && user.role !== role) return false;
+      if (accountType && (user.accountType || 'human') !== accountType) return false;
       if (status === 'active' && (user.accountStatus !== 'active' || user.blocked)) return false;
       if (status === 'blocked' && !user.blocked) return false;
       if (status === 'merged' && user.accountStatus !== 'merged') return false;
@@ -146,6 +149,7 @@ export default function AdminUsersPage() {
         user.fullName,
         user.telegramUsername,
         user.telegramChatId,
+        user.accountType,
         ...(user.minecraftLinks || []).flatMap((link) => [link.nick, link.uuid]),
       ].map(normalize).join(' ');
       return haystack.includes(search);
@@ -160,6 +164,7 @@ export default function AdminUsersPage() {
         case 'login': return normalize(user.login);
         case 'email': return normalize(user.email);
         case 'role': return normalize(user.role);
+        case 'accountType': return normalize(user.accountType || 'human');
         case 'minecraftNick': return normalize(firstMinecraft.nick);
         case 'telegramUsername': return normalize(user.telegramUsername);
         case 'minecraftLinkedAt': return dateValue(firstMinecraft.linkedAtUtc);
@@ -180,13 +185,14 @@ export default function AdminUsersPage() {
       else result = Number(av) - Number(bv);
       return sortDir === 'asc' ? result : -result;
     });
-  }, [items, linkedOnly, query, role, sortBy, sortDir, status]);
+  }, [accountType, items, linkedOnly, query, role, sortBy, sortDir, status]);
 
   const stats = useMemo(() => ({
     total: items.length,
     active: items.filter((x) => x.accountStatus === 'active' && !x.blocked).length,
     blocked: items.filter((x) => x.blocked).length,
     linked: items.filter((x) => x.telegramLinked || (x.minecraftLinks || []).length > 0).length,
+    ai: items.filter((x) => x.accountType === 'ai' || x.isAi).length,
   }), [items]);
 
   return (
@@ -201,17 +207,19 @@ export default function AdminUsersPage() {
 
       {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 sm:gap-4">
         <Metric label="Всего аккаунтов" value={stats.total} hint="Включая удалённые и объединённые" icon={UserCog} />
         <Metric label="Активные" value={stats.active} hint="Можно редактировать и использовать" icon={ShieldCheck} />
         <Metric label="Заблокированные" value={stats.blocked} hint="Вход отключён на всей платформе" icon={Ban} />
         <Metric label="С интеграциями" value={stats.linked} hint="Telegram или Minecraft" icon={Link2} />
+        <Metric label="AI-аккаунты" value={stats.ai} hint="Самодекларированные автоматизированные пользователи" icon={Bot} />
       </div>
 
       <Card>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr,170px,190px,190px,190px,150px] items-end">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1fr,150px,150px,180px,180px,170px,150px] items-end">
           <Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="логин / email / имя / Telegram / Minecraft nick / UUID" /></Field>
           <Field label="Базовая роль"><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">Все</option>{roles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+          <Field label="Тип аккаунта"><Select value={accountType} onChange={(e) => setAccountType(e.target.value)}><option value="">Все</option><option value="human">Человек</option><option value="ai">AI</option></Select></Field>
           <Field label="Состояние"><Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="active">Активные</option><option value="blocked">Заблокированные</option><option value="merged">Объединённые</option><option value="deleted">Удалённые</option><option value="">Все состояния</option></Select></Field>
           <Field label="Сортировать по"><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>{sortOptions.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</Select></Field>
           <Field label="Порядок"><Select value={sortDir} onChange={(e) => setSortDir(e.target.value)}><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></Select></Field>
@@ -238,6 +246,7 @@ export default function AdminUsersPage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge intent={accountStatusIntent(user)}>{accountStatusLabel(user)}</Badge>
                     <Badge intent="outline">{user.role || 'User'}</Badge>
+                    {(user.accountType === 'ai' || user.isAi) ? <Badge intent="outline"><Bot size={12} className="mr-1 inline" />AI</Badge> : null}
                     {user.mergedIntoUserId ? <Badge intent="outline">Основной: {String(user.mergedIntoUserId).slice(0, 8)}…</Badge> : null}
                   </div>
                 </div>

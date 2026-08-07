@@ -29,14 +29,14 @@ ALL_SERVICES=(
   identity-api education-api content-api quiz-api tasks-api solutions-api rating-worker
   execution-api execution-worker csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner image-cpp-runner image-pascal-runner
   ai-api ai-worker code-analyzer image-analyzer
-  support-api support-bot minecraft-api files-api notifications-api observability-api telegram-quiz-bot
+  support-api support-bot minecraft-api files-api notifications-api observability-api browser-api telegram-quiz-bot
 )
 
 BACKEND_SERVICES=(
   identity-api education-api content-api quiz-api tasks-api solutions-api rating-worker
   execution-api execution-worker
   ai-api ai-worker
-  support-api support-bot minecraft-api files-api notifications-api observability-api telegram-quiz-bot
+  support-api support-bot minecraft-api files-api notifications-api observability-api browser-api telegram-quiz-bot
 )
 
 FRONTEND_SERVICES=(gateway front front-ct)
@@ -48,7 +48,7 @@ JUDGE_SERVICES=(
 
 RUNNER_SERVICES=(csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner image-cpp-runner image-pascal-runner)
 AI_SERVICES=(ai-api ai-worker code-analyzer image-analyzer)
-MAIN_LOG_SERVICES=(gateway front front-ct identity-api tasks-api solutions-api execution-api execution-worker code-analyzer csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
+MAIN_LOG_SERVICES=(gateway front front-ct identity-api tasks-api solutions-api execution-api execution-worker browser-api code-analyzer csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
 
 compose() {
   docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"

@@ -32,6 +32,7 @@ public sealed record UserSummaryDto(
     string DisplayName,
     string FullName,
     string Role,
+    string AccountType,
     string? Location,
     string? Education,
     bool ShowInLeaderboard,

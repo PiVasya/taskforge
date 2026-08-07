@@ -11,6 +11,11 @@ services:
       CT_DOMAIN: ${CT_DOMAIN:-ct.taskforge.local}
     ports:
       - ${DEV_GATEWAY_HTTP_PORT:-18080}:80
+    networks:
+      default:
+        aliases:
+          - ${DOMAIN:-taskforge.local}
+          - ${CT_DOMAIN:-ct.taskforge.local}
     depends_on:
       front:
         condition: service_healthy
@@ -41,6 +46,8 @@ services:
       notifications-api:
         condition: service_healthy
       observability-api:
+        condition: service_healthy
+      browser-api:
         condition: service_healthy
     healthcheck:
       test:

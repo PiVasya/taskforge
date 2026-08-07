@@ -184,6 +184,7 @@ internal static class IdentityApiAccessService
             new("role", user.Role),
             new("roles", string.Join(',', roles)),
             new("primary_role", user.Role),
+            new("account_type", NormalizeAccountType(user.AccountType)),
             new("token_type", tokenType),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };

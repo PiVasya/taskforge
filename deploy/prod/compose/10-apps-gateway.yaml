@@ -14,6 +14,11 @@ services:
     ports:
       - ${PUBLIC_HTTP_PORT:-80}:80
       - ${PUBLIC_HTTPS_PORT:-443}:443
+    networks:
+      default:
+        aliases:
+          - ${DOMAIN:?set DOMAIN}
+          - ${CT_DOMAIN:?set CT_DOMAIN}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot
@@ -47,6 +52,8 @@ services:
       notifications-api:
         condition: service_healthy
       observability-api:
+        condition: service_healthy
+      browser-api:
         condition: service_healthy
     healthcheck:
       test:

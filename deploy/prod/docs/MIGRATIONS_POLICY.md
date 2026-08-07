@@ -38,15 +38,15 @@ services/bots/telegram-quiz-bot/Data/Migrations
 Обычная разработка:
 
 ```bash
-./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange identity
 ```
 
-Этот скрипт проверяет pending model changes и создаёт миграцию только для тех DbContext, где модель реально изменилась.
+Второй аргумент — обязательный target DbContext. Скрипт проверяет pending model changes только у выбранного владельца данных и создаёт миграцию лишь при реальном изменении модели. Это исключает случайную генерацию миграций в соседних микросервисах. Список target-ов: `./scripts/generate-migrations.sh --list`. Для осознанной проверки всех контекстов укажи `all`.
 
 Принудительный режим:
 
 ```bash
-./scripts/generate-migrations-force.sh MigrationName
+./scripts/generate-migrations-force.sh MigrationName identity
 ```
 
 `force`-скрипт нужен редко. Он может создать пустые миграции, поэтому не используй его для обычной разработки.

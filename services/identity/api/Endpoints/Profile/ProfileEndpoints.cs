@@ -55,7 +55,7 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/profile/change-password", async (ChangePasswordRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password") is { } limited) return limited;
             var user = await FindCurrentUserAsync(http, db, cfg);
             if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
             if (!VerifyPassword(request.CurrentPassword ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Неверный текущий пароль" });
@@ -69,7 +69,7 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/profile/change-email", async (ChangeEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password") is { } limited) return limited;
             var user = await FindCurrentUserAsync(http, db, cfg);
             if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
             if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Неверный пароль" });
@@ -83,7 +83,7 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/profile/reveal-email", async (RevealEmailRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (CheckAuthRateLimit(http, "password") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password") is { } limited) return limited;
             var user = await FindCurrentUserAsync(http, db, cfg);
             if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
             if (!VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Неверный пароль" });
@@ -138,6 +138,8 @@ internal static partial class IdentityApiEndpoints
                 avatarUrl = user.ProfilePictureUrl,
                 profilePictureUrl = user.ProfilePictureUrl,
                 displayName = PublicDisplayName(user),
+                user.AccountType,
+                isAi = string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase),
                 user.CreatedAt,
                 bio = extra.ShowBio ? extra.Bio : null,
                 location = extra.ShowLocation ? extra.Location : null,

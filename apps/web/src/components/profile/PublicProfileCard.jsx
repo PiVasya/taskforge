@@ -1,6 +1,6 @@
 import React from "react";
 import { Card, Badge } from "../ui";
-import { Github, Send, Globe2, MapPin, BookOpen, Trophy, AtSign } from "lucide-react";
+import { Github, Send, Globe2, MapPin, BookOpen, Trophy, AtSign, Bot } from "lucide-react";
 
 function safeLink(value) {
   const raw = String(value || "").trim();
@@ -78,6 +78,11 @@ export default function PublicProfileCard({
                 </div>
               ) : null}
             </div>
+            {(profile?.accountType === "ai" || profile?.isAi) ? (
+              <Badge intent="outline" className="inline-flex items-center gap-1">
+                <Bot size={13} /> AI-аккаунт
+              </Badge>
+            ) : null}
             {typeof profile?.rank === "number" && (
               <div className="inline-flex items-center gap-1 rounded-full border border-[rgba(var(--border)/0.65)] px-3 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 <Trophy size={14} />

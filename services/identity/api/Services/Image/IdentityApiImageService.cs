@@ -35,6 +35,8 @@ internal static class IdentityApiImageService
         user.AdditionalDataJson,
         displayName = DisplayName(user),
         user.Role,
+        user.AccountType,
+        isAi = string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase),
         roles = MergeRoles(user.Role, featureRoles),
         isAdmin = MergeRoles(user.Role, featureRoles).Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)),
         isEditor = MergeRoles(user.Role, featureRoles).Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(r, "Editor", StringComparison.OrdinalIgnoreCase)),

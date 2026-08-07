@@ -23,6 +23,7 @@
 | `files-api` | `taskforge_files` | file metadata; bytes in MinIO/S3 |
 | `notifications-api` | `taskforge_notifications` | notification outbox/subscriptions |
 | `observability-api` | `taskforge_observability` | request logs, user action logs, system status |
+| `browser-api` | none | real Chromium inspection/render/session API for configured TaskForge origins; Redis quotas/cache |
 
 ## Что произошло со старым API
 
@@ -39,7 +40,7 @@
 Новые изменения схемы добавляются через безопасный скрипт:
 
 ```bash
-./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange identity
 ```
 
 ## Рейтинг

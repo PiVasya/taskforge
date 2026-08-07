@@ -43,15 +43,15 @@ plugins/*
 ## Обычная команда
 
 ```bash
-./scripts/generate-migrations.sh AddMeaningfulSchemaChange
+./scripts/generate-migrations.sh AddMeaningfulSchemaChange identity
 ```
 
-Скрипт безопасный: сначала проверяет `has-pending-model-changes`, потом создаёт миграцию только при реальном изменении модели.
+Скрипт требует явный target (`identity`, `minecraft`, `education` и т.д.), сначала проверяет `has-pending-model-changes` только для него, затем создаёт миграцию при реальном изменении модели. Список target-ов: `./scripts/generate-migrations.sh --list`; `all` используется только осознанно.
 
 ## Принудительная команда
 
 ```bash
-./scripts/generate-migrations-force.sh MigrationName
+./scripts/generate-migrations-force.sh MigrationName identity
 ```
 
 Использовать редко. Может создать пустые миграции.

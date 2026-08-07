@@ -120,7 +120,7 @@ internal static partial class IdentityApiEndpoints
             CancellationToken ct) =>
         {
             var identity = (request.Identity ?? string.Empty).Trim();
-            if (CheckAuthRateLimit(http, "password-recovery-request", identity) is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password-recovery-request", identity) is { } limited) return limited;
             ClearPasswordRecoveryCookies(http);
 
             if (string.IsNullOrWhiteSpace(identity))
@@ -239,7 +239,7 @@ internal static partial class IdentityApiEndpoints
             IConfiguration cfg,
             CancellationToken ct) =>
         {
-            if (CheckAuthRateLimit(http, "password-recovery-verify") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password-recovery-verify") is { } limited) return limited;
 
             var challengeId = ReadCookie(http, PasswordRecoveryChallengeCookie);
             var verificationCode = NormalizePasswordRecoveryCode(request.VerificationCode);
@@ -328,7 +328,7 @@ internal static partial class IdentityApiEndpoints
             IConfiguration cfg,
             CancellationToken ct) =>
         {
-            if (CheckAuthRateLimit(http, "password-recovery-reset") is { } limited) return limited;
+            if (await CheckAuthRateLimitAsync(http, "password-recovery-reset") is { } limited) return limited;
             if (!IsValidPassword(request.NewPassword, out var passwordMessage))
             {
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = passwordMessage });

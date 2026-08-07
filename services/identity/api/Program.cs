@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
 using TaskForge.Identity.Api.Services.AccountLifecycle;
+using TaskForge.Identity.Api.Services.Security;
 
 using TaskForge.Identity.Api.Endpoints;
 using static TaskForge.Identity.Api.Services.Access.IdentityApiAccessService;
@@ -29,6 +30,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IdentityAuthRateLimiter>();
 builder.Services.AddHostedService<BlockedAccountCacheSynchronizer>();
 builder.Services.AddDbContext<IdentityDbContext>(options =>
 {

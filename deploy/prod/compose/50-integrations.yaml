@@ -335,6 +335,92 @@ services:
       timeout: 5s
       retries: 18
       start_period: 60s
+  browser-api:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/browser-api:${IMAGE_TAG:-develop}
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=${BROWSER_TMPFS_SIZE:-1g},mode=1777
+    shm_size: ${BROWSER_SHM_SIZE:-512m}
+    mem_limit: ${BROWSER_MEM_LIMIT:-2g}
+    cpus: ${BROWSER_CPUS:-2.0}
+    pids_limit: ${BROWSER_PIDS_LIMIT:-256}
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
+      Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Cache__Enabled: ${CACHE_ENABLED:-true}
+      Browser__DefaultSite: main
+      Browser__Sites__main: ${BROWSER_MAIN_ORIGIN:-https://taskforge.by}
+      Browser__Sites__ct: ${BROWSER_CT_ORIGIN:-https://ct.taskforge.by}
+      Browser__AllowedExternalOrigins: ${BROWSER_ALLOWED_EXTERNAL_ORIGINS:-https://s3.taskforge.by}
+      Browser__DisableSandbox: ${BROWSER_DISABLE_SANDBOX:-true}
+      Browser__IgnoreHttpsErrors: ${BROWSER_IGNORE_HTTPS_ERRORS:-false}
+      Browser__NavigationTimeoutSeconds: ${BROWSER_NAVIGATION_TIMEOUT_SECONDS:-20}
+      Browser__ActionTimeoutSeconds: ${BROWSER_ACTION_TIMEOUT_SECONDS:-10}
+      Browser__DefaultWaitMilliseconds: ${BROWSER_DEFAULT_WAIT_MILLISECONDS:-800}
+      Browser__MaxWaitMilliseconds: ${BROWSER_MAX_WAIT_MILLISECONDS:-5000}
+      Browser__MinViewportWidth: ${BROWSER_MIN_VIEWPORT_WIDTH:-320}
+      Browser__MaxViewportWidth: ${BROWSER_MAX_VIEWPORT_WIDTH:-2560}
+      Browser__MinViewportHeight: ${BROWSER_MIN_VIEWPORT_HEIGHT:-320}
+      Browser__MaxViewportHeight: ${BROWSER_MAX_VIEWPORT_HEIGHT:-1440}
+      Browser__MaxFullPageHeight: ${BROWSER_MAX_FULL_PAGE_HEIGHT:-20000}
+      Browser__MaxScreenshotPixels: ${BROWSER_MAX_SCREENSHOT_PIXELS:-24000000}
+      Browser__MaxSnapshotElements: ${BROWSER_MAX_SNAPSHOT_ELEMENTS:-500}
+      Browser__MaxSnapshotTextCharacters: ${BROWSER_MAX_SNAPSHOT_TEXT_CHARACTERS:-64000}
+      Browser__MaxAriaSnapshotCharacters: ${BROWSER_MAX_ARIA_SNAPSHOT_CHARACTERS:-64000}
+      Browser__AriaSnapshotDepth: ${BROWSER_ARIA_SNAPSHOT_DEPTH:-14}
+      Browser__MaxEventEntries: ${BROWSER_MAX_EVENT_ENTRIES:-160}
+      Browser__MaxConcurrentOperations: ${BROWSER_MAX_CONCURRENT_OPERATIONS:-4}
+      Browser__MaxActiveSessions: ${BROWSER_MAX_ACTIVE_SESSIONS:-8}
+      Browser__MaxAnonymousSessionsPerOwner: ${BROWSER_MAX_ANONYMOUS_SESSIONS_PER_OWNER:-2}
+      Browser__MaxAuthenticatedSessionsPerOwner: ${BROWSER_MAX_AUTHENTICATED_SESSIONS_PER_OWNER:-3}
+      Browser__SessionIdleMinutes: ${BROWSER_SESSION_IDLE_MINUTES:-10}
+      Browser__SessionAbsoluteMinutes: ${BROWSER_SESSION_ABSOLUTE_MINUTES:-30}
+      Browser__PublicCacheSeconds: ${BROWSER_PUBLIC_CACHE_SECONDS:-30}
+      Browser__MaxCachedArtifactBytes: ${BROWSER_MAX_CACHED_ARTIFACT_BYTES:-4194304}
+      Browser__MaxArtifactResponseBytes: ${BROWSER_MAX_ARTIFACT_RESPONSE_BYTES:-33554432}
+      Browser__ReduceMotion: ${BROWSER_REDUCE_MOTION:-true}
+      Browser__DeploymentVersion: ${IMAGE_TAG:-develop}
+      BrowserRateLimits__Enabled: ${BROWSER_RATE_LIMITS_ENABLED:-true}
+      BrowserRateLimits__MetadataLimit: ${BROWSER_METADATA_LIMIT:-120}
+      BrowserRateLimits__MetadataWindowSeconds: ${BROWSER_METADATA_WINDOW_SECONDS:-60}
+      BrowserRateLimits__SnapshotLimit: ${BROWSER_SNAPSHOT_LIMIT:-30}
+      BrowserRateLimits__SnapshotWindowSeconds: ${BROWSER_SNAPSHOT_WINDOW_SECONDS:-60}
+      BrowserRateLimits__RenderLimit: ${BROWSER_RENDER_LIMIT:-10}
+      BrowserRateLimits__RenderWindowSeconds: ${BROWSER_RENDER_WINDOW_SECONDS:-60}
+      BrowserRateLimits__SessionCreateLimit: ${BROWSER_SESSION_CREATE_LIMIT:-5}
+      BrowserRateLimits__SessionCreateWindowSeconds: ${BROWSER_SESSION_CREATE_WINDOW_SECONDS:-60}
+      BrowserRateLimits__SessionActionLimit: ${BROWSER_SESSION_ACTION_LIMIT:-120}
+      BrowserRateLimits__SessionActionWindowSeconds: ${BROWSER_SESSION_ACTION_WINDOW_SECONDS:-60}
+      BrowserRateLimits__NetworkMultiplier: ${BROWSER_RATE_NETWORK_MULTIPLIER:-10}
+    expose:
+      - '8080'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 90s
   telegram-quiz-bot:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/telegram-quiz-bot:${IMAGE_TAG:-develop}
     labels:

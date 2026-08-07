@@ -164,6 +164,32 @@ Security checks before startup:
 ```bash
 scripts/prod/check-prod-config.sh
 ```
+## AI accounts and Browser API
+
+TaskForge exposes the already deployed React frontends to automated agents through a real, server-side Chromium service. There are no special share links and no hidden AI role. An AI account is an ordinary user with `AccountType=ai`; the marker is self-declared and grants no additional permission.
+
+Public discovery and inspection:
+
+```text
+/.well-known/taskforge-ai.json
+/llms.txt
+/api/browser/openapi.json
+/api/site/info
+/api/site/routes
+/api/site/snapshot
+/api/site/render
+/api/site/render.pdf
+/api/browser/sessions
+```
+
+The browser service accepts only configured TaskForge sites plus relative paths, is protected by Nginx and Redis quotas, and cannot be used as a general-purpose URL proxy. See [`TASKFORGE_BROWSER_AI_API_UPDATE.md`](./TASKFORGE_BROWSER_AI_API_UPDATE.md) and [`services/browser/api/README.md`](./services/browser/api/README.md).
+
+After changing the identity model, generate the migration once:
+
+```bash
+./scripts/generate-migrations.sh AddAiAccountType identity
+```
+
 ## Development logs
 
 TaskForge is still in development, so Docker images and Compose services use detailed diagnostics by default:

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
+using TaskForge.Identity.Api.Services.Security;
 
 using TaskForge.Identity.Api.Contracts;
 using static TaskForge.Identity.Api.Services.Access.IdentityApiAccessService;
@@ -22,17 +23,20 @@ namespace TaskForge.Identity.Api.Services.Common;
 
 internal static class IdentityApiCommonService
 {
-    internal static IResult? CheckAuthRateLimit(HttpContext http, string bucket, string? identity = null)
+    internal static async Task<IResult?> CheckAuthRateLimitAsync(HttpContext http, string bucket, string? identity = null)
     {
-        var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var normalizedIdentity = string.IsNullOrWhiteSpace(identity) ? "none" : (NormalizeOptionalEmail(identity) ?? NormalizeLogin(identity));
-        var key = $"{bucket}:{ip}:{normalizedIdentity}";
-        if (TaskForgeAuthRateLimiters.Allow(bucket, key)) return null;
+        var limiter = http.RequestServices.GetRequiredService<IdentityAuthRateLimiter>();
+        var decision = await limiter.CheckAsync(http, bucket, identity, http.RequestAborted);
+        http.Response.Headers["X-RateLimit-Limit"] = decision.Limit.ToString();
+        http.Response.Headers["X-RateLimit-Remaining"] = decision.Remaining.ToString();
+        if (decision.Allowed) return null;
 
+        http.Response.Headers.RetryAfter = decision.RetryAfterSeconds.ToString();
         return Microsoft.AspNetCore.Http.Results.Json(new
         {
             message = "Слишком много попыток. Подождите немного и попробуйте снова.",
-            code = "RATE_LIMITED"
+            code = "RATE_LIMITED",
+            retryAfterSeconds = decision.RetryAfterSeconds
         }, statusCode: StatusCodes.Status429TooManyRequests);
     }
 
@@ -63,7 +67,8 @@ internal static class IdentityApiCommonService
         string? sortDir,
         int take,
         bool includeInactive = false,
-        string? accountStatus = null)
+        string? accountStatus = null,
+        string? accountType = null)
     {
         var query = db.Users.AsNoTracking().AsQueryable();
         if (!includeInactive) query = query.Where(x => x.AccountStatus == "active");
@@ -71,6 +76,11 @@ internal static class IdentityApiCommonService
         {
             var normalizedStatus = accountStatus.Trim().ToLowerInvariant();
             query = query.Where(x => x.AccountStatus == normalizedStatus);
+        }
+        if (!string.IsNullOrWhiteSpace(accountType))
+        {
+            var normalizedType = NormalizeAccountType(accountType);
+            query = query.Where(x => x.AccountType == normalizedType);
         }
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
@@ -99,7 +109,8 @@ internal static class IdentityApiCommonService
         string? role,
         bool linkedOnly,
         bool includeInactive = false,
-        string? accountStatus = null)
+        string? accountStatus = null,
+        string? accountType = null)
     {
         var query = db.Users.AsNoTracking().AsQueryable();
         if (!includeInactive) query = query.Where(x => x.AccountStatus == "active");
@@ -108,17 +119,22 @@ internal static class IdentityApiCommonService
             var normalizedStatus = accountStatus.Trim().ToLowerInvariant();
             query = query.Where(x => x.AccountStatus == normalizedStatus);
         }
+        if (!string.IsNullOrWhiteSpace(accountType))
+        {
+            var normalizedType = NormalizeAccountType(accountType);
+            query = query.Where(x => x.AccountType == normalizedType);
+        }
         if (linkedOnly) query = query.Where(x => x.TelegramLinkedAtUtc != null);
         if (string.IsNullOrWhiteSpace(text))
         {
             if (!string.IsNullOrWhiteSpace(role)) query = query.Where(x => x.Role == role.Trim());
             return await query.CountAsync();
         }
-        return (await SearchUsersAsync(db, text, role, linkedOnly, "login", "asc", 5000, includeInactive, accountStatus)).Count;
+        return (await SearchUsersAsync(db, text, role, linkedOnly, "login", "asc", 5000, includeInactive, accountStatus, accountType)).Count;
     }
 
     internal static string UserSearchHaystack(IdentityUser user)
-        => NormalizeSearch($"{user.Login} {user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.TelegramUsername} {user.TelegramChatId} {user.Id}");
+        => NormalizeSearch($"{user.Login} {user.Email} {user.FirstName} {user.LastName} {DisplayName(user)} {user.TelegramUsername} {user.TelegramChatId} {user.AccountType} {user.Id}");
 
     internal static int Levenshtein(string a, string b)
     {
@@ -189,6 +205,7 @@ internal static class IdentityApiCommonService
             "login" => desc ? query.OrderByDescending(x => x.Login) : query.OrderBy(x => x.Login),
             "email" => desc ? query.OrderByDescending(x => x.Email) : query.OrderBy(x => x.Email),
             "role" => desc ? query.OrderByDescending(x => x.Role) : query.OrderBy(x => x.Role),
+            "accountType" => desc ? query.OrderByDescending(x => x.AccountType) : query.OrderBy(x => x.AccountType),
             "fullName" => desc ? query.OrderByDescending(x => x.FirstName).ThenByDescending(x => x.LastName) : query.OrderBy(x => x.FirstName).ThenBy(x => x.LastName),
             "lastLoginAt" => desc ? query.OrderByDescending(x => x.LastLoginAt) : query.OrderBy(x => x.LastLoginAt),
             _ => desc ? query.OrderByDescending(x => x.CreatedAt) : query.OrderBy(x => x.CreatedAt)
@@ -267,6 +284,26 @@ internal static class IdentityApiCommonService
         }
         message = string.Empty;
         return true;
+    }
+
+    internal static string NormalizeAccountType(string? value)
+        => string.Equals(value?.Trim(), "ai", StringComparison.OrdinalIgnoreCase) ? "ai" : "human";
+
+    internal static bool TryNormalizeAccountType(string? value, out string accountType)
+    {
+        var normalized = (value ?? "human").Trim().ToLowerInvariant();
+        if (normalized is "" or "human")
+        {
+            accountType = "human";
+            return true;
+        }
+        if (normalized == "ai")
+        {
+            accountType = "ai";
+            return true;
+        }
+        accountType = "human";
+        return false;
     }
 
     internal static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));

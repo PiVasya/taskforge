@@ -58,6 +58,18 @@ jobs:
       - name: Check OJ security invariants
         run: bash scripts/security/check-oj-security.sh
 
+  browser-security-invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Browser API security check dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
+      - name: Check Browser API security invariants
+        run: bash scripts/security/check-browser-api-security.sh
+
+      - name: Check migration tooling safety
+        run: python3 scripts/ci/check-migration-tooling-safety.py
+
   compose-check:
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +80,7 @@ jobs:
       - run: bash ./deploy/prod/compose.sh config
 
   build:
-    needs: [compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants]
+    needs: [compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants, browser-security-invariants]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -171,6 +183,9 @@ jobs:
           - name: observability-api
             context: .
             dockerfile: services/observability/api/Dockerfile
+          - name: browser-api
+            context: .
+            dockerfile: services/browser/api/Dockerfile
           - name: telegram-quiz-bot
             context: ./services/bots/telegram-quiz-bot
             dockerfile: Dockerfile

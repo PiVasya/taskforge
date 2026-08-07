@@ -14,7 +14,7 @@ using TaskForge.Identity.Api.Domain;
 
 namespace TaskForge.Identity.Api.Contracts;
 
-public sealed record RegisterRequest(string? Login, string? Email, string? Password, string? FirstName, string? LastName, string? PhoneNumber, string? AdditionalDataJson);
+public sealed record RegisterRequest(string? Login, string? Email, string? Password, string? FirstName, string? LastName, string? PhoneNumber, string? AdditionalDataJson, string? AccountType);
 
 public sealed record LoginRequest(string? Login, string? Email, string? Password);
 
@@ -32,7 +32,7 @@ public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
 
 public sealed record RevealEmailRequest(string? Password);
 
-public sealed record AdminUserUpdateRequest(string? Login, string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role);
+public sealed record AdminUserUpdateRequest(string? Login, string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role, string? AccountType);
 
 public sealed record RoleAssignRequest(string? Code);
 

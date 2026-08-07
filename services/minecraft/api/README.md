@@ -20,7 +20,7 @@
 Новые миграции не следует писать вручную. После изменения сущностей запускай из корня репозитория:
 
 ```bash
-./scripts/generate-migrations.sh MinecraftDeathCoordinatesAndRecoveryHardening
+./scripts/generate-migrations.sh MinecraftDeathCoordinatesAndRecoveryHardening minecraft
 ```
 
 Для этого обновления модель EF не менялась, поэтому ожидаемый результат — `NO CHANGES: MinecraftDbContext`. Если скрипт всё же создаст файл, проверь его `Up()` и убедись, что он не удаляет действующие таблицы `MinecraftLinks` и `MinecraftChatMessages`.

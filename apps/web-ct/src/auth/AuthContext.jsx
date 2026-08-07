@@ -45,6 +45,14 @@ function persistUiSettingsFromBackend(s) {
   window.dispatchEvent(new Event('tf-ui-settings-changed'));
 }
 
+function takeBrowserInjectedAccessToken() {
+  const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
+  if (typeof window !== 'undefined') {
+    try { delete window.__TASKFORGE_BROWSER_ACCESS_TOKEN__; } catch { window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ = null; }
+  }
+  return typeof token === 'string' && token.trim() ? token.trim() : null;
+}
+
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
@@ -109,15 +117,22 @@ export default function AuthProvider({ children }) {
   
   useEffect(() => {
     (async () => {
+      const injectedAccess = takeBrowserInjectedAccessToken();
       try {
-        await doRefresh();
+        if (injectedAccess) {
+          applyAccess(injectedAccess);
+          await pullProfileOnce();
+          await pullUiSettingsOnce();
+        } else {
+          await doRefresh();
+        }
       } catch {
         applyAccess(null);
       } finally {
         setReady(true);
       }
     })();
-  }, [applyAccess, doRefresh]);
+  }, [applyAccess, doRefresh, pullProfileOnce, pullUiSettingsOnce]);
 
   
   useEffect(() => {

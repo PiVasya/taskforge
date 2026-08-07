@@ -24,7 +24,7 @@ TASKFORGE_DEBUG_LOGS=1
 
 ## Как теперь устроены обновления
 
-GitHub Actions **по умолчанию билдит и пушит только изменённые Docker images**. Если поменялся один микросервис, пересобирается только его image. Все 31 images собираются только при ручном запуске workflow с `build_all=true`.
+GitHub Actions **по умолчанию билдит и пушит только изменённые Docker images**. Если поменялся один микросервис, пересобирается только его image. Все 33 images собираются только при ручном запуске workflow с `build_all=true`.
 
 На сервере работает Watchtower. Он проверяет GHCR, скачивает только images с изменившимся digest и перезапускает только соответствующие контейнеры. PostgreSQL/RabbitMQ/MinIO Watchtower не трогает: обновляются только контейнеры TaskForge с явными labels.
 
@@ -178,10 +178,27 @@ deploy/prod/compose/
   20-core-services.yaml    identity, education, content, tasks, quiz, solutions, rating-worker
   30-execution.yaml        execution-api, execution-worker, runners
   40-ai-and-analyzers.yaml ai-api, ai-worker, analyzers
-  50-integrations.yaml     support, minecraft, files, notifications, observability, bots
+  50-integrations.yaml     support, minecraft, files, notifications, observability, browser-api, bots
   80-watchtower.yaml       automatic image updates from GHCR
   90-certbot.yaml          optional certbot profile
 ```
+
+## Browser API для ИИ и UI-аудита
+
+`browser-api` находится в `50-integrations.yaml`, запускает настоящий Chromium и отображает уже развёрнутые `taskforge.by`/`ct.taskforge.by`. Наружу его порт не публикуется: discovery, snapshot, PNG/PDF и session endpoints доступны только через gateway.
+
+Перед первым развёртыванием этой версии создайте EF-миграцию `AddAiAccountType` в исходном репозитории, закоммитьте её и дождитесь сборки `identity-api`. Сам `browser-api` своей БД не имеет.
+
+Основные production-пределы задаются переменными `BROWSER_*`: concurrency, число сессий, viewport, full-page pixels, размер кэша и максимальный размер ответа. Не отключайте `BROWSER_RATE_LIMITS_ENABLED`, не добавляйте произвольные origins и не публикуйте порт контейнера.
+
+Проверка после обновления:
+
+```bash
+./scripts/prod/check-browser-api.sh https://taskforge.by
+./deploy/prod/compose.sh logs --tail=200 browser-api gateway identity-api
+```
+
+Discovery должен быть доступен по `/.well-known/taskforge-ai.json`, OpenAPI — по `/api/browser/openapi.json`. Интерактивные сессии пока process-local, поэтому `browser-api` должен работать в одной реплике без внешней sticky-session маршрутизации.
 
 ## Security checklist
 

@@ -7,7 +7,7 @@ Production compose intentionally uses several small files instead of one huge fi
 - `20-core-services.yaml` — identity, education, content, task catalog, quiz, solutions, rating worker.
 - `30-execution.yaml` — execution API, execution worker, code/image runners.
 - `40-ai-and-analyzers.yaml` — AI API, AI worker, code analyzer, image analyzer.
-- `50-integrations.yaml` — support, Minecraft, files, notifications, observability, bots.
+- `50-integrations.yaml` — support, Minecraft, files, notifications, observability, public TaskForge-only `browser-api`, bots.
 - `80-watchtower.yaml` — automatic GHCR image updates for labeled TaskForge services.
 - `90-certbot.yaml` — optional certbot profile.
 

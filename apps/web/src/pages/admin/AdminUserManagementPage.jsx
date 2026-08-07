@@ -137,7 +137,7 @@ export default function AdminUserManagementPage() {
       setUser(userDto);
       setForm({
         login: userDto?.login || '', email: userDto?.email || '', firstName: userDto?.firstName || '', lastName: userDto?.lastName || '',
-        phoneNumber: userDto?.phoneNumber || '', profilePictureUrl: userDto?.profilePictureUrl || '', role: userDto?.role || 'User',
+        phoneNumber: userDto?.phoneNumber || '', profilePictureUrl: userDto?.profilePictureUrl || '', role: userDto?.role || 'User', accountType: userDto?.accountType || 'human',
         roles: userDto?.roles || [], featureRoles: userDto?.featureRoles || [],
       });
       setRating(ratingDto || null);
@@ -181,7 +181,7 @@ export default function AdminUserManagementPage() {
       setSaving(true);
       await updateAdminUser(userId, {
         login: form.login, email: form.email, firstName: form.firstName, lastName: form.lastName,
-        phoneNumber: form.phoneNumber || null, profilePictureUrl: form.profilePictureUrl || null, role: form.role,
+        phoneNumber: form.phoneNumber || null, profilePictureUrl: form.profilePictureUrl || null, role: form.role, accountType: form.accountType || 'human',
       });
       notify.success('Пользователь сохранён');
       await load();
@@ -267,7 +267,7 @@ export default function AdminUserManagementPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <Link to="/admin/users" className="mb-2 inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-[rgb(var(--text))]"><ArrowLeft size={16} /> Пользователи</Link>
-          <h1 className="flex items-center gap-2 text-xl font-semibold sm:text-2xl"><UserCog size={22} /> {userTitle(user)}</h1>
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold sm:text-2xl"><UserCog size={22} /> {userTitle(user)} {(user?.accountType === 'ai' || user?.isAi) ? <Badge intent="outline"><Bot size={13} className="mr-1 inline" />AI-аккаунт</Badge> : null}</h1>
           <p className="mt-2 break-all text-sm text-neutral-500">Профиль, роли, группы, реальные Telegram/Minecraft-привязки и жизненный цикл аккаунта. ID: {userId}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button><Button onClick={saveUser} disabled={!form || saving || !isActive}><Save size={16} /><span className="ml-1">Сохранить</span></Button></div>
@@ -292,6 +292,7 @@ export default function AdminUserManagementPage() {
             <Field label="Логин"><Input disabled={!isActive} value={form.login || ''} onChange={(e) => updateForm({ login: e.target.value })} /></Field>
             <Field label="Email"><Input disabled={!isActive} value={form.email || ''} onChange={(e) => updateForm({ email: e.target.value })} /></Field>
             <Field label="Базовая роль"><Select disabled={!isActive} value={form.role || 'User'} onChange={(e) => updateForm({ role: e.target.value })}>{baseRoles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+            <Field label="Тип аккаунта"><Select disabled={!isActive} value={form.accountType || 'human'} onChange={(e) => updateForm({ accountType: e.target.value })}><option value="human">Человек</option><option value="ai">AI</option></Select></Field>
             <Field label="Телефон"><Input disabled={!isActive} value={form.phoneNumber || ''} onChange={(e) => updateForm({ phoneNumber: e.target.value })} /></Field>
             <Field label="Имя"><Input disabled={!isActive} value={form.firstName || ''} onChange={(e) => updateForm({ firstName: e.target.value })} /></Field>
             <Field label="Фамилия"><Input disabled={!isActive} value={form.lastName || ''} onChange={(e) => updateForm({ lastName: e.target.value })} /></Field>

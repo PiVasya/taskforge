@@ -24,7 +24,7 @@ Api
 
 ## 2. Миграции
 
-Миграции хранить в репозитории по владельцам данных. Новые миграции генерировать безопасным скриптом `./scripts/generate-migrations.sh`, который сначала проверяет pending model changes.
+Миграции хранить в репозитории по владельцам данных. Новые миграции генерировать безопасным скриптом `./scripts/generate-migrations.sh <MigrationName> <target>`, который проверяет pending model changes только у явно выбранного DbContext.
 
 Сейчас startup-migrate оставлен через `MIGRATE_ON_STARTUP=true`, но для Kubernetes лучше сделать отдельные migrator jobs:
 

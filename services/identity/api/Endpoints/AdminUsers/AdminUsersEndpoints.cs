@@ -45,6 +45,7 @@ internal static partial class IdentityApiEndpoints
             string? query,
             string? q,
             string? role,
+            string? accountType,
             bool linkedOnly = false,
             string? accountStatus = null,
             bool includeInactive = false,
@@ -54,8 +55,21 @@ internal static partial class IdentityApiEndpoints
             CancellationToken ct = default) =>
         {
             take = System.Math.Clamp(take, 1, 500);
-            var rows = await SearchUsersAsync(db, query ?? q, role, linkedOnly, sortBy, sortDir, take, includeInactive, accountStatus);
-            var total = await CountUsersAsync(db, query ?? q, role, linkedOnly, includeInactive, accountStatus);
+            if (!string.IsNullOrWhiteSpace(accountType))
+            {
+                if (!TryNormalizeAccountType(accountType, out var normalizedAccountType))
+                {
+                    return Microsoft.AspNetCore.Http.Results.BadRequest(new
+                    {
+                        message = "accountType должен быть human или ai.",
+                        code = "INVALID_ACCOUNT_TYPE"
+                    });
+                }
+
+                accountType = normalizedAccountType;
+            }
+            var rows = await SearchUsersAsync(db, query ?? q, role, linkedOnly, sortBy, sortDir, take, includeInactive, accountStatus, accountType);
+            var total = await CountUsersAsync(db, query ?? q, role, linkedOnly, includeInactive, accountStatus, accountType);
             var ids = rows.Select(x => x.Id).ToArray();
             var blocks = ids.Length == 0
                 ? new Dictionary<Guid, BlockedAccount>()
@@ -77,6 +91,8 @@ internal static partial class IdentityApiEndpoints
                     total,
                     shown = rows.Count,
                     admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase)),
+                    aiAccounts = rows.Count(x => string.Equals(x.AccountType, "ai", StringComparison.OrdinalIgnoreCase)),
+                    humanAccounts = rows.Count(x => !string.Equals(x.AccountType, "ai", StringComparison.OrdinalIgnoreCase)),
                     telegramLinked = rows.Count(x => x.TelegramChatId.HasValue),
                     blocked = rows.Count(x => blocks.TryGetValue(x.Id, out var block) && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > now)),
                     active = rows.Count(x => string.Equals(x.AccountStatus, "active", StringComparison.OrdinalIgnoreCase)),
@@ -111,6 +127,11 @@ internal static partial class IdentityApiEndpoints
             if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
             if (request.ProfilePictureUrl != null) user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl) ? null : request.ProfilePictureUrl.Trim();
             if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
+            if (request.AccountType != null)
+            {
+                if (!TryNormalizeAccountType(request.AccountType, out var accountType)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "accountType должен быть human или ai.", code = "INVALID_ACCOUNT_TYPE" });
+                user.AccountType = accountType;
+            }
             await db.SaveChangesAsync(ct);
             var roles = await db.UserFeatureRoles.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Code).ToListAsync(ct);
             var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
