@@ -518,7 +518,7 @@ static void ValidateConfiguration(
     EnsureRange(options.MinViewportHeight, 240, 4096, "Browser:MinViewportHeight");
     EnsureRange(options.MaxViewportHeight, options.MinViewportHeight, 4096, "Browser:MaxViewportHeight");
     EnsureRange(options.MaxFullPageHeight, options.MaxViewportHeight, 50000, "Browser:MaxFullPageHeight");
-    EnsureRange(options.MaxScreenshotPixels, 1000000, 100000000, "Browser:MaxScreenshotPixels");
+    EnsureLongRange(options.MaxScreenshotPixels, 1_000_000L, 100_000_000L, "Browser:MaxScreenshotPixels");
     EnsureRange(options.MaxSnapshotElements, 1, 5000, "Browser:MaxSnapshotElements");
     EnsureRange(options.MaxSnapshotTextCharacters, 1000, 1000000, "Browser:MaxSnapshotTextCharacters");
     EnsureRange(options.MaxAriaSnapshotCharacters, 1000, 1000000, "Browser:MaxAriaSnapshotCharacters");
@@ -580,7 +580,7 @@ static void EnsureRange(int value, int min, int max, string name)
         throw new InvalidOperationException($"{name} must be in range {min}..{max}.");
 }
 
-static void EnsureRange(long value, long min, long max, string name)
+static void EnsureLongRange(long value, long min, long max, string name)
 {
     if (value < min || value > max)
         throw new InvalidOperationException($"{name} must be in range {min}..{max}.");

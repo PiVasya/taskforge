@@ -64,7 +64,12 @@ public sealed class RedisFixedWindowRateLimiter(
                     IncrementScript,
                     new RedisKey[] { key },
                     new RedisValue[] { windowSeconds });
-                var values = (RedisResult[])result;
+                var values = (RedisResult[]?)result;
+                if (values is null || values.Length < 2)
+                {
+                    throw new InvalidOperationException("Redis rate limiter script returned an invalid result.");
+                }
+
                 var count = (long)values[0];
                 var ttlSeconds = (long)values[1];
                 var retry = System.Math.Max(1, ttlSeconds > 0 ? (int)ttlSeconds : windowSeconds);

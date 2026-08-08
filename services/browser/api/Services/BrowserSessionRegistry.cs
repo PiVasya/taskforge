@@ -251,8 +251,8 @@ public sealed partial class BrowserSessionRegistry(
             }
             else
             {
-                var x = System.Math.Clamp(request.DeltaX ?? 0, -5000, 5000);
-                var y = System.Math.Clamp(request.DeltaY ?? 700, -5000, 5000);
+                var x = (float)System.Math.Clamp(request.DeltaX ?? 0d, -5000d, 5000d);
+                var y = (float)System.Math.Clamp(request.DeltaY ?? 700d, -5000d, 5000d);
                 await session.Handle.Page.Mouse.WheelAsync(x, y).WaitAsync(cancellationToken);
             }
 
