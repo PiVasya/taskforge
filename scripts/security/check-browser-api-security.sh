@@ -127,6 +127,22 @@ for marker in ('USER pwuser', 'HOME=/tmp', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwri
     if marker not in dockerfile:
         die(f'Browser Dockerfile hardening marker missing: {marker}')
 
+# A runtime-specific, self-contained publish with --no-restore is valid only when
+# restore generated assets for the exact same RID. Otherwise publish fails with
+# NETSDK1047 because project.assets.json contains net10.0 but not net10.0/linux-x64.
+restore_linux_x64 = re.search(
+    r'dotnet\s+restore\s+services/browser/api/TaskForge\.Browser\.Api\.csproj(?:(?!\n\s*(?:COPY|RUN|FROM)).)*?(?:-r|--runtime)\s+linux-x64',
+    dockerfile,
+    re.S,
+)
+publish_linux_x64_no_restore = re.search(
+    r'dotnet\s+publish\s+services/browser/api/TaskForge\.Browser\.Api\.csproj(?:(?!\n\s*(?:COPY|RUN|FROM)).)*?(?:-r|--runtime)\s+linux-x64(?:(?!\n\s*(?:COPY|RUN|FROM)).)*?--no-restore',
+    dockerfile,
+    re.S,
+)
+if publish_linux_x64_no_restore and not restore_linux_x64:
+    die('Browser Dockerfile publishes linux-x64 with --no-restore but restore does not target linux-x64')
+
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
 for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections'):
