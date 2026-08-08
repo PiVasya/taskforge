@@ -36,6 +36,8 @@ required = [
     'services/browser/api/Services/BrowserSessionRegistry.cs',
     'services/browser/api/Infrastructure/RedisFixedWindowRateLimiter.cs',
     'services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs',
+    'tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj',
+    'tools/browser-url-policy-check/Program.cs',
     'services/identity/api/Services/Security/IdentityAuthRateLimiter.cs',
 ]
 for path in required:
@@ -60,6 +62,16 @@ for marker in (
         die(f'URL policy lost required marker: {marker}')
 if 'BuildPageUri(Uri baseUri, string? path)' not in policy:
     die('page navigation is no longer based on a configured site plus relative path')
+if 'Uri.TryCreate(value, UriKind.Absolute' in policy:
+    die('relative Browser path validation must not use Uri.TryCreate(... Absolute); .NET treats rooted paths such as / as absolute URI forms')
+for marker in ('HasUriScheme', 'decodedPath.StartsWith("//"', 'segments.Any(x => x is "." or "..")'):
+    if marker not in policy:
+        die(f'URL policy lost decoded-path hardening marker: {marker}')
+
+policy_check = text('tools/browser-url-policy-check/Program.cs')
+for marker in ('("/", "/")', '"https://evil.example/"', '"/%252e%252e/secret"', '"/api/site/render"'):
+    if marker not in policy_check:
+        die(f'Browser URL policy regression coverage missing: {marker}')
 
 factory = text('services/browser/api/Services/BrowserPageFactory.cs')
 if '&& !IsSafeMethod(request.Method)' not in factory:

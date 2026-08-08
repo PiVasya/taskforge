@@ -27,4 +27,7 @@ test -f "$OUT/TaskForge.Browser.Api" || {
   exit 1
 }
 
+printf '[browser-build] URL policy regression checks\n'
+dotnet run --project tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj -c Release
+
 printf '[browser-build] publish ok\n'

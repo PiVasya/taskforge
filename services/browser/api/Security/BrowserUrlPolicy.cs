@@ -58,44 +58,39 @@ public sealed class BrowserUrlPolicy
     public string NormalizeRelativePath(string? path)
     {
         var value = string.IsNullOrWhiteSpace(path) ? "/" : path.Trim();
+
+        if (value.Contains('\\') || value.Contains('\0') || value.Any(char.IsControl))
+        {
+            throw InvalidPath("Путь содержит запрещённые символы.");
+        }
+
+        // Validate only the document path. Query values are allowed to contain URLs
+        // (for example ?returnUrl=https://...), because they do not control the
+        // top-level Chromium origin.
+        var rawPathOnly = PathPart(value);
+        if (rawPathOnly.StartsWith("//", StringComparison.Ordinal) || HasUriScheme(rawPathOnly))
+        {
+            throw InvalidPath("Разрешён только относительный путь TaskForge, например /courses.");
+        }
+
         if (!value.StartsWith('/')) value = "/" + value;
-        if (value.StartsWith("//", StringComparison.Ordinal)
-            || value.Contains('\\')
-            || value.Contains('\0')
-            || value.Any(char.IsControl)
-            || Uri.TryCreate(value, UriKind.Absolute, out _))
-        {
-            throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_PATH", "Разрешён только относительный путь TaskForge, например /courses.");
-        }
 
-        var queryIndex = value.IndexOfAny(['?', '#']);
-        var pathOnly = queryIndex >= 0 ? value[..queryIndex] : value;
-        var decodedPath = pathOnly;
-        try
-        {
-            // Decode several times so double-encoded /api/browser, dot segments and
-            // backslashes cannot bypass the document recursion/SSRF boundary.
-            for (var depth = 0; depth < 4; depth++)
-            {
-                var next = Uri.UnescapeDataString(decodedPath);
-                if (string.Equals(next, decodedPath, StringComparison.Ordinal)) break;
-                decodedPath = next;
-            }
-        }
-        catch (UriFormatException)
-        {
-            throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_PATH", "Путь содержит некорректное URL-кодирование.");
-        }
+        var normalizedPathOnly = PathPart(value);
+        var decodedPath = DecodePath(normalizedPathOnly);
 
-        if (decodedPath.Contains('\\') || decodedPath.Any(char.IsControl))
+        // Re-check the dangerous forms after repeated URL decoding so values such
+        // as /%2f%2fevil.example and /%252e%252e/ cannot bypass the boundary.
+        if (decodedPath.Contains('\\')
+            || decodedPath.Any(char.IsControl)
+            || decodedPath.StartsWith("//", StringComparison.Ordinal))
         {
-            throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_PATH", "Путь содержит запрещённые символы.");
+            throw InvalidPath("Путь содержит запрещённые или абсолютные URL-компоненты.");
         }
 
         var segments = decodedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(x => x is "." or ".."))
         {
-            throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_PATH", "Переходы по каталогам в пути запрещены.");
+            throw InvalidPath("Переходы по каталогам в пути запрещены.");
         }
 
         if (BrowserApiDocumentPrefixes.Any(prefix => IsPathPrefix(decodedPath, prefix)))
@@ -123,18 +118,15 @@ public sealed class BrowserUrlPolicy
     {
         if (!IsSameTaskForgeOrigin(uri)) return false;
 
-        var path = uri.AbsolutePath;
+        string path;
         try
         {
-            for (var depth = 0; depth < 4; depth++)
-            {
-                var next = Uri.UnescapeDataString(path);
-                if (string.Equals(next, path, StringComparison.Ordinal)) break;
-                path = next;
-            }
+            path = DecodePath(uri.AbsolutePath);
         }
-        catch (UriFormatException)
+        catch (BrowserApiException)
         {
+            // An undecodable Browser API-looking request is safer to block than to
+            // let Chromium recurse into the browser service.
             return true;
         }
 
@@ -145,6 +137,66 @@ public sealed class BrowserUrlPolicy
         => string.Equals(a.Scheme, NormalizeWebSocketScheme(b.Scheme), StringComparison.OrdinalIgnoreCase)
            && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase)
            && EffectivePort(a) == EffectivePort(b);
+
+    private static string PathPart(string value)
+    {
+        var index = value.IndexOfAny(['?', '#']);
+        return index >= 0 ? value[..index] : value;
+    }
+
+    private static string DecodePath(string path)
+    {
+        var decoded = path;
+        try
+        {
+            const int maxDecodeDepth = 8;
+            for (var depth = 0; depth < maxDecodeDepth; depth++)
+            {
+                var next = Uri.UnescapeDataString(decoded);
+                if (string.Equals(next, decoded, StringComparison.Ordinal)) return decoded;
+                decoded = next;
+            }
+
+            // Do not accept intentionally over-nested encoding. It serves no normal
+            // routing purpose and makes security checks depend on how many times a
+            // downstream component decides to decode the path.
+            var afterLimit = Uri.UnescapeDataString(decoded);
+            if (!string.Equals(afterLimit, decoded, StringComparison.Ordinal))
+            {
+                throw InvalidPath("Путь имеет слишком глубокое URL-кодирование.");
+            }
+        }
+        catch (UriFormatException)
+        {
+            throw InvalidPath("Путь содержит некорректное URL-кодирование.");
+        }
+
+        return decoded;
+    }
+
+    private static bool HasUriScheme(string value)
+    {
+        if (string.IsNullOrEmpty(value) || !IsAsciiLetter(value[0])) return false;
+
+        for (var index = 1; index < value.Length; index++)
+        {
+            var ch = value[index];
+            if (ch == ':') return true;
+            if (ch == '/' || ch == '?' || ch == '#') return false;
+            if (!(IsAsciiLetter(ch) || IsAsciiDigit(ch) || ch is '+' or '-' or '.')) return false;
+        }
+
+        return false;
+    }
+
+    private static bool IsAsciiLetter(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+    private static bool IsAsciiDigit(char value)
+        => value is >= '0' and <= '9';
+
+    private static BrowserApiException InvalidPath(string message)
+        => new(StatusCodes.Status400BadRequest, "INVALID_PATH", message);
 
     private static string Origin(Uri uri)
     {

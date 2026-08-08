@@ -8,15 +8,21 @@ PATH_TO_CHECK="${TASKFORGE_BROWSER_PATH:-/}"
 WIDTH="${TASKFORGE_BROWSER_WIDTH:-390}"
 HEIGHT="${TASKFORGE_BROWSER_HEIGHT:-844}"
 ACCESS_TOKEN="${TASKFORGE_BROWSER_ACCESS_TOKEN:-}"
+RETRIES="${TASKFORGE_BROWSER_SMOKE_RETRIES:-12}"
+RETRY_DELAY="${TASKFORGE_BROWSER_SMOKE_RETRY_DELAY:-5}"
+
+case "$RETRIES" in ''|*[!0-9]*) echo 'error: TASKFORGE_BROWSER_SMOKE_RETRIES must be numeric' >&2; exit 2;; esac
+case "$RETRY_DELAY" in ''|*[!0-9]*) echo 'error: TASKFORGE_BROWSER_SMOKE_RETRY_DELAY must be numeric' >&2; exit 2;; esac
 
 tmp_dir="$(mktemp -d)"
 session_id=""
 session_token=""
 
+auth_args=()
+if [ -n "$ACCESS_TOKEN" ]; then auth_args=(-H "Authorization: Bearer $ACCESS_TOKEN"); fi
+
 cleanup() {
   if [ -n "$session_id" ] && [ -n "$session_token" ]; then
-    auth_args=()
-    if [ -n "$ACCESS_TOKEN" ]; then auth_args=(-H "Authorization: Bearer $ACCESS_TOKEN"); fi
     curl -fsS -X DELETE \
       "${auth_args[@]}" \
       -H "X-TaskForge-Browser-Session-Token: $session_token" \
@@ -29,43 +35,76 @@ trap cleanup EXIT HUP INT TERM
 command -v curl >/dev/null 2>&1 || { echo 'error: curl is required' >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required' >&2; exit 2; }
 
-auth_args=()
-if [ -n "$ACCESS_TOKEN" ]; then auth_args=(-H "Authorization: Bearer $ACCESS_TOKEN"); fi
+curl_retry() {
+  curl --retry "$RETRIES" --retry-delay "$RETRY_DELAY" --retry-connrefused \
+    --connect-timeout 8 --max-time 120 "$@"
+}
 
+request_retry() {
+  local label="$1"
+  local output="$2"
+  shift 2
+  if ! curl_retry --fail-with-body -sS "$@" -o "$output"; then
+    printf '[browser-smoke] ERROR: %s failed\n' "$label" >&2
+    if [ -s "$output" ]; then
+      printf '[browser-smoke] response body:\n' >&2
+      cat "$output" >&2
+      printf '\n' >&2
+    fi
+    return 1
+  fi
+}
+
+request_once() {
+  local label="$1"
+  local output="$2"
+  shift 2
+  if ! curl --connect-timeout 8 --max-time 120 --fail-with-body -sS "$@" -o "$output"; then
+    printf '[browser-smoke] ERROR: %s failed\n' "$label" >&2
+    if [ -s "$output" ]; then
+      printf '[browser-smoke] response body:\n' >&2
+      cat "$output" >&2
+      printf '\n' >&2
+    fi
+    return 1
+  fi
+}
+
+printf '[browser-smoke] base=%s site=%s path=%s viewport=%sx%s\n' "$BASE_URL" "$SITE" "$PATH_TO_CHECK" "$WIDTH" "$HEIGHT"
 printf '[browser-smoke] discovery\n'
-curl -fsS "$BASE_URL/.well-known/taskforge-ai.json" -o "$tmp_dir/discovery.json"
-curl -fsS "$BASE_URL/llms.txt" -o "$tmp_dir/llms.txt"
-curl -fsS "${auth_args[@]}" "$BASE_URL/api/site/info" -o "$tmp_dir/info.json"
-curl -fsS "${auth_args[@]}" --get \
+request_retry 'AI discovery' "$tmp_dir/discovery.json" "$BASE_URL/.well-known/taskforge-ai.json"
+request_retry 'llms.txt' "$tmp_dir/llms.txt" "$BASE_URL/llms.txt"
+request_retry 'site info' "$tmp_dir/info.json" "${auth_args[@]}" "$BASE_URL/api/site/info"
+request_retry 'route catalog' "$tmp_dir/routes.json" "${auth_args[@]}" --get \
   --data-urlencode "site=$SITE" \
-  "$BASE_URL/api/site/routes" -o "$tmp_dir/routes.json"
+  "$BASE_URL/api/site/routes"
 
 printf '[browser-smoke] semantic snapshot\n'
-curl -fsS "${auth_args[@]}" --get \
+request_retry 'semantic snapshot' "$tmp_dir/snapshot.json" "${auth_args[@]}" --get \
   --data-urlencode "site=$SITE" \
   --data-urlencode "path=$PATH_TO_CHECK" \
   --data-urlencode "width=$WIDTH" \
   --data-urlencode "height=$HEIGHT" \
   --data-urlencode "waitMs=300" \
-  "$BASE_URL/api/site/snapshot" -o "$tmp_dir/snapshot.json"
+  "$BASE_URL/api/site/snapshot"
 
 printf '[browser-smoke] PNG and PDF renders\n'
-curl -fsS "${auth_args[@]}" --get \
+request_retry 'PNG render' "$tmp_dir/render.png" "${auth_args[@]}" --get \
   --data-urlencode "site=$SITE" \
   --data-urlencode "path=$PATH_TO_CHECK" \
   --data-urlencode "width=$WIDTH" \
   --data-urlencode "height=$HEIGHT" \
   --data-urlencode "waitMs=300" \
   --data-urlencode "fullPage=false" \
-  "$BASE_URL/api/site/render" -o "$tmp_dir/render.png"
-curl -fsS "${auth_args[@]}" --get \
+  "$BASE_URL/api/site/render"
+request_retry 'PDF render' "$tmp_dir/render.pdf" "${auth_args[@]}" --get \
   --data-urlencode "site=$SITE" \
   --data-urlencode "path=$PATH_TO_CHECK" \
   --data-urlencode "width=$WIDTH" \
   --data-urlencode "height=$HEIGHT" \
   --data-urlencode "waitMs=300" \
   --data-urlencode "fullPage=false" \
-  "$BASE_URL/api/site/render.pdf" -o "$tmp_dir/render.pdf"
+  "$BASE_URL/api/site/render.pdf"
 
 printf '[browser-smoke] interactive read-only session\n'
 python3 - "$SITE" "$PATH_TO_CHECK" "$WIDTH" "$HEIGHT" > "$tmp_dir/create-body.json" <<'PY'
@@ -79,10 +118,12 @@ print(json.dumps({
     'waitMs': 300,
 }))
 PY
-curl -fsS "${auth_args[@]}" \
+# Never retry session creation: a lost response could otherwise leave duplicate
+# sessions. The preceding idempotent probes already handle service warm-up.
+request_once 'session creation' "$tmp_dir/session.json" "${auth_args[@]}" \
   -H 'Content-Type: application/json' \
   --data-binary "@$tmp_dir/create-body.json" \
-  "$BASE_URL/api/browser/sessions" -o "$tmp_dir/session.json"
+  "$BASE_URL/api/browser/sessions"
 
 readarray -t session_values < <(python3 - "$tmp_dir/session.json" <<'PY'
 import json, sys
@@ -94,9 +135,9 @@ PY
 session_id="${session_values[0]}"
 session_token="${session_values[1]}"
 
-curl -fsS "${auth_args[@]}" \
+request_retry 'session snapshot' "$tmp_dir/session-snapshot.json" "${auth_args[@]}" \
   -H "X-TaskForge-Browser-Session-Token: $session_token" \
-  "$BASE_URL/api/browser/sessions/$session_id/snapshot" -o "$tmp_dir/session-snapshot.json"
+  "$BASE_URL/api/browser/sessions/$session_id/snapshot"
 
 python3 - "$tmp_dir" <<'PY'
 from pathlib import Path
