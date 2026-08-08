@@ -96,14 +96,51 @@ public sealed class BrowserScreenshotService(BrowserOptions options)
   document.getElementById('__taskforge_agent_overlay__')?.remove();
   document.querySelectorAll('[data-taskforge-agent-id]').forEach((element) => element.removeAttribute('data-taskforge-agent-id'));
 
-  const visible = (element) => {
-    const style = window.getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return style.display !== 'none'
-      && style.visibility !== 'hidden'
-      && Number(style.opacity || '1') > 0
-      && rect.width > 0
-      && rect.height > 0;
+  const area = (rect) => Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
+  const intersect = (a, b) => ({
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom)
+  });
+  const clipsAxis = (value) => ['hidden', 'clip', 'auto', 'scroll'].includes(String(value || '').toLowerCase());
+
+  const visibilityOf = (element) => {
+    if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return null;
+    const details = element.closest('details:not([open])');
+    if (details) {
+      const summary = details.querySelector(':scope > summary');
+      if (!summary || !summary.contains(element)) return null;
+    }
+
+    try {
+      if (typeof element.checkVisibility === 'function'
+          && !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return null;
+    } catch {}
+
+    const source = element.getBoundingClientRect();
+    if (source.width <= 0 || source.height <= 0) return null;
+    let visibleRect = { left: source.left, top: source.top, right: source.right, bottom: source.bottom };
+    let ancestor = element;
+    while (ancestor && ancestor instanceof Element) {
+      const style = window.getComputedStyle(ancestor);
+      if (style.display === 'none'
+          || style.visibility === 'hidden'
+          || style.visibility === 'collapse'
+          || Number(style.opacity || '1') <= 0) return null;
+      if (ancestor !== element && (clipsAxis(style.overflowX) || clipsAxis(style.overflowY))) {
+        const clip = ancestor.getBoundingClientRect();
+        visibleRect = intersect(visibleRect, {
+          left: clipsAxis(style.overflowX) ? clip.left : -Infinity,
+          right: clipsAxis(style.overflowX) ? clip.right : Infinity,
+          top: clipsAxis(style.overflowY) ? clip.top : -Infinity,
+          bottom: clipsAxis(style.overflowY) ? clip.bottom : Infinity
+        });
+        if (area(visibleRect) <= 0) return null;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return { element, visibleRect };
   };
 
   const selectors = [
@@ -116,10 +153,11 @@ public sealed class BrowserScreenshotService(BrowserOptions options)
   const seen = new Set();
   const elements = [];
   document.querySelectorAll(selectors.join(',')).forEach((element) => {
-    if (!seen.has(element) && visible(element)) {
-      seen.add(element);
-      elements.push(element);
-    }
+    if (seen.has(element)) return;
+    const visibility = visibilityOf(element);
+    if (!visibility) return;
+    seen.add(element);
+    elements.push(visibility);
   });
 
   const overlay = document.createElement('div');
@@ -134,16 +172,15 @@ public sealed class BrowserScreenshotService(BrowserOptions options)
     pointerEvents: 'none'
   });
 
-  elements.forEach((element, index) => {
+  elements.forEach(({ element, visibleRect }, index) => {
     const id = `tf${index + 1}`;
     element.setAttribute('data-taskforge-agent-id', id);
-    const rect = element.getBoundingClientRect();
     const label = document.createElement('span');
     label.textContent = id;
     Object.assign(label.style, {
       position: 'absolute',
-      left: `${Math.max(0, rect.left + window.scrollX)}px`,
-      top: `${Math.max(0, rect.top + window.scrollY - 15)}px`,
+      left: `${Math.max(0, visibleRect.left + window.scrollX)}px`,
+      top: `${Math.max(0, visibleRect.top + window.scrollY - 15)}px`,
       padding: '1px 4px',
       border: '1px solid rgba(255,255,255,.95)',
       borderRadius: '3px',

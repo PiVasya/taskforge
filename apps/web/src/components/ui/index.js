@@ -1,11 +1,38 @@
-﻿export const Field = ({ label, children, hint }) => (
-    <div className="field">
-        {label && <label className="label">{label}</label>}
-        {children}
-        {hint && <div className="text-xs text-neutral-500 mt-1">{hint}</div>}
-    </div>
-);
+import { Children, cloneElement, isValidElement, useId } from 'react';
 
+function isFormControl(child) {
+    if (!isValidElement(child)) return false;
+    if (typeof child.type === 'string') {
+        return ['input', 'textarea', 'select'].includes(child.type);
+    }
+    return child.type === Input || child.type === Textarea || child.type === Select;
+}
+
+export const Field = ({ label, children, hint }) => {
+    const reactId = useId();
+    const baseId = `tf-field-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const hintId = hint ? `${baseId}-hint` : undefined;
+    const childList = Children.toArray(children);
+    const controlIndex = childList.findIndex(isFormControl);
+    const control = controlIndex >= 0 ? childList[controlIndex] : null;
+    const controlId = control?.props?.id || baseId;
+
+    if (controlIndex >= 0) {
+        const describedBy = [control.props['aria-describedby'], hintId].filter(Boolean).join(' ') || undefined;
+        childList[controlIndex] = cloneElement(control, {
+            id: controlId,
+            'aria-describedby': describedBy,
+        });
+    }
+
+    return (
+        <div className="field">
+            {label && <label className="label" htmlFor={controlIndex >= 0 ? controlId : undefined}>{label}</label>}
+            {childList}
+            {hint && <div id={hintId} className="text-xs text-neutral-500 mt-1">{hint}</div>}
+        </div>
+    );
+};
 
 export const Input = (p) => <input {...p} className={`input ${p.className || ''}`} />;
 export const Textarea = (p) => <textarea {...p} className={`textarea ${p.className || ''}`} />;

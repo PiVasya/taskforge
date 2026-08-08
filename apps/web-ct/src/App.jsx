@@ -2,6 +2,7 @@ import { lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import ProtectedRoute from './auth/ProtectedRoute';
 import AppShell from './app/AppShell';
+import PageMeta from './app/PageMeta';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
@@ -16,7 +17,9 @@ const EditorRedirectPage = lazy(() => import('./pages/EditorRedirectPage'));
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <PageMeta />
+      <Routes>
       <Route element={<AppShell />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -39,6 +42,7 @@ export default function App() {
         <Route path="/admin/conspects" element={<Navigate to="/editor/a1" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }

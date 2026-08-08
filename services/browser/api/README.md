@@ -50,15 +50,18 @@ GET /api/site/render.pdf?path=/courses&width=1440&height=900&fullPage=true
 
 Use `site=ct` for the CT frontend. Add an ordinary TaskForge access token as `Authorization: Bearer ...` to render pages available to that user. Browser API authentication is intentionally explicit: ambient `tf_at` cookies are ignored. Stateless renders are always read-only.
 
-A semantic snapshot includes:
+The semantic snapshot contract version is `2.0`. A semantic snapshot includes:
 
+- `semanticSnapshotVersion`, capture mode, current `document.readyState`, the TaskForge app-ready marker and the stage where stabilization finished;
 - visible page text and headings;
 - Playwright AI-mode ARIA snapshot with element boxes when supported;
 - viewport and document dimensions;
 - horizontal overflow and offending elements;
-- interactive controls with `tf1`, `tf2`, ... references and bounds;
+- interactive controls with `tf1`, `tf2`, ... references, clipped visible bounds and visible-area ratios;
 - touch-target, label, heading, image-alt and duplicate-ID diagnostics;
-- console errors, failed requests and HTTP errors;
+- console errors, real failed requests and HTTP errors;
+- requests intentionally blocked by the read-only/origin policy in a separate `policyBlockedRequests` collection;
+- bounded pending-request diagnostics when a page does not become ready;
 - navigation, FCP/LCP/CLS, resource and long-task measurements.
 
 `annotated=true` overlays the same `tfN` references on the PNG.
@@ -95,7 +98,7 @@ Content-Type: application/json
 }
 ```
 
-The response contains a random high-entropy session token. Send it on every subsequent session request. Anonymous sessions are authorized by this bearer token rather than by a source IP so they continue to work through CDNs, NAT rebinding and network changes. Authenticated sessions additionally require the same TaskForge user identity that created the session:
+The response contains a random high-entropy session token. Send it on every subsequent session request. Anonymous sessions are authorized by this session token rather than by a source IP, so they continue to work through CDNs, NAT rebinding and network changes. Authenticated sessions additionally require the same TaskForge user identity that created the session:
 
 ```http
 X-TaskForge-Browser-Session-Token: <token>
@@ -123,6 +126,10 @@ Actions use `elementId` values from the latest snapshot, not arbitrary CSS selec
 
 Anonymous sessions are always read-only. `readOnly=false` requires a valid ordinary TaskForge access token and still grants only that account's existing permissions.
 
+The generated OpenAPI document formally describes the session-token header as the `BrowserSessionToken` API-key security scheme. An authenticated session requires both that header and the same ordinary TaskForge bearer identity that created it. The document also contains registration/login helper schemas, binary PNG/PDF media types and structured error/rate-limit responses.
+
+The .NET 10 Minimal API validation pipeline is enabled for request records. Invalid `elementId`, viewport, key length and other annotated fields are rejected before Chromium work starts; OpenAPI documents both TaskForge `ApiError` and framework validation-problem responses.
+
 ## Security model
 
 - Input contains a configured site key plus a relative TaskForge path. Request contracts expose no arbitrary URL field.
@@ -133,13 +140,16 @@ Anonymous sessions are always read-only. `readOnly=false` requires a valid ordin
 - Popups are closed; service workers and downloads are disabled.
 - Nginx applies an inexpensive request/connection shield before the request reaches the service.
 - Application quotas use atomic Redis `INCR` + `EXPIRE` Lua scripts, with a process-local emergency fallback.
+- Identical public capture jobs use process-local single-flight to coalesce concurrent work inside one replica, plus a short Redis pointer cache that prevents repeat work after a capture is published across replicas.
 - Chromium operations, active sessions, per-owner sessions, viewport, full-page pixels, wait time, response bytes and session lifetime are bounded.
 - Session tokens are stored only as SHA-256 hashes and compared in constant time. Anonymous read-only sessions use the token as their session credential; authenticated sessions require both the token and the same TaskForge user identity.
 - Console and network diagnostics remove query strings and redact common token/password forms.
 - Authenticated snapshots and renders are never shared through the public artifact cache.
 - The container runs as `pwuser`, has a read-only root filesystem, drops all Linux capabilities, has no Docker socket and receives CPU/RAM/PID/temp/shm limits.
 
-Third-party images are intentionally blocked unless their origin is explicitly allowlisted. Those failures remain visible in snapshot diagnostics rather than silently widening outbound browser access.
+Third-party images are intentionally blocked unless their origin is explicitly allowlisted. Expected inspector-policy blocks are reported in `policyBlockedRequests`, separately from genuine console and network failures, rather than silently widening outbound browser access.
+
+Policy-blocked requests are not counted as site failures. They are reported separately with an expected reason such as `read_only_mutation`, `browser_api_recursion` or `origin_not_allowlisted`.
 
 ### Important read-only boundary
 
@@ -155,6 +165,25 @@ Browser:MaxArtifactResponseBytes    default 32 MiB
 ```
 
 A valid render may be returned without being cached when it exceeds the cache limit. A render over the response limit is rejected with HTTP 413.
+
+Public crawler captures have an independent bounded deadline (`Browser:CaptureTimeoutSeconds`, default 75 seconds). Navigation waits for DOM readiness, then a bounded `data-taskforge-ready`/mounted-root signal and font stabilization rather than unbounded `networkidle`. A timeout returns a structured HTTP 504 diagnostic including the stage, safe URL, readiness state and pending requests; the gateway timeout is deliberately longer so this response reaches the caller.
+
+## Rate-limit response contract
+
+Successful and rejected Browser API calls expose:
+
+```text
+RateLimit-Limit
+RateLimit-Remaining
+RateLimit-Reset        seconds until reset
+RateLimit-Policy       for example 10;w=60
+X-RateLimit-Limit
+X-RateLimit-Remaining
+X-RateLimit-Reset      Unix reset timestamp, compatibility only
+Retry-After            on HTTP 429
+```
+
+The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need.
 
 ## Scale model
 

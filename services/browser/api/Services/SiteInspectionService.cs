@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
 using TaskForge.Browser.Api.Contracts;
@@ -207,46 +208,159 @@ public sealed class SiteInspectionService(
     {
         _pageFactory.ValidateViewport(width, height);
         var anonymousCaller = new BrowserCaller(false, null, "anonymous", null, "agent-public-capture", "agent-public-capture", false);
+        var stage = "capacity";
+        var started = Stopwatch.StartNew();
 
-        await using var lease = await _capacityGate.EnterAsync(cancellationToken);
-        await using var handle = await _pageFactory.CreateAsync(site, width, height, readOnly: true, anonymousCaller, cancellationToken);
-        await _pageFactory.NavigateAsync(handle, path, waitMilliseconds, cancellationToken);
-
-        var snapshot = await _snapshotBuilder.BuildAsync(handle, includeText: true, cancellationToken);
-        var capture = await _screenshots.CaptureAsync(handle, fullPage, annotated: false, cancellationToken);
-
-        var png = new RenderArtifact(
-            capture.Bytes,
-            "image/png",
-            capture.Width,
-            capture.Height,
-            capture.FullPage,
-            capture.FullPageTruncated,
-            capture.Annotated,
-            false);
-
-        RenderArtifact? pdf = null;
         try
         {
-            var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, cancellationToken);
-            pdf = new RenderArtifact(
-                pdfBytes,
-                "application/pdf",
-                capture.Width,
-                capture.Height,
-                capture.FullPage,
-                capture.FullPageTruncated,
-                capture.Annotated,
-                false);
+            await using var lease = await _capacityGate.EnterAsync(cancellationToken);
+            stage = "browser-create";
+            await using var handle = await _pageFactory.CreateAsync(site, width, height, readOnly: true, anonymousCaller, cancellationToken);
+
+            try
+            {
+                stage = "navigation";
+                await _pageFactory.NavigateAsync(handle, path, waitMilliseconds, cancellationToken);
+
+                stage = "semantic-snapshot";
+                var snapshot = await _snapshotBuilder.BuildAsync(handle, includeText: true, cancellationToken);
+
+                stage = "png-capture";
+                var capture = await _screenshots.CaptureAsync(handle, fullPage, annotated: false, cancellationToken);
+
+                var png = new RenderArtifact(
+                    capture.Bytes,
+                    "image/png",
+                    capture.Width,
+                    capture.Height,
+                    capture.FullPage,
+                    capture.FullPageTruncated,
+                    capture.Annotated,
+                    false);
+
+                stage = "pdf-wrapper";
+                RenderArtifact? pdf = null;
+                using var pdfTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                pdfTimeout.CancelAfter(TimeSpan.FromSeconds(System.Math.Clamp(_options.ActionTimeoutSeconds * 2, 5, 20)));
+                try
+                {
+                    var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, pdfTimeout.Token);
+                    pdf = new RenderArtifact(
+                        pdfBytes,
+                        "application/pdf",
+                        capture.Width,
+                        capture.Height,
+                        capture.FullPage,
+                        capture.FullPageTruncated,
+                        capture.Annotated,
+                        false);
+                }
+                catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // The PDF wrapper has its own smaller budget so it cannot consume the
+                    // whole public-capture deadline after snapshot + PNG already succeeded.
+                    _logger.LogWarning(ex, "Public agent PDF compatibility wrapper timed out for {Url}; publishing snapshot and PNG only.", snapshot.Url);
+                }
+                catch (Exception ex) when (ex is PlaywrightException or BrowserApiException)
+                {
+                    // PDF is only a compatibility wrapper. Never make crawler discovery fail
+                    // when the authoritative snapshot + Chromium PNG were captured successfully.
+                    _logger.LogWarning(ex, "Public agent PDF compatibility wrapper failed for {Url}; publishing snapshot and PNG only.", snapshot.Url);
+                }
+
+                stage = "complete";
+                return new AgentCaptureBundle(snapshot, png, pdf);
+            }
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+            {
+                var details = await BuildCaptureTimeoutDetailsAsync(
+                    handle,
+                    stage,
+                    started.ElapsedMilliseconds,
+                    site,
+                    path,
+                    width,
+                    height,
+                    fullPage);
+
+                throw new BrowserApiException(
+                    StatusCodes.Status504GatewayTimeout,
+                    "AGENT_CAPTURE_TIMEOUT",
+                    "Публичный Chromium capture не завершился в установленный срок.",
+                    details: details,
+                    innerException: ex);
+            }
         }
-        catch (Exception ex) when (ex is PlaywrightException or BrowserApiException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            // PDF is only a compatibility wrapper. Never make crawler discovery fail
-            // when the authoritative snapshot + Chromium PNG were captured successfully.
-            _logger.LogWarning(ex, "Public agent PDF compatibility wrapper failed for {Url}; publishing snapshot and PNG only.", snapshot.Url);
+            throw new BrowserApiException(
+                StatusCodes.Status504GatewayTimeout,
+                "AGENT_CAPTURE_TIMEOUT",
+                "Публичный Chromium capture не завершился в установленный срок.",
+                details: new
+                {
+                    stage,
+                    elapsedMilliseconds = started.ElapsedMilliseconds,
+                    site,
+                    path,
+                    width,
+                    height,
+                    fullPage,
+                    pageAvailable = false
+                },
+                innerException: ex);
+        }
+    }
+
+    private static async Task<object> BuildCaptureTimeoutDetailsAsync(
+        BrowserPageHandle handle,
+        string stage,
+        long elapsedMilliseconds,
+        string? site,
+        string? path,
+        int width,
+        int height,
+        bool fullPage)
+    {
+        string title;
+        using (var diagnosticTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+        {
+            try
+            {
+                title = await handle.Page.TitleAsync().WaitAsync(diagnosticTimeout.Token);
+            }
+            catch
+            {
+                title = string.Empty;
+            }
         }
 
-        return new AgentCaptureBundle(snapshot, png, pdf);
+        return new
+        {
+            stage,
+            elapsedMilliseconds,
+            site,
+            path,
+            width,
+            height,
+            fullPage,
+            url = SafeDiagnosticUrl(handle.Page.Url),
+            title,
+            readiness = handle.Readiness,
+            pageReadyState = handle.Readiness.PageReadyState,
+            appReady = handle.Readiness.AppReady,
+            pendingRequestCount = handle.Events.PendingRequestCount,
+            pendingRequests = handle.Events.PendingRequests(),
+            recentConsole = handle.Events.Console().TakeLast(10),
+            recentNetworkFailures = handle.Events.NetworkFailures().TakeLast(10),
+            policyBlockedRequests = handle.Events.PolicyBlockedRequests().TakeLast(10)
+        };
+    }
+
+    private static string SafeDiagnosticUrl(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return "invalid-or-non-http-url";
+        return uri.GetLeftPart(UriPartial.Path);
     }
 
     private async Task<byte[]> BuildPdfFromCaptureAsync(

@@ -1,7 +1,9 @@
 import { useLayoutEffect, useMemo } from 'react';
 import { matchPath, useLocation } from 'react-router-dom';
 
-const SITE_NAME = 'TaskForge';
+const SITE_NAME = 'TaskForge.by';
+const CANONICAL_ORIGIN = 'https://taskforge.by';
+const INDEXABLE_ROUTES = ['/', '/privacy', '/news', '/news/:postId'];
 const DEFAULT_DESCRIPTION =
   'TaskForge — учебная платформа для задач по программированию: курсы, задания, автопроверка решений, рейтинг и прогресс студентов.';
 
@@ -252,6 +254,23 @@ function setMeta(selector, createAttrs, content) {
   tag.setAttribute('content', content);
 }
 
+function isIndexablePath(pathname) {
+  return INDEXABLE_ROUTES.some((path) =>
+    matchPath({ path, end: true }, pathname || '/'),
+  );
+}
+
+function setLink(selector, rel, href) {
+  if (typeof document === 'undefined') return;
+  let tag = document.head.querySelector(selector);
+  if (!tag) {
+    tag = document.createElement('link');
+    tag.setAttribute('rel', rel);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute('href', href);
+}
+
 export default function PageMeta() {
   const location = useLocation();
   const meta = useMemo(
@@ -260,18 +279,29 @@ export default function PageMeta() {
   );
 
   useLayoutEffect(() => {
+    const pathname = location.pathname || '/';
+    const canonicalUrl = `${CANONICAL_ORIGIN}${pathname}`;
+    const indexable = isIndexablePath(pathname);
+    const html = document.documentElement;
+
+    html.lang = 'ru';
+    html.dataset.taskforgeReady = 'loading';
+    html.dataset.taskforgeRoute = pathname;
     document.title = meta.title;
 
     setMeta('meta[name="description"]', { name: 'description' }, meta.description);
+    setMeta('meta[name="robots"]', { name: 'robots' }, indexable ? 'index,follow' : 'noindex,nofollow');
+    setMeta('meta[property="og:site_name"]', { property: 'og:site_name' }, SITE_NAME);
     setMeta('meta[property="og:title"]', { property: 'og:title' }, meta.title);
     setMeta('meta[property="og:description"]', { property: 'og:description' }, meta.description);
+    setMeta('meta[property="og:url"]', { property: 'og:url' }, canonicalUrl);
     setMeta('meta[name="twitter:title"]', { name: 'twitter:title' }, meta.title);
     setMeta('meta[name="twitter:description"]', { name: 'twitter:description' }, meta.description);
+    setLink('link[rel="canonical"]', 'canonical', canonicalUrl);
 
-    if (typeof window !== 'undefined') {
-      const url = `${window.location.origin}${location.pathname}`;
-      setMeta('meta[property="og:url"]', { property: 'og:url' }, url);
-    }
+    // The resolved route content marks the document ready from inside the
+    // Suspense boundary. Keeping this component at "loading" prevents a
+    // crawler from capturing the route skeleton as the final page.
   }, [location.pathname, meta.description, meta.title]);
 
   return null;

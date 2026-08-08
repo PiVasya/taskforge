@@ -10,13 +10,18 @@ public sealed class BrowserOptions
     };
 
     public string AllowedExternalOrigins { get; set; } = "https://s3.taskforge.by";
-    public string UserAgent { get; set; } = "TaskForgeBrowserApi/1.1 (+https://taskforge.by/llms.txt)";
+    public string UserAgent { get; set; } = "TaskForgeBrowserApi/1.2 (+https://taskforge.by/llms.txt)";
     public bool DisableSandbox { get; set; } = true;
     public bool IgnoreHttpsErrors { get; set; }
     public int NavigationTimeoutSeconds { get; set; } = 20;
     public int ActionTimeoutSeconds { get; set; } = 10;
     public int DefaultWaitMilliseconds { get; set; } = 800;
     public int MaxWaitMilliseconds { get; set; } = 5000;
+    public int AppReadyTimeoutMilliseconds { get; set; } = 3500;
+    public int FontReadyTimeoutMilliseconds { get; set; } = 1500;
+    public int CaptureTimeoutSeconds { get; set; } = 75;
+    public int CaptureCacheSeconds { get; set; } = 30;
+    public int RecommendedCaptureConcurrency { get; set; } = 1;
     public int MinViewportWidth { get; set; } = 320;
     public int MaxViewportWidth { get; set; } = 2560;
     public int MinViewportHeight { get; set; } = 320;

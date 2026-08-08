@@ -36,7 +36,7 @@ public sealed class RedisFixedWindowRateLimiter(
     {
         if (!_options.Enabled)
         {
-            return new RateLimitDecision(true, limit, limit, 0, bucket);
+            return new RateLimitDecision(true, limit, limit, 0, bucket, windowSeconds, DateTimeOffset.UtcNow.AddSeconds(windowSeconds));
         }
 
         var owner = await IncrementAsync($"tf:browser:rl:{bucket}:owner:{ownerKey}", limit, windowSeconds, cancellationToken);
@@ -51,7 +51,10 @@ public sealed class RedisFixedWindowRateLimiter(
 
     private async Task<RateLimitDecision> IncrementAsync(string key, int limit, int windowSeconds, CancellationToken cancellationToken)
     {
-        limit = System.Math.Clamp(limit, 1, 100000);
+        // Per-owner limits are validated up to 1,000,000 and the network bucket
+        // may multiply them by up to 100. Do not silently collapse a configured
+        // policy to 100,000 requests inside the storage implementation.
+        limit = System.Math.Clamp(limit, 1, 100_000_000);
         windowSeconds = System.Math.Clamp(windowSeconds, 1, 86400);
 
         if (_redis is not null)
@@ -74,7 +77,7 @@ public sealed class RedisFixedWindowRateLimiter(
                 var ttlSeconds = (long)values[1];
                 var retry = System.Math.Max(1, ttlSeconds > 0 ? (int)ttlSeconds : windowSeconds);
                 var remaining = System.Math.Max(0, limit - (int)count);
-                return new RateLimitDecision(count <= limit, limit, remaining, count <= limit ? 0 : retry, string.Empty);
+                return new RateLimitDecision(count <= limit, limit, remaining, count <= limit ? 0 : retry, string.Empty, windowSeconds, DateTimeOffset.UtcNow.AddSeconds(retry));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -92,6 +95,6 @@ public sealed class RedisFixedWindowRateLimiter(
         }
 
         var localRetry = System.Math.Max(1, windowSeconds - (int)(now % windowSeconds));
-        return new RateLimitDecision(current.Count <= limit, limit, System.Math.Max(0, limit - current.Count), current.Count <= limit ? 0 : localRetry, string.Empty);
+        return new RateLimitDecision(current.Count <= limit, limit, System.Math.Max(0, limit - current.Count), current.Count <= limit ? 0 : localRetry, string.Empty, windowSeconds, DateTimeOffset.UtcNow.AddSeconds(localRetry));
     }
 }

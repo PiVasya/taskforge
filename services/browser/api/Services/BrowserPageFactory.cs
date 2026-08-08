@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
@@ -33,11 +34,11 @@ public sealed class BrowserPageFactory(
 
         try
         {
+            var events = new BrowserEventBuffer(_options.MaxEventEntries);
             await ConfigureContextAsync(context, baseUri, caller);
-            await context.RouteAsync("**/*", async route => await RouteRequestAsync(route, baseUri, readOnly));
+            await context.RouteAsync("**/*", async route => await RouteRequestAsync(route, baseUri, readOnly, events));
 
             var page = await context.NewPageAsync();
-            var events = new BrowserEventBuffer(_options.MaxEventEntries);
             AttachEvents(page, events);
 
             return new BrowserPageHandle
@@ -67,11 +68,27 @@ public sealed class BrowserPageFactory(
         CancellationToken cancellationToken)
     {
         var target = _urlPolicy.BuildPageUri(handle.SiteBaseUri, path);
-        await handle.Page.GotoAsync(target.AbsoluteUri, new PageGotoOptions
+        var started = Stopwatch.StartNew();
+        handle.Readiness = new SnapshotReadiness { Stage = "navigation" };
+
+        try
         {
-            WaitUntil = WaitUntilState.DOMContentLoaded,
-            Timeout = System.Math.Clamp(_options.NavigationTimeoutSeconds, 1, 120) * 1000
-        }).WaitAsync(cancellationToken);
+            await handle.Page.GotoAsync(target.AbsoluteUri, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = System.Math.Clamp(_options.NavigationTimeoutSeconds, 1, 120) * 1000
+            }).WaitAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+        {
+            var details = await BuildFailureDetailsAsync(handle, "navigation", started.ElapsedMilliseconds, cancellationToken);
+            throw new BrowserApiException(
+                StatusCodes.Status504GatewayTimeout,
+                "PAGE_NAVIGATION_TIMEOUT",
+                "Chromium не дождался загрузки страницы TaskForge до DOMContentLoaded.",
+                details: details,
+                innerException: ex);
+        }
 
         await StabilizeAsync(handle, waitMilliseconds, cancellationToken);
     }
@@ -81,8 +98,10 @@ public sealed class BrowserPageFactory(
         int waitMilliseconds,
         CancellationToken cancellationToken)
     {
-        await StabilizePageAsync(handle.Page, waitMilliseconds, cancellationToken);
+        handle.Readiness = await StabilizePageAsync(handle, waitMilliseconds, cancellationToken);
         await EnsureSafeStateAsync(handle, cancellationToken);
+        handle.Readiness.PendingRequestCount = handle.Events.PendingRequestCount;
+        handle.Readiness.PendingRequests = handle.Events.PendingRequests();
     }
 
     public async Task EnsureSafeStateAsync(BrowserPageHandle handle, CancellationToken cancellationToken)
@@ -124,7 +143,7 @@ public sealed class BrowserPageFactory(
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = System.Math.Clamp(_options.NavigationTimeoutSeconds, 1, 120) * 1000
             }).WaitAsync(cancellationToken);
-            await StabilizePageAsync(handle.Page, 200, cancellationToken);
+            handle.Readiness = await StabilizePageAsync(handle, 200, cancellationToken);
         }
         catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
@@ -134,7 +153,8 @@ public sealed class BrowserPageFactory(
         throw new BrowserApiException(
             StatusCodes.Status409Conflict,
             "NAVIGATION_OUTSIDE_TASKFORGE_BLOCKED",
-            "Переход за пределы выбранного сайта TaskForge заблокирован. Сессия возвращена на последнюю безопасную страницу.");
+            "Переход за пределы выбранного сайта TaskForge заблокирован. Сессия возвращена на последнюю безопасную страницу.",
+            details: new { unsafeUrl, fallback = SafeRequestUrl(fallback) });
     }
 
     public void ValidateViewport(int width, int height)
@@ -177,7 +197,9 @@ public sealed class BrowserPageFactory(
     {
         page.Console += (_, message) => events.AddConsole(message.Type, message.Text);
         page.PageError += (_, error) => events.AddConsole("pageerror", error);
-        page.RequestFailed += (_, request) => events.AddFailure(request.Method, request.Url, request.ResourceType, request.Failure);
+        page.Request += (_, request) => events.RequestStarted(request.Method, request.Url, request.ResourceType);
+        page.RequestFinished += (_, request) => events.RequestFinished(request.Method, request.Url, request.ResourceType);
+        page.RequestFailed += (_, request) => events.RequestFailed(request.Method, request.Url, request.ResourceType, request.Failure);
         page.Response += (_, response) =>
         {
             if (response.Status >= 400)
@@ -198,7 +220,7 @@ public sealed class BrowserPageFactory(
         };
     }
 
-    private async Task RouteRequestAsync(IRoute route, Uri siteBaseUri, bool readOnly)
+    private async Task RouteRequestAsync(IRoute route, Uri siteBaseUri, bool readOnly, BrowserEventBuffer events)
     {
         try
         {
@@ -206,33 +228,27 @@ public sealed class BrowserPageFactory(
             if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
                 || !_urlPolicy.IsAllowedRequest(uri))
             {
-                _logger.LogDebug("Blocked browser request to non-allowlisted origin: {Url}", SafeRequestUrl(request.Url));
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "origin_not_allowlisted");
                 return;
             }
 
             if (request.ResourceType.Equals("document", StringComparison.OrdinalIgnoreCase)
                 && !BrowserUrlPolicy.SameOrigin(siteBaseUri, uri))
             {
-                _logger.LogDebug("Blocked document navigation outside the selected TaskForge site: {Url}", SafeRequestUrl(request.Url));
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "document_navigation_outside_site");
                 return;
             }
 
             // Never allow a Chromium page to call the renderer/session API itself.
-            // Without this boundary a same-origin page could recursively create more
-            // Chromium work through GET /api/site/render or /api/browser/sessions.
             if (_urlPolicy.IsBrowserApiEndpoint(uri))
             {
-                _logger.LogDebug("Blocked recursive Browser API request from Chromium: {Method} {Path}", request.Method, uri.AbsolutePath);
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "browser_api_recursion");
                 return;
             }
 
             if (readOnly && uri.Scheme is "ws" or "wss")
             {
-                _logger.LogDebug("Blocked WebSocket in read-only browser session: {Url}", SafeRequestUrl(request.Url));
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "read_only_websocket");
                 return;
             }
 
@@ -240,15 +256,14 @@ public sealed class BrowserPageFactory(
                 && BrowserUrlPolicy.SameOrigin(siteBaseUri, uri)
                 && !IsSafeMethod(request.Method))
             {
-                _logger.LogDebug("Blocked mutating same-origin request in read-only browser session: {Method} {Path}", request.Method, uri.AbsolutePath);
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "read_only_mutation");
                 return;
             }
 
             if (!BrowserUrlPolicy.SameOrigin(siteBaseUri, uri)
                 && (uri.Scheme is "ws" or "wss" || !IsSafeMethod(request.Method)))
             {
-                await route.AbortAsync("blockedbyclient");
+                await AbortExpectedAsync(route, events, "external_mutation_or_websocket");
                 return;
             }
 
@@ -260,45 +275,145 @@ public sealed class BrowserPageFactory(
         }
     }
 
-    private async Task StabilizePageAsync(IPage page, int waitMilliseconds, CancellationToken cancellationToken)
+    private async Task AbortExpectedAsync(IRoute route, BrowserEventBuffer events, string reason)
+    {
+        var request = route.Request;
+        events.AddPolicyBlocked(request.Method, request.Url, request.ResourceType, reason);
+        _logger.LogDebug(
+            "Inspector policy blocked Chromium request. reason={Reason} method={Method} url={Url}",
+            reason,
+            request.Method,
+            SafeRequestUrl(request.Url));
+        try
+        {
+            await route.AbortAsync("blockedbyclient");
+        }
+        catch
+        {
+            // Do not leave a stale suppression marker if Playwright failed before
+            // producing the matching RequestFailed event.
+            events.CancelExpectedFailure(request.Method, request.Url, request.ResourceType);
+            throw;
+        }
+    }
+
+    private async Task<SnapshotReadiness> StabilizePageAsync(
+        BrowserPageHandle handle,
+        int waitMilliseconds,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var stopwatch = Stopwatch.StartNew();
         var wait = System.Math.Clamp(waitMilliseconds, 0, _options.MaxWaitMilliseconds);
+        var timedOut = false;
+        var stage = "dom-ready";
 
         try
         {
-            await page.WaitForFunctionAsync(
+            await handle.Page.WaitForFunctionAsync(
                 "() => document.readyState === 'complete' || document.readyState === 'interactive'",
                 null,
                 new PageWaitForFunctionOptions { Timeout = 2000 }).WaitAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
-            // Goto already waited for DOMContentLoaded. Continue with a best-effort snapshot.
+            timedOut = true;
         }
 
+        stage = "app-ready";
         try
         {
-            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions
-            {
-                Timeout = System.Math.Min(2500, System.Math.Max(500, _options.ActionTimeoutSeconds * 1000))
-            }).WaitAsync(cancellationToken);
+            await handle.Page.WaitForFunctionAsync(
+                ReadyPredicateScript,
+                null,
+                new PageWaitForFunctionOptions
+                {
+                    Timeout = System.Math.Clamp(_options.AppReadyTimeoutMilliseconds, 250, 15000)
+                }).WaitAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
-            // Long-polling and analytics may keep the network active indefinitely.
+            // The marker is a best-effort signal. A mounted root remains capturable.
+            timedOut = true;
         }
 
+        stage = "fonts";
         try
         {
-            await page.EvaluateAsync("() => document.fonts?.ready || Promise.resolve()").WaitAsync(cancellationToken);
+            var fontTimeout = System.Math.Clamp(_options.FontReadyTimeoutMilliseconds, 100, 10000);
+            await handle.Page.EvaluateAsync(
+                "timeout => Promise.race([document.fonts?.ready || Promise.resolve(), new Promise(resolve => setTimeout(resolve, timeout))])",
+                fontTimeout).WaitAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
             // Font loading is not required for semantic inspection.
         }
 
-        if (wait > 0) await page.WaitForTimeoutAsync(wait).WaitAsync(cancellationToken);
+        stage = "settle";
+        if (wait > 0) await handle.Page.WaitForTimeoutAsync(wait).WaitAsync(cancellationToken);
+
+        var probe = await ReadinessProbeAsync(handle.Page, cancellationToken);
+        var effectiveAppReady = probe.AppReady || (!probe.AppReadyMarkerPresent && probe.RootMounted);
+        return new SnapshotReadiness
+        {
+            Stage = effectiveAppReady ? "ready" : stage,
+            PageReadyState = probe.PageReadyState,
+            AppReadyMarkerPresent = probe.AppReadyMarkerPresent,
+            AppReady = effectiveAppReady,
+            RootMounted = probe.RootMounted,
+            TimedOut = timedOut && !effectiveAppReady,
+            StabilizationMilliseconds = (int)System.Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds),
+            PendingRequestCount = handle.Events.PendingRequestCount,
+            PendingRequests = handle.Events.PendingRequests()
+        };
+    }
+
+    private async Task<object> BuildFailureDetailsAsync(
+        BrowserPageHandle handle,
+        string stage,
+        long elapsedMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        var probe = await ReadinessProbeAsync(handle.Page, cancellationToken);
+        string title;
+        try
+        {
+            title = await handle.Page.TitleAsync().WaitAsync(cancellationToken);
+        }
+        catch
+        {
+            title = string.Empty;
+        }
+
+        return new
+        {
+            stage,
+            elapsedMilliseconds,
+            url = SafeRequestUrl(handle.Page.Url),
+            title,
+            pageReadyState = probe.PageReadyState,
+            appReadyMarkerPresent = probe.AppReadyMarkerPresent,
+            appReady = probe.AppReady,
+            rootMounted = probe.RootMounted,
+            pendingRequestCount = handle.Events.PendingRequestCount,
+            pendingRequests = handle.Events.PendingRequests(),
+            recentConsole = handle.Events.Console().TakeLast(10),
+            recentNetworkFailures = handle.Events.NetworkFailures().TakeLast(10),
+            policyBlockedRequests = handle.Events.PolicyBlockedRequests().TakeLast(10)
+        };
+    }
+
+    private static async Task<ReadyProbe> ReadinessProbeAsync(IPage page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await page.EvaluateAsync<ReadyProbe>(ReadyProbeScript).WaitAsync(cancellationToken) ?? new ReadyProbe();
+        }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+        {
+            return new ReadyProbe();
+        }
     }
 
     private static bool IsSafeMethod(string method)
@@ -311,6 +426,38 @@ public sealed class BrowserPageFactory(
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return "invalid-or-non-http-url";
         return uri.GetLeftPart(UriPartial.Path);
     }
+
+    private sealed class ReadyProbe
+    {
+        public string PageReadyState { get; set; } = string.Empty;
+        public bool AppReadyMarkerPresent { get; set; }
+        public bool AppReady { get; set; }
+        public bool RootMounted { get; set; }
+    }
+
+    private const string ReadyPredicateScript = """
+() => {
+  const html = document.documentElement;
+  const markerPresent = html.hasAttribute('data-taskforge-ready');
+  const appReady = html.dataset.taskforgeReady === 'true';
+  const root = document.querySelector('#root, [data-reactroot], main');
+  const rootMounted = Boolean(root && (root.childElementCount > 0 || String(root.textContent || '').trim().length > 0));
+  return appReady || (!markerPresent && rootMounted);
+}
+""";
+
+    private const string ReadyProbeScript = """
+() => {
+  const html = document.documentElement;
+  const root = document.querySelector('#root, [data-reactroot], main');
+  return {
+    pageReadyState: document.readyState || '',
+    appReadyMarkerPresent: html.hasAttribute('data-taskforge-ready'),
+    appReady: html.dataset.taskforgeReady === 'true',
+    rootMounted: Boolean(root && (root.childElementCount > 0 || String(root.textContent || '').trim().length > 0))
+  };
+}
+""";
 
     private const string PerformanceObserverScript = """
 (() => {

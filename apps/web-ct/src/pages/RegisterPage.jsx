@@ -116,7 +116,7 @@ export default function RegisterPage() {
                             </div>
                         ) : null}
 
-                        {err && <div className="text-red-500 mb-3">{err}</div>}
+                        {err && <div role="alert" aria-live="polite" className="text-red-500 mb-3">{err}</div>}
 
                         <div className="grid gap-4">
                             <Field label="Логин">
@@ -187,6 +187,7 @@ export default function RegisterPage() {
                             className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                             onClick={() => setShowExtra((v) => !v)}
                             aria-expanded={showExtra}
+                            aria-controls="register-extra-fields"
                         >
                             <div className="font-semibold">Дополнительная информация</div>
                             <ChevronDown
@@ -196,9 +197,11 @@ export default function RegisterPage() {
                         </button>
 
                         <div
-                            className={`overflow-hidden transition-all duration-300 ease-out ${
-                                showExtra ? "max-h-[720px] opacity-100" : "max-h-0 opacity-0"
-                            }`}
+                            id="register-extra-fields"
+                            hidden={!showExtra}
+                            aria-hidden={!showExtra}
+                            inert={!showExtra ? "" : undefined}
+                            className="overflow-hidden"
                         >
                             <div className="border-t border-neutral-200 px-6 py-5 grid gap-4 dark:border-neutral-800">
                                 <div className="grid sm:grid-cols-2 gap-4">

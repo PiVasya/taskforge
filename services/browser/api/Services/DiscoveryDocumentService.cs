@@ -3,18 +3,18 @@ using TaskForge.Browser.Api.Security;
 
 namespace TaskForge.Browser.Api.Services;
 
-public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlPolicy urlPolicy)
+public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, BrowserOptions options)
 {
-    private readonly BrowserOptions _options = options;
     private readonly BrowserUrlPolicy _urlPolicy = urlPolicy;
+    private readonly BrowserOptions _options = options;
 
     public object BuildDiscovery(HttpRequest request)
     {
         var root = PublicRoot(request);
         return new
         {
-            name = "TaskForge",
-            purpose = "Open learning platform with machine-readable inspection and real Chromium browser APIs.",
+            name = "TaskForge.by",
+            purpose = "Educational platform for programming courses, study notes, assignments, automated checking and progress tracking, with machine-readable inspection and controlled Chromium APIs.",
             agentAccess = $"{root}/ai-access",
             website = _urlPolicy.Sites.ToDictionary(x => x.Key, x => x.Value.AbsoluteUri.TrimEnd('/')),
             anonymousBrowsing = new
@@ -31,7 +31,7 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
                 loginApi = $"{root}/api/auth/login",
                 accountTypeField = "accountType",
                 value = "ai",
-                note = "AI accounts are ordinary TaskForge users. The marker is self-declared and grants no extra role or permission."
+                note = "AI accounts are ordinary TaskForge.by users. The marker is self-declared and grants no extra role or permission."
             },
             siteInspection = new
             {
@@ -42,12 +42,25 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
                 renderAnnotatedPng = $"{root}/api/site/render?path=/courses&width=390&height=844&annotated=true",
                 renderPdf = $"{root}/api/site/render.pdf?path=/courses&width=390&height=844",
                 crawlerCapture = $"{root}/api/site/agent/capture/main/390/844/full/",
+                recommendedCaptureConcurrency = _options.RecommendedCaptureConcurrency,
+                captureTimeoutSeconds = _options.CaptureTimeoutSeconds,
+                captureCacheSeconds = _options.CaptureCacheSeconds,
+                artifactTtlSeconds = _options.AgentArtifactTtlSeconds,
                 notes = new[]
                 {
                     "Use site=ct for the CT frontend.",
                     "Snapshot elements receive stable-within-snapshot tfN references for interactive session actions.",
-                    "The ARIA snapshot uses Playwright AI mode and includes element boxes when supported."
+                    "Crawler capture snapshots include source, current-viewport, mobile and desktop follow-up capture links.",
+                    "Do not issue parallel expensive captures beyond recommendedCaptureConcurrency. Identical public captures are single-flight coalesced and briefly cached."
                 }
+            },
+            semanticSnapshot = new
+            {
+                version = "2.0",
+                topLevelReadiness = new[] { "captureMode", "policyInterference", "pageReadyState", "appReady", "readiness" },
+                diagnostics = new[] { "console", "networkFailures", "httpErrors", "policyBlockedRequests" },
+                visibility = "Interactive elements respect hidden, aria-hidden, inert, closed details, CSS visibility and clipping ancestors.",
+                policyBlockedRequests = "Requests intentionally blocked by anonymous/read-only inspector policy are expected diagnostics and are not counted as networkFailures."
             },
             interactiveBrowser = new
             {
@@ -59,9 +72,17 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
                 authenticatedSessionAuthorization = "same-taskforge-user+session-token",
                 actions = new[] { "navigate", "snapshot", "screenshot", "click", "fill", "press", "select", "hover", "check", "scroll", "back", "reload", "close" }
             },
+            rateLimits = new
+            {
+                headers = new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy" },
+                compatibilityHeaders = new[] { "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset" },
+                resetSemantics = "RateLimit-Reset is seconds until reset; X-RateLimit-Reset is the UTC Unix timestamp.",
+                rejectedRequestHeaders = new[] { "Retry-After" },
+                status = 429
+            },
             openApi = $"{root}/api/browser/openapi.json",
             instructions = $"{root}/llms.txt",
-            apiVersion = "1.1",
+            apiVersion = "1.2",
             deploymentVersion = _options.DeploymentVersion,
             safety = new
             {
@@ -78,9 +99,9 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
     {
         var root = PublicRoot(request);
         return $$"""
-# TaskForge automated exploration
+# TaskForge.by automated exploration
 
-TaskForge openly supports automated study of its public website through ordinary browser access, semantic snapshots, visual Chromium renders and controlled interactive browser sessions.
+TaskForge.by is an educational platform for programming courses, study notes, coding and test assignments, automated solution checking, progress tracking and ratings. It openly supports automated study of its public website through ordinary browser access, semantic snapshots, visual Chromium renders and controlled interactive browser sessions.
 
 ## Sites
 - Main: {{_urlPolicy.Sites.GetValueOrDefault("main")?.AbsoluteUri.TrimEnd('/')}}
@@ -90,14 +111,13 @@ TaskForge openly supports automated study of its public website through ordinary
 ## Start from only the domain name
 If an automated client knows only `{{root}}` and cannot execute the React application, open `{{root}}/ai-access`. The root HTML advertises this crawler entry point, `/.well-known/taskforge-ai.json` and `/llms.txt` without requiring JavaScript.
 
-`/ai-access` contains ordinary crawlable links to route captures. A capture generates short-lived immutable URLs for snapshot JSON, the authoritative Chromium PNG, and a PDF compatibility wrapper. This is intended for restricted fetchers that cannot request arbitrary query-string binary URLs directly.
+`/ai-access` contains ordinary crawlable links to route captures. A capture generates short-lived immutable URLs for snapshot JSON, the authoritative Chromium PNG, and a PDF compatibility wrapper. Capture pages and snapshot JSON also expose follow-up links for the source page, the current viewport, mobile 390x844 and desktop 1440x900.
 
 ## Anonymous visitors
-Anonymous agents see the same public pages as unauthenticated human visitors. They do not need a special URL or share token.
-Anonymous interactive sessions are always read-only.
+Anonymous agents see the same public pages as unauthenticated human visitors. They do not need a special URL or share token. Anonymous interactive sessions are always read-only.
 
 ## AI accounts
-Agents may create an ordinary TaskForge account with `POST {{root}}/api/auth/register` and `accountType: "ai"`.
+Agents may create an ordinary TaskForge.by account with `POST {{root}}/api/auth/register` and `accountType: "ai"`.
 The registration UI is `{{root}}/register?accountType=ai`.
 The AI marker is self-declared. It does not grant an admin role, hidden endpoint or additional permission.
 Reuse one account per agent or integration instead of creating disposable accounts.
@@ -125,9 +145,17 @@ Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls a
 - PDF: `GET {{root}}/api/site/render.pdf?path=/courses&width=390&height=844`
 - Crawler-friendly capture page: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
 
-A snapshot contains visible text, headings, document/viewport dimensions, horizontal overflow, interactive controls, bounds, accessibility/layout issues, console errors, failed requests and performance measurements.
-Interactive controls are assigned `tf1`, `tf2`, ... references. These references are valid for the current page state and should be refreshed after navigation or major DOM changes.
-The `ariaSnapshot` field uses Playwright's AI-oriented ARIA representation with bounding boxes when available.
+Semantic snapshot version `2.0` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
+
+Important top-level fields:
+- `captureMode`: anonymous-read-only, authenticated-read-only or authenticated-interactive.
+- `policyInterference`: true when the inspector intentionally blocked one or more requests.
+- `pageReadyState`, `appReady` and `readiness`: bounded DOM/app/font stabilization diagnostics, pending request count and safe pending paths.
+- `policyBlockedRequests`: expected blocks such as read-only POST, WebSocket or non-allowlisted origin. Do not treat these as site failures.
+- `networkFailures`: failures not explained by inspector policy.
+- `discoveredLinks`: source path plus ready-made current/mobile/desktop crawler capture URLs.
+
+Interactive controls are assigned `tf1`, `tf2`, ... references. These references are valid for the current page state and should be refreshed after navigation or major DOM changes. Hidden, inert, aria-hidden, clipped and closed-collapsible controls are excluded. The `ariaSnapshot` field uses Playwright's AI-oriented ARIA representation with bounding boxes when available.
 
 ## Interactive Chromium sessions
 Create a session:
@@ -144,28 +172,37 @@ Content-Type: application/json
 }
 ```
 
-The response returns an `id` and a random session token. Send that token on every session request. Anonymous read-only sessions use the session token as their bearer credential and are not bound to a source IP, so a proxy/CDN route change does not break the session. Authenticated sessions additionally require the same TaskForge user access token identity that created them:
+The response returns an `id` and a random session token. Send that token on every session request:
 ```http
 X-TaskForge-Browser-Session-Token: <session token>
 ```
 
+Anonymous read-only sessions use X-TaskForge-Browser-Session-Token as their session credential and are not bound to a source IP. Authenticated sessions additionally require the same TaskForge.by access-token identity that created them.
+
 Available actions are navigate, snapshot, screenshot, click, fill, press, select, hover, check, scroll, back, reload and close. Use `elementId` values from the latest snapshot rather than CSS selectors.
 
-Read-only sessions block every non-safe same-origin HTTP request. `readOnly: false` is accepted only for authenticated TaskForge users and still grants no permissions beyond that user's ordinary account rights.
+Read-only sessions block every non-safe same-origin HTTP request. `readOnly: false` is accepted only for authenticated TaskForge.by users and still grants no permissions beyond that user's ordinary account rights.
 
 The PNG is the pixel-authoritative visual render. The PDF endpoint is only a compatibility wrapper for clients that can inspect PDFs but cannot fetch images.
 
 ## API schema
 - OpenAPI: `{{root}}/api/browser/openapi.json`
 - Discovery: `{{root}}/.well-known/taskforge-ai.json`
+- The OpenAPI schema documents the `X-TaskForge-Browser-Session-Token` API-key security scheme, request/response schemas, examples, image/PDF media types, login/registration helpers, and 400/401/403/404/409/410/413/423/429/502/503/504 responses.
 
-## Safety and limits
-- Only configured TaskForge origins and explicitly configured static-resource origins can be requested.
+## Rate limits and capture discipline
+- Recommended expensive-capture concurrency: {{_options.RecommendedCaptureConcurrency}}.
+- Public capture timeout: {{_options.CaptureTimeoutSeconds}} seconds.
+- Identical public captures are coalesced and cached for {{_options.CaptureCacheSeconds}} seconds; public immutable artifacts live for {{_options.AgentArtifactTtlSeconds}} seconds.
+- Read `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy` on responses. `RateLimit-Reset` is seconds until reset; compatibility `X-RateLimit-Reset` is a UTC Unix timestamp. A 429 also includes `Retry-After`.
+- Cache public stateless renders when practical and never flood parallel render/capture requests.
+
+## Safety
+- Only configured TaskForge.by origins and explicitly configured static-resource origins can be requested.
 - Inspection accepts relative TaskForge paths, never an arbitrary URL.
 - Browser API endpoints cannot recursively render themselves.
 - Calls are protected by Nginx limits, Redis-backed endpoint quotas, global Chromium capacity limits and short session TTLs.
-- Cache public stateless renders when practical and avoid parallel render floods.
-- Some third-party images may be intentionally blocked unless the operator explicitly allowlists their origin; failed requests are reported in snapshots.
+- Third-party resources can be intentionally blocked unless the operator allowlists their origin; expected policy blocks are reported separately from real failures.
 """;
     }
 

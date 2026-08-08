@@ -49,7 +49,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold mb-4">Вход</h1>
 
           {err && (
-            <div className="text-red-600 mb-3 text-sm leading-5">
+            <div role="alert" aria-live="polite" className="text-red-600 mb-3 text-sm leading-5">
               {err}
             </div>
           )}

@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useLayoutEffect, useMemo } from 'react';
 import { matchPath, Outlet, useLocation } from 'react-router-dom';
 
 const FULL_WIDTH_ROUTES = [
@@ -20,7 +20,7 @@ function isFullWidthRoute(pathname) {
 
 function LoadingFallback() {
   return (
-    <div className="container-app py-8" aria-live="polite">
+    <div className="container-app py-8" aria-live="polite" data-taskforge-route-loading="true">
       <div className="animate-pulse rounded-3xl border border-neutral-200/70 bg-white/75 p-6 dark:border-neutral-800/70 dark:bg-neutral-900/65">
         <div className="h-5 w-44 rounded-full bg-neutral-200 dark:bg-neutral-800" />
         <div className="mt-5 h-3 w-full rounded-full bg-neutral-200 dark:bg-neutral-800" />
@@ -30,6 +30,29 @@ function LoadingFallback() {
   );
 }
 
+function RouteReadyOutlet() {
+  const { pathname } = useLocation();
+
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (html.dataset.taskforgeRoute === pathname) {
+          html.dataset.taskforgeReady = 'true';
+        }
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [pathname]);
+
+  return <Outlet />;
+}
+
 function PageContent() {
   const { pathname } = useLocation();
   const fullWidth = useMemo(() => isFullWidthRoute(pathname), [pathname]);
@@ -37,7 +60,7 @@ function PageContent() {
   return (
     <main className={fullWidth ? '' : 'container-app py-8'}>
       <Suspense fallback={<LoadingFallback />}>
-        <Outlet />
+        <RouteReadyOutlet />
       </Suspense>
     </main>
   );

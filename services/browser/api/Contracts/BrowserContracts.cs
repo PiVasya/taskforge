@@ -1,8 +1,13 @@
-using System.Text.Json.Serialization;
+using System.ComponentModel.DataAnnotations;
 
 namespace TaskForge.Browser.Api.Contracts;
 
-public sealed record ApiError(string Message, string Code, string? TraceId = null, int? RetryAfterSeconds = null);
+public sealed record ApiError(
+    string Message,
+    string Code,
+    string? TraceId = null,
+    int? RetryAfterSeconds = null,
+    object? Details = null);
 
 public sealed record SiteRouteDto(
     string Site,
@@ -12,6 +17,34 @@ public sealed record SiteRouteDto(
     string Kind = "page",
     string? RequiredRole = null,
     string? Notes = null);
+
+public sealed record SiteRoutesResponse(IReadOnlyList<SiteRouteDto> Routes);
+
+public sealed record SiteViewportLimits(
+    int MinWidth,
+    int MaxWidth,
+    int MinHeight,
+    int MaxHeight);
+
+public sealed record SiteApiLimits(
+    SiteViewportLimits Viewport,
+    int MaxFullPageHeight,
+    long MaxScreenshotPixels,
+    int MaxArtifactResponseBytes,
+    int MaxSnapshotElements,
+    int MaxSnapshotTextCharacters,
+    int MaxAriaSnapshotCharacters,
+    int ActiveSessions,
+    int AnonymousSessionsPerOwner,
+    int AuthenticatedSessionsPerOwner,
+    int SessionIdleMinutes,
+    int SessionAbsoluteMinutes,
+    int AgentArtifactTtlSeconds,
+    int CaptureTimeoutSeconds,
+    int CaptureCacheSeconds,
+    int RecommendedCaptureConcurrency,
+    string SemanticSnapshotVersion,
+    IReadOnlyList<string> RateLimitHeaders);
 
 public sealed record SiteInfoResponse(
     string Name,
@@ -29,25 +62,58 @@ public sealed record SiteInfoResponse(
     string Snapshot,
     string Render,
     string BrowserSessions,
-    object Limits);
+    SiteApiLimits Limits);
 
 public sealed record CreateBrowserSessionRequest(
-    string? Site,
-    string? Path,
-    int? Width,
-    int? Height,
+    [property: StringLength(32)] string? Site,
+    [property: StringLength(2048)] string? Path,
+    [property: Range(240, 4096)] int? Width,
+    [property: Range(240, 4096)] int? Height,
     bool? ReadOnly,
-    int? WaitMs);
+    [property: Range(0, 30000)] int? WaitMs);
 
-public sealed record NavigateBrowserSessionRequest(string? Path, int? WaitMs);
-public sealed record ClickBrowserSessionRequest(string? ElementId, int? ClickCount, bool? IncludeSnapshot);
-public sealed record FillBrowserSessionRequest(string? ElementId, string? Value, bool? IncludeSnapshot);
-public sealed record PressBrowserSessionRequest(string? ElementId, string? Key, bool? IncludeSnapshot);
-public sealed record SelectBrowserSessionRequest(string? ElementId, string? Value, bool? IncludeSnapshot);
-public sealed record HoverBrowserSessionRequest(string? ElementId, bool? IncludeSnapshot);
-public sealed record CheckBrowserSessionRequest(string? ElementId, bool? Checked, bool? IncludeSnapshot);
-public sealed record ScrollBrowserSessionRequest(double? DeltaX, double? DeltaY, string? ElementId, bool? IncludeSnapshot);
+public sealed record NavigateBrowserSessionRequest(
+    [property: StringLength(2048)] string? Path,
+    [property: Range(0, 30000)] int? WaitMs);
+
+public sealed record ClickBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Range(1, 2)] int? ClickCount,
+    bool? IncludeSnapshot);
+
+public sealed record FillBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: StringLength(20000)] string? Value,
+    bool? IncludeSnapshot);
+
+public sealed record PressBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, StringLength(64, MinimumLength = 1)] string? Key,
+    bool? IncludeSnapshot);
+
+public sealed record SelectBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, StringLength(1000)] string? Value,
+    bool? IncludeSnapshot);
+
+public sealed record HoverBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    bool? IncludeSnapshot);
+
+public sealed record CheckBrowserSessionRequest(
+    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    bool? Checked,
+    bool? IncludeSnapshot);
+
+public sealed record ScrollBrowserSessionRequest(
+    [property: Range(-5000d, 5000d)] double? DeltaX,
+    [property: Range(-5000d, 5000d)] double? DeltaY,
+    [property: RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    bool? IncludeSnapshot);
+
 public sealed record BrowserSessionSnapshotRequest(bool? IncludeText);
+
+public sealed record BrowserSessionHeader(string Name, string Value);
 
 public sealed record CreateBrowserSessionResponse(
     Guid Id,
@@ -63,7 +129,7 @@ public sealed record CreateBrowserSessionResponse(
     int Height,
     string SnapshotUrl,
     string ScreenshotUrl,
-    object SessionHeader,
+    BrowserSessionHeader SessionHeader,
     SiteSnapshotResponse Snapshot);
 
 public sealed record BrowserActionResponse(
@@ -76,6 +142,7 @@ public sealed record BrowserActionResponse(
 
 public sealed class SiteSnapshotResponse
 {
+    public string SemanticSnapshotVersion { get; set; } = "2.0";
     public string Site { get; set; } = "main";
     public string Url { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -83,18 +150,38 @@ public sealed class SiteSnapshotResponse
     public bool Authenticated { get; set; }
     public string AccountType { get; set; } = "anonymous";
     public bool ReadOnly { get; set; } = true;
+    public string CaptureMode { get; set; } = "anonymous-read-only";
+    public bool PolicyInterference { get; set; }
+    public string PageReadyState { get; set; } = string.Empty;
+    public bool AppReady { get; set; }
+    public SnapshotReadiness Readiness { get; set; } = new();
     public SnapshotViewport Viewport { get; set; } = new();
     public SnapshotDocument Document { get; set; } = new();
     public string Text { get; set; } = string.Empty;
     public string AriaSnapshot { get; set; } = string.Empty;
     public List<SnapshotHeading> Headings { get; set; } = [];
     public List<SnapshotElement> Elements { get; set; } = [];
+    public List<SnapshotDiscoveredLink> DiscoveredLinks { get; set; } = [];
     public SnapshotIssues Issues { get; set; } = new();
     public SnapshotPerformance Performance { get; set; } = new();
     public List<BrowserConsoleEntry> Console { get; set; } = [];
     public List<BrowserNetworkEntry> NetworkFailures { get; set; } = [];
     public List<BrowserNetworkEntry> HttpErrors { get; set; } = [];
+    public List<BrowserPolicyBlockedEntry> PolicyBlockedRequests { get; set; } = [];
     public SnapshotTruncation Truncation { get; set; } = new();
+}
+
+public sealed class SnapshotReadiness
+{
+    public string Stage { get; set; } = "unknown";
+    public string PageReadyState { get; set; } = string.Empty;
+    public bool AppReadyMarkerPresent { get; set; }
+    public bool AppReady { get; set; }
+    public bool RootMounted { get; set; }
+    public bool TimedOut { get; set; }
+    public int StabilizationMilliseconds { get; set; }
+    public int PendingRequestCount { get; set; }
+    public List<string> PendingRequests { get; set; } = [];
 }
 
 public sealed class SnapshotViewport
@@ -137,7 +224,19 @@ public sealed class SnapshotElement
     public bool Checked { get; set; }
     public bool Selected { get; set; }
     public bool InViewport { get; set; }
+    public bool Clipped { get; set; }
+    public double VisibleRatio { get; set; }
     public SnapshotRect Bounds { get; set; } = new();
+    public SnapshotRect VisibleBounds { get; set; } = new();
+}
+
+public sealed class SnapshotDiscoveredLink
+{
+    public string Name { get; set; } = string.Empty;
+    public string SourcePath { get; set; } = string.Empty;
+    public string CaptureCurrentViewport { get; set; } = string.Empty;
+    public string CaptureMobile { get; set; } = string.Empty;
+    public string CaptureDesktop { get; set; } = string.Empty;
 }
 
 public sealed class SnapshotRect
@@ -195,8 +294,22 @@ public sealed class SnapshotTruncation
 
 public sealed record BrowserConsoleEntry(string Type, string Text, DateTimeOffset AtUtc);
 public sealed record BrowserNetworkEntry(string Method, string Url, string ResourceType, int? Status, string? Failure, DateTimeOffset AtUtc);
+public sealed record BrowserPolicyBlockedEntry(
+    string Method,
+    string Url,
+    string ResourceType,
+    string Reason,
+    bool Expected,
+    DateTimeOffset AtUtc);
 
-public sealed record RateLimitDecision(bool Allowed, int Limit, int Remaining, int RetryAfterSeconds, string Bucket);
+public sealed record RateLimitDecision(
+    bool Allowed,
+    int Limit,
+    int Remaining,
+    int RetryAfterSeconds,
+    string Bucket,
+    int WindowSeconds,
+    DateTimeOffset ResetAtUtc);
 
 public sealed record BrowserCaller(
     bool IsAuthenticated,

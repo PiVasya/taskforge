@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useLayoutEffect, useMemo } from 'react';
 import { Outlet, matchPath, useLocation } from 'react-router-dom';
 import { useUiNavigationSettings } from '../../contexts/UiSettingsContext';
 import DesktopSidebar from './DesktopSidebar';
@@ -22,7 +22,7 @@ function isFullWidthRoute(pathname) {
 
 function RouteLoadingFallback() {
   return (
-    <div className="min-h-[12rem] rounded-3xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/55 p-6 shadow-soft backdrop-blur" aria-live="polite">
+    <div className="min-h-[12rem] rounded-3xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/55 p-6 shadow-soft backdrop-blur" aria-live="polite" data-taskforge-route-loading="true">
       <div className="tf-skeleton h-5 w-44 rounded-full" />
       <div className="mt-5 space-y-3">
         <div className="tf-skeleton h-3 w-full rounded-full" />
@@ -31,6 +31,29 @@ function RouteLoadingFallback() {
       </div>
     </div>
   );
+}
+
+function RouteReadyOutlet() {
+  const { pathname } = useLocation();
+
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (html.dataset.taskforgeRoute === pathname) {
+          html.dataset.taskforgeReady = 'true';
+        }
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [pathname]);
+
+  return <Outlet />;
 }
 
 function PageContent({ authenticated = false }) {
@@ -61,7 +84,7 @@ function PageContent({ authenticated = false }) {
         >
           <RouteErrorBoundary resetKey={pathname}>
             <Suspense fallback={<RouteLoadingFallback />}>
-              <Outlet />
+              <RouteReadyOutlet />
             </Suspense>
           </RouteErrorBoundary>
         </section>

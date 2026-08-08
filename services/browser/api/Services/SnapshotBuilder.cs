@@ -46,8 +46,14 @@ public sealed class SnapshotBuilder(
         payload.Issues.TouchTargetBelow44ElementIds = payload.Issues.TouchTargetBelow44ElementIds.Where(allowedIds.Contains).ToList();
         payload.Issues.UnlabelledInteractiveElementIds = payload.Issues.UnlabelledInteractiveElementIds.Where(allowedIds.Contains).ToList();
 
+        var policyBlocked = handle.Events.PolicyBlockedRequests();
+        var readiness = handle.Readiness;
+        readiness.PendingRequestCount = handle.Events.PendingRequestCount;
+        readiness.PendingRequests = handle.Events.PendingRequests();
+
         return new SiteSnapshotResponse
         {
+            SemanticSnapshotVersion = "2.0",
             Site = handle.Site,
             Url = SafePageUrl(handle.Page.Url),
             Title = await handle.Page.TitleAsync().WaitAsync(cancellationToken),
@@ -55,6 +61,13 @@ public sealed class SnapshotBuilder(
             Authenticated = handle.Caller.IsAuthenticated,
             AccountType = handle.Caller.IsAuthenticated ? handle.Caller.AccountType : "anonymous",
             ReadOnly = handle.ReadOnly,
+            CaptureMode = handle.Caller.IsAuthenticated
+                ? handle.ReadOnly ? "authenticated-read-only" : "authenticated-interactive"
+                : "anonymous-read-only",
+            PolicyInterference = policyBlocked.Count > 0,
+            PageReadyState = readiness.PageReadyState,
+            AppReady = readiness.AppReady,
+            Readiness = readiness,
             Viewport = payload.Viewport,
             Document = payload.Document,
             Text = text,
@@ -66,6 +79,7 @@ public sealed class SnapshotBuilder(
             Console = handle.Events.Console(),
             NetworkFailures = handle.Events.NetworkFailures(),
             HttpErrors = handle.Events.HttpErrors(),
+            PolicyBlockedRequests = policyBlocked,
             Truncation = new SnapshotTruncation
             {
                 TextTruncated = textTruncated,
@@ -120,28 +134,90 @@ public sealed class SnapshotBuilder(
     .slice(0, max);
 
   const finite = (value) => Number.isFinite(Number(value)) ? Number(Number(value).toFixed(2)) : null;
-
-  const rectOf = (rect) => ({
-    x: Number((rect.x + window.scrollX).toFixed(2)),
-    y: Number((rect.y + window.scrollY).toFixed(2)),
-    width: Number(rect.width.toFixed(2)),
-    height: Number(rect.height.toFixed(2))
+  const round = (value) => Number(Number(value || 0).toFixed(2));
+  const area = (rect) => Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
+  const intersect = (a, b) => ({
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom)
   });
 
-  const visible = (element) => {
-    const style = window.getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return style.display !== 'none'
-      && style.visibility !== 'hidden'
-      && Number(style.opacity || '1') > 0
-      && rect.width > 0
-      && rect.height > 0;
+  const rectOf = (rect) => ({
+    x: round(rect.left + window.scrollX),
+    y: round(rect.top + window.scrollY),
+    width: round(Math.max(0, rect.right - rect.left)),
+    height: round(Math.max(0, rect.bottom - rect.top))
+  });
+
+  const isClosedDetailsContent = (element) => {
+    const details = element.closest('details:not([open])');
+    if (!details) return false;
+    const summary = details.querySelector(':scope > summary');
+    return !summary || !summary.contains(element);
+  };
+
+  const clipsAxis = (value) => ['hidden', 'clip', 'auto', 'scroll'].includes(String(value || '').toLowerCase());
+
+  const visibilityOf = (element) => {
+    if (!(element instanceof Element)) return null;
+    if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return null;
+    if (isClosedDetailsContent(element)) return null;
+
+    try {
+      if (typeof element.checkVisibility === 'function'
+          && !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return null;
+    } catch {}
+
+    const source = element.getBoundingClientRect();
+    if (source.width <= 0 || source.height <= 0) return null;
+
+    let visibleRect = { left: source.left, top: source.top, right: source.right, bottom: source.bottom };
+    let ancestor = element;
+    while (ancestor && ancestor instanceof Element) {
+      const style = window.getComputedStyle(ancestor);
+      if (style.display === 'none'
+          || style.visibility === 'hidden'
+          || style.visibility === 'collapse'
+          || Number(style.opacity || '1') <= 0) return null;
+
+      if (ancestor !== element && (clipsAxis(style.overflowX) || clipsAxis(style.overflowY))) {
+        const clip = ancestor.getBoundingClientRect();
+        const bounds = {
+          left: clipsAxis(style.overflowX) ? clip.left : -Infinity,
+          right: clipsAxis(style.overflowX) ? clip.right : Infinity,
+          top: clipsAxis(style.overflowY) ? clip.top : -Infinity,
+          bottom: clipsAxis(style.overflowY) ? clip.bottom : Infinity
+        };
+        visibleRect = intersect(visibleRect, bounds);
+        if (area(visibleRect) <= 0) return null;
+      }
+
+      ancestor = ancestor.parentElement;
+    }
+
+    const sourceArea = Math.max(1, source.width * source.height);
+    const visibleArea = area(visibleRect);
+    if (visibleArea <= 0) return null;
+
+    return {
+      source,
+      visibleRect,
+      ratio: Math.max(0, Math.min(1, visibleArea / sourceArea)),
+      clipped: visibleArea + 0.5 < sourceArea
+    };
   };
 
   const labelledBy = (element) => {
     const value = element.getAttribute('aria-labelledby');
     if (!value) return '';
     return cleanText(value.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' '));
+  };
+
+  const describedLabel = (element) => {
+    const explicit = element.getAttribute('aria-label');
+    if (explicit) return cleanText(explicit);
+    return labelledBy(element);
   };
 
   const nativeLabels = (element) => {
@@ -156,8 +232,7 @@ public sealed class SnapshotBuilder(
   };
 
   const semanticName = (element) => cleanText(
-    element.getAttribute('aria-label')
-      || labelledBy(element)
+    describedLabel(element)
       || nativeLabels(element)
       || element.getAttribute('alt')
       || element.getAttribute('title')
@@ -212,16 +287,18 @@ public sealed class SnapshotBuilder(
   const unique = [];
   const seen = new Set();
   document.querySelectorAll(selectors.join(',')).forEach((element) => {
-    if (!seen.has(element) && visible(element)) {
-      seen.add(element);
-      unique.push(element);
-    }
+    if (seen.has(element)) return;
+    const visibility = visibilityOf(element);
+    if (!visibility) return;
+    seen.add(element);
+    unique.push({ element, visibility });
   });
 
-  const elements = unique.map((element, index) => {
+  const elements = unique.map(({ element, visibility }, index) => {
     const id = `tf${index + 1}`;
     element.setAttribute('data-taskforge-agent-id', id);
-    const rect = element.getBoundingClientRect();
+    const rect = visibility.source;
+    const visibleRect = visibility.visibleRect;
     const tag = element.tagName.toLowerCase();
     const type = element.getAttribute('type');
     const href = tag === 'a' && element.href
@@ -250,18 +327,21 @@ public sealed class SnapshotBuilder(
       disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true'),
       checked: Boolean(element.checked || element.getAttribute('aria-checked') === 'true'),
       selected: Boolean(element.selected || element.getAttribute('aria-selected') === 'true'),
-      inViewport: rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth,
-      bounds: rectOf(rect),
+      inViewport: visibleRect.bottom > 0 && visibleRect.right > 0 && visibleRect.top < window.innerHeight && visibleRect.left < window.innerWidth,
+      clipped: visibility.clipped,
+      visibleRatio: round(visibility.ratio),
+      bounds: rectOf({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }),
+      visibleBounds: rectOf(visibleRect),
       _semanticName: semanticName(element)
     };
   });
 
-  const smallTargets = elements.filter((x) => x.bounds.width < 24 || x.bounds.height < 24);
-  const touchTargetsBelow44 = elements.filter((x) => x.bounds.width < 44 || x.bounds.height < 44);
+  const smallTargets = elements.filter((x) => x.visibleBounds.width < 24 || x.visibleBounds.height < 24);
+  const touchTargetsBelow44 = elements.filter((x) => x.visibleBounds.width < 44 || x.visibleBounds.height < 44);
   const unlabelled = elements.filter((x) => !x._semanticName);
   elements.forEach((element) => delete element._semanticName);
 
-  const images = Array.from(document.images);
+  const images = Array.from(document.images).filter((image) => visibilityOf(image));
   const imagesWithoutAlt = images.filter((img) => !img.hasAttribute('alt'));
 
   const idCounts = new Map();
@@ -275,8 +355,10 @@ public sealed class SnapshotBuilder(
   const overflowElements = [];
   if (documentWidth > document.documentElement.clientWidth + 1) {
     document.querySelectorAll('body *').forEach((element) => {
-      if (overflowElements.length >= 50 || !visible(element)) return;
-      const rect = element.getBoundingClientRect();
+      if (overflowElements.length >= 50) return;
+      const visibility = visibilityOf(element);
+      if (!visibility) return;
+      const rect = visibility.visibleRect;
       if (rect.right > document.documentElement.clientWidth + 1 || rect.left < -1) {
         overflowElements.push({
           tag: element.tagName.toLowerCase(),
@@ -289,7 +371,7 @@ public sealed class SnapshotBuilder(
   }
 
   const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
-    .filter(visible)
+    .filter((heading) => visibilityOf(heading))
     .slice(0, 200)
     .map((heading) => ({
       level: Number(heading.tagName.slice(1)),

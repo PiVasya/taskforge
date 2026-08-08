@@ -21,14 +21,15 @@ public sealed class AgentAccessService(
         var sb = new StringBuilder();
         sb.Append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">")
           .Append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
-          .Append("<title>TaskForge AI / crawler access</title>")
+          .Append("<title>TaskForge AI / crawler access — TaskForge.by</title>")
           .Append("<meta name=\"robots\" content=\"index,follow\">")
+          .Append("<link rel=\"canonical\" href=\"").Append(Html(root + "/ai-access")).Append("\">")
           .Append("<link rel=\"alternate\" type=\"application/json\" href=\"/.well-known/taskforge-ai.json\">")
           .Append("<link rel=\"alternate\" type=\"text/plain\" href=\"/llms.txt\">")
           .Append("<style>body{font:16px/1.5 system-ui,sans-serif;max-width:1050px;margin:40px auto;padding:0 20px;color:#111;background:#fff}code{background:#f4f4f4;padding:2px 5px;border-radius:4px}a{color:#0645ad}li{margin:.35rem 0}.muted{color:#666}.route{margin:1rem 0;padding:1rem;border:1px solid #ddd;border-radius:8px}.links a{margin-right:1rem}</style>")
           .Append("</head><body><main>")
-          .Append("<h1>TaskForge AI / crawler access</h1>")
-          .Append("<p>This is the non-JavaScript entry point for automated clients. If an agent only knows <code>").Append(Html(root)).Append("</code>, it should discover this page from the root HTML and continue here.</p>")
+          .Append("<h1>TaskForge AI / crawler access — TaskForge.by</h1>")
+          .Append("<h2>Product summary</h2><p><strong>TaskForge.by</strong> is an educational platform for programming courses, study notes, coding and test assignments, automated solution checking, progress tracking and ratings.</p><p>This is the non-JavaScript entry point for automated clients. If an agent only knows <code>").Append(Html(root)).Append("</code>, it should discover this page from the root HTML and continue here.</p>")
           .Append("<p class=\"links\"><a href=\"/.well-known/taskforge-ai.json\">Discovery JSON</a><a href=\"/llms.txt\">llms.txt</a><a href=\"/api/site/info\">Site API info</a><a href=\"/api/site/routes\">Route catalog</a><a href=\"/api/browser/openapi.json\">OpenAPI</a></p>")
           .Append("<h2>Visual captures that do not require query-string links</h2>")
           .Append("<p>Each capture link opens the real TaskForge page in Chromium, stores short-lived immutable artifacts, then returns snapshot JSON and raw PNG. A PDF compatibility wrapper is included when available. PNG is the pixel-authoritative render.</p>")
@@ -56,9 +57,34 @@ public sealed class AgentAccessService(
 
         sb.Append("<h2>Interactive agents</h2>")
           .Append("<p>Clients that can issue POST requests can register an ordinary AI-marked user, create a Browser API session and use click/fill/scroll actions. See <a href=\"/llms.txt\">llms.txt</a> and <a href=\"/api/browser/openapi.json\">OpenAPI</a>.</p>")
-          .Append("<p class=\"muted\">Artifact TTL: ").Append(_options.AgentArtifactTtlSeconds).Append(" seconds.</p>")
+          .Append("<p class=\"muted\">Recommended expensive-capture concurrency: ").Append(_options.RecommendedCaptureConcurrency).Append(". Artifact TTL: ").Append(_options.AgentArtifactTtlSeconds).Append(" seconds.</p>")
           .Append("</main></body></html>");
         return sb.ToString();
+    }
+
+    public void EnrichDiscoveredLinks(SiteSnapshotResponse snapshot, string site, bool fullPage)
+    {
+        var mode = fullPage ? "full" : "viewport";
+        snapshot.DiscoveredLinks = snapshot.Elements
+            .Where(element => string.Equals(element.Role, "link", StringComparison.OrdinalIgnoreCase))
+            .Where(element => IsFollowablePageHref(element.Href))
+            .GroupBy(element => element.Href!, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .Take(100)
+            .Select(element =>
+            {
+                var href = element.Href!;
+                var label = string.IsNullOrWhiteSpace(element.Name) ? href : element.Name;
+                return new SnapshotDiscoveredLink
+                {
+                    Name = label,
+                    SourcePath = href,
+                    CaptureCurrentViewport = CapturePath(site, snapshot.Viewport.Width, snapshot.Viewport.Height, mode, href),
+                    CaptureMobile = CapturePath(site, 390, 844, "full", href),
+                    CaptureDesktop = CapturePath(site, 1440, 900, "full", href)
+                };
+            })
+            .ToList();
     }
 
     public string BuildCaptureHtml(HttpRequest request, PublicAgentArtifactManifest manifest, SiteSnapshotResponse snapshot)
@@ -90,25 +116,18 @@ public sealed class AgentAccessService(
                 ? "<p>Visual agents should prefer the PNG when their client can inspect images. PDF exists only as a compatibility wrapper.</p>"
                 : "<p>Visual agents should use the PNG. The optional PDF compatibility wrapper was not available for this capture.</p>");
 
-        var followLinks = snapshot.Elements
-            .Where(element => string.Equals(element.Role, "link", StringComparison.OrdinalIgnoreCase))
-            .Where(element => IsFollowablePageHref(element.Href))
-            .GroupBy(element => element.Href!, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .Take(100)
-            .ToArray();
-
-        if (followLinks.Length > 0)
+        if (snapshot.DiscoveredLinks.Count > 0)
         {
-            var mode = manifest.FullPage ? "full" : "viewport";
+            var siteOrigin = _urlPolicy.Sites.GetValueOrDefault(manifest.Site)?.AbsoluteUri.TrimEnd('/') ?? string.Empty;
             html.Append("<h2>Links discovered on this rendered page</h2><ul>");
-            foreach (var element in followLinks)
+            foreach (var link in snapshot.DiscoveredLinks)
             {
-                var href = element.Href!;
-                var tail = EncodePathTail(href);
-                var capture = $"/api/site/agent/capture/{Uri.EscapeDataString(manifest.Site)}/{snapshot.Viewport.Width}/{snapshot.Viewport.Height}/{mode}/{tail}";
-                var label = string.IsNullOrWhiteSpace(element.Name) ? href : element.Name;
-                html.Append("<li><a href=\"").Append(Html(capture)).Append("\">").Append(Html(label)).Append("</a> <code>").Append(Html(href)).Append("</code></li>");
+                var sourceUrl = siteOrigin + link.SourcePath;
+                html.Append("<li><strong>").Append(Html(link.Name)).Append("</strong> <code>").Append(Html(link.SourcePath)).Append("</code>")
+                    .Append("<div class=\"links\"><a href=\"").Append(Html(sourceUrl)).Append("\">source page</a>")
+                    .Append("<a href=\"").Append(Html(link.CaptureCurrentViewport)).Append("\">capture current viewport</a>")
+                    .Append("<a href=\"").Append(Html(link.CaptureMobile)).Append("\">capture mobile</a>")
+                    .Append("<a href=\"").Append(Html(link.CaptureDesktop)).Append("\">capture desktop</a></div></li>");
             }
             html.Append("</ul>");
         }
@@ -121,10 +140,16 @@ public sealed class AgentAccessService(
     public string BuildSitemapXml(HttpRequest request)
     {
         var root = PublicRoot(request);
-        var urls = new List<string> { root + "/", root + "/ai-access" };
+        var indexablePaths = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "/",
+            "/news",
+            "/privacy"
+        };
+        var urls = new List<string> { root + "/ai-access" };
         foreach (var route in _routeCatalog.GetRoutes("main").Where(IsCrawlerLinkable))
         {
-            if (route.Path == "/") continue;
+            if (!indexablePaths.Contains(route.Path)) continue;
             urls.Add(root + route.Path);
         }
 
@@ -145,6 +170,9 @@ public sealed class AgentAccessService(
            && !href.StartsWith("/ai-artifacts/", StringComparison.OrdinalIgnoreCase)
            && !href.Contains("[query-redacted]", StringComparison.Ordinal)
            && !href.Contains("[fragment-redacted]", StringComparison.Ordinal);
+
+    private static string CapturePath(string site, int width, int height, string mode, string path)
+        => $"/api/site/agent/capture/{Uri.EscapeDataString(site)}/{width}/{height}/{mode}/{EncodePathTail(path)}";
 
     private static string EncodePathTail(string path)
     {

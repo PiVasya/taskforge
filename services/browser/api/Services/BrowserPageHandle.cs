@@ -15,6 +15,7 @@ public sealed class BrowserPageHandle : IAsyncDisposable
     public int Width { get; init; }
     public int Height { get; init; }
     public string? LastSafeUrl { get; set; }
+    public SnapshotReadiness Readiness { get; set; } = new();
 
     public async ValueTask DisposeAsync()
     {

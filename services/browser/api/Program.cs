@@ -1,9 +1,11 @@
+using System.Text;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
 using TaskForge.Browser.Api.Contracts;
 using TaskForge.Browser.Api.Infrastructure;
+using TaskForge.Browser.Api.OpenApi;
 using TaskForge.Browser.Api.Diagnostics;
 using TaskForge.Browser.Api.Security;
 using TaskForge.Browser.Api.Services;
@@ -13,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1024 * 1024);
 builder.Services.AddTaskForgeDebugDiagnostics("browser-api");
 builder.Services.AddTaskForgeRedisCache(builder.Configuration, "browser-api");
+builder.Services.AddValidation();
 
 var browserOptions = builder.Configuration.GetSection("Browser").Get<BrowserOptions>() ?? new BrowserOptions();
 var rateOptions = builder.Configuration.GetSection("BrowserRateLimits").Get<BrowserRateLimitOptions>() ?? new BrowserRateLimitOptions();
@@ -35,17 +38,32 @@ builder.Services.AddSingleton<SiteRouteCatalog>();
 builder.Services.AddSingleton<DiscoveryDocumentService>();
 builder.Services.AddSingleton<AgentAccessService>();
 builder.Services.AddSingleton<PublicAgentArtifactStore>();
+builder.Services.AddSingleton<PublicAgentCaptureService>();
+builder.Services.AddSingleton<BrowserOpenApiDocumentEnhancer>();
 
 builder.Services.AddCors(options => options.AddPolicy("public-browser-api", policy =>
-    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()
+        .WithExposedHeaders(
+            "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "Retry-After",
+            "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+            "X-TaskForge-Browser-Session-Token", "X-TaskForge-Agent-Artifact-Id", "X-TaskForge-Agent-Artifact-Expires",
+            "X-TaskForge-Capture-Cache", "X-TaskForge-Cache", "X-TaskForge-Snapshot-Version", "X-TaskForge-Render-Width", "X-TaskForge-Render-Height",
+            "X-TaskForge-Full-Page", "X-TaskForge-Full-Page-Truncated", "X-TaskForge-Annotated")));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("openapi", new OpenApiInfo
     {
-        Title = "TaskForge Browser API",
-        Version = "1.1",
-        Description = "Public, rate-limited APIs for semantic snapshots, visual renders and interactive Chromium sessions restricted to TaskForge origins."
+        Title = "TaskForge.by Browser and Agent API",
+        Version = "1.2",
+        Description = "Public, rate-limited TaskForge.by APIs for semantic snapshots, visual renders and controlled interactive Chromium sessions restricted to configured TaskForge origins."
+    });
+    options.AddSecurityDefinition("BrowserSessionToken", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Name = "X-TaskForge-Browser-Session-Token",
+        Description = "Session token returned by POST /api/browser/sessions. Required for every request to that session."
     });
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -99,7 +117,7 @@ app.Use(async (http, next) =>
         if (ex.RetryAfterSeconds is > 0) http.Response.Headers.RetryAfter = ex.RetryAfterSeconds.Value.ToString();
         http.Response.StatusCode = ex.StatusCode;
         http.Response.ContentType = "application/json; charset=utf-8";
-        await http.Response.WriteAsJsonAsync(new ApiError(ex.Message, ex.Code, http.TraceIdentifier, ex.RetryAfterSeconds));
+        await http.Response.WriteAsJsonAsync(new ApiError(ex.Message, ex.Code, http.TraceIdentifier, ex.RetryAfterSeconds, ex.Details));
     }
     catch (PlaywrightException ex)
     {
@@ -118,6 +136,37 @@ app.Use(async (http, next) =>
         http.Response.StatusCode = StatusCodes.Status500InternalServerError;
         http.Response.ContentType = "application/json; charset=utf-8";
         await http.Response.WriteAsJsonAsync(new ApiError("Внутренняя ошибка Browser API.", "INTERNAL_ERROR", http.TraceIdentifier));
+    }
+});
+app.Use(async (http, next) =>
+{
+    if (!http.Request.Path.Equals("/api/browser/openapi.json", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    var originalBody = http.Response.Body;
+    await using var buffer = new MemoryStream();
+    http.Response.Body = buffer;
+    try
+    {
+        await next();
+        buffer.Position = 0;
+        using var reader = new StreamReader(buffer, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+        var source = await reader.ReadToEndAsync();
+        var output = http.Response.StatusCode is >= 200 and < 300 && source.Length > 0
+            ? http.RequestServices.GetRequiredService<BrowserOpenApiDocumentEnhancer>().Enhance(source)
+            : source;
+        var bytes = Encoding.UTF8.GetBytes(output);
+        http.Response.Body = originalBody;
+        http.Response.ContentLength = bytes.Length;
+        http.Response.ContentType = "application/json; charset=utf-8";
+        await originalBody.WriteAsync(bytes);
+    }
+    finally
+    {
+        http.Response.Body = originalBody;
     }
 });
 app.UseSwagger(options => options.RouteTemplate = "api/browser/{documentName}.json");
@@ -164,8 +213,8 @@ app.MapGet("/api/site/info", async (
     await EnforceRateLimit(http, limiter, caller, "metadata", limits.MetadataLimit, limits.MetadataWindowSeconds, ct);
     var root = PublicRoot(http.Request);
     return Results.Ok(new SiteInfoResponse(
-        "TaskForge",
-        "1.1",
+        "TaskForge.by",
+        "1.2",
         policy.DefaultSite,
         policy.Sites.ToDictionary(x => x.Key, x => x.Value.AbsoluteUri.TrimEnd('/')),
         true,
@@ -179,25 +228,29 @@ app.MapGet("/api/site/info", async (
         $"{root}/api/site/snapshot",
         $"{root}/api/site/render",
         $"{root}/api/browser/sessions",
-        new
-        {
-            viewport = new { minWidth = options.MinViewportWidth, maxWidth = options.MaxViewportWidth, minHeight = options.MinViewportHeight, maxHeight = options.MaxViewportHeight },
-            maxFullPageHeight = options.MaxFullPageHeight,
-            maxScreenshotPixels = options.MaxScreenshotPixels,
-            maxArtifactResponseBytes = options.MaxArtifactResponseBytes,
-            maxSnapshotElements = options.MaxSnapshotElements,
-            maxSnapshotTextCharacters = options.MaxSnapshotTextCharacters,
-            maxAriaSnapshotCharacters = options.MaxAriaSnapshotCharacters,
-            activeSessions = options.MaxActiveSessions,
-            anonymousSessionsPerOwner = options.MaxAnonymousSessionsPerOwner,
-            authenticatedSessionsPerOwner = options.MaxAuthenticatedSessionsPerOwner,
-            sessionIdleMinutes = options.SessionIdleMinutes,
-            sessionAbsoluteMinutes = options.SessionAbsoluteMinutes,
-            agentArtifactTtlSeconds = options.AgentArtifactTtlSeconds
-        }));
+        new SiteApiLimits(
+            new SiteViewportLimits(options.MinViewportWidth, options.MaxViewportWidth, options.MinViewportHeight, options.MaxViewportHeight),
+            options.MaxFullPageHeight,
+            options.MaxScreenshotPixels,
+            options.MaxArtifactResponseBytes,
+            options.MaxSnapshotElements,
+            options.MaxSnapshotTextCharacters,
+            options.MaxAriaSnapshotCharacters,
+            options.MaxActiveSessions,
+            options.MaxAnonymousSessionsPerOwner,
+            options.MaxAuthenticatedSessionsPerOwner,
+            options.SessionIdleMinutes,
+            options.SessionAbsoluteMinutes,
+            options.AgentArtifactTtlSeconds,
+            options.CaptureTimeoutSeconds,
+            options.CaptureCacheSeconds,
+            options.RecommendedCaptureConcurrency,
+            "2.0",
+            new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Reset", "Retry-After" })));
 })
 .WithName("GetSiteInfo")
 .WithTags("Site inspection")
+.Produces<SiteInfoResponse>(StatusCodes.Status200OK)
 .AllowAnonymous();
 
 app.MapGet("/api/site/routes", async (
@@ -219,10 +272,11 @@ app.MapGet("/api/site/routes", async (
         normalizedSite = policy.ResolveSite(site).Site;
     }
 
-    return Results.Ok(new { routes = routes.GetRoutes(normalizedSite) });
+    return Results.Ok(new SiteRoutesResponse(routes.GetRoutes(normalizedSite)));
 })
 .WithName("GetKnownSiteRoutes")
 .WithTags("Site inspection")
+.Produces<SiteRoutesResponse>(StatusCodes.Status200OK)
 .AllowAnonymous();
 
 app.MapGet("/api/site/snapshot", async (
@@ -234,6 +288,7 @@ app.MapGet("/api/site/snapshot", async (
     int? waitMs,
     bool? includeText,
     SiteInspectionService inspections,
+    AgentAccessService access,
     BrowserOptions options,
     BrowserRateLimitOptions limits,
     BrowserCallerResolver callerResolver,
@@ -244,11 +299,16 @@ app.MapGet("/api/site/snapshot", async (
     callerResolver.ThrowIfInvalidCredential(caller);
     await EnforceRateLimit(http, limiter, caller, "snapshot", limits.SnapshotLimit, limits.SnapshotWindowSeconds, ct);
     var result = await inspections.SnapshotAsync(site, path, width ?? 1440, height ?? 900, NormalizeWait(waitMs, options), includeText ?? true, caller, ct);
+    if (!caller.IsAuthenticated)
+    {
+        access.EnrichDiscoveredLinks(result.Snapshot, result.Snapshot.Site, fullPage: false);
+    }
     ApplyArtifactHeaders(http.Response, result.CacheHit, false, false, false, result.Snapshot.Viewport.Width, result.Snapshot.Viewport.Height, options, caller);
     return Results.Ok(result.Snapshot);
 })
 .WithName("GetSiteSnapshot")
 .WithTags("Site inspection")
+.Produces<SiteSnapshotResponse>(StatusCodes.Status200OK)
 .AllowAnonymous();
 
 app.MapGet("/api/site/render", async (
@@ -312,10 +372,8 @@ app.MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**pa
     string mode,
     string? path,
     HttpContext http,
-    SiteInspectionService inspections,
-    PublicAgentArtifactStore artifacts,
+    PublicAgentCaptureService captures,
     AgentAccessService access,
-    BrowserOptions options,
     BrowserRateLimitOptions limits,
     BrowserCallerResolver callerResolver,
     RedisFixedWindowRateLimiter limiter,
@@ -339,11 +397,12 @@ app.MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**pa
         _ => throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_CAPTURE_MODE", "Режим capture должен быть full или viewport.")
     };
     var relativePath = string.IsNullOrWhiteSpace(path) ? "/" : "/" + path.TrimStart('/');
-    var bundle = await inspections.CaptureAgentBundleAsync(site, relativePath, width, height, options.DefaultWaitMilliseconds, fullPage, ct);
-    var manifest = await artifacts.CreateAsync(bundle.Snapshot, bundle.Png, bundle.Pdf, ct);
+    var capture = await captures.CaptureAsync(site, relativePath, width, height, fullPage, ct);
     http.Response.Headers.CacheControl = "no-store";
-    http.Response.Headers["X-TaskForge-Agent-Artifact-Id"] = manifest.Id;
-    return Results.Content(access.BuildCaptureHtml(http.Request, manifest, bundle.Snapshot), "text/html; charset=utf-8");
+    http.Response.Headers["X-TaskForge-Agent-Artifact-Id"] = capture.Manifest.Id;
+    http.Response.Headers["X-TaskForge-Capture-Cache"] = capture.CacheHit ? "HIT" : "MISS";
+    http.Response.Headers["X-TaskForge-Snapshot-Version"] = capture.Snapshot.SemanticSnapshotVersion;
+    return Results.Content(access.BuildCaptureHtml(http.Request, capture.Manifest, capture.Snapshot), "text/html; charset=utf-8");
 })
 .WithName("CreatePublicAgentCapture")
 .WithTags("Agent access")
@@ -420,11 +479,12 @@ app.MapPost("/api/browser/sessions", async (
         created.Session.Handle.Height,
         $"{basePath}/snapshot",
         $"{basePath}/screenshot",
-        new { name = "X-TaskForge-Browser-Session-Token", value = created.RawToken },
+        new BrowserSessionHeader("X-TaskForge-Browser-Session-Token", created.RawToken),
         created.Snapshot));
 })
 .WithName("CreateBrowserSession")
 .WithTags("Interactive browser")
+.Produces<CreateBrowserSessionResponse>(StatusCodes.Status201Created)
 .AllowAnonymous();
 
 app.MapGet("/api/browser/sessions/{id:guid}/snapshot", async (
@@ -445,6 +505,7 @@ app.MapGet("/api/browser/sessions/{id:guid}/snapshot", async (
 })
 .WithName("GetBrowserSessionSnapshot")
 .WithTags("Interactive browser")
+.Produces<SiteSnapshotResponse>(StatusCodes.Status200OK)
 .AllowAnonymous();
 
 app.MapGet("/api/browser/sessions/{id:guid}/screenshot", async (
@@ -472,43 +533,43 @@ app.MapGet("/api/browser/sessions/{id:guid}/screenshot", async (
 
 app.MapPost("/api/browser/sessions/{id:guid}/navigate", async (Guid id, HttpContext http, NavigateBrowserSessionRequest request, bool? includeSnapshot, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.NavigateAsync(id, SessionToken(http), caller, request, includeSnapshot ?? true, ct)))
-    .WithName("NavigateBrowserSession").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("NavigateBrowserSession").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/click", async (Guid id, HttpContext http, ClickBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.ClickAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("ClickBrowserElement").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("ClickBrowserElement").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/fill", async (Guid id, HttpContext http, FillBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.FillAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("FillBrowserElement").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("FillBrowserElement").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/press", async (Guid id, HttpContext http, PressBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.PressAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("PressBrowserElementKey").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("PressBrowserElementKey").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/select", async (Guid id, HttpContext http, SelectBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.SelectAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("SelectBrowserElementOption").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("SelectBrowserElementOption").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/hover", async (Guid id, HttpContext http, HoverBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.HoverAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("HoverBrowserElement").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("HoverBrowserElement").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/check", async (Guid id, HttpContext http, CheckBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.CheckAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("SetBrowserElementChecked").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("SetBrowserElementChecked").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/scroll", async (Guid id, HttpContext http, ScrollBrowserSessionRequest request, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.ScrollAsync(id, SessionToken(http), caller, request, ct)))
-    .WithName("ScrollBrowserSession").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("ScrollBrowserSession").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/back", async (Guid id, HttpContext http, bool? includeSnapshot, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.BackAsync(id, SessionToken(http), caller, includeSnapshot ?? true, ct)))
-    .WithName("GoBackBrowserSession").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("GoBackBrowserSession").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapPost("/api/browser/sessions/{id:guid}/reload", async (Guid id, HttpContext http, bool? includeSnapshot, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
     await SessionAction(http, callers, limiter, limits, ct, caller => sessions.ReloadAsync(id, SessionToken(http), caller, includeSnapshot ?? true, ct)))
-    .WithName("ReloadBrowserSession").WithTags("Interactive browser").AllowAnonymous();
+    .WithName("ReloadBrowserSession").WithTags("Interactive browser").Produces<BrowserActionResponse>(StatusCodes.Status200OK).AllowAnonymous();
 
 app.MapDelete("/api/browser/sessions/{id:guid}", async (Guid id, HttpContext http, BrowserSessionRegistry sessions, BrowserRateLimitOptions limits, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct) =>
 {
@@ -520,6 +581,7 @@ app.MapDelete("/api/browser/sessions/{id:guid}", async (Guid id, HttpContext htt
 })
 .WithName("CloseBrowserSession")
 .WithTags("Interactive browser")
+.Produces(StatusCodes.Status204NoContent)
 .AllowAnonymous();
 
 app.Run();
@@ -549,12 +611,32 @@ static async Task EnforceRateLimit(
     CancellationToken cancellationToken)
 {
     var decision = await limiter.CheckAsync(bucket, caller.OwnerKey, caller.NetworkKey, limit, windowSeconds, cancellationToken);
+    var resetAfterSeconds = Math.Max(0, (int)Math.Ceiling((decision.ResetAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
+    var resetUnix = decision.ResetAtUtc.ToUnixTimeSeconds().ToString();
+    http.Response.Headers["RateLimit-Limit"] = decision.Limit.ToString();
+    http.Response.Headers["RateLimit-Remaining"] = decision.Remaining.ToString();
+    http.Response.Headers["RateLimit-Reset"] = resetAfterSeconds.ToString();
+    http.Response.Headers["RateLimit-Policy"] = $"{decision.Limit};w={decision.WindowSeconds}";
     http.Response.Headers["X-RateLimit-Limit"] = decision.Limit.ToString();
     http.Response.Headers["X-RateLimit-Remaining"] = decision.Remaining.ToString();
+    http.Response.Headers["X-RateLimit-Reset"] = resetUnix;
     if (!decision.Allowed)
     {
         http.Response.Headers.RetryAfter = decision.RetryAfterSeconds.ToString();
-        throw new BrowserApiException(StatusCodes.Status429TooManyRequests, "RATE_LIMITED", "Слишком много запросов к Browser API. Подождите и повторите попытку.", decision.RetryAfterSeconds);
+        throw new BrowserApiException(
+            StatusCodes.Status429TooManyRequests,
+            "RATE_LIMITED",
+            "Слишком много запросов к Browser API. Подождите и повторите попытку.",
+            decision.RetryAfterSeconds,
+            new
+            {
+                decision.Bucket,
+                decision.Limit,
+                decision.Remaining,
+                decision.WindowSeconds,
+                decision.RetryAfterSeconds,
+                decision.ResetAtUtc
+            });
     }
 }
 
@@ -608,6 +690,11 @@ static void ValidateConfiguration(
     EnsureRange(options.ActionTimeoutSeconds, 1, 60, "Browser:ActionTimeoutSeconds");
     EnsureRange(options.DefaultWaitMilliseconds, 0, 10000, "Browser:DefaultWaitMilliseconds");
     EnsureRange(options.MaxWaitMilliseconds, 0, 30000, "Browser:MaxWaitMilliseconds");
+    EnsureRange(options.AppReadyTimeoutMilliseconds, 250, 15000, "Browser:AppReadyTimeoutMilliseconds");
+    EnsureRange(options.FontReadyTimeoutMilliseconds, 100, 10000, "Browser:FontReadyTimeoutMilliseconds");
+    EnsureRange(options.CaptureTimeoutSeconds, 10, 180, "Browser:CaptureTimeoutSeconds");
+    EnsureRange(options.CaptureCacheSeconds, 0, 3600, "Browser:CaptureCacheSeconds");
+    EnsureRange(options.RecommendedCaptureConcurrency, 1, 16, "Browser:RecommendedCaptureConcurrency");
     if (options.DefaultWaitMilliseconds > options.MaxWaitMilliseconds)
         throw new InvalidOperationException("Browser:DefaultWaitMilliseconds cannot exceed Browser:MaxWaitMilliseconds.");
 
