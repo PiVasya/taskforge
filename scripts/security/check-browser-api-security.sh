@@ -165,6 +165,13 @@ publish_linux_x64_no_restore = re.search(
 if publish_linux_x64_no_restore and not restore_linux_x64:
     die('Browser Dockerfile publishes linux-x64 with --no-restore but restore does not target linux-x64')
 
+# Do not place the NuGet global-packages directory only in a BuildKit cache mount
+# when a later layer publishes with --no-restore. A cached restore layer can retain
+# project.assets.json while the ephemeral cache mount is empty on a fresh builder,
+# which makes publish fail with NETSDK1064 even though restore previously succeeded.
+if re.search(r'--mount=type=cache[^\n]*target=/root/\.nuget/packages', dockerfile):
+    die('Browser Dockerfile must persist restored NuGet packages in the build layer; an external cache mount can detach project.assets.json from its package files')
+
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
 for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections'):

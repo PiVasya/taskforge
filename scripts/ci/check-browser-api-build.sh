@@ -5,11 +5,27 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
 PROJECT="services/browser/api/TaskForge.Browser.Api.csproj"
+DOCKERFILE="services/browser/api/Dockerfile"
 RID="linux-x64"
-OUT="$(mktemp -d "${TMPDIR:-/tmp}/taskforge-browser-api-publish.XXXXXX")"
-trap 'rm -rf "$OUT"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/taskforge-browser-api-build.XXXXXX")"
+OUT="$WORK/publish"
+PACKAGES="$WORK/nuget-packages"
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$OUT" "$PACKAGES"
 
-printf '[browser-build] restore %s for %s\n' "$PROJECT" "$RID"
+# project.assets.json and the NuGet global-packages folder must have the same
+# lifetime for a --no-restore publish. Keeping only the package folder in a
+# BuildKit cache mount can leave a cached assets file without its packages on a
+# fresh builder and produces NETSDK1064.
+if grep -Eq -- '--mount=type=cache[^[:cntrl:]]*target=/root/\.nuget/packages' "$DOCKERFILE"; then
+  echo "Browser API build check failed: Dockerfile keeps NuGet packages only in a BuildKit cache mount." >&2
+  echo "Persist the restore output in the build layer before using publish --no-restore." >&2
+  exit 1
+fi
+
+export NUGET_PACKAGES="$PACKAGES"
+
+printf '[browser-build] restore %s for %s with isolated NuGet packages\n' "$PROJECT" "$RID"
 dotnet restore "$PROJECT" --runtime "$RID"
 
 printf '[browser-build] publish %s for %s\n' "$PROJECT" "$RID"

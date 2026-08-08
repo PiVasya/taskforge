@@ -2,12 +2,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY services/browser/api/TaskForge.Browser.Api.csproj services/browser/api/
-RUN --mount=type=cache,id=taskforge-browser-nuget,target=/root/.nuget/packages \
-    dotnet restore services/browser/api/TaskForge.Browser.Api.csproj \
+RUN dotnet restore services/browser/api/TaskForge.Browser.Api.csproj \
       --runtime linux-x64
 COPY services/browser/api/ services/browser/api/
-RUN --mount=type=cache,id=taskforge-browser-nuget,target=/root/.nuget/packages \
-    dotnet publish services/browser/api/TaskForge.Browser.Api.csproj \
+RUN dotnet publish services/browser/api/TaskForge.Browser.Api.csproj \
       -c Release \
       -r linux-x64 \
       --self-contained true \
