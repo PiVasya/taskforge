@@ -17,13 +17,14 @@ public sealed record PublicAgentArtifactManifest(
     bool FullPage,
     bool FullPageTruncated,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset ExpiresAtUtc);
+    DateTimeOffset ExpiresAtUtc,
+    bool HasPdf = true);
 
 public sealed record PublicAgentArtifactBundle(
     PublicAgentArtifactManifest Manifest,
     byte[] SnapshotJson,
     byte[] Png,
-    byte[] Pdf);
+    byte[]? Pdf);
 
 public sealed class PublicAgentArtifactStore(
     IDistributedCache cache,
@@ -38,18 +39,18 @@ public sealed class PublicAgentArtifactStore(
     public async Task<PublicAgentArtifactManifest> CreateAsync(
         SiteSnapshotResponse snapshot,
         RenderArtifact png,
-        RenderArtifact pdf,
+        RenderArtifact? pdf,
         CancellationToken cancellationToken)
     {
         var snapshotJson = JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions);
         EnsurePersistable("snapshot", snapshotJson.Length);
         EnsurePersistable("PNG", png.Bytes.Length);
-        EnsurePersistable("PDF", pdf.Bytes.Length);
+        if (pdf is not null) EnsurePersistable("PDF", pdf.Bytes.Length);
 
         using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hasher.AppendData(snapshotJson);
         hasher.AppendData(png.Bytes);
-        hasher.AppendData(pdf.Bytes);
+        if (pdf is not null) hasher.AppendData(pdf.Bytes);
         var id = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
         var ttl = TimeSpan.FromSeconds(_options.AgentArtifactTtlSeconds);
@@ -63,7 +64,8 @@ public sealed class PublicAgentArtifactStore(
             png.FullPage,
             png.FullPageTruncated,
             now,
-            now.Add(ttl));
+            now.Add(ttl),
+            pdf is not null);
 
         var entryOptions = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl };
         try
@@ -71,7 +73,10 @@ public sealed class PublicAgentArtifactStore(
             await _cache.SetAsync(Key(id, "manifest"), JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions), entryOptions, cancellationToken);
             await _cache.SetAsync(Key(id, "snapshot"), snapshotJson, entryOptions, cancellationToken);
             await _cache.SetAsync(Key(id, "png"), png.Bytes, entryOptions, cancellationToken);
-            await _cache.SetAsync(Key(id, "pdf"), pdf.Bytes, entryOptions, cancellationToken);
+            if (pdf is not null)
+            {
+                await _cache.SetAsync(Key(id, "pdf"), pdf.Bytes, entryOptions, cancellationToken);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -98,8 +103,10 @@ public sealed class PublicAgentArtifactStore(
 
             var snapshot = await _cache.GetAsync(Key(id, "snapshot"), cancellationToken);
             var png = await _cache.GetAsync(Key(id, "png"), cancellationToken);
-            var pdf = await _cache.GetAsync(Key(id, "pdf"), cancellationToken);
-            if (snapshot is null || png is null || pdf is null) return null;
+            var pdf = manifest.HasPdf
+                ? await _cache.GetAsync(Key(id, "pdf"), cancellationToken)
+                : null;
+            if (snapshot is null || png is null || (manifest.HasPdf && pdf is null)) return null;
 
             return new PublicAgentArtifactBundle(manifest, snapshot, png, pdf);
         }

@@ -13,6 +13,12 @@ PACKAGES="$WORK/nuget-packages"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT" "$PACKAGES"
 
+# Playwright PDF dimensions document px/in/cm/mm. Do not regress to unsupported pt.
+if grep -Eq 'Width = .*pt|Height = .*pt|size:[^;]*pt' services/browser/api/Services/SiteInspectionService.cs; then
+  echo "Browser API build check failed: unsupported 'pt' PDF dimension found; use px/in/cm/mm." >&2
+  exit 1
+fi
+
 # project.assets.json and the NuGet global-packages folder must have the same
 # lifetime for a --no-restore publish. Keeping only the package folder in a
 # BuildKit cache mount can leave a cached assets file without its packages on a

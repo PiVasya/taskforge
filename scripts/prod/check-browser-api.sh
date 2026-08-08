@@ -130,16 +130,20 @@ class Links(HTMLParser):
 parser=Links()
 parser.feed(Path(sys.argv[1]).read_text(encoding='utf-8'))
 base=sys.argv[2].rstrip('/') + '/'
-for suffix in ('snapshot.json', 'render.png', 'render.pdf'):
+for suffix in ('snapshot.json', 'render.png'):
     match=next((h for h in parser.hrefs if h.endswith('/' + suffix)), None)
     if not match:
         raise SystemExit(f'missing {suffix} artifact link')
     print(urljoin(base, match))
+pdf=next((h for h in parser.hrefs if h.endswith('/render.pdf')), '')
+print(urljoin(base, pdf) if pdf else '')
 PY
 )
 request_retry 'crawler snapshot artifact' "$tmp_dir/agent-snapshot.json" "${artifact_urls[0]}"
 request_retry 'crawler PNG artifact' "$tmp_dir/agent-render.png" "${artifact_urls[1]}"
-request_retry 'crawler PDF artifact' "$tmp_dir/agent-render.pdf" "${artifact_urls[2]}"
+if [ -n "${artifact_urls[2]:-}" ]; then
+  request_retry 'crawler PDF artifact' "$tmp_dir/agent-render.pdf" "${artifact_urls[2]}"
+fi
 
 printf '[browser-smoke] interactive read-only session\n'
 python3 - "$SITE" "$PATH_TO_CHECK" "$WIDTH" "$HEIGHT" > "$tmp_dir/create-body.json" <<'PY'
@@ -212,9 +216,11 @@ assert '/api/site/agent/capture/' in agent_html, 'agent access index has no craw
 agent_snapshot=load('agent-snapshot.json')
 assert agent_snapshot.get('url'), 'crawler snapshot artifact is invalid'
 agent_png=(root/'agent-render.png').read_bytes()
-agent_pdf=(root/'agent-render.pdf').read_bytes()
 assert agent_png.startswith(b'\x89PNG\r\n\x1a\n'), 'crawler artifact did not return PNG'
-assert agent_pdf.startswith(b'%PDF-'), 'crawler artifact did not return PDF'
+agent_pdf_path=root/'agent-render.pdf'
+if agent_pdf_path.exists():
+    agent_pdf=agent_pdf_path.read_bytes()
+    assert agent_pdf.startswith(b'%PDF-'), 'crawler artifact PDF link did not return PDF'
 
 print(f"[browser-smoke] ok url={snapshot['url']} elements={len(snapshot['elements'])} png={len(png)}B pdf={len(pdf)}B")
 PY

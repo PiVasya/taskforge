@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,7 +21,7 @@ public sealed record RenderArtifact(
 public sealed record AgentCaptureBundle(
     SiteSnapshotResponse Snapshot,
     RenderArtifact Png,
-    RenderArtifact Pdf);
+    RenderArtifact? Pdf);
 
 public sealed class SiteInspectionService(
     BrowserPageFactory pageFactory,
@@ -30,7 +29,8 @@ public sealed class SiteInspectionService(
     BrowserScreenshotService screenshots,
     BrowserCapacityGate capacityGate,
     BrowserResponseCache cache,
-    BrowserOptions options)
+    BrowserOptions options,
+    ILogger<SiteInspectionService> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly BrowserPageFactory _pageFactory = pageFactory;
@@ -39,6 +39,7 @@ public sealed class SiteInspectionService(
     private readonly BrowserCapacityGate _capacityGate = capacityGate;
     private readonly BrowserResponseCache _cache = cache;
     private readonly BrowserOptions _options = options;
+    private readonly ILogger<SiteInspectionService> _logger = logger;
 
     public async Task<(SiteSnapshotResponse Snapshot, bool CacheHit)> SnapshotAsync(
         string? site,
@@ -212,7 +213,6 @@ public sealed class SiteInspectionService(
 
         var snapshot = await _snapshotBuilder.BuildAsync(handle, includeText: true, cancellationToken);
         var capture = await _screenshots.CaptureAsync(handle, fullPage, annotated: false, cancellationToken);
-        var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, cancellationToken);
 
         var png = new RenderArtifact(
             capture.Bytes,
@@ -224,15 +224,26 @@ public sealed class SiteInspectionService(
             capture.Annotated,
             false);
 
-        var pdf = new RenderArtifact(
-            pdfBytes,
-            "application/pdf",
-            capture.Width,
-            capture.Height,
-            capture.FullPage,
-            capture.FullPageTruncated,
-            capture.Annotated,
-            false);
+        RenderArtifact? pdf = null;
+        try
+        {
+            var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, cancellationToken);
+            pdf = new RenderArtifact(
+                pdfBytes,
+                "application/pdf",
+                capture.Width,
+                capture.Height,
+                capture.FullPage,
+                capture.FullPageTruncated,
+                capture.Annotated,
+                false);
+        }
+        catch (Exception ex) when (ex is PlaywrightException or BrowserApiException)
+        {
+            // PDF is only a compatibility wrapper. Never make crawler discovery fail
+            // when the authoritative snapshot + Chromium PNG were captured successfully.
+            _logger.LogWarning(ex, "Public agent PDF compatibility wrapper failed for {Url}; publishing snapshot and PNG only.", snapshot.Url);
+        }
 
         return new AgentCaptureBundle(snapshot, png, pdf);
     }
@@ -243,25 +254,24 @@ public sealed class SiteInspectionService(
         CancellationToken cancellationToken)
     {
         // PDF is a compatibility wrapper around the authoritative Chromium PNG.
-        // Use explicit PDF points (72 dpi) instead of CSS px (96 dpi) to preserve
-        // the screenshot aspect ratio across PDF viewers and avoid subtle stretching.
-        var widthPoints = capture.Width * 72d / 96d;
-        var heightPoints = capture.Height * 72d / 96d;
-        var width = widthPoints.ToString("0.###", CultureInfo.InvariantCulture);
-        var height = heightPoints.ToString("0.###", CultureInfo.InvariantCulture);
+        // Playwright PDF dimensions support px/in/cm/mm. Keep the screenshot's exact
+        // CSS-pixel dimensions so the wrapper preserves the PNG aspect ratio 1:1.
+        var width = $"{capture.Width}px";
+        var height = $"{capture.Height}px";
         var base64 = Convert.ToBase64String(capture.Bytes);
 
         await page.SetContentAsync(
-            $"<!doctype html><html><head><meta charset=\"utf-8\"><style>@page{{margin:0;size:{width}pt {height}pt}}html,body{{margin:0;padding:0;width:{width}pt;height:{height}pt;overflow:hidden;background:#000}}img{{display:block;width:100%;height:100%;object-fit:contain}}</style></head><body><img alt=\"TaskForge browser render\" src=\"data:image/png;base64,{base64}\"></body></html>",
+            $"<!doctype html><html><head><meta charset=\"utf-8\"><style>@page{{margin:0;size:{width} {height}}}html,body{{margin:0;padding:0;width:{width};height:{height};overflow:hidden;background:#000}}img{{display:block;width:100%;height:100%;object-fit:contain}}</style></head><body><img alt=\"TaskForge browser render\" src=\"data:image/png;base64,{base64}\"></body></html>",
             new PageSetContentOptions { WaitUntil = WaitUntilState.Load }).WaitAsync(cancellationToken);
 
         var pdf = await page.PdfAsync(new PagePdfOptions
         {
             PrintBackground = true,
-            Width = $"{width}pt",
-            Height = $"{height}pt",
+            Width = width,
+            Height = height,
             Margin = new Margin { Top = "0", Right = "0", Bottom = "0", Left = "0" },
-            PreferCSSPageSize = true
+            PreferCSSPageSize = true,
+            Scale = 1f
         }).WaitAsync(cancellationToken);
 
         _screenshots.EnsureArtifactSize(pdf.Length);

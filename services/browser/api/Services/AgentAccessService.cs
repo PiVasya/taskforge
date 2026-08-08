@@ -31,7 +31,7 @@ public sealed class AgentAccessService(
           .Append("<p>This is the non-JavaScript entry point for automated clients. If an agent only knows <code>").Append(Html(root)).Append("</code>, it should discover this page from the root HTML and continue here.</p>")
           .Append("<p class=\"links\"><a href=\"/.well-known/taskforge-ai.json\">Discovery JSON</a><a href=\"/llms.txt\">llms.txt</a><a href=\"/api/site/info\">Site API info</a><a href=\"/api/site/routes\">Route catalog</a><a href=\"/api/browser/openapi.json\">OpenAPI</a></p>")
           .Append("<h2>Visual captures that do not require query-string links</h2>")
-          .Append("<p>Each capture link opens the real TaskForge page in Chromium, stores short-lived immutable artifacts, then returns links to snapshot JSON, raw PNG and a PDF compatibility wrapper. PNG is the pixel-authoritative render.</p>")
+          .Append("<p>Each capture link opens the real TaskForge page in Chromium, stores short-lived immutable artifacts, then returns snapshot JSON and raw PNG. A PDF compatibility wrapper is included when available. PNG is the pixel-authoritative render.</p>")
           .Append("<p class=\"muted\">Public captures are anonymous and read-only. Authenticated/private pages are intentionally not persisted into public artifact URLs.</p>");
 
         foreach (var siteGroup in _routeCatalog.GetRoutes().GroupBy(route => route.Site, StringComparer.OrdinalIgnoreCase))
@@ -80,10 +80,15 @@ public sealed class AgentAccessService(
             .Append("; <strong>viewport:</strong> ").Append(snapshot.Viewport.Width).Append(" x ").Append(snapshot.Viewport.Height)
             .Append("; <strong>full page:</strong> ").Append(manifest.FullPage.ToString().ToLowerInvariant()).Append("</p>")
             .Append("<ul><li><a href=\"").Append(Html(snapshotUrl)).Append("\">semantic snapshot JSON</a></li>")
-            .Append("<li><a href=\"").Append(Html(png)).Append("\">authoritative Chromium PNG</a></li>")
-            .Append("<li><a href=\"").Append(Html(pdf)).Append("\">PDF compatibility wrapper</a></li>")
-            .Append("<li><a href=\"").Append(Html(root + "/ai-access")).Append("\">back to TaskForge AI access</a></li></ul>")
-            .Append("<p>Visual agents should prefer the PNG when their client can inspect images. PDF exists for clients that can visually inspect PDFs but cannot fetch dynamic images.</p>");
+            .Append("<li><a href=\"").Append(Html(png)).Append("\">authoritative Chromium PNG</a></li>");
+        if (manifest.HasPdf)
+        {
+            html.Append("<li><a href=\"").Append(Html(pdf)).Append("\">PDF compatibility wrapper</a></li>");
+        }
+        html.Append("<li><a href=\"").Append(Html(root + "/ai-access")).Append("\">back to TaskForge AI access</a></li></ul>")
+            .Append(manifest.HasPdf
+                ? "<p>Visual agents should prefer the PNG when their client can inspect images. PDF exists only as a compatibility wrapper.</p>"
+                : "<p>Visual agents should use the PNG. The optional PDF compatibility wrapper was not available for this capture.</p>");
 
         var followLinks = snapshot.Elements
             .Where(element => string.Equals(element.Role, "link", StringComparison.OrdinalIgnoreCase))

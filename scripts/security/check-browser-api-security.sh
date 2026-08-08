@@ -159,9 +159,16 @@ for required_marker in ('IncrementalHash.CreateHash(HashAlgorithmName.SHA256)', 
         die(f'public agent artifact store lost required marker: {required_marker}')
 
 inspection = text('services/browser/api/Services/SiteInspectionService.cs')
-for required_marker in ('CaptureAgentBundleAsync', '72d / 96d', 'PDF is a compatibility wrapper around the authoritative Chromium PNG'):
+for required_marker in ('CaptureAgentBundleAsync', 'var width = $"{capture.Width}px"', 'PDF is a compatibility wrapper around the authoritative Chromium PNG', 'publishing snapshot and PNG only'):
     if required_marker not in inspection:
         die(f'agent capture/PDF parity marker missing: {required_marker}')
+if 'pt"' in inspection or '}pt' in inspection:
+    die('Playwright PDF dimensions must use documented px/in/cm/mm units; pt is not supported')
+
+artifact_store = text('services/browser/api/Services/PublicAgentArtifactStore.cs')
+for required_marker in ('bool HasPdf = true', 'RenderArtifact? pdf', 'if (pdf is not null)', 'manifest.HasPdf'):
+    if required_marker not in artifact_store:
+        die(f'public agent artifact optional-PDF resilience marker missing: {required_marker}')
 
 frontend_index = text('apps/web/public/index.html')
 for required_marker in ('href="/ai-access"', 'taskforge-ai-discovery', 'href="/llms.txt"'):

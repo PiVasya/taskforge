@@ -380,7 +380,8 @@ app.MapGet("/ai-artifacts/{id}/{fileName}", async (
     {
         "snapshot.json" => Results.File(bundle.SnapshotJson, "application/json; charset=utf-8", enableRangeProcessing: false),
         "render.png" => Results.File(bundle.Png, "image/png", enableRangeProcessing: true),
-        "render.pdf" => Results.File(bundle.Pdf, "application/pdf", enableRangeProcessing: true),
+        "render.pdf" when bundle.Pdf is not null => Results.File(bundle.Pdf, "application/pdf", enableRangeProcessing: true),
+        "render.pdf" => throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_PDF_UNAVAILABLE", "PDF-обёртка для этого артефакта недоступна. Используйте authoritative Chromium PNG."),
         _ => throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_FILE_NOT_FOUND", "Неизвестная часть Browser API артефакта.")
     };
 })
