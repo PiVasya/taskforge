@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
 using TaskForge.Browser.Api.Contracts;

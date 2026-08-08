@@ -119,6 +119,16 @@ if 'TryNormalizeAccountType(request.AccountType' not in auth_endpoints:
 
 browser_csproj = text('services/browser/api/TaskForge.Browser.Api.csproj')
 dockerfile = text('services/browser/api/Dockerfile')
+
+# Swashbuckle.AspNetCore 10+ uses Microsoft.OpenApi 2+, whose model types moved
+# from Microsoft.OpenApi.Models into the Microsoft.OpenApi namespace. Catch the
+# stale namespace before the Docker build downloads the large Playwright image.
+swashbuckle = re.search(r'Swashbuckle\.AspNetCore" Version="([0-9]+)\.', browser_csproj)
+if swashbuckle and int(swashbuckle.group(1)) >= 10:
+    if 'using Microsoft.OpenApi.Models;' in program:
+        die('Swashbuckle 10+ requires Microsoft.OpenApi namespace; Microsoft.OpenApi.Models is obsolete')
+    if 'using Microsoft.OpenApi;' not in program:
+        die('Browser Program.cs must import Microsoft.OpenApi for Swashbuckle 10+')
 version = re.search(r'Microsoft\.Playwright" Version="([^"]+)"', browser_csproj)
 image = re.search(r'playwright/dotnet:v([0-9.]+)-', dockerfile)
 if not version or not image or version.group(1) != image.group(1):

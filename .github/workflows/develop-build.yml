@@ -223,10 +223,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
       - name: Install Browser API security check dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check Browser API security invariants
         run: bash scripts/security/check-browser-api-security.sh
+
+      - name: Compile Browser API before Docker build
+        run: bash scripts/ci/check-browser-api-build.sh
 
       - name: Check migration tooling safety
         run: python3 scripts/ci/check-migration-tooling-safety.py
