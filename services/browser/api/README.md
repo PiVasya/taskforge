@@ -15,6 +15,30 @@ GET /api/site/routes?site=ct
 
 The discovery document tells an agent how to register an ordinary account with `accountType: "ai"`, how to inspect public pages and how to create an interactive browser session.
 
+
+## Domain-only self-discovery
+
+Agents that know only `https://taskforge.by` can discover the Browser API without the user pasting a render URL. The frontend root HTML advertises `/ai-access`, `/.well-known/taskforge-ai.json` and `/llms.txt` in its no-JavaScript fallback.
+
+`GET /ai-access` is a plain crawlable HTML index. For anonymous public routes it exposes queryless capture links such as:
+
+```text
+GET /api/site/agent/capture/main/390/844/full/
+GET /api/site/agent/capture/main/1440/900/full/news
+```
+
+A capture opens the real page in Chromium once and persists short-lived Redis artifacts under content-addressed SHA-256 ids:
+
+```text
+GET /ai-artifacts/{id}/snapshot.json
+GET /ai-artifacts/{id}/render.png
+GET /ai-artifacts/{id}/render.pdf
+```
+
+The PNG is pixel-authoritative. The PDF is a compatibility wrapper for clients that can visually inspect PDFs but cannot fetch dynamic images. Public artifact creation rejects explicitly authenticated callers so private page content cannot be exposed through a public artifact URL.
+
+The capture HTML also lists safe same-origin links discovered in the rendered page as new capture links, so a GET-only crawler can continue navigating public TaskForge pages without constructing Browser API query strings itself.
+
 ## Stateless inspection
 
 ```text

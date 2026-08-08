@@ -239,7 +239,7 @@ The production Browser API container:
 
 Only anonymous stateless artifacts are cached. Authenticated page contents never enter the shared public artifact cache.
 
-Interactive sessions are process-local. Keep one `browser-api` replica unless sticky routing or external session ownership is implemented. Anonymous read-only session authorization is based on the high-entropy session token rather than a source IP; authenticated sessions additionally bind to the TaskForge user identity. Stateless inspection can later be split/scaled independently.
+Interactive sessions are process-local. Keep one `browser-api` replica unless sticky routing or external session ownership is implemented. Stateless inspection can later be split/scaled independently.
 
 ## Changed areas
 

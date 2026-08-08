@@ -35,6 +35,7 @@ public sealed class BrowserOptions
     public int SessionIdleMinutes { get; set; } = 10;
     public int SessionAbsoluteMinutes { get; set; } = 30;
     public int PublicCacheSeconds { get; set; } = 30;
+    public int AgentArtifactTtlSeconds { get; set; } = 900;
     public int MaxCachedArtifactBytes { get; set; } = 4 * 1024 * 1024;
     public int MaxArtifactResponseBytes { get; set; } = 32 * 1024 * 1024;
     public bool ReduceMotion { get; set; } = true;

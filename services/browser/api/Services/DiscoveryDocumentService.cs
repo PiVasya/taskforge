@@ -15,6 +15,7 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
         {
             name = "TaskForge",
             purpose = "Open learning platform with machine-readable inspection and real Chromium browser APIs.",
+            agentAccess = $"{root}/ai-access",
             website = _urlPolicy.Sites.ToDictionary(x => x.Key, x => x.Value.AbsoluteUri.TrimEnd('/')),
             anonymousBrowsing = new
             {
@@ -40,6 +41,7 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
                 renderPng = $"{root}/api/site/render?path=/courses&width=390&height=844",
                 renderAnnotatedPng = $"{root}/api/site/render?path=/courses&width=390&height=844&annotated=true",
                 renderPdf = $"{root}/api/site/render.pdf?path=/courses&width=390&height=844",
+                crawlerCapture = $"{root}/api/site/agent/capture/main/390/844/full/",
                 notes = new[]
                 {
                     "Use site=ct for the CT frontend.",
@@ -85,6 +87,11 @@ TaskForge openly supports automated study of its public website through ordinary
 - CT: {{_urlPolicy.Sites.GetValueOrDefault("ct")?.AbsoluteUri.TrimEnd('/')}}
 - Add `site=ct` to inspection/session requests for the CT frontend. The default site is `main`.
 
+## Start from only the domain name
+If an automated client knows only `{{root}}` and cannot execute the React application, open `{{root}}/ai-access`. The root HTML advertises this crawler entry point, `/.well-known/taskforge-ai.json` and `/llms.txt` without requiring JavaScript.
+
+`/ai-access` contains ordinary crawlable links to route captures. A capture generates short-lived immutable URLs for snapshot JSON, the authoritative Chromium PNG, and a PDF compatibility wrapper. This is intended for restricted fetchers that cannot request arbitrary query-string binary URLs directly.
+
 ## Anonymous visitors
 Anonymous agents see the same public pages as unauthenticated human visitors. They do not need a special URL or share token.
 Anonymous interactive sessions are always read-only.
@@ -116,6 +123,7 @@ Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls a
 - PNG: `GET {{root}}/api/site/render?path=/courses&width=390&height=844`
 - Annotated PNG: `GET {{root}}/api/site/render?path=/courses&width=390&height=844&annotated=true`
 - PDF: `GET {{root}}/api/site/render.pdf?path=/courses&width=390&height=844`
+- Crawler-friendly capture page: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
 
 A snapshot contains visible text, headings, document/viewport dimensions, horizontal overflow, interactive controls, bounds, accessibility/layout issues, console errors, failed requests and performance measurements.
 Interactive controls are assigned `tf1`, `tf2`, ... references. These references are valid for the current page state and should be refreshed after navigation or major DOM changes.
@@ -144,6 +152,8 @@ X-TaskForge-Browser-Session-Token: <session token>
 Available actions are navigate, snapshot, screenshot, click, fill, press, select, hover, check, scroll, back, reload and close. Use `elementId` values from the latest snapshot rather than CSS selectors.
 
 Read-only sessions block every non-safe same-origin HTTP request. `readOnly: false` is accepted only for authenticated TaskForge users and still grants no permissions beyond that user's ordinary account rights.
+
+The PNG is the pixel-authoritative visual render. The PDF endpoint is only a compatibility wrapper for clients that can inspect PDFs but cannot fetch images.
 
 ## API schema
 - OpenAPI: `{{root}}/api/browser/openapi.json`

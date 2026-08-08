@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,6 +18,11 @@ public sealed record RenderArtifact(
     bool FullPageTruncated,
     bool Annotated,
     bool CacheHit);
+
+public sealed record AgentCaptureBundle(
+    SiteSnapshotResponse Snapshot,
+    RenderArtifact Png,
+    RenderArtifact Pdf);
 
 public sealed class SiteInspectionService(
     BrowserPageFactory pageFactory,
@@ -163,20 +169,7 @@ public sealed class SiteInspectionService(
         await _pageFactory.NavigateAsync(handle, path, waitMilliseconds, cancellationToken);
         var capture = await _screenshots.CaptureAsync(handle, fullPage, annotated, cancellationToken);
 
-        var base64 = Convert.ToBase64String(capture.Bytes);
-        await handle.Page.SetContentAsync(
-            $"<!doctype html><html><head><meta charset=\"utf-8\"><style>@page{{margin:0;size:{capture.Width}px {capture.Height}px}}html,body{{margin:0;padding:0;width:{capture.Width}px;height:{capture.Height}px;overflow:hidden;background:#000}}img{{display:block;width:{capture.Width}px;height:{capture.Height}px}}</style></head><body><img alt=\"TaskForge browser render\" src=\"data:image/png;base64,{base64}\"></body></html>",
-            new PageSetContentOptions { WaitUntil = WaitUntilState.Load }).WaitAsync(cancellationToken);
-        var pdf = await handle.Page.PdfAsync(new PagePdfOptions
-        {
-            PrintBackground = true,
-            Width = $"{capture.Width}px",
-            Height = $"{capture.Height}px",
-            Margin = new Margin { Top = "0", Right = "0", Bottom = "0", Left = "0" },
-            PreferCSSPageSize = true
-        }).WaitAsync(cancellationToken);
-
-        _screenshots.EnsureArtifactSize(pdf.Length);
+        var pdf = await BuildPdfFromCaptureAsync(handle.Page, capture, cancellationToken);
 
         if (!caller.IsAuthenticated)
         {
@@ -199,6 +192,80 @@ public sealed class SiteInspectionService(
             capture.FullPageTruncated,
             capture.Annotated,
             false);
+    }
+
+    public async Task<AgentCaptureBundle> CaptureAgentBundleAsync(
+        string? site,
+        string? path,
+        int width,
+        int height,
+        int waitMilliseconds,
+        bool fullPage,
+        CancellationToken cancellationToken)
+    {
+        _pageFactory.ValidateViewport(width, height);
+        var anonymousCaller = new BrowserCaller(false, null, "anonymous", null, "agent-public-capture", "agent-public-capture", false);
+
+        await using var lease = await _capacityGate.EnterAsync(cancellationToken);
+        await using var handle = await _pageFactory.CreateAsync(site, width, height, readOnly: true, anonymousCaller, cancellationToken);
+        await _pageFactory.NavigateAsync(handle, path, waitMilliseconds, cancellationToken);
+
+        var snapshot = await _snapshotBuilder.BuildAsync(handle, includeText: true, cancellationToken);
+        var capture = await _screenshots.CaptureAsync(handle, fullPage, annotated: false, cancellationToken);
+        var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, cancellationToken);
+
+        var png = new RenderArtifact(
+            capture.Bytes,
+            "image/png",
+            capture.Width,
+            capture.Height,
+            capture.FullPage,
+            capture.FullPageTruncated,
+            capture.Annotated,
+            false);
+
+        var pdf = new RenderArtifact(
+            pdfBytes,
+            "application/pdf",
+            capture.Width,
+            capture.Height,
+            capture.FullPage,
+            capture.FullPageTruncated,
+            capture.Annotated,
+            false);
+
+        return new AgentCaptureBundle(snapshot, png, pdf);
+    }
+
+    private async Task<byte[]> BuildPdfFromCaptureAsync(
+        IPage page,
+        BrowserScreenshot capture,
+        CancellationToken cancellationToken)
+    {
+        // PDF is a compatibility wrapper around the authoritative Chromium PNG.
+        // Use explicit PDF points (72 dpi) instead of CSS px (96 dpi) to preserve
+        // the screenshot aspect ratio across PDF viewers and avoid subtle stretching.
+        var widthPoints = capture.Width * 72d / 96d;
+        var heightPoints = capture.Height * 72d / 96d;
+        var width = widthPoints.ToString("0.###", CultureInfo.InvariantCulture);
+        var height = heightPoints.ToString("0.###", CultureInfo.InvariantCulture);
+        var base64 = Convert.ToBase64String(capture.Bytes);
+
+        await page.SetContentAsync(
+            $"<!doctype html><html><head><meta charset=\"utf-8\"><style>@page{{margin:0;size:{width}pt {height}pt}}html,body{{margin:0;padding:0;width:{width}pt;height:{height}pt;overflow:hidden;background:#000}}img{{display:block;width:100%;height:100%;object-fit:contain}}</style></head><body><img alt=\"TaskForge browser render\" src=\"data:image/png;base64,{base64}\"></body></html>",
+            new PageSetContentOptions { WaitUntil = WaitUntilState.Load }).WaitAsync(cancellationToken);
+
+        var pdf = await page.PdfAsync(new PagePdfOptions
+        {
+            PrintBackground = true,
+            Width = $"{width}pt",
+            Height = $"{height}pt",
+            Margin = new Margin { Top = "0", Right = "0", Bottom = "0", Left = "0" },
+            PreferCSSPageSize = true
+        }).WaitAsync(cancellationToken);
+
+        _screenshots.EnsureArtifactSize(pdf.Length);
+        return pdf;
     }
 
     private string CacheKey(

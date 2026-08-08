@@ -33,6 +33,8 @@ builder.Services.AddSingleton<BrowserSessionRegistry>();
 builder.Services.AddHostedService<BrowserSessionCleanupService>();
 builder.Services.AddSingleton<SiteRouteCatalog>();
 builder.Services.AddSingleton<DiscoveryDocumentService>();
+builder.Services.AddSingleton<AgentAccessService>();
+builder.Services.AddSingleton<PublicAgentArtifactStore>();
 
 builder.Services.AddCors(options => options.AddPolicy("public-browser-api", policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -73,7 +75,7 @@ app.Use(async (http, next) =>
     http.Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
 
     var path = http.Request.Path.Value ?? string.Empty;
-    if (path is "/.well-known/taskforge-ai.json" or "/llms.txt" or "/api/browser/openapi.json")
+    if (path is "/.well-known/taskforge-ai.json" or "/llms.txt" or "/api/browser/openapi.json" or "/ai-access" or "/sitemap.xml")
     {
         http.Response.Headers.CacheControl = "public, max-age=300";
     }
@@ -134,7 +136,18 @@ app.MapGet("/llms.txt", (HttpRequest request, DiscoveryDocumentService discovery
     .WithTags("Discovery")
     .AllowAnonymous();
 
-app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nAllow: /\n", "text/plain; charset=utf-8"))
+app.MapGet("/robots.txt", (HttpRequest request) =>
+    Results.Text($"User-agent: *\nAllow: /\nSitemap: {PublicRoot(request)}/sitemap.xml\n", "text/plain; charset=utf-8"))
+    .ExcludeFromDescription();
+
+app.MapGet("/ai-access", (HttpRequest request, AgentAccessService access) =>
+    Results.Content(access.BuildIndexHtml(request), "text/html; charset=utf-8"))
+    .WithName("GetAgentAccessIndex")
+    .WithTags("Discovery")
+    .AllowAnonymous();
+
+app.MapGet("/sitemap.xml", (HttpRequest request, AgentAccessService access) =>
+    Results.Content(access.BuildSitemapXml(request), "application/xml; charset=utf-8"))
     .ExcludeFromDescription();
 
 app.MapGet("/api/site/info", async (
@@ -179,7 +192,8 @@ app.MapGet("/api/site/info", async (
             anonymousSessionsPerOwner = options.MaxAnonymousSessionsPerOwner,
             authenticatedSessionsPerOwner = options.MaxAuthenticatedSessionsPerOwner,
             sessionIdleMinutes = options.SessionIdleMinutes,
-            sessionAbsoluteMinutes = options.SessionAbsoluteMinutes
+            sessionAbsoluteMinutes = options.SessionAbsoluteMinutes,
+            agentArtifactTtlSeconds = options.AgentArtifactTtlSeconds
         }));
 })
 .WithName("GetSiteInfo")
@@ -289,6 +303,89 @@ app.MapGet("/api/site/render.pdf", async (
 })
 .WithName("RenderSitePdf")
 .WithTags("Site inspection")
+.AllowAnonymous();
+
+app.MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**path}", async (
+    string site,
+    int width,
+    int height,
+    string mode,
+    string? path,
+    HttpContext http,
+    SiteInspectionService inspections,
+    PublicAgentArtifactStore artifacts,
+    AgentAccessService access,
+    BrowserOptions options,
+    BrowserRateLimitOptions limits,
+    BrowserCallerResolver callerResolver,
+    RedisFixedWindowRateLimiter limiter,
+    CancellationToken ct) =>
+{
+    var caller = callerResolver.Resolve(http);
+    callerResolver.ThrowIfInvalidCredential(caller);
+    if (caller.IsAuthenticated)
+    {
+        throw new BrowserApiException(
+            StatusCodes.Status400BadRequest,
+            "PUBLIC_ARTIFACT_REQUIRES_ANONYMOUS",
+            "Crawler-артефакты публикуются только для анонимного read-only просмотра. Для приватных страниц используйте обычный Browser API с Authorization header.");
+    }
+
+    await EnforceRateLimit(http, limiter, caller, "render", limits.RenderLimit, limits.RenderWindowSeconds, ct);
+    var fullPage = mode.ToLowerInvariant() switch
+    {
+        "full" => true,
+        "viewport" => false,
+        _ => throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_CAPTURE_MODE", "Режим capture должен быть full или viewport.")
+    };
+    var relativePath = string.IsNullOrWhiteSpace(path) ? "/" : "/" + path.TrimStart('/');
+    var bundle = await inspections.CaptureAgentBundleAsync(site, relativePath, width, height, options.DefaultWaitMilliseconds, fullPage, ct);
+    var manifest = await artifacts.CreateAsync(bundle.Snapshot, bundle.Png, bundle.Pdf, ct);
+    http.Response.Headers.CacheControl = "no-store";
+    http.Response.Headers["X-TaskForge-Agent-Artifact-Id"] = manifest.Id;
+    return Results.Content(access.BuildCaptureHtml(http.Request, manifest, bundle.Snapshot), "text/html; charset=utf-8");
+})
+.WithName("CreatePublicAgentCapture")
+.WithTags("Agent access")
+.AllowAnonymous();
+
+app.MapGet("/ai-artifacts/{id}/{fileName}", async (
+    string id,
+    string fileName,
+    HttpContext http,
+    PublicAgentArtifactStore artifacts,
+    BrowserRateLimitOptions limits,
+    BrowserCallerResolver callerResolver,
+    RedisFixedWindowRateLimiter limiter,
+    CancellationToken ct) =>
+{
+    var caller = callerResolver.Resolve(http);
+    callerResolver.ThrowIfInvalidCredential(caller);
+    await EnforceRateLimit(http, limiter, caller, "metadata", limits.MetadataLimit, limits.MetadataWindowSeconds, ct);
+
+    var bundle = await artifacts.GetAsync(id, ct);
+    if (bundle is null)
+    {
+        throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_NOT_FOUND", "Публичный Browser API артефакт не найден или уже истёк.");
+    }
+
+    var maxAge = Math.Max(0, (int)Math.Floor((bundle.Manifest.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
+    http.Response.Headers.CacheControl = $"public, max-age={maxAge}, immutable";
+    http.Response.Headers["X-TaskForge-Agent-Artifact-Id"] = bundle.Manifest.Id;
+    http.Response.Headers["X-TaskForge-Agent-Artifact-Expires"] = bundle.Manifest.ExpiresAtUtc.ToString("O");
+    http.Response.Headers["X-TaskForge-Render-Width"] = bundle.Manifest.Width.ToString();
+    http.Response.Headers["X-TaskForge-Render-Height"] = bundle.Manifest.Height.ToString();
+
+    return fileName.ToLowerInvariant() switch
+    {
+        "snapshot.json" => Results.File(bundle.SnapshotJson, "application/json; charset=utf-8", enableRangeProcessing: false),
+        "render.png" => Results.File(bundle.Png, "image/png", enableRangeProcessing: true),
+        "render.pdf" => Results.File(bundle.Pdf, "application/pdf", enableRangeProcessing: true),
+        _ => throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_FILE_NOT_FOUND", "Неизвестная часть Browser API артефакта.")
+    };
+})
+.WithName("GetPublicAgentArtifact")
+.WithTags("Agent access")
 .AllowAnonymous();
 
 app.MapPost("/api/browser/sessions", async (
@@ -531,6 +628,7 @@ static void ValidateConfiguration(
     EnsureRange(options.SessionIdleMinutes, 1, 120, "Browser:SessionIdleMinutes");
     EnsureRange(options.SessionAbsoluteMinutes, options.SessionIdleMinutes, 480, "Browser:SessionAbsoluteMinutes");
     EnsureRange(options.PublicCacheSeconds, 0, 3600, "Browser:PublicCacheSeconds");
+    EnsureRange(options.AgentArtifactTtlSeconds, 60, 86400, "Browser:AgentArtifactTtlSeconds");
     EnsureRange(options.MaxCachedArtifactBytes, 65536, 33554432, "Browser:MaxCachedArtifactBytes");
     EnsureRange(options.MaxArtifactResponseBytes, 1048576, 134217728, "Browser:MaxArtifactResponseBytes");
     if (options.MaxCachedArtifactBytes > options.MaxArtifactResponseBytes)

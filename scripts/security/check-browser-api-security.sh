@@ -37,6 +37,8 @@ required = [
     'services/browser/api/Services/BrowserSessionRegistry.cs',
     'services/browser/api/Infrastructure/RedisFixedWindowRateLimiter.cs',
     'services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs',
+    'services/browser/api/Services/AgentAccessService.cs',
+    'services/browser/api/Services/PublicAgentArtifactStore.cs',
     'tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj',
     'tools/browser-url-policy-check/Program.cs',
     'tools/browser-session-access-check/TaskForge.Browser.SessionAccessCheck.csproj',
@@ -137,6 +139,35 @@ if 'Production browser-api requires a Redis connection string' not in program:
 if 'response.Headers.Vary = "Authorization"' not in program or 'Authorization, Cookie' in program:
     die('Browser API cache variance must match explicit Bearer-only authentication')
 
+for required_marker in (
+    'MapGet("/ai-access"',
+    'MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**path}"',
+    'MapGet("/ai-artifacts/{id}/{fileName}"',
+    'PUBLIC_ARTIFACT_REQUIRES_ANONYMOUS',
+):
+    if required_marker not in program:
+        die(f'crawler self-discovery route/security marker missing: {required_marker}')
+
+agent_access = text('services/browser/api/Services/AgentAccessService.cs')
+for required_marker in ('TaskForge AI / crawler access', '/api/site/agent/capture/', 'authoritative Chromium PNG', 'RequiresAuthentication'):
+    if required_marker not in agent_access:
+        die(f'agent access page lost required marker: {required_marker}')
+
+artifact_store = text('services/browser/api/Services/PublicAgentArtifactStore.cs')
+for required_marker in ('IncrementalHash.CreateHash(HashAlgorithmName.SHA256)', 'AgentArtifactTtlSeconds', 'MaxCachedArtifactBytes', 'tf:browser:agent-artifact:'):
+    if required_marker not in artifact_store:
+        die(f'public agent artifact store lost required marker: {required_marker}')
+
+inspection = text('services/browser/api/Services/SiteInspectionService.cs')
+for required_marker in ('CaptureAgentBundleAsync', '72d / 96d', 'PDF is a compatibility wrapper around the authoritative Chromium PNG'):
+    if required_marker not in inspection:
+        die(f'agent capture/PDF parity marker missing: {required_marker}')
+
+frontend_index = text('apps/web/public/index.html')
+for required_marker in ('href="/ai-access"', 'taskforge-ai-discovery', 'href="/llms.txt"'):
+    if required_marker not in frontend_index:
+        die(f'root HTML no longer advertises AI discovery without JavaScript: {required_marker}')
+
 for path in (
     'services/browser/api/Infrastructure/RedisFixedWindowRateLimiter.cs',
     'services/identity/api/Services/Security/IdentityAuthRateLimiter.cs',
@@ -201,7 +232,7 @@ if re.search(r'--mount=type=cache[^\n]*target=/root/\.nuget/packages', dockerfil
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
 cloudflare_real_ip = text('apps/gateway/snippets/cloudflare-real-ip.conf')
-for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections'):
+for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections', 'location = /ai-access', 'location = /sitemap.xml', 'location ^~ /ai-artifacts/'):
     if marker not in routes:
         die(f'gateway Browser API protection missing: {marker}')
 if 'X-TaskForge-Client-IP $remote_addr' not in proxy or 'CF-Connecting-IP ""' not in proxy:
