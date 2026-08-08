@@ -62,6 +62,7 @@ public sealed partial class BrowserSessionRegistry(
                 Id = Guid.NewGuid(),
                 TokenHash = Hash(rawToken),
                 OwnerKey = caller.OwnerKey,
+                OwnerIsAuthenticated = caller.IsAuthenticated,
                 Handle = handle,
                 CreatedAtUtc = now,
                 LastAccessAtUtc = now,
@@ -387,9 +388,16 @@ public sealed partial class BrowserSessionRegistry(
             throw new BrowserApiException(StatusCodes.Status401Unauthorized, "INVALID_SESSION_TOKEN", "Не указан или недействителен токен браузерной сессии.");
         }
 
-        if (!string.Equals(session.OwnerKey, caller.OwnerKey, StringComparison.Ordinal))
+        if (!BrowserSessionAccessPolicy.CanUse(
+                session.OwnerIsAuthenticated,
+                session.OwnerKey,
+                caller.IsAuthenticated,
+                caller.OwnerKey))
         {
-            throw new BrowserApiException(StatusCodes.Status403Forbidden, "SESSION_OWNER_MISMATCH", "Эта браузерная сессия принадлежит другому вызывающему субъекту.");
+            throw new BrowserApiException(
+                StatusCodes.Status403Forbidden,
+                "SESSION_OWNER_MISMATCH",
+                "Авторизованная браузерная сессия принадлежит другому TaskForge-пользователю.");
         }
 
         return session;
@@ -487,6 +495,7 @@ public sealed class BrowserSession
     public Guid Id { get; init; }
     public required string TokenHash { get; init; }
     public required string OwnerKey { get; init; }
+    public required bool OwnerIsAuthenticated { get; init; }
     public required BrowserPageHandle Handle { get; init; }
     public required DateTimeOffset CreatedAtUtc { get; init; }
     public required DateTimeOffset AbsoluteExpiresAtUtc { get; init; }

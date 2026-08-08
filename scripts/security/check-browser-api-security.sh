@@ -32,12 +32,16 @@ required = [
     'services/browser/api/Program.cs',
     'services/browser/api/Security/BrowserUrlPolicy.cs',
     'services/browser/api/Security/BrowserCallerResolver.cs',
+    'services/browser/api/Security/BrowserSessionAccessPolicy.cs',
     'services/browser/api/Services/BrowserPageFactory.cs',
     'services/browser/api/Services/BrowserSessionRegistry.cs',
     'services/browser/api/Infrastructure/RedisFixedWindowRateLimiter.cs',
     'services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs',
     'tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj',
     'tools/browser-url-policy-check/Program.cs',
+    'tools/browser-session-access-check/TaskForge.Browser.SessionAccessCheck.csproj',
+    'tools/browser-session-access-check/Program.cs',
+    'apps/gateway/snippets/cloudflare-real-ip.conf',
     'services/identity/api/Services/Security/IdentityAuthRateLimiter.cs',
 ]
 for path in required:
@@ -89,10 +93,32 @@ sessions = text('services/browser/api/Services/BrowserSessionRegistry.cs')
 for marker in (
     'AUTHENTICATION_REQUIRED_FOR_MUTATING_SESSION',
     'request.ReadOnly ?? true',
-    'X-TaskForge-Browser-Session-Token',
+    'OwnerIsAuthenticated = caller.IsAuthenticated',
+    'BrowserSessionAccessPolicy.CanUse',
 ):
-    if marker not in sessions and marker != 'X-TaskForge-Browser-Session-Token':
+    if marker not in sessions:
         die(f'session security marker missing: {marker}')
+
+access_policy = text('services/browser/api/Security/BrowserSessionAccessPolicy.cs')
+for marker in (
+    'if (!sessionOwnerIsAuthenticated)',
+    'return true;',
+    'callerIsAuthenticated',
+    'string.Equals(sessionOwnerKey, callerOwnerKey, StringComparison.Ordinal)',
+):
+    if marker not in access_policy:
+        die(f'session access policy lost required marker: {marker}')
+
+access_check = text('tools/browser-session-access-check/Program.cs')
+for marker in (
+    '"anonymous changed network"',
+    '"authenticated same user"',
+    '"authenticated different user"',
+    '"authenticated session without access token"',
+):
+    if marker not in access_check:
+        die(f'session access regression coverage missing: {marker}')
+
 caller = text('services/browser/api/Security/BrowserCallerResolver.cs')
 if 'http.Request.Headers.Authorization' not in caller or 'Bearer ' not in caller:
     die('authenticated Browser API calls must use an explicit Authorization Bearer token')
@@ -174,15 +200,29 @@ if re.search(r'--mount=type=cache[^\n]*target=/root/\.nuget/packages', dockerfil
 
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
+cloudflare_real_ip = text('apps/gateway/snippets/cloudflare-real-ip.conf')
 for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections'):
     if marker not in routes:
         die(f'gateway Browser API protection missing: {marker}')
 if 'X-TaskForge-Client-IP $remote_addr' not in proxy or 'CF-Connecting-IP ""' not in proxy:
-    die('gateway does not overwrite untrusted client-IP headers')
+    die('gateway does not overwrite untrusted client-IP headers before proxying upstream')
+if 'real_ip_header CF-Connecting-IP;' not in cloudflare_real_ip or 'real_ip_recursive on;' not in cloudflare_real_ip:
+    die('gateway does not restore Cloudflare visitor IPs through nginx real_ip')
+if cloudflare_real_ip.count('set_real_ip_from ') != 22:
+    die('Cloudflare trusted proxy list must contain the complete 15 IPv4 + 7 IPv6 published ranges')
+for marker in ('173.245.48.0/20', '104.16.0.0/13', '172.64.0.0/13', '2400:cb00::/32', '2a06:98c0::/29', '2c0f:f248::/32'):
+    if marker not in cloudflare_real_ip:
+        die(f'Cloudflare trusted proxy range missing: {marker}')
 for template in ('dev.conf', 'http.conf', 'https.conf'):
     value = text(f'apps/gateway/templates/{template}')
-    if 'limit_req_zone $binary_remote_addr zone=tf_browser_public' not in value:
+    include_marker = 'include /etc/nginx/snippets/cloudflare-real-ip.conf;'
+    limit_marker = 'limit_req_zone $binary_remote_addr zone=tf_browser_public'
+    if include_marker not in value:
+        die(f'{template} does not load trusted Cloudflare real-IP configuration')
+    if limit_marker not in value:
         die(f'{template} has no Browser API request zone')
+    if value.index(include_marker) > value.index(limit_marker):
+        die(f'{template} restores real client IP after the Browser API rate-limit zone is defined')
     if 'limit_conn_zone $binary_remote_addr zone=tf_browser_connections' not in value:
         die(f'{template} has no Browser API connection zone')
 

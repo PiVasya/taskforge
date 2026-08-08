@@ -71,7 +71,7 @@ Content-Type: application/json
 }
 ```
 
-The response contains a random high-entropy session token. Send it on every subsequent session request:
+The response contains a random high-entropy session token. Send it on every subsequent session request. Anonymous sessions are authorized by this bearer token rather than by a source IP so they continue to work through CDNs, NAT rebinding and network changes. Authenticated sessions additionally require the same TaskForge user identity that created the session:
 
 ```http
 X-TaskForge-Browser-Session-Token: <token>
@@ -110,7 +110,7 @@ Anonymous sessions are always read-only. `readOnly=false` requires a valid ordin
 - Nginx applies an inexpensive request/connection shield before the request reaches the service.
 - Application quotas use atomic Redis `INCR` + `EXPIRE` Lua scripts, with a process-local emergency fallback.
 - Chromium operations, active sessions, per-owner sessions, viewport, full-page pixels, wait time, response bytes and session lifetime are bounded.
-- Session tokens are stored only as SHA-256 hashes and compared in constant time.
+- Session tokens are stored only as SHA-256 hashes and compared in constant time. Anonymous read-only sessions use the token as their session credential; authenticated sessions require both the token and the same TaskForge user identity.
 - Console and network diagnostics remove query strings and redact common token/password forms.
 - Authenticated snapshots and renders are never shared through the public artifact cache.
 - The container runs as `pwuser`, has a read-only root filesystem, drops all Linux capabilities, has no Docker socket and receives CPU/RAM/PID/temp/shm limits.
@@ -144,7 +144,7 @@ Local service build:
 ./build.sh browser-api gateway identity-api front front-ct
 ```
 
-In production the gateway owns Docker-network aliases for `DOMAIN` and `CT_DOMAIN`. Chromium therefore reaches the real production gateway and TLS virtual host directly inside the Compose network instead of relying on public-IP hairpin NAT.
+In production the gateway owns Docker-network aliases for `DOMAIN` and `CT_DOMAIN`. Chromium therefore reaches the real production gateway and TLS virtual host directly inside the Compose network instead of relying on public-IP hairpin NAT. The gateway restores `CF-Connecting-IP` only when the TCP peer belongs to Cloudflare's published proxy ranges, then forwards the resulting trusted address as `X-TaskForge-Client-IP` for application rate limiting. Direct origin requests keep their real socket address.
 
 Production smoke test after deployment:
 

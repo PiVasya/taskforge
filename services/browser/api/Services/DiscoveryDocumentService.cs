@@ -53,6 +53,8 @@ public sealed class DiscoveryDocumentService(BrowserOptions options, BrowserUrlP
                 sessionTokenHeader = "X-TaskForge-Browser-Session-Token",
                 defaultReadOnly = true,
                 mutatingModeRequiresTaskForgeAccessToken = true,
+                anonymousSessionAuthorization = "session-token",
+                authenticatedSessionAuthorization = "same-taskforge-user+session-token",
                 actions = new[] { "navigate", "snapshot", "screenshot", "click", "fill", "press", "select", "hover", "check", "scroll", "back", "reload", "close" }
             },
             openApi = $"{root}/api/browser/openapi.json",
@@ -134,7 +136,7 @@ Content-Type: application/json
 }
 ```
 
-The response returns an `id` and a random session token. Send that token on every session request:
+The response returns an `id` and a random session token. Send that token on every session request. Anonymous read-only sessions use the session token as their bearer credential and are not bound to a source IP, so a proxy/CDN route change does not break the session. Authenticated sessions additionally require the same TaskForge user access token identity that created them:
 ```http
 X-TaskForge-Browser-Session-Token: <session token>
 ```
