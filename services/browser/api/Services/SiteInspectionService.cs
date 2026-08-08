@@ -5,6 +5,7 @@ using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
 using TaskForge.Browser.Api.Contracts;
 using TaskForge.Browser.Api.Infrastructure;
+using TaskForge.Browser.Api.Security;
 
 namespace TaskForge.Browser.Api.Services;
 
