@@ -16,6 +16,7 @@ builder.Services.AddHttpClient("identity-api", (sp, client) =>
     var cfg = sp.GetRequiredService<IConfiguration>();
     client.BaseAddress = new Uri((cfg["IdentityApi:BaseUrl"] ?? cfg["Services:IdentityApi"] ?? "http://identity-api:8080").TrimEnd('/') + "/");
 });
+builder.Services.AddSingleton<AiAccessDigestAggregator>();
 builder.Services.AddSingleton<Worker>();
 builder.Services.AddHostedService<Worker>(sp => sp.GetRequiredService<Worker>());
 
@@ -25,7 +26,9 @@ app.MapGet("/health/ready", (Worker worker) => Results.Ok(new
 {
     status = "ready",
     service = "taskforge-support-bot",
-    telegramReady = worker.TelegramReady
+    telegramReady = worker.TelegramReady,
+    aiAccessTelemetryEnabled = app.Configuration.GetValue("AiAccessTelemetry:Enabled", true),
+    aiAccessPending = app.Services.GetRequiredService<AiAccessDigestAggregator>().PendingCount
 }));
 
 app.MapPost("/api/internal/password-recovery/send", async (
@@ -75,6 +78,42 @@ app.MapPost("/api/internal/password-recovery/send", async (
         code = result.Code,
         message = result.Message
     }, statusCode: statusCode);
+});
+
+app.MapPost("/api/internal/ai-access/events", (
+    AiAccessEventBatch batch,
+    HttpContext http,
+    IConfiguration cfg,
+    AiAccessDigestAggregator aggregator) =>
+{
+    if (!InternalRequestAuthorized(http, cfg))
+    {
+        return Results.NotFound(new
+        {
+            status = 404,
+            code = "NOT_FOUND",
+            message = "Ресурс не найден.",
+            severity = "warning"
+        });
+    }
+
+    if (batch.Events is null || batch.Events.Count == 0 || batch.Events.Count > 100)
+    {
+        return Results.BadRequest(new
+        {
+            accepted = false,
+            code = "INVALID_AI_ACCESS_EVENT_BATCH",
+            message = "Пакет AI telemetry должен содержать от 1 до 100 событий."
+        });
+    }
+
+    aggregator.Record(batch.Events);
+    return Results.Ok(new
+    {
+        accepted = true,
+        count = batch.Events.Count,
+        pending = aggregator.PendingCount
+    });
 });
 
 app.Run();

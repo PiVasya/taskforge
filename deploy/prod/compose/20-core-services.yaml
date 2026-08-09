@@ -19,6 +19,8 @@ services:
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
       Services__SupportBot: http://support-bot:8080
+      AiAccessTelemetry__Enabled: ${AI_ACCESS_TELEMETRY_ENABLED:-true}
+      AiAccessTelemetry__SupportBotBaseUrl: http://support-bot:8080
       Telegram__CodeLifetimeMinutes: ${TELEGRAM_LINK_CODE_LIFETIME_MINUTES:-10}
       Telegram__CodeCooldownSeconds: ${TELEGRAM_LINK_CODE_COOLDOWN_SECONDS:-30}
       Telegram__CodeIssueLimit: ${TELEGRAM_LINK_CODE_ISSUE_LIMIT:-5}

@@ -9,11 +9,12 @@ using Telegram.Bot.Types.Enums;
 
 namespace TaskForge.SupportBot;
 
-public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClientFactory, IConfiguration cfg) : BackgroundService
+public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClientFactory, IConfiguration cfg, AiAccessDigestAggregator aiAccess) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private TelegramBotClient? _bot;
     private long _supportGroupId;
+    private long _aiAccessChatId;
 
     public bool TelegramReady => _bot != null;
 
@@ -42,6 +43,14 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             logger.LogWarning("Telegram support group id is not configured or invalid. Private Telegram features remain available, but support group relay is disabled.");
         }
 
+        var aiChatRaw = FirstNonEmpty(
+            cfg["AiAccessTelemetry:ChatId"],
+            cfg["AI_ACCESS_TELEMETRY_CHAT_ID"]);
+        if (!long.TryParse(aiChatRaw, out _aiAccessChatId) || _aiAccessChatId == 0)
+        {
+            _aiAccessChatId = _supportGroupId;
+        }
+
         _bot = new TelegramBotClient(token);
         try
         {
@@ -62,6 +71,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             {
                 await SendPendingUserMessagesToGroupAsync(stoppingToken);
                 await ForwardPendingAdminRepliesToUsersAsync(stoppingToken);
+                await SendAiAccessDigestIfDueAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -73,6 +83,32 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             }
 
             await Task.Delay(TimeSpan.FromSeconds(PollIntervalSeconds()), stoppingToken);
+        }
+    }
+
+
+    private async Task SendAiAccessDigestIfDueAsync(CancellationToken ct)
+    {
+        if (_bot == null || _aiAccessChatId == 0 || !cfg.GetValue("AiAccessTelemetry:Enabled", true)) return;
+
+        var lease = aiAccess.TryPrepareDigest(DateTimeOffset.UtcNow);
+        if (lease == null) return;
+
+        try
+        {
+            var text = aiAccess.BuildTelegramDigest(lease);
+            await _bot.SendTextMessageAsync(_aiAccessChatId, text, cancellationToken: ct);
+            aiAccess.MarkSent(lease, DateTimeOffset.UtcNow);
+            logger.LogInformation("AI access telemetry digest sent to Telegram. events={EventCount} pending={Pending}", lease.Count, aiAccess.PendingCount);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            aiAccess.MarkFailed(DateTimeOffset.UtcNow);
+            logger.LogWarning(ex, "Failed to send AI access telemetry digest to Telegram.");
         }
     }
 

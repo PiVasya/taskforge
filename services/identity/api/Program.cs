@@ -12,6 +12,7 @@ using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
 using TaskForge.Identity.Api.Services.AccountLifecycle;
 using TaskForge.Identity.Api.Services.Security;
+using TaskForge.Identity.Api.Services.Telemetry;
 
 using TaskForge.Identity.Api.Endpoints;
 using static TaskForge.Identity.Api.Services.Access.IdentityApiAccessService;
@@ -30,6 +31,14 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("support-bot", (sp, client) =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    client.BaseAddress = new Uri((cfg["Services:SupportBot"] ?? cfg["AiAccessTelemetry:SupportBotBaseUrl"] ?? "http://support-bot:8080").TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
+builder.Services.AddSingleton<AiAccessTelemetryClient>();
+builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AiAccessTelemetryClient>());
 builder.Services.AddSingleton<IdentityAuthRateLimiter>();
 builder.Services.AddHostedService<BlockedAccountCacheSynchronizer>();
 builder.Services.AddDbContext<IdentityDbContext>(options =>

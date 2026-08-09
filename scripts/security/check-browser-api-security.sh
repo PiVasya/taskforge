@@ -39,6 +39,9 @@ required = [
     'services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs',
     'services/browser/api/Services/AgentAccessService.cs',
     'services/browser/api/Services/PublicAgentArtifactStore.cs',
+    'services/browser/api/Services/AiAccessTelemetryReporter.cs',
+    'services/bots/support-bot/AiAccessTelemetry.cs',
+    'services/identity/api/Services/Telemetry/AiAccessTelemetryClient.cs',
     'tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj',
     'tools/browser-url-policy-check/Program.cs',
     'tools/browser-session-access-check/TaskForge.Browser.SessionAccessCheck.csproj',
@@ -139,6 +142,39 @@ if 'Production browser-api requires a Redis connection string' not in program:
 if 'response.Headers.Vary = "Authorization"' not in program or 'Authorization, Cookie' in program:
     die('Browser API cache variance must match explicit Bearer-only authentication')
 
+telemetry = text('services/browser/api/Services/AiAccessTelemetryReporter.cs')
+for required_marker in (
+    'AiAccessTelemetryReporter',
+    'api/internal/ai-access/events',
+    'BoundedChannelFullMode.DropWrite',
+    'Telemetry is intentionally fail-open',
+):
+    if required_marker not in telemetry:
+        die(f'AI access telemetry reporter lost required marker: {required_marker}')
+for forbidden_marker in ('Request.Cookies', 'Headers.Authorization', 'AccessToken', 'Password', 'RefreshToken', 'BrowserSessionToken'):
+    if forbidden_marker in telemetry:
+        die(f'AI access telemetry must not collect sensitive value: {forbidden_marker}')
+
+support_telemetry = text('services/bots/support-bot/AiAccessTelemetry.cs')
+for required_marker in (
+    'MinNotificationIntervalSeconds',
+    'DiscoveryOnlyMinEvents',
+    'MaxEventsPerDigest',
+    'IncludeFullIp',
+    'IsKnownAiAgent',
+):
+    if required_marker not in support_telemetry:
+        die(f'support-bot AI telemetry anti-spam marker missing: {required_marker}')
+
+support_program = text('services/bots/support-bot/Program.cs')
+if 'MapPost("/api/internal/ai-access/events"' not in support_program or 'InternalRequestAuthorized' not in support_program:
+    die('support-bot AI telemetry ingest must remain internal-key protected')
+
+identity_telemetry = text('services/identity/api/Services/Telemetry/AiAccessTelemetryClient.cs')
+for forbidden_marker in ('Password', 'Email', 'Authorization', 'Cookie', 'AccessToken', 'RefreshToken'):
+    if forbidden_marker in identity_telemetry:
+        die(f'AI identity telemetry must not collect sensitive value: {forbidden_marker}')
+
 for required_marker in (
     'MapGet("/ai-access"',
     'MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**path}"',
@@ -159,9 +195,9 @@ for required_marker in ('IncrementalHash.CreateHash(HashAlgorithmName.SHA256)', 
         die(f'public agent artifact store lost required marker: {required_marker}')
 
 inspection = text('services/browser/api/Services/SiteInspectionService.cs')
-for required_marker in ('CaptureAgentBundleAsync', 'var width = $"{capture.Width}px"', 'PDF is a compatibility wrapper around the authoritative Chromium PNG', 'publishing snapshot and PNG only'):
+for required_marker in ('CaptureAgentBundleAsync', 'var width = $"{capture.Width}px"', 'PDF is a compatibility wrapper around the authoritative Chromium PNG', 'return new AgentCaptureBundle(snapshot, png, null)'):
     if required_marker not in inspection:
-        die(f'agent capture/PDF parity marker missing: {required_marker}')
+        die(f'agent capture/PDF architecture marker missing: {required_marker}')
 if 'pt"' in inspection or '}pt' in inspection:
     die('Playwright PDF dimensions must use documented px/in/cm/mm units; pt is not supported')
 
@@ -239,7 +275,7 @@ if re.search(r'--mount=type=cache[^\n]*target=/root/\.nuget/packages', dockerfil
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
 cloudflare_real_ip = text('apps/gateway/snippets/cloudflare-real-ip.conf')
-for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections', 'location = /ai-access', 'location = /sitemap.xml', 'location ^~ /ai-artifacts/'):
+for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections', 'limit_conn tf_browser_capture_connections', 'limit_conn_status 429', 'location = /ai-access', 'location = /sitemap.xml', 'location ^~ /ai-artifacts/'):
     if marker not in routes:
         die(f'gateway Browser API protection missing: {marker}')
 if 'X-TaskForge-Client-IP $remote_addr' not in proxy or 'CF-Connecting-IP ""' not in proxy:
@@ -263,6 +299,8 @@ for template in ('dev.conf', 'http.conf', 'https.conf'):
         die(f'{template} restores real client IP after the Browser API rate-limit zone is defined')
     if 'limit_conn_zone $binary_remote_addr zone=tf_browser_connections' not in value:
         die(f'{template} has no Browser API connection zone')
+    if 'limit_conn_zone $binary_remote_addr zone=tf_browser_capture_connections' not in value:
+        die(f'{template} has no dedicated Browser capture connection zone')
 
 for environment in ('dev', 'prod'):
     compose_path = root / f'deploy/{environment}/compose/50-integrations.yaml'

@@ -16,6 +16,7 @@ public sealed class BrowserOptions
     public int NavigationTimeoutSeconds { get; set; } = 20;
     public int ActionTimeoutSeconds { get; set; } = 10;
     public int DefaultWaitMilliseconds { get; set; } = 800;
+    public int AgentCaptureWaitMilliseconds { get; set; } = 150;
     public int MaxWaitMilliseconds { get; set; } = 5000;
     public int AppReadyTimeoutMilliseconds { get; set; } = 3500;
     public int FontReadyTimeoutMilliseconds { get; set; } = 1500;

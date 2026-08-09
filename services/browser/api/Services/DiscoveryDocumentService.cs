@@ -41,17 +41,19 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 renderPng = $"{root}/api/site/render?path=/courses&width=390&height=844",
                 renderAnnotatedPng = $"{root}/api/site/render?path=/courses&width=390&height=844&annotated=true",
                 renderPdf = $"{root}/api/site/render.pdf?path=/courses&width=390&height=844",
-                crawlerCapture = $"{root}/api/site/agent/capture/main/390/844/full/",
+                crawlerCapture = $"{root}/api/site/agent/capture/main/390/844/viewport/",
                 recommendedCaptureConcurrency = _options.RecommendedCaptureConcurrency,
                 captureTimeoutSeconds = _options.CaptureTimeoutSeconds,
                 captureCacheSeconds = _options.CaptureCacheSeconds,
+                captureSettleMilliseconds = _options.AgentCaptureWaitMilliseconds,
                 artifactTtlSeconds = _options.AgentArtifactTtlSeconds,
                 notes = new[]
                 {
                     "Use site=ct for the CT frontend.",
                     "Snapshot elements receive stable-within-snapshot tfN references for interactive session actions.",
-                    "Crawler capture snapshots include source, current-viewport, mobile and desktop follow-up capture links.",
-                    "Do not issue parallel expensive captures beyond recommendedCaptureConcurrency. Identical public captures are single-flight coalesced and briefly cached."
+                    "Crawler capture snapshots include source, current-viewport, mobile and desktop follow-up capture links; mobile/desktop discovery links prefer viewport mode for low latency.",
+                    "Do not issue parallel expensive captures beyond recommendedCaptureConcurrency. Identical public captures are single-flight coalesced and briefly cached.",
+                    "Public crawler captures synchronously persist snapshot JSON and PNG only. Use /api/site/render.pdf explicitly when a PDF is required."
                 }
             },
             semanticSnapshot = new
@@ -111,7 +113,7 @@ TaskForge.by is an educational platform for programming courses, study notes, co
 ## Start from only the domain name
 If an automated client knows only `{{root}}` and cannot execute the React application, open `{{root}}/ai-access`. The root HTML advertises this crawler entry point, `/.well-known/taskforge-ai.json` and `/llms.txt` without requiring JavaScript.
 
-`/ai-access` contains ordinary crawlable links to route captures. A capture generates short-lived immutable URLs for snapshot JSON, the authoritative Chromium PNG, and a PDF compatibility wrapper. Capture pages and snapshot JSON also expose follow-up links for the source page, the current viewport, mobile 390x844 and desktop 1440x900.
+`/ai-access` contains ordinary crawlable links to low-latency viewport captures. A public capture generates short-lived immutable URLs for snapshot JSON and the authoritative Chromium PNG. Use `/api/site/render.pdf` explicitly when a PDF is required. Capture pages and snapshot JSON also expose follow-up links for the source page, the current viewport, mobile 390x844 and desktop 1440x900.
 
 ## Anonymous visitors
 Anonymous agents see the same public pages as unauthenticated human visitors. They do not need a special URL or share token. Anonymous interactive sessions are always read-only.
@@ -143,7 +145,8 @@ Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls a
 - PNG: `GET {{root}}/api/site/render?path=/courses&width=390&height=844`
 - Annotated PNG: `GET {{root}}/api/site/render?path=/courses&width=390&height=844&annotated=true`
 - PDF: `GET {{root}}/api/site/render.pdf?path=/courses&width=390&height=844`
-- Crawler-friendly capture page: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
+- Crawler-friendly fast capture page: `GET {{root}}/api/site/agent/capture/main/390/844/viewport/courses`
+- Full-page crawler capture when explicitly needed: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
 
 Semantic snapshot version `2.0` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
 

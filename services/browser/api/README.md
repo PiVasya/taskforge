@@ -23,8 +23,8 @@ Agents that know only `https://taskforge.by` can discover the Browser API withou
 `GET /ai-access` is a plain crawlable HTML index. For anonymous public routes it exposes queryless capture links such as:
 
 ```text
-GET /api/site/agent/capture/main/390/844/full/
-GET /api/site/agent/capture/main/1440/900/full/news
+GET /api/site/agent/capture/main/390/844/viewport/
+GET /api/site/agent/capture/main/1440/900/viewport/news
 ```
 
 A capture opens the real page in Chromium once and persists short-lived Redis artifacts under content-addressed SHA-256 ids:
@@ -166,7 +166,7 @@ Browser:MaxArtifactResponseBytes    default 32 MiB
 
 A valid render may be returned without being cached when it exceeds the cache limit. A render over the response limit is rejected with HTTP 413.
 
-Public crawler captures have an independent bounded deadline (`Browser:CaptureTimeoutSeconds`, default 75 seconds). Navigation waits for DOM readiness, then a bounded `data-taskforge-ready`/mounted-root signal and font stabilization rather than unbounded `networkidle`. A timeout returns a structured HTTP 504 diagnostic including the stage, safe URL, readiness state and pending requests; the gateway timeout is deliberately longer so this response reaches the caller.
+Public crawler captures have an independent bounded deadline (`Browser:CaptureTimeoutSeconds`, default 75 seconds), but the discovery path is optimized for short external crawler deadlines: it uses `Browser:AgentCaptureWaitMilliseconds` (default 150 ms), persists snapshot JSON + PNG synchronously, and leaves PDF to the explicit `/api/site/render.pdf` endpoint. Navigation waits for DOM readiness, then a bounded `data-taskforge-ready`/mounted-root signal and font stabilization rather than unbounded `networkidle`. A true server timeout returns a structured HTTP 504 diagnostic including the stage, safe URL, readiness state and pending requests; a caller disconnect is logged separately and is not reported as an internal server failure.
 
 ## Rate-limit response contract
 

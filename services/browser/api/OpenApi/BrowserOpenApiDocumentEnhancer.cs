@@ -354,7 +354,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
         SetBinaryResponse(paths, "/api/site/render", "get", "image/png", "Authoritative Chromium PNG.");
         SetBinaryResponse(paths, "/api/site/render.pdf", "get", "application/pdf", "PDF compatibility wrapper around the authoritative PNG.");
         SetBinaryResponse(paths, "/api/browser/sessions/{id}/screenshot", "get", "image/png", "Current browser-session screenshot.");
-        SetTextResponseByPrefix(paths, "/api/site/agent/capture/", "get", "text/html", "Crawler-friendly capture manifest with temporary snapshot/PNG/PDF links.");
+        SetTextResponseByPrefix(paths, "/api/site/agent/capture/", "get", "text/html", "Crawler-friendly low-latency capture manifest with temporary snapshot/PNG links. PDF is requested separately through /api/site/render.pdf when needed.");
         SetArtifactResponse(paths, "/ai-artifacts/{id}/{fileName}");
 
         SetJsonResponse(paths, "/api/site/info", "get", "200", "SiteInfoResponse", "Browser API capabilities and limits.");

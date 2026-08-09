@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi;
@@ -15,6 +16,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1024 * 1024);
 builder.Services.AddTaskForgeDebugDiagnostics("browser-api");
 builder.Services.AddTaskForgeRedisCache(builder.Configuration, "browser-api");
+builder.Services.AddHttpClient("support-bot", (sp, client) =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    client.BaseAddress = new Uri((cfg["Services:SupportBot"] ?? cfg["AiAccessTelemetry:SupportBotBaseUrl"] ?? "http://support-bot:8080").TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
 builder.Services.AddValidation();
 
 var browserOptions = builder.Configuration.GetSection("Browser").Get<BrowserOptions>() ?? new BrowserOptions();
@@ -40,6 +47,8 @@ builder.Services.AddSingleton<AgentAccessService>();
 builder.Services.AddSingleton<PublicAgentArtifactStore>();
 builder.Services.AddSingleton<PublicAgentCaptureService>();
 builder.Services.AddSingleton<BrowserOpenApiDocumentEnhancer>();
+builder.Services.AddSingleton<AiAccessTelemetryReporter>();
+builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AiAccessTelemetryReporter>());
 
 builder.Services.AddCors(options => options.AddPolicy("public-browser-api", policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()
@@ -106,6 +115,19 @@ app.Use(async (http, next) =>
 });
 app.Use(async (http, next) =>
 {
+    if (!AiAccessTelemetryReporter.IsTrackedPath(http.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    var started = Stopwatch.GetTimestamp();
+    await next();
+    var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    http.RequestServices.GetRequiredService<AiAccessTelemetryReporter>().Capture(http, elapsedMs);
+});
+app.Use(async (http, next) =>
+{
     try
     {
         await next();
@@ -118,6 +140,13 @@ app.Use(async (http, next) =>
         http.Response.StatusCode = ex.StatusCode;
         http.Response.ContentType = "application/json; charset=utf-8";
         await http.Response.WriteAsJsonAsync(new ApiError(ex.Message, ex.Code, http.TraceIdentifier, ex.RetryAfterSeconds, ex.Details));
+    }
+    catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+    {
+        // A crawler/browser client may enforce a shorter deadline than Browser API.
+        // Do not report a disconnected caller as a server-side 500.
+        app.Logger.LogInformation("Browser API request canceled by client. trace={TraceId} path={Path}", http.TraceIdentifier, http.Request.Path);
+        if (!http.Response.HasStarted) http.Response.StatusCode = 499;
     }
     catch (PlaywrightException ex)
     {

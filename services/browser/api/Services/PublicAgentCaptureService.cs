@@ -77,6 +77,10 @@ public sealed class PublicAgentCaptureService(
 
         try
         {
+            _logger.LogInformation(
+                "Public agent capture started. site={Site} path={Path} viewport={Width}x{Height} fullPage={FullPage}",
+                site, path, width, height, fullPage);
+
             var secondCacheCheck = await TryReadCachedAsync(key, timeout.Token);
             if (secondCacheCheck is not null) return secondCacheCheck;
 
@@ -86,7 +90,7 @@ public sealed class PublicAgentCaptureService(
                 path,
                 width,
                 height,
-                _options.DefaultWaitMilliseconds,
+                _options.AgentCaptureWaitMilliseconds,
                 fullPage,
                 timeout.Token);
 
@@ -98,10 +102,17 @@ public sealed class PublicAgentCaptureService(
 
             stage = "cache-pointer";
             await WritePointerAsync(key, manifest.Id, timeout.Token);
+            _logger.LogInformation(
+                "Public agent capture completed. site={Site} path={Path} viewport={Width}x{Height} fullPage={FullPage} elapsedMs={ElapsedMilliseconds} artifact={ArtifactId} pdf={HasPdf}",
+                site, path, width, height, fullPage, started.ElapsedMilliseconds, manifest.Id, manifest.HasPdf);
             return new PublicAgentCaptureResult(manifest, bundle.Snapshot, false);
         }
         catch (OperationCanceledException ex)
         {
+            _logger.LogWarning(
+                ex,
+                "Public agent capture timed out. site={Site} path={Path} viewport={Width}x{Height} fullPage={FullPage} stage={Stage} elapsedMs={ElapsedMilliseconds}",
+                site, path, width, height, fullPage, stage, started.ElapsedMilliseconds);
             throw new BrowserApiException(
                 StatusCodes.Status504GatewayTimeout,
                 "AGENT_CAPTURE_TIMEOUT",
@@ -167,7 +178,7 @@ public sealed class PublicAgentCaptureService(
 
     private string CaptureKey(string site, string path, int width, int height, bool fullPage)
     {
-        var raw = string.Join('|', _options.DeploymentVersion, site, path, width, height, fullPage, _options.DefaultWaitMilliseconds);
+        var raw = string.Join('|', _options.DeploymentVersion, site, path, width, height, fullPage, _options.AgentCaptureWaitMilliseconds);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw))).ToLowerInvariant();
     }
 

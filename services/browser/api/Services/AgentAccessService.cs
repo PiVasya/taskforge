@@ -32,7 +32,7 @@ public sealed class AgentAccessService(
           .Append("<h2>Product summary</h2><p><strong>TaskForge.by</strong> is an educational platform for programming courses, study notes, coding and test assignments, automated solution checking, progress tracking and ratings.</p><p>This is the non-JavaScript entry point for automated clients. If an agent only knows <code>").Append(Html(root)).Append("</code>, it should discover this page from the root HTML and continue here.</p>")
           .Append("<p class=\"links\"><a href=\"/.well-known/taskforge-ai.json\">Discovery JSON</a><a href=\"/llms.txt\">llms.txt</a><a href=\"/api/site/info\">Site API info</a><a href=\"/api/site/routes\">Route catalog</a><a href=\"/api/browser/openapi.json\">OpenAPI</a></p>")
           .Append("<h2>Visual captures that do not require query-string links</h2>")
-          .Append("<p>Each capture link opens the real TaskForge page in Chromium, stores short-lived immutable artifacts, then returns snapshot JSON and raw PNG. A PDF compatibility wrapper is included when available. PNG is the pixel-authoritative render.</p>")
+          .Append("<p>Each capture link opens the real TaskForge page in Chromium and stores short-lived immutable snapshot JSON plus the authoritative PNG. Discovery links use viewport captures for low latency; request full-page or PDF renders only when they are actually needed.</p>")
           .Append("<p class=\"muted\">Public captures are anonymous and read-only. Authenticated/private pages are intentionally not persisted into public artifact URLs.</p>");
 
         foreach (var siteGroup in _routeCatalog.GetRoutes().GroupBy(route => route.Site, StringComparer.OrdinalIgnoreCase))
@@ -44,8 +44,8 @@ public sealed class AgentAccessService(
             foreach (var route in siteGroup.Where(IsCrawlerLinkable))
             {
                 var pathTail = EncodePathTail(route.Path);
-                var mobile = $"/api/site/agent/capture/{Uri.EscapeDataString(site)}/390/844/full/{pathTail}";
-                var desktop = $"/api/site/agent/capture/{Uri.EscapeDataString(site)}/1440/900/full/{pathTail}";
+                var mobile = $"/api/site/agent/capture/{Uri.EscapeDataString(site)}/390/844/viewport/{pathTail}";
+                var desktop = $"/api/site/agent/capture/{Uri.EscapeDataString(site)}/1440/900/viewport/{pathTail}";
                 sb.Append("<section class=\"route\"><strong>")
                   .Append(Html(route.Title)).Append("</strong> <code>").Append(Html(route.Path)).Append("</code>")
                   .Append("<div class=\"links\"><a href=\"").Append(Html(mobile)).Append("\">mobile 390x844</a>")
@@ -80,8 +80,8 @@ public sealed class AgentAccessService(
                     Name = label,
                     SourcePath = href,
                     CaptureCurrentViewport = CapturePath(site, snapshot.Viewport.Width, snapshot.Viewport.Height, mode, href),
-                    CaptureMobile = CapturePath(site, 390, 844, "full", href),
-                    CaptureDesktop = CapturePath(site, 1440, 900, "full", href)
+                    CaptureMobile = CapturePath(site, 390, 844, "viewport", href),
+                    CaptureDesktop = CapturePath(site, 1440, 900, "viewport", href)
                 };
             })
             .ToList();
@@ -114,7 +114,7 @@ public sealed class AgentAccessService(
         html.Append("<li><a href=\"").Append(Html(root + "/ai-access")).Append("\">back to TaskForge AI access</a></li></ul>")
             .Append(manifest.HasPdf
                 ? "<p>Visual agents should prefer the PNG when their client can inspect images. PDF exists only as a compatibility wrapper.</p>"
-                : "<p>Visual agents should use the PNG. The optional PDF compatibility wrapper was not available for this capture.</p>");
+                : "<p>Visual agents should use the PNG. Public crawler captures intentionally skip synchronous PDF generation for latency; use /api/site/render.pdf only when a PDF is required.</p>");
 
         if (snapshot.DiscoveredLinks.Count > 0)
         {

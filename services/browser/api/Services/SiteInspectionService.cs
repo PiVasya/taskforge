@@ -238,38 +238,14 @@ public sealed class SiteInspectionService(
                     capture.Annotated,
                     false);
 
-                stage = "pdf-wrapper";
-                RenderArtifact? pdf = null;
-                using var pdfTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                pdfTimeout.CancelAfter(TimeSpan.FromSeconds(System.Math.Clamp(_options.ActionTimeoutSeconds * 2, 5, 20)));
-                try
-                {
-                    var pdfBytes = await BuildPdfFromCaptureAsync(handle.Page, capture, pdfTimeout.Token);
-                    pdf = new RenderArtifact(
-                        pdfBytes,
-                        "application/pdf",
-                        capture.Width,
-                        capture.Height,
-                        capture.FullPage,
-                        capture.FullPageTruncated,
-                        capture.Annotated,
-                        false);
-                }
-                catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-                {
-                    // The PDF wrapper has its own smaller budget so it cannot consume the
-                    // whole public-capture deadline after snapshot + PNG already succeeded.
-                    _logger.LogWarning(ex, "Public agent PDF compatibility wrapper timed out for {Url}; publishing snapshot and PNG only.", snapshot.Url);
-                }
-                catch (Exception ex) when (ex is PlaywrightException or BrowserApiException)
-                {
-                    // PDF is only a compatibility wrapper. Never make crawler discovery fail
-                    // when the authoritative snapshot + Chromium PNG were captured successfully.
-                    _logger.LogWarning(ex, "Public agent PDF compatibility wrapper failed for {Url}; publishing snapshot and PNG only.", snapshot.Url);
-                }
-
+                // Public crawler discovery is latency-sensitive. Snapshot JSON and the
+                // authoritative Chromium PNG are sufficient to inspect the page, while the
+                // PDF is merely a compatibility wrapper and can be requested explicitly via
+                // /api/site/render.pdf when a client actually needs it. Generating the PDF
+                // here used to add another Playwright SetContent/Pdf round-trip to every
+                // capture and pushed otherwise healthy pages beyond short crawler deadlines.
                 stage = "complete";
-                return new AgentCaptureBundle(snapshot, png, pdf);
+                return new AgentCaptureBundle(snapshot, png, null);
             }
             catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
             {

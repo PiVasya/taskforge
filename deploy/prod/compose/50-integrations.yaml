@@ -69,6 +69,17 @@ services:
       SupportApi__BaseUrl: http://support-api:8080
       IdentityApi__BaseUrl: http://identity-api:8080
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      AiAccessTelemetry__Enabled: ${AI_ACCESS_TELEMETRY_ENABLED:-true}
+      AiAccessTelemetry__ChatId: ${AI_ACCESS_TELEMETRY_CHAT_ID:-}
+      AiAccessTelemetry__QuietSeconds: ${AI_ACCESS_TELEMETRY_QUIET_SECONDS:-45}
+      AiAccessTelemetry__MinNotificationIntervalSeconds: ${AI_ACCESS_TELEMETRY_MIN_NOTIFICATION_INTERVAL_SECONDS:-120}
+      AiAccessTelemetry__MaxDigestIntervalSeconds: ${AI_ACCESS_TELEMETRY_MAX_DIGEST_INTERVAL_SECONDS:-300}
+      AiAccessTelemetry__DiscoveryOnlyMinEvents: ${AI_ACCESS_TELEMETRY_DISCOVERY_MIN_EVENTS:-4}
+      AiAccessTelemetry__RetentionSeconds: ${AI_ACCESS_TELEMETRY_RETENTION_SECONDS:-900}
+      AiAccessTelemetry__MaxPendingEvents: ${AI_ACCESS_TELEMETRY_MAX_PENDING_EVENTS:-2000}
+      AiAccessTelemetry__MaxEventsPerDigest: ${AI_ACCESS_TELEMETRY_MAX_EVENTS_PER_DIGEST:-500}
+      AiAccessTelemetry__MaxVisitorsPerDigest: ${AI_ACCESS_TELEMETRY_MAX_VISITORS_PER_DIGEST:-6}
+      AiAccessTelemetry__IncludeFullIp: ${AI_ACCESS_TELEMETRY_INCLUDE_FULL_IP:-false}
       Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
       Telegram__SupportGroupId: ${SUPPORT_BOT_GROUP_ID:-}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
@@ -357,6 +368,10 @@ services:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
+      Services__SupportBot: http://support-bot:8080
+      InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
+      AiAccessTelemetry__Enabled: ${AI_ACCESS_TELEMETRY_ENABLED:-true}
+      AiAccessTelemetry__SupportBotBaseUrl: http://support-bot:8080
       Jwt__Key: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
@@ -373,6 +388,7 @@ services:
       Browser__NavigationTimeoutSeconds: ${BROWSER_NAVIGATION_TIMEOUT_SECONDS:-20}
       Browser__ActionTimeoutSeconds: ${BROWSER_ACTION_TIMEOUT_SECONDS:-10}
       Browser__DefaultWaitMilliseconds: ${BROWSER_DEFAULT_WAIT_MILLISECONDS:-800}
+      Browser__AgentCaptureWaitMilliseconds: ${BROWSER_AGENT_CAPTURE_WAIT_MILLISECONDS:-150}
       Browser__MaxWaitMilliseconds: ${BROWSER_MAX_WAIT_MILLISECONDS:-5000}
       Browser__AppReadyTimeoutMilliseconds: ${BROWSER_APP_READY_TIMEOUT_MILLISECONDS:-3500}
       Browser__FontReadyTimeoutMilliseconds: ${BROWSER_FONT_READY_TIMEOUT_MILLISECONDS:-1500}

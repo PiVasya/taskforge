@@ -193,12 +193,14 @@ snapshot=load('snapshot.json')
 session=load('session.json')
 session_snapshot=load('session-snapshot.json')
 
-assert discovery.get('apiVersion') == '1.1', 'unexpected discovery API version'
+assert discovery.get('apiVersion') == '1.2', 'unexpected discovery API version'
 assert discovery.get('agentAccess'), 'AI discovery does not advertise agent access index'
-assert info.get('name') == 'TaskForge', 'site info is invalid'
+assert discovery.get('siteInspection', {}).get('recommendedCaptureConcurrency') == 1, 'unexpected crawler concurrency recommendation'
+assert info.get('name') == 'TaskForge.by', 'site info is invalid'
 assert isinstance(routes.get('routes'), list) and routes['routes'], 'route catalog is empty'
 for value, label in ((snapshot, 'stateless'), (session_snapshot, 'session')):
     assert value.get('url'), f'{label} snapshot has no URL'
+    assert value.get('semanticSnapshotVersion') == '2.0', f'{label} snapshot version is invalid'
     assert isinstance(value.get('elements'), list), f'{label} snapshot elements are missing'
     assert 'ariaSnapshot' in value, f'{label} snapshot ARIA field is missing'
 assert session.get('readOnly') is True, 'anonymous smoke session is not read-only'

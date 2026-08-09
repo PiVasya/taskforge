@@ -10,6 +10,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
+using TaskForge.Identity.Api.Services.Telemetry;
 
 using TaskForge.Identity.Api.Contracts;
 using static TaskForge.Identity.Api.Services.Access.IdentityApiAccessService;
@@ -25,7 +26,7 @@ internal static partial class IdentityApiEndpoints
 {
     private static WebApplication MapAuthEndpoints(WebApplication app)
     {
-        app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
+        app.MapPost("/api/auth/register", async (RegisterRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg, AiAccessTelemetryClient aiTelemetry) =>
         {
             if (await CheckAuthRateLimitAsync(http, "register", request.Login ?? request.Email) is { } limited) return limited;
 
@@ -60,11 +61,15 @@ internal static partial class IdentityApiEndpoints
             db.Users.Add(user);
             db.UiSettings.Add(new UserUiSettings { UserId = user.Id, DataJson = DefaultUiSettingsJson() });
             await db.SaveChangesAsync();
+            if (string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase))
+            {
+                aiTelemetry.RecordAiAccountEvent(http, user.Id, user.Login, "ai-account-register");
+            }
 
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Пользователь зарегистрирован", userId = user.Id, login = user.Login, role = user.Role, accountType = user.AccountType, isAi = user.AccountType == "ai" });
         });
 
-        app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
+        app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg, AiAccessTelemetryClient aiTelemetry) =>
         {
             if (await CheckAuthRateLimitAsync(http, "login", request.Login ?? request.Email) is { } limited) return limited;
 
@@ -135,6 +140,10 @@ internal static partial class IdentityApiEndpoints
             var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
             var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
             SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
+            if (string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase))
+            {
+                aiTelemetry.RecordAiAccountEvent(http, user.Id, user.Login, "ai-account-login");
+            }
             return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
         });
 
