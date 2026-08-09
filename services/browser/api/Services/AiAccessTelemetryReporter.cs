@@ -49,6 +49,9 @@ public sealed class AiAccessTelemetryReporter(
     {
         var value = path.Value ?? string.Empty;
         return value.Equals("/.well-known/taskforge-ai.json", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("/.well-known/taskforge-ai-browser.json", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("/ai-browser", StringComparison.OrdinalIgnoreCase)
+               || value.StartsWith("/api/ai/browser", StringComparison.OrdinalIgnoreCase)
                || value.Equals("/llms.txt", StringComparison.OrdinalIgnoreCase)
                || value.Equals("/ai-access", StringComparison.OrdinalIgnoreCase)
                || value.Equals("/api/browser/openapi.json", StringComparison.OrdinalIgnoreCase)
@@ -191,6 +194,8 @@ public sealed class AiAccessTelemetryReporter(
     {
         var path = http.Request.Path.Value ?? string.Empty;
         if (path.Equals("/.well-known/taskforge-ai.json", StringComparison.OrdinalIgnoreCase)) return ("discovery", "discovery-json", null, null);
+        if (path.Equals("/.well-known/taskforge-ai-browser.json", StringComparison.OrdinalIgnoreCase)) return ("discovery", "remote-browser-discovery", null, null);
+        if (path.Equals("/ai-browser", StringComparison.OrdinalIgnoreCase)) return ("discovery", "remote-browser-workbench", null, null);
         if (path.Equals("/llms.txt", StringComparison.OrdinalIgnoreCase)) return ("discovery", "llms", null, null);
         if (path.Equals("/ai-access", StringComparison.OrdinalIgnoreCase)) return ("discovery", "ai-access", null, null);
         if (path.Equals("/api/browser/openapi.json", StringComparison.OrdinalIgnoreCase)) return ("discovery", "openapi", null, null);
@@ -219,6 +224,17 @@ public sealed class AiAccessTelemetryReporter(
         if (path.Equals("/api/browser/sessions", StringComparison.OrdinalIgnoreCase))
         {
             return ("session", http.Request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase) ? "create" : "sessions", null, null);
+        }
+
+        if (path.StartsWith("/api/ai/browser", StringComparison.OrdinalIgnoreCase))
+        {
+            // Never inspect query values here: capability keys and fill values live there for GET-only clients.
+            var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var operation = "remote-browser";
+            if (path.Equals("/api/ai/browser/start", StringComparison.OrdinalIgnoreCase)) operation = "remote-start";
+            else if (path.Equals("/api/ai/browser/confirm", StringComparison.OrdinalIgnoreCase)) operation = "remote-confirm";
+            else if (segments.Length >= 6) operation = "remote-" + (segments.ElementAtOrDefault(5) ?? "session");
+            return (operation.Contains("screenshot", StringComparison.OrdinalIgnoreCase) || operation.Contains("view", StringComparison.OrdinalIgnoreCase) ? "render" : "session", Clamp(operation, 48) ?? "remote-browser", null, null);
         }
 
         if (path.StartsWith("/api/browser/sessions/", StringComparison.OrdinalIgnoreCase))

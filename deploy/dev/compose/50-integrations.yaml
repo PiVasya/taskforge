@@ -394,6 +394,26 @@ services:
       Browser__MaxArtifactResponseBytes: ${BROWSER_MAX_ARTIFACT_RESPONSE_BYTES:-33554432}
       Browser__ReduceMotion: ${BROWSER_REDUCE_MOTION:-true}
       Browser__DeploymentVersion: dev
+      AiRemoteBrowser__Enabled: ${AI_REMOTE_BROWSER_ENABLED:-true}
+      AiRemoteBrowser__AllowGetMutations: ${AI_REMOTE_BROWSER_ALLOW_GET_MUTATIONS:-true}
+      AiRemoteBrowser__DefaultSite: ${AI_REMOTE_BROWSER_DEFAULT_SITE:-main}
+      AiRemoteBrowser__DefaultPath: ${AI_REMOTE_BROWSER_DEFAULT_PATH:-/}
+      AiRemoteBrowser__DefaultWidth: ${AI_REMOTE_BROWSER_DEFAULT_WIDTH:-1440}
+      AiRemoteBrowser__DefaultHeight: ${AI_REMOTE_BROWSER_DEFAULT_HEIGHT:-900}
+      AiRemoteBrowser__DefaultWaitMilliseconds: ${AI_REMOTE_BROWSER_DEFAULT_WAIT_MILLISECONDS:-1000}
+      AiRemoteBrowser__StartChallengeTtlSeconds: ${AI_REMOTE_BROWSER_START_CHALLENGE_TTL_SECONDS:-300}
+      AiRemoteBrowser__SessionIdleMinutes: ${AI_REMOTE_BROWSER_SESSION_IDLE_MINUTES:-45}
+      AiRemoteBrowser__SessionAbsoluteMinutes: ${AI_REMOTE_BROWSER_SESSION_ABSOLUTE_MINUTES:-105}
+      AiRemoteBrowser__MaxSessionsPerNetwork: ${AI_REMOTE_BROWSER_MAX_SESSIONS_PER_NETWORK:-2}
+      AiRemoteBrowser__MaxValueCharacters: ${AI_REMOTE_BROWSER_MAX_VALUE_CHARACTERS:-20000}
+      AiRemoteBrowser__StartLimit: ${AI_REMOTE_BROWSER_START_LIMIT:-30}
+      AiRemoteBrowser__StartWindowSeconds: ${AI_REMOTE_BROWSER_START_WINDOW_SECONDS:-60}
+      AiRemoteBrowser__ConfirmLimit: ${AI_REMOTE_BROWSER_CONFIRM_LIMIT:-5}
+      AiRemoteBrowser__ConfirmWindowSeconds: ${AI_REMOTE_BROWSER_CONFIRM_WINDOW_SECONDS:-60}
+      AiRemoteBrowser__ActionLimit: ${AI_REMOTE_BROWSER_ACTION_LIMIT:-240}
+      AiRemoteBrowser__ActionWindowSeconds: ${AI_REMOTE_BROWSER_ACTION_WINDOW_SECONDS:-60}
+      AiRemoteBrowser__ScreenshotLimit: ${AI_REMOTE_BROWSER_SCREENSHOT_LIMIT:-30}
+      AiRemoteBrowser__ScreenshotWindowSeconds: ${AI_REMOTE_BROWSER_SCREENSHOT_WINDOW_SECONDS:-60}
       BrowserRateLimits__Enabled: ${BROWSER_RATE_LIMITS_ENABLED:-true}
       BrowserRateLimits__MetadataLimit: ${BROWSER_METADATA_LIMIT:-120}
       BrowserRateLimits__MetadataWindowSeconds: ${BROWSER_METADATA_WINDOW_SECONDS:-60}

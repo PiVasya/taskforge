@@ -29,16 +29,34 @@ public sealed partial class BrowserSessionRegistry(
 
     public int ActiveCount => _sessions.Count;
 
-    public async Task<(BrowserSession Session, string RawToken, SiteSnapshotResponse Snapshot)> CreateAsync(
+    public Task<(BrowserSession Session, string RawToken, SiteSnapshotResponse Snapshot)> CreateAsync(
         CreateBrowserSessionRequest request,
         BrowserCaller caller,
+        CancellationToken cancellationToken)
+        => CreateCoreAsync(request, caller, allowAnonymousInteractive: false, cancellationToken);
+
+    // Internal compatibility entry point for restricted AI remote-browser sessions.
+    // It is intentionally not exposed as a normal Browser API endpoint: the public
+    // POST /api/browser/sessions contract still requires a real TaskForge bearer
+    // token for readOnly=false. The AI bridge protects this session with its own
+    // high-entropy capability key and never exposes the raw browser session token.
+    internal Task<(BrowserSession Session, string RawToken, SiteSnapshotResponse Snapshot)> CreateAgentInteractiveAsync(
+        CreateBrowserSessionRequest request,
+        BrowserCaller caller,
+        CancellationToken cancellationToken)
+        => CreateCoreAsync(request with { ReadOnly = false }, caller, allowAnonymousInteractive: true, cancellationToken);
+
+    private async Task<(BrowserSession Session, string RawToken, SiteSnapshotResponse Snapshot)> CreateCoreAsync(
+        CreateBrowserSessionRequest request,
+        BrowserCaller caller,
+        bool allowAnonymousInteractive,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var width = request.Width ?? 1440;
         var height = request.Height ?? 900;
         var readOnly = request.ReadOnly ?? true;
-        if (!readOnly && !caller.IsAuthenticated)
+        if (!readOnly && !caller.IsAuthenticated && !allowAnonymousInteractive)
         {
             throw new BrowserApiException(
                 StatusCodes.Status401Unauthorized,
@@ -183,6 +201,68 @@ public sealed partial class BrowserSessionRegistry(
             await locator.FillAsync(value).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 100, cancellationToken);
         }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
+
+    // Internal low-level primitives for GET-only AI compatibility. They operate on
+    // the same real Playwright page and are intentionally not separate business APIs.
+    internal Task<BrowserActionResponse> InsertTextAsync(
+        Guid id,
+        string? token,
+        BrowserCaller caller,
+        string elementId,
+        string value,
+        int? waitMs,
+        CancellationToken cancellationToken)
+        => UseActionAsync(id, token, caller, "insert", async session =>
+        {
+            if (value.Length > 4000)
+            {
+                throw new BrowserApiException(StatusCodes.Status400BadRequest, "VALUE_TOO_LONG", "Один insert-фрагмент не должен превышать 4000 символов.");
+            }
+            var locator = await ResolveElementAsync(session, elementId);
+            await locator.FocusAsync().WaitAsync(cancellationToken);
+            await session.Handle.Page.Keyboard.InsertTextAsync(value).WaitAsync(cancellationToken);
+            await _pageFactory.StabilizeAsync(session.Handle, 100, cancellationToken);
+        }, true, waitMs, cancellationToken);
+
+    internal Task<BrowserActionResponse> KeyboardPressAsync(
+        Guid id,
+        string? token,
+        BrowserCaller caller,
+        string key,
+        int? waitMs,
+        CancellationToken cancellationToken)
+        => UseActionAsync(id, token, caller, "key", async session =>
+        {
+            var normalized = (key ?? string.Empty).Trim();
+            if (normalized.Length is < 1 or > 64 || normalized.Any(char.IsControl))
+            {
+                throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_KEY", "Укажите корректную клавишу Playwright.");
+            }
+            await session.Handle.Page.Keyboard.PressAsync(normalized).WaitAsync(cancellationToken);
+            await _pageFactory.StabilizeAsync(session.Handle, 200, cancellationToken);
+        }, true, waitMs, cancellationToken);
+
+    internal Task<BrowserActionResponse> MouseClickAsync(
+        Guid id,
+        string? token,
+        BrowserCaller caller,
+        double x,
+        double y,
+        int clickCount,
+        int? waitMs,
+        CancellationToken cancellationToken)
+        => UseActionAsync(id, token, caller, "mouse-click", async session =>
+        {
+            if (x < 0 || x > session.Handle.Width || y < 0 || y > session.Handle.Height)
+            {
+                throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_MOUSE_COORDINATES", "Координаты должны находиться внутри текущего viewport.");
+            }
+            await session.Handle.Page.Mouse.ClickAsync((float)x, (float)y, new MouseClickOptions
+            {
+                ClickCount = System.Math.Clamp(clickCount, 1, 2)
+            }).WaitAsync(cancellationToken);
+            await _pageFactory.StabilizeAsync(session.Handle, 250, cancellationToken);
+        }, true, waitMs, cancellationToken);
 
     public Task<BrowserActionResponse> PressAsync(
         Guid id,
@@ -424,16 +504,39 @@ public sealed partial class BrowserSessionRegistry(
 
     private static async Task<ILocator> ResolveElementAsync(BrowserSession session, string? elementId)
     {
-        var id = (elementId ?? string.Empty).Trim().ToLowerInvariant();
-        if (!ElementIdPattern().IsMatch(id))
+        var raw = (elementId ?? string.Empty).Trim();
+        ILocator locator;
+        if (TransientElementIdPattern().IsMatch(raw))
         {
-            throw new BrowserApiException(StatusCodes.Status400BadRequest, "INVALID_ELEMENT_ID", "Используйте elementId из последнего snapshot, например tf12.");
+            var id = raw.ToLowerInvariant();
+            locator = session.Handle.Page.Locator($"[data-taskforge-agent-id=\"{id}\"]");
+        }
+        else if (AutomationElementIdPattern().IsMatch(raw))
+        {
+            locator = session.Handle.Page.Locator($"[data-taskforge-automation-id=\"{raw}\"]");
+        }
+        else
+        {
+            throw new BrowserApiException(
+                StatusCodes.Status400BadRequest,
+                "INVALID_ELEMENT_ID",
+                "Используйте tfN из последнего snapshot или стабильный automationId, например register-first-name или solution-code-editor.");
         }
 
-        var locator = session.Handle.Page.Locator($"[data-taskforge-agent-id=\"{id}\"]");
-        if (await locator.CountAsync() != 1)
+        var count = await locator.CountAsync();
+        if (count == 0)
         {
-            throw new BrowserApiException(StatusCodes.Status409Conflict, "STALE_ELEMENT_ID", "Элемент больше не существует или snapshot устарел. Получите новый snapshot.");
+            throw new BrowserApiException(
+                StatusCodes.Status409Conflict,
+                "STALE_ELEMENT_ID",
+                "Элемент больше не существует или текущая страница изменилась. Получите новый snapshot.");
+        }
+        if (count > 1)
+        {
+            throw new BrowserApiException(
+                StatusCodes.Status409Conflict,
+                "AMBIGUOUS_AUTOMATION_ID",
+                "automationId должен однозначно определять один элемент страницы.");
         }
 
         return locator;
@@ -503,8 +606,11 @@ public sealed partial class BrowserSessionRegistry(
         return aa.Length == bb.Length && CryptographicOperations.FixedTimeEquals(aa, bb);
     }
 
-    [GeneratedRegex("^tf[1-9][0-9]{0,5}$", RegexOptions.CultureInvariant)]
-    private static partial Regex ElementIdPattern();
+    [GeneratedRegex("^tf[1-9][0-9]{0,5}$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex TransientElementIdPattern();
+
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$", RegexOptions.CultureInvariant)]
+    private static partial Regex AutomationElementIdPattern();
 }
 
 public sealed class BrowserSession

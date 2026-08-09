@@ -8,6 +8,7 @@ using TaskForge.Browser.Api.Contracts;
 using TaskForge.Browser.Api.Infrastructure;
 using TaskForge.Browser.Api.OpenApi;
 using TaskForge.Browser.Api.Diagnostics;
+using TaskForge.Browser.Api.Endpoints;
 using TaskForge.Browser.Api.Security;
 using TaskForge.Browser.Api.Services;
 
@@ -26,8 +27,10 @@ builder.Services.AddValidation();
 
 var browserOptions = builder.Configuration.GetSection("Browser").Get<BrowserOptions>() ?? new BrowserOptions();
 var rateOptions = builder.Configuration.GetSection("BrowserRateLimits").Get<BrowserRateLimitOptions>() ?? new BrowserRateLimitOptions();
+var aiRemoteOptions = builder.Configuration.GetSection("AiRemoteBrowser").Get<AiRemoteBrowserOptions>() ?? new AiRemoteBrowserOptions();
 builder.Services.AddSingleton(browserOptions);
 builder.Services.AddSingleton(rateOptions);
+builder.Services.AddSingleton(aiRemoteOptions);
 builder.Services.AddSingleton<BrowserUrlPolicy>();
 builder.Services.AddSingleton<BrowserCallerResolver>();
 builder.Services.AddSingleton<RedisFixedWindowRateLimiter>();
@@ -41,6 +44,9 @@ builder.Services.AddSingleton<BrowserScreenshotService>();
 builder.Services.AddSingleton<SiteInspectionService>();
 builder.Services.AddSingleton<BrowserSessionRegistry>();
 builder.Services.AddHostedService<BrowserSessionCleanupService>();
+builder.Services.AddSingleton<AiRemoteBrowserSessionStore>();
+builder.Services.AddSingleton<AiRemoteBrowserService>();
+builder.Services.AddHostedService<AiRemoteBrowserCleanupService>();
 builder.Services.AddSingleton<SiteRouteCatalog>();
 builder.Services.AddSingleton<DiscoveryDocumentService>();
 builder.Services.AddSingleton<AgentAccessService>();
@@ -57,15 +63,15 @@ builder.Services.AddCors(options => options.AddPolicy("public-browser-api", poli
             "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
             "X-TaskForge-Browser-Session-Token", "X-TaskForge-Agent-Artifact-Id", "X-TaskForge-Agent-Artifact-Expires",
             "X-TaskForge-Capture-Cache", "X-TaskForge-Cache", "X-TaskForge-Snapshot-Version", "X-TaskForge-Render-Width", "X-TaskForge-Render-Height",
-            "X-TaskForge-Full-Page", "X-TaskForge-Full-Page-Truncated", "X-TaskForge-Annotated")));
+            "X-TaskForge-Full-Page", "X-TaskForge-Full-Page-Truncated", "X-TaskForge-Annotated", "X-TaskForge-AI-Remote-Session")));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("openapi", new OpenApiInfo
     {
         Title = "TaskForge.by Browser and Agent API",
-        Version = "1.2",
-        Description = "Public, rate-limited TaskForge.by APIs for semantic snapshots, visual renders and controlled interactive Chromium sessions restricted to configured TaskForge origins."
+        Version = "1.3",
+        Description = "Public, rate-limited TaskForge.by APIs for semantic snapshots, visual renders, controlled interactive Chromium sessions and a low-level GET-compatible remote-browser adapter for restricted AI clients. All browser controls are restricted to configured TaskForge origins."
     });
     options.AddSecurityDefinition("BrowserSessionToken", new OpenApiSecurityScheme
     {
@@ -87,6 +93,7 @@ builder.Services.AddHealthChecks().AddCheck<BrowserRuntimeHealthCheck>("chromium
 var app = builder.Build();
 
 ValidateConfiguration(app.Configuration, app.Environment, browserOptions, rateOptions);
+ValidateAiRemoteConfiguration(aiRemoteOptions, browserOptions);
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
@@ -102,7 +109,7 @@ app.Use(async (http, next) =>
     http.Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
 
     var path = http.Request.Path.Value ?? string.Empty;
-    if (path is "/.well-known/taskforge-ai.json" or "/llms.txt" or "/api/browser/openapi.json" or "/ai-access" or "/sitemap.xml")
+    if (path is "/.well-known/taskforge-ai.json" or "/.well-known/taskforge-ai-browser.json" or "/llms.txt" or "/api/browser/openapi.json" or "/ai-access" or "/ai-browser" or "/sitemap.xml")
     {
         http.Response.Headers.CacheControl = "public, max-age=300";
     }
@@ -202,6 +209,8 @@ app.UseSwagger(options => options.RouteTemplate = "api/browser/{documentName}.js
 
 app.MapHealthChecks("/health").ExcludeFromDescription();
 
+app.MapAiRemoteBrowserEndpoints();
+
 app.MapGet("/.well-known/taskforge-ai.json", (HttpRequest request, DiscoveryDocumentService discovery) =>
     Results.Json(discovery.BuildDiscovery(request)))
     .WithName("GetTaskForgeAiDiscovery")
@@ -221,24 +230,38 @@ app.MapGet("/robots.txt", (HttpRequest request) =>
     {
         "User-agent: MJ12bot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: AhrefsBot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: SemrushBot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: Googlebot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: bingbot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: YandexBot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: DuckDuckBot",
         "Disallow: /ai-artifacts/",
+        "Disallow: /api/ai/browser/confirm",
+        "Disallow: /api/ai/browser/s/",
         "",
         "User-agent: *",
         "Allow: /",
@@ -274,7 +297,7 @@ app.MapGet("/api/site/info", async (
     var root = PublicRoot(http.Request);
     return Results.Ok(new SiteInfoResponse(
         "TaskForge.by",
-        "1.2",
+        "1.3",
         policy.DefaultSite,
         policy.Sites.ToDictionary(x => x.Key, x => x.Value.AbsoluteUri.TrimEnd('/')),
         true,
@@ -874,6 +897,22 @@ static void ValidateConfiguration(
         if (string.IsNullOrWhiteSpace(redis))
             throw new InvalidOperationException("Production browser-api requires a Redis connection string.");
     }
+}
+
+static void ValidateAiRemoteConfiguration(AiRemoteBrowserOptions options, BrowserOptions browser)
+{
+    EnsureRange(options.StartChallengeTtlSeconds, 30, 1800, "AiRemoteBrowser:StartChallengeTtlSeconds");
+    EnsureRange(options.SessionIdleMinutes, 5, browser.SessionIdleMinutes, "AiRemoteBrowser:SessionIdleMinutes");
+    EnsureRange(options.SessionAbsoluteMinutes, options.SessionIdleMinutes, browser.SessionAbsoluteMinutes, "AiRemoteBrowser:SessionAbsoluteMinutes");
+    EnsureRange(options.MaxSessionsPerNetwork, 1, 10, "AiRemoteBrowser:MaxSessionsPerNetwork");
+    EnsureRange(options.MaxValueCharacters, 1000, 20000, "AiRemoteBrowser:MaxValueCharacters");
+    EnsureRange(options.DefaultWidth, browser.MinViewportWidth, browser.MaxViewportWidth, "AiRemoteBrowser:DefaultWidth");
+    EnsureRange(options.DefaultHeight, browser.MinViewportHeight, browser.MaxViewportHeight, "AiRemoteBrowser:DefaultHeight");
+    EnsureRange(options.DefaultWaitMilliseconds, 0, browser.MaxWaitMilliseconds, "AiRemoteBrowser:DefaultWaitMilliseconds");
+    EnsureRateRule(options.StartLimit, options.StartWindowSeconds, "AiRemoteBrowser:Start");
+    EnsureRateRule(options.ConfirmLimit, options.ConfirmWindowSeconds, "AiRemoteBrowser:Confirm");
+    EnsureRateRule(options.ActionLimit, options.ActionWindowSeconds, "AiRemoteBrowser:Action");
+    EnsureRateRule(options.ScreenshotLimit, options.ScreenshotWindowSeconds, "AiRemoteBrowser:Screenshot");
 }
 
 static void EnsureRateRule(int limit, int windowSeconds, string name)

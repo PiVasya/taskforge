@@ -42,8 +42,14 @@ internal static partial class IdentityApiEndpoints
             if (await db.Users.AnyAsync(x => x.Login == login)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким логином уже существует." });
             if (!string.IsNullOrWhiteSpace(email) && await db.Users.AnyAsync(x => x.Email == email)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Пользователь с таким email уже существует." });
 
-            var firstUser = !await db.Users.AnyAsync();
-            var role = ResolveInitialRole(email ?? string.Empty, firstUser, cfg);
+            // AI accounts are deliberately self-declared and must never acquire
+            // bootstrap/admin privileges just by being the first registration.
+            // Preserve the original first-user bootstrap for the first human account.
+            var firstHumanUser = string.Equals(accountType, "human", StringComparison.OrdinalIgnoreCase)
+                                 && !await db.Users.AnyAsync(x => x.AccountType == "human");
+            var role = string.Equals(accountType, "ai", StringComparison.OrdinalIgnoreCase)
+                ? "User"
+                : ResolveInitialRole(email ?? string.Empty, firstHumanUser, cfg);
             var salt = NewSalt();
             var user = new IdentityUser
             {

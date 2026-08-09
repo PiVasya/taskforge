@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
@@ -50,6 +51,7 @@ public sealed class SnapshotBuilder(
         var readiness = handle.Readiness;
         readiness.PendingRequestCount = handle.Events.PendingRequestCount;
         readiness.PendingRequests = handle.Events.PendingRequests();
+        var browserIdentity = await ResolveBrowserIdentityAsync(handle);
 
         return new SiteSnapshotResponse
         {
@@ -58,12 +60,12 @@ public sealed class SnapshotBuilder(
             Url = SafePageUrl(handle.Page.Url),
             Title = await handle.Page.TitleAsync().WaitAsync(cancellationToken),
             CapturedAtUtc = DateTimeOffset.UtcNow,
-            Authenticated = handle.Caller.IsAuthenticated,
-            AccountType = handle.Caller.IsAuthenticated ? handle.Caller.AccountType : "anonymous",
+            Authenticated = browserIdentity.Authenticated,
+            AccountType = browserIdentity.AccountType,
             ReadOnly = handle.ReadOnly,
-            CaptureMode = handle.Caller.IsAuthenticated
+            CaptureMode = browserIdentity.Authenticated
                 ? handle.ReadOnly ? "authenticated-read-only" : "authenticated-interactive"
-                : "anonymous-read-only",
+                : handle.ReadOnly ? "anonymous-read-only" : "agent-interactive-bootstrap",
             PolicyInterference = policyBlocked.Count > 0,
             PageReadyState = readiness.PageReadyState,
             AppReady = readiness.AppReady,
@@ -88,6 +90,40 @@ public sealed class SnapshotBuilder(
                 TotalInteractiveElements = payload.Document.InteractiveElementCount
             }
         };
+    }
+
+
+    private static async Task<(bool Authenticated, string AccountType)> ResolveBrowserIdentityAsync(BrowserPageHandle handle)
+    {
+        if (handle.Caller.IsAuthenticated)
+        {
+            return (true, string.IsNullOrWhiteSpace(handle.Caller.AccountType) ? "authenticated" : handle.Caller.AccountType);
+        }
+
+        try
+        {
+            var cookies = await handle.Context.CookiesAsync(new[] { handle.SiteBaseUri.AbsoluteUri });
+            var access = cookies.FirstOrDefault(cookie => string.Equals(cookie.Name, "tf_at", StringComparison.Ordinal));
+            if (access is null || string.IsNullOrWhiteSpace(access.Value)) return (false, "anonymous");
+
+            var accountType = "authenticated";
+            try
+            {
+                var jwt = new JwtSecurityTokenHandler().ReadJwtToken(access.Value);
+                accountType = jwt.Claims.FirstOrDefault(claim => string.Equals(claim.Type, "account_type", StringComparison.OrdinalIgnoreCase))?.Value
+                              ?? accountType;
+            }
+            catch
+            {
+                // The cookie is only used as a UI/auth-state signal here. Token
+                // validation remains the responsibility of the ordinary APIs.
+            }
+            return (true, accountType);
+        }
+        catch (PlaywrightException)
+        {
+            return (false, "anonymous");
+        }
     }
 
     private async Task<string> BuildAriaSnapshotAsync(IPage page, CancellationToken cancellationToken)

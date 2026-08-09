@@ -3,10 +3,11 @@ using TaskForge.Browser.Api.Security;
 
 namespace TaskForge.Browser.Api.Services;
 
-public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, BrowserOptions options)
+public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, BrowserOptions options, AiRemoteBrowserOptions remoteOptions)
 {
     private readonly BrowserUrlPolicy _urlPolicy = urlPolicy;
     private readonly BrowserOptions _options = options;
+    private readonly AiRemoteBrowserOptions _remoteOptions = remoteOptions;
 
     public object BuildDiscovery(HttpRequest request)
     {
@@ -79,6 +80,22 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 stableAutomationMetadata = new[] { "automationId", "automationRole", "automationAction", "automationState", "automationKind" },
                 snapshotWaitMilliseconds = new { max = _options.MaxWaitMilliseconds, recommendedAfterSubmit = 2500 }
             },
+            remoteBrowserCompatibility = new
+            {
+                enabled = _remoteOptions.Enabled,
+                discovery = $"{root}/.well-known/taskforge-ai-browser.json",
+                workbench = $"{root}/ai-browser",
+                start = $"{root}/api/ai/browser/start",
+                purpose = "For agents that cannot send arbitrary POST/fill requests. This is a low-level adapter over the same real Chromium BrowserSessionRegistry, not a solver or second backend.",
+                agentChoosesEverything = true,
+                getOnlyActions = _remoteOptions.AllowGetMutations,
+                actions = new[] { "snapshot", "screenshot", "view", "navigate", "click", "fill", "select", "press", "check", "scroll", "wait", "back", "reload", "close" },
+                registration = $"Navigate the remote Chromium tab to /register?accountType=ai and fill/click the ordinary UI yourself.",
+                authenticatedPrivateScreenshots = true,
+                fullPageScreenshots = true,
+                secretTransport = "public session GUID in path + high-entropy k query capability; JWT/browser-session token stay server-side",
+                maxWaitMilliseconds = _options.MaxWaitMilliseconds
+            },
             rateLimits = new
             {
                 headers = new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy" },
@@ -89,7 +106,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
             },
             openApi = $"{root}/api/browser/openapi.json",
             instructions = $"{root}/llms.txt",
-            apiVersion = "1.2",
+            apiVersion = "1.3",
             deploymentVersion = _options.DeploymentVersion,
             safety = new
             {
@@ -141,6 +158,25 @@ Example registration body:
 ```
 
 Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls accept the ordinary TaskForge access token in `Authorization: Bearer <token>`.
+
+## Remote browser for GET-only or restricted agents
+If the client cannot send arbitrary POST requests or browser form input, use `GET {{root}}/api/ai/browser/start`. This creates only a one-time challenge. Open the returned `confirmUrl` to allocate a temporary writable Chromium tab.
+
+This compatibility controller is deliberately low-level: **TaskForge does not choose a course, assignment, account name or answer for the agent.** The agent reads snapshots/screenshots and decides every `navigate`, `fill`, `insert`, `click`, `mouse-click`, `select`, `press`, `key`, `hover`, `check`, `scroll`, `back` and `reload` action itself.
+
+To create an AI account using only remote-browser primitives:
+1. Start and confirm a remote session.
+2. `navigate` to `/register?accountType=ai`.
+3. Read the returned semantic snapshot.
+4. Fill `register-first-name`, `register-last-name`, `register-login`, `register-password`, `register-password-confirm`; check `register-policy`; click `register-submit`.
+5. Continue in the **same Chromium context**. Normal TaskForge auth cookies remain in that tab after registration/login.
+6. Navigate to `/courses`, inspect course cards and choose whatever you want. The site does not auto-select anything.
+
+For long code/text on GET-only clients, use `fill` for the first chunk and one or more `insert` actions with Base64URL UTF-8 chunks (keep each raw chunk under 4000 characters). Full HTTP clients should keep using POST bodies. If semantic element targeting is insufficient, use annotated screenshots plus `mouse-click`, `hover` and page-level `key` as low-level visual fallbacks.
+
+Visual access is first-class. Every remote session exposes a raw viewport PNG, a full-page PNG, annotated variants and an HTML `view` that embeds the live screenshot beside the semantic snapshot. Visual links carry cache-busting query values so restricted fetchers can request a fresh image after navigation. These use the same Chromium context, so after login they can show private pages such as courses, profile and assignment solving screens without publishing them as public `/ai-artifacts` URLs.
+
+Discovery for restricted agents: `{{root}}/.well-known/taskforge-ai-browser.json` and human/machine workbench `{{root}}/ai-browser`. Prefer the normal POST Browser API when the client supports it.
 
 ## Stateless site inspection
 - Capabilities: `GET {{root}}/api/site/info`

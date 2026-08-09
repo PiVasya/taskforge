@@ -31,8 +31,8 @@ public sealed class BrowserOpenApiDocumentEnhancer
     {
         var info = EnsureObject(root, "info");
         info["title"] = "TaskForge.by Browser and Agent API";
-        info["version"] = "1.2";
-        info["description"] = "Machine-readable TaskForge.by contract for public semantic inspection, PNG/PDF Chromium renders, crawler captures, ordinary AI-account authentication helpers and controlled interactive sessions. Session-scoped endpoints require X-TaskForge-Browser-Session-Token; authenticated sessions additionally require the same ordinary TaskForge Bearer identity that created the session.";
+        info["version"] = "1.3";
+        info["description"] = "Machine-readable TaskForge.by contract for public semantic inspection, PNG/PDF Chromium renders, crawler captures, ordinary AI-account authentication helpers, controlled interactive sessions and the low-level GET-compatible AI remote-browser adapter. The remote adapter controls the same real Chromium BrowserSessionRegistry and never chooses courses, assignments or answers for the agent.";
     }
 
     private static void PatchSecuritySchemes(JsonObject components)
@@ -195,7 +195,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
         });
         PatchProperty(schemas, "CreateBrowserSessionRequest", "path", RelativePathSchema());
         PatchProperty(schemas, "NavigateBrowserSessionRequest", "path", RelativePathSchema());
-        PatchProperty(schemas, "SnapshotElement", "automationId", NullableStringSchema("Stable TaskForge automation identifier. Prefer this field to recognize the same logical control across snapshots; send the current ephemeral element id (tfN) to action endpoints."));
+        PatchProperty(schemas, "SnapshotElement", "automationId", NullableStringSchema("Stable TaskForge automation identifier. Prefer this field across snapshots. Action endpoints accept either this stable automationId or the current ephemeral tfN element id."));
         PatchProperty(schemas, "SnapshotElement", "automationRole", NullableStringSchema("Stable machine role such as course-card, assignment-card, code-editor, solution-submit or solution-status."));
         PatchProperty(schemas, "SnapshotElement", "automationAction", NullableStringSchema("Stable intended action such as open-course, open-assignment, fill-solution-code, select-language or submit-code-solution."));
         PatchProperty(schemas, "SnapshotElement", "automationState", NullableStringSchema("Machine-readable current state such as solved, unsolved, completed, incomplete, accepted, rejected, queued or running."));
@@ -484,7 +484,8 @@ public sealed class BrowserOpenApiDocumentEnhancer
             new JsonObject { ["name"] = "Authentication helpers", ["description"] = "Identity endpoints documented for ordinary AI-account onboarding." },
             new JsonObject { ["name"] = "Site inspection", ["description"] = "Stateless semantic and visual inspection." },
             new JsonObject { ["name"] = "Agent access", ["description"] = "Crawler-friendly short-lived public capture artifacts." },
-            new JsonObject { ["name"] = "Interactive browser", ["description"] = "Controlled Chromium sessions addressed by tfN element references." }
+            new JsonObject { ["name"] = "Interactive browser", ["description"] = "Controlled Chromium sessions addressed by transient tfN or stable automationId references." },
+            new JsonObject { ["name"] = "AI remote browser", ["description"] = "Low-level GET/POST compatibility control of the same real Chromium session for restricted AI clients; the agent decides every action." }
         };
     }
 
@@ -514,8 +515,8 @@ public sealed class BrowserOpenApiDocumentEnhancer
     {
         ["type"] = "string",
         ["nullable"] = nullable,
-        ["pattern"] = "^tf[1-9][0-9]{0,5}$",
-        ["description"] = "Element reference from the latest semantic snapshot. Refresh after navigation or major DOM changes."
+        ["pattern"] = "^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$",
+        ["description"] = "Either the current ephemeral tfN reference or a stable automationId from the semantic snapshot. Refresh tfN references after navigation or major DOM changes."
     };
 
     private static void PatchSuccessHeaders(JsonObject responses, JsonObject rateHeaders)
@@ -756,6 +757,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
     private static bool IsBrowserRateLimitedPath(string path)
         => path.StartsWith("/api/site/", StringComparison.Ordinal)
            || path.StartsWith("/api/browser/sessions", StringComparison.Ordinal)
+           || path.StartsWith("/api/ai/browser", StringComparison.Ordinal)
            || path.StartsWith("/ai-artifacts/", StringComparison.Ordinal);
 
     private static bool IsVisualArtifactPath(string path)
@@ -767,7 +769,9 @@ public sealed class BrowserOpenApiDocumentEnhancer
         => path is "/api/site/snapshot" or "/api/site/render" or "/api/site/render.pdf"
            || path.StartsWith("/api/site/agent/capture/", StringComparison.Ordinal)
            || (path == "/api/browser/sessions" && method == "post")
-           || (path.StartsWith("/api/browser/sessions/", StringComparison.Ordinal) && method != "delete");
+           || (path.StartsWith("/api/browser/sessions/", StringComparison.Ordinal) && method != "delete")
+           || path.StartsWith("/api/ai/browser/confirm", StringComparison.Ordinal)
+           || path.StartsWith("/api/ai/browser/s/", StringComparison.Ordinal);
 
     private static bool IsAuthenticationHelperPath(string path)
         => path is "/api/auth/register" or "/api/auth/login";

@@ -40,6 +40,12 @@ required = [
     'services/browser/api/Services/AgentAccessService.cs',
     'services/browser/api/Services/PublicAgentArtifactStore.cs',
     'services/browser/api/Services/AiAccessTelemetryReporter.cs',
+    'services/browser/api/Configuration/AiRemoteBrowserOptions.cs',
+    'services/browser/api/Contracts/AiRemoteBrowserContracts.cs',
+    'services/browser/api/Endpoints/AiRemoteBrowserEndpoints.cs',
+    'services/browser/api/Services/AiRemoteBrowserSessionStore.cs',
+    'services/browser/api/Services/AiRemoteBrowserService.cs',
+    'services/browser/api/Services/AiRemoteBrowserCleanupService.cs',
     'services/bots/support-bot/AiAccessTelemetry.cs',
     'services/identity/api/Services/Telemetry/AiAccessTelemetryClient.cs',
     'tools/browser-url-policy-check/TaskForge.Browser.UrlPolicyCheck.csproj',
@@ -64,6 +70,7 @@ for marker in (
     'BROWSER_API_RECURSION_BLOCKED',
     '"/api/site"',
     '"/api/browser"',
+    '"/api/ai/browser"',
     'SameOrigin(baseUri, target)',
     'IsBrowserApiEndpoint',
 ):
@@ -103,6 +110,49 @@ for marker in (
 ):
     if marker not in sessions:
         die(f'session security marker missing: {marker}')
+
+# The GET-only compatibility layer may create a writable anonymous Chromium tab,
+# but only through one internal method. The normal Browser API contract must stay
+# bearer-protected for readOnly=false.
+for marker in ('CreateAgentInteractiveAsync', 'allowAnonymousInteractive: false', 'allowAnonymousInteractive: true'):
+    if marker not in sessions:
+        die(f'AI remote-browser bootstrap marker missing: {marker}')
+
+identity_auth = text('services/identity/api/Endpoints/Auth/AuthEndpoints.cs')
+for marker in ('firstHumanUser', 'x.AccountType == "human"', '? "User"', 'ResolveInitialRole(email ?? string.Empty, firstHumanUser, cfg)'):
+    if marker not in identity_auth:
+        die(f'AI self-registration must not consume or inherit first-human bootstrap privileges: {marker}')
+
+remote_endpoints = text('services/browser/api/Endpoints/AiRemoteBrowserEndpoints.cs')
+remote_service = text('services/browser/api/Services/AiRemoteBrowserService.cs')
+remote_store = text('services/browser/api/Services/AiRemoteBrowserSessionStore.cs')
+for marker in (
+    'MapGet("/api/ai/browser/start"',
+    'MapGet("/api/ai/browser/confirm"',
+    '/s/{id:guid}/snapshot',
+    '/s/{id:guid}/screenshot',
+    '/s/{id:guid}/view',
+    '/s/{id:guid}/navigate',
+    '/s/{id:guid}/fill',
+    '/s/{id:guid}/insert',
+    '/s/{id:guid}/click',
+    '/s/{id:guid}/mouse-click',
+    '/s/{id:guid}/hover',
+    '/s/{id:guid}/key',
+    'fullPage=true',
+    'accountCreationIsNotAutomated',
+    'agentControlsRealRegistrationAndLoginForms',
+):
+    if marker not in remote_endpoints:
+        die(f'AI remote-browser primitive missing: {marker}')
+for forbidden in ('next-assignment', 'choose-course', 'solve-course', 'solve-assignment', 'create-account-for-agent'):
+    if forbidden in (remote_endpoints + remote_service).lower():
+        die(f'AI remote browser must stay low-level; found high-level workflow marker: {forbidden}')
+for marker in ('RandomSecret(32)', 'FixedEquals', 'SecretHash = Hash(secret)', 'MaxSessionsPerNetwork'):
+    if marker not in remote_store:
+        die(f'AI remote-browser capability security marker missing: {marker}')
+if 'BrowserSessionToken' not in remote_store or 'BrowserSessionToken' not in remote_service:
+    die('AI compatibility layer must wrap the existing BrowserSessionRegistry token instead of creating a second browser backend')
 
 access_policy = text('services/browser/api/Security/BrowserSessionAccessPolicy.cs')
 for marker in (
@@ -155,6 +205,16 @@ for forbidden_marker in ('Request.Cookies', 'Headers.Authorization', 'AccessToke
     if forbidden_marker in telemetry:
         die(f'AI access telemetry must not collect sensitive value: {forbidden_marker}')
 
+debug_diag = text('services/browser/api/Diagnostics/TaskForgeDebugDiagnostics.cs')
+for required_marker in ('IsSensitiveAiRemotePath', '[redacted-ai-remote-query]', '<redacted ai-remote request body>', '!sensitiveAiRemote && ShouldCaptureResponse'):
+    if required_marker not in debug_diag:
+        die(f'AI remote-browser secret/input logging protection missing: {required_marker}')
+
+gateway_debug = text('apps/gateway/99-select-config.sh')
+gateway_ai_telemetry = text('apps/gateway/snippets/ai-telemetry-http.conf')
+if '$http_referer' in gateway_debug or '$http_referer' in gateway_ai_telemetry:
+    die('gateway logs must not persist raw referrer URLs because AI capability URLs can contain secrets')
+
 support_telemetry = text('services/bots/support-bot/AiAccessTelemetry.cs')
 for required_marker in (
     'MinNotificationIntervalSeconds',
@@ -177,6 +237,7 @@ for forbidden_marker in ('Password', 'Email', 'Authorization', 'Cookie', 'Access
 
 for required_marker in (
     'MapGet("/ai-access"',
+    'MapAiRemoteBrowserEndpoints()',
     'MapGet("/api/site/agent/playbook"',
     'MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**path}"',
     'MapGet("/ai-artifacts/{id}/{fileName}"',
@@ -239,7 +300,7 @@ for required_marker in ('bool HasPdf = true', 'RenderArtifact? pdf', 'if (pdf is
         die(f'public agent artifact optional-PDF resilience marker missing: {required_marker}')
 
 frontend_index = text('apps/web/public/index.html')
-for required_marker in ('href="/ai-access"', 'taskforge-ai-discovery', 'href="/llms.txt"'):
+for required_marker in ('href="/ai-access"', 'taskforge-ai-discovery', 'href="/llms.txt"', 'taskforge-ai-browser.json'):
     if required_marker not in frontend_index:
         die(f'root HTML no longer advertises AI discovery without JavaScript: {required_marker}')
 
@@ -307,7 +368,7 @@ if re.search(r'--mount=type=cache[^\n]*target=/root/\.nuget/packages', dockerfil
 routes = text('apps/gateway/snippets/api-routes.conf')
 proxy = text('apps/gateway/snippets/proxy-common.conf')
 cloudflare_real_ip = text('apps/gateway/snippets/cloudflare-real-ip.conf')
-for marker in ('^/api/(site|browser)', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections', 'limit_conn tf_browser_capture_connections', 'limit_conn_status 429', 'location = /ai-access', 'location = /sitemap.xml', 'location ^~ /ai-artifacts/'):
+for marker in ('^/api/(site|browser)', 'location ^~ /api/ai/browser', 'location = /.well-known/taskforge-ai-browser.json', 'location = /ai-browser', 'limit_req zone=tf_browser_public', 'limit_conn tf_browser_connections', 'limit_conn tf_browser_capture_connections', 'limit_conn_status 429', 'location = /ai-access', 'location = /sitemap.xml', 'location ^~ /ai-artifacts/'):
     if marker not in routes:
         die(f'gateway Browser API protection missing: {marker}')
 if 'X-TaskForge-Client-IP $remote_addr' not in proxy or 'CF-Connecting-IP ""' not in proxy:
@@ -359,7 +420,7 @@ for environment in ('dev', 'prod'):
     if 'docker.sock' in volumes:
         die(f'{environment}: browser-api must never mount the Docker socket')
     environment_values = service.get('environment') or {}
-    for key in ('ConnectionStrings__Redis', 'BrowserRateLimits__Enabled', 'Browser__Sites__main', 'Browser__MaxCachedArtifactBytes', 'Browser__MaxArtifactResponseBytes'):
+    for key in ('ConnectionStrings__Redis', 'BrowserRateLimits__Enabled', 'Browser__Sites__main', 'Browser__MaxCachedArtifactBytes', 'Browser__MaxArtifactResponseBytes', 'AiRemoteBrowser__Enabled', 'AiRemoteBrowser__AllowGetMutations'):
         if key not in environment_values:
             die(f'{environment}: browser-api environment misses {key}')
     if environment == 'prod':

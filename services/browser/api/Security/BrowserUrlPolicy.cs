@@ -7,7 +7,8 @@ public sealed class BrowserUrlPolicy
     private static readonly string[] BrowserApiDocumentPrefixes =
     [
         "/api/site",
-        "/api/browser"
+        "/api/browser",
+        "/api/ai/browser"
     ];
 
     private readonly IReadOnlyDictionary<string, Uri> _sites;
@@ -98,7 +99,7 @@ public sealed class BrowserUrlPolicy
             throw new BrowserApiException(
                 StatusCodes.Status400BadRequest,
                 "BROWSER_API_RECURSION_BLOCKED",
-                "Browser API не отображает собственные /api/site и /api/browser endpoints через Chromium.");
+                "Browser API не отображает собственные /api/site, /api/browser и /api/ai/browser endpoints через Chromium.");
         }
 
         return value;

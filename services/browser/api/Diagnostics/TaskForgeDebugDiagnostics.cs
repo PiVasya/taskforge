@@ -50,6 +50,7 @@ internal static class TaskForgeDebugDiagnostics
                 ?? context.Request.Headers["X-Internal-Service"].FirstOrDefault()
                 ?? context.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
                 ?? "external/browser";
+            var sensitiveAiRemote = IsSensitiveAiRemotePath(context.Request.Path.Value);
 
             logger.LogInformation(
                 "TFDBG IN START trace={TraceId} service={Service} caller={Caller} method={Method} path={Path} query={Query} endpoint={Endpoint} remote={Remote} user={UserId} role={Role} contentType={ContentType} contentLength={ContentLength}",
@@ -58,7 +59,7 @@ internal static class TaskForgeDebugDiagnostics
                 caller,
                 context.Request.Method,
                 context.Request.Path.Value,
-                context.Request.QueryString.Value,
+                sensitiveAiRemote ? "[redacted-ai-remote-query]" : context.Request.QueryString.Value,
                 context.GetEndpoint()?.DisplayName ?? "<unmatched>",
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 Short(userId),
@@ -66,7 +67,9 @@ internal static class TaskForgeDebugDiagnostics
                 context.Request.ContentType ?? "none",
                 context.Request.ContentLength);
 
-            var requestBody = await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
+            var requestBody = sensitiveAiRemote
+                ? "<redacted ai-remote request body>"
+                : await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
             if (!string.IsNullOrWhiteSpace(requestBody))
             {
                 logger.LogInformation("TFDBG IN BODY trace={TraceId} service={Service} path={Path} body={Body}", traceId, serviceName, context.Request.Path.Value, requestBody);
@@ -77,7 +80,7 @@ internal static class TaskForgeDebugDiagnostics
                 }
             }
 
-            var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
+            var captureResponse = !sensitiveAiRemote && ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
             var originalBody = context.Response.Body;
             var responseBuffer = captureResponse ? new MemoryStream() : null;
             if (captureResponse && responseBuffer is not null)
@@ -184,6 +187,10 @@ internal static class TaskForgeDebugDiagnostics
             ?? headers["X-Request-ID"].FirstOrDefault()
             ?? headers["X-TaskForge-Gateway-Request-Id"].FirstOrDefault();
     }
+
+
+    private static bool IsSensitiveAiRemotePath(string? path)
+        => (path ?? string.Empty).StartsWith("/api/ai/browser", StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldCaptureResponse(string? path, string? contentType)
     {

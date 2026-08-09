@@ -77,36 +77,36 @@ public sealed record NavigateBrowserSessionRequest(
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record ClickBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     [property: Range(1, 2)] int? ClickCount,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record FillBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     [property: StringLength(20000)] string? Value,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record PressBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     [property: Required, StringLength(64, MinimumLength = 1)] string? Key,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record SelectBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     [property: Required, StringLength(1000)] string? Value,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record HoverBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record CheckBrowserSessionRequest(
-    [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: Required, RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     bool? Checked,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
@@ -114,7 +114,7 @@ public sealed record CheckBrowserSessionRequest(
 public sealed record ScrollBrowserSessionRequest(
     [property: Range(-5000d, 5000d)] double? DeltaX,
     [property: Range(-5000d, 5000d)] double? DeltaY,
-    [property: RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
+    [property: RegularExpression("^(?:tf[1-9][0-9]{0,5}|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")] string? ElementId,
     bool? IncludeSnapshot,
     [property: Range(0, 15000)] int? WaitMs);
 
