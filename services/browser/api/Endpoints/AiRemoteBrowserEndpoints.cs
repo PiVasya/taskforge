@@ -30,7 +30,7 @@ public static class AiRemoteBrowserEndpoints
 
     private static void MapDiscovery(WebApplication app)
     {
-        app.MapGet("/.well-known/taskforge-ai-browser.json", (HttpRequest request, AiRemoteBrowserOptions options) =>
+        app.MapGet("/.well-known/taskforge-ai-browser.json", (HttpRequest request, AiRemoteBrowserOptions options, BrowserOptions browserOptions) =>
         {
             var root = PublicRoot(request);
             return Results.Json(new
@@ -51,7 +51,14 @@ public static class AiRemoteBrowserEndpoints
                     authenticatedScreenshots = true,
                     fullPageScreenshots = true,
                     accountCreationIsNotAutomated = true,
-                    agentControlsRealRegistrationAndLoginForms = true
+                    agentControlsRealRegistrationAndLoginForms = true,
+                    sessionLifetime = new
+                    {
+                        configuredIdleMinutes = options.SessionIdleMinutes,
+                        configuredAbsoluteMinutes = options.SessionAbsoluteMinutes,
+                        effectiveIdleMinutes = options.GetEffectiveSessionIdleMinutes(browserOptions),
+                        effectiveAbsoluteMinutes = options.GetEffectiveSessionAbsoluteMinutes(browserOptions)
+                    }
                 }
             });
         }).WithName("GetTaskForgeAiRemoteBrowserDiscovery").WithTags("AI remote browser").AllowAnonymous();

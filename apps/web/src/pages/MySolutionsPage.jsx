@@ -17,6 +17,7 @@ import {
   getImageThresholdPercent,
   getSolutionCode,
   getSolutionDate,
+  getSolutionAutomationState,
   getSolutionMessage,
   getSolutionOutput,
   getSolutionStatusIntent,
@@ -77,6 +78,9 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
             readOnly
             onChange={() => {}}
             height={360}
+            automationId={`solution-code-${rowId(solution) || 'details'}`}
+            automationRole="solution-code"
+            automationState="readonly"
           />
         </div>
       ) : (
@@ -139,6 +143,9 @@ function ImageSolutionDetails({ solution, fallbackLanguage }) {
             readOnly
             onChange={() => {}}
             height={320}
+            automationId={`image-solution-code-${rowId(solution) || 'details'}`}
+            automationRole="solution-code"
+            automationState="readonly"
           />
         </div>
       ) : (
@@ -535,7 +542,12 @@ export default function MySolutionsPage() {
 
   return (
     <>
-      <div className="py-6 space-y-4 min-w-0">
+      <div
+        className="py-6 space-y-4 min-w-0"
+        data-taskforge-automation-id="solution-history"
+        data-taskforge-agent-role="solution-history"
+        data-taskforge-agent-state={tab}
+      >
         <h1 className="text-2xl font-semibold">Мои решения</h1>
 
         <Card className="p-4 space-y-3">
@@ -576,7 +588,15 @@ export default function MySolutionsPage() {
                 const expanded = expandedId === id;
                 const loadingDetails = expanded && codeDetailsLoading[id];
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item"
+                    style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}
+                    data-taskforge-automation-id={`solution-history-${id}`}
+                    data-taskforge-agent-role="solution-history-item"
+                    data-taskforge-agent-state={getSolutionAutomationState(item)}
+                    data-taskforge-agent-kind="code"
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
@@ -586,7 +606,13 @@ export default function MySolutionsPage() {
                       </div>
                       <div className="flex gap-2 items-center flex-wrap">
                         <SolutionMeta solution={item} />
-                        <Button onClick={() => handleToggleCode(id)} disabled={loadingDetails}>
+                        <Button
+                          onClick={() => handleToggleCode(id)}
+                          disabled={loadingDetails}
+                          data-taskforge-automation-id={`solution-history-${id}-code`}
+                          data-taskforge-agent-role="solution-history-action"
+                          data-taskforge-agent-action={expanded ? 'hide-code' : 'show-code'}
+                        >
                           {expanded ? 'Скрыть код' : 'Показать код'}
                         </Button>
                       </div>
@@ -614,7 +640,15 @@ export default function MySolutionsPage() {
                 const dto = testDetails[id] || null;
                 const expanded = expandedTestAttemptId === id;
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item"
+                    style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}
+                    data-taskforge-automation-id={`test-attempt-${id}`}
+                    data-taskforge-agent-role="solution-history-item"
+                    data-taskforge-agent-state={a.passed ? 'accepted' : 'rejected'}
+                    data-taskforge-agent-kind="test"
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{getSolutionTitle(a)}</div>
@@ -623,7 +657,17 @@ export default function MySolutionsPage() {
                       <div className="flex gap-2 items-center">
                         <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
                         {a.allowReview === false ? <Badge intent="secondary">Просмотр скрыт</Badge> : null}
-                        {a.allowReview !== false ? <Button variant="primary" onClick={() => handleToggleTestAttempt(a)}>{expanded ? 'Скрыть' : 'Просмотреть'}</Button> : null}
+                        {a.allowReview !== false ? (
+                          <Button
+                            variant="primary"
+                            onClick={() => handleToggleTestAttempt(a)}
+                            data-taskforge-automation-id={`test-attempt-${id}-review`}
+                            data-taskforge-agent-role="solution-history-action"
+                            data-taskforge-agent-action={expanded ? 'hide-review' : 'show-review'}
+                          >
+                            {expanded ? 'Скрыть' : 'Просмотреть'}
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                     {expanded ? renderAttemptReview(dto) : null}
@@ -654,7 +698,15 @@ export default function MySolutionsPage() {
                   if (item.assignmentId) window.open(`/assignment/${item.assignmentId}/image-results?solutionId=${id}`, '_blank');
                 };
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item"
+                    style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}
+                    data-taskforge-automation-id={`image-solution-${id}`}
+                    data-taskforge-agent-role="solution-history-item"
+                    data-taskforge-agent-state={item.passed === true ? 'accepted' : item.passed === false ? 'rejected' : 'unknown'}
+                    data-taskforge-agent-kind="image"
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
@@ -668,7 +720,15 @@ export default function MySolutionsPage() {
                         {item.passed === false ? <Badge intent="danger">Не пройдено</Badge> : null}
                         {typeof similarity === 'number' ? <Badge intent={item.passed ? 'success' : 'danger'}>{Math.round(similarity * 10) / 10}%{typeof threshold === 'number' ? ` / ${Math.round(threshold)}%` : ''}</Badge> : null}
                         {item.assignmentId ? <Button variant="outline" onClick={openResult}>Открыть</Button> : null}
-                        <Button onClick={() => handleToggleImageSolution(id)} disabled={loadingDetails}>{expanded ? 'Скрыть' : 'Подробнее'}</Button>
+                        <Button
+                          onClick={() => handleToggleImageSolution(id)}
+                          disabled={loadingDetails}
+                          data-taskforge-automation-id={`image-solution-${id}-details`}
+                          data-taskforge-agent-role="solution-history-action"
+                          data-taskforge-agent-action={expanded ? 'hide-details' : 'show-details'}
+                        >
+                          {expanded ? 'Скрыть' : 'Подробнее'}
+                        </Button>
                       </div>
                     </div>
                     {loadingDetails ? <div className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Загружаю детали image-решения…</div> : null}
@@ -694,7 +754,15 @@ export default function MySolutionsPage() {
                 const dto = mathDetails[id] || null;
                 const expanded = expandedMathAttemptId === id;
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}>
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-700 rounded-xl p-4 bg-[rgb(var(--card))] tf-reveal-item"
+                    style={{ "--tf-reveal-delay": `${(index % PAGE_SIZE) * 30}ms` }}
+                    data-taskforge-automation-id={`math-attempt-${id}`}
+                    data-taskforge-agent-role="solution-history-item"
+                    data-taskforge-agent-state={a.passed ? 'accepted' : 'rejected'}
+                    data-taskforge-agent-kind="math"
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium">{getSolutionTitle(a)}</div>
@@ -704,7 +772,17 @@ export default function MySolutionsPage() {
                         <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
                         <Badge intent="secondary">{a.earnedScore}/{a.totalScore}</Badge>
                         {a.allowReview === false ? <Badge intent="secondary">Просмотр скрыт</Badge> : null}
-                        {a.allowReview !== false ? <Button variant="primary" onClick={() => handleToggleMathAttempt(a)}>{expanded ? 'Скрыть' : 'Просмотреть'}</Button> : null}
+                        {a.allowReview !== false ? (
+                          <Button
+                            variant="primary"
+                            onClick={() => handleToggleMathAttempt(a)}
+                            data-taskforge-automation-id={`math-attempt-${id}-review`}
+                            data-taskforge-agent-role="solution-history-action"
+                            data-taskforge-agent-action={expanded ? 'hide-review' : 'show-review'}
+                          >
+                            {expanded ? 'Скрыть' : 'Просмотреть'}
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                     {expanded ? <MathAttemptReview dto={dto} /> : null}

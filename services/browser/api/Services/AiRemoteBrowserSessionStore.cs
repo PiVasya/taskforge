@@ -8,9 +8,10 @@ using TaskForge.Browser.Api.Security;
 
 namespace TaskForge.Browser.Api.Services;
 
-internal sealed partial class AiRemoteBrowserSessionStore(AiRemoteBrowserOptions options)
+internal sealed partial class AiRemoteBrowserSessionStore(AiRemoteBrowserOptions options, BrowserOptions browserOptions)
 {
     private readonly AiRemoteBrowserOptions _options = options;
+    private readonly BrowserOptions _browserOptions = browserOptions;
     private readonly ConcurrentDictionary<string, AiRemoteStartChallenge> _challenges = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, AiRemoteBrowserSession> _sessions = new();
 
@@ -106,8 +107,8 @@ internal sealed partial class AiRemoteBrowserSessionStore(AiRemoteBrowserOptions
                 Height = challenge.Height,
                 CreatedAtUtc = now,
                 LastSeenAtUtc = now,
-                AbsoluteExpiresAtUtc = now.AddMinutes(Math.Clamp(_options.SessionAbsoluteMinutes, 5, 240)),
-                IdleTimeout = TimeSpan.FromMinutes(Math.Clamp(_options.SessionIdleMinutes, 5, 120))
+                AbsoluteExpiresAtUtc = now.AddMinutes(_options.GetEffectiveSessionAbsoluteMinutes(_browserOptions)),
+                IdleTimeout = TimeSpan.FromMinutes(_options.GetEffectiveSessionIdleMinutes(_browserOptions))
             };
             if (_sessions.TryAdd(id, session)) return (session, secret);
         }

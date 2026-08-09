@@ -94,6 +94,18 @@ var app = builder.Build();
 
 ValidateConfiguration(app.Configuration, app.Environment, browserOptions, rateOptions);
 ValidateAiRemoteConfiguration(aiRemoteOptions, browserOptions);
+var effectiveRemoteIdleMinutes = aiRemoteOptions.GetEffectiveSessionIdleMinutes(browserOptions);
+var effectiveRemoteAbsoluteMinutes = aiRemoteOptions.GetEffectiveSessionAbsoluteMinutes(browserOptions);
+if (effectiveRemoteIdleMinutes != aiRemoteOptions.SessionIdleMinutes
+    || effectiveRemoteAbsoluteMinutes != aiRemoteOptions.SessionAbsoluteMinutes)
+{
+    app.Logger.LogWarning(
+        "AiRemoteBrowser session lifetime is clamped by Browser session limits: configured idle={ConfiguredIdle}m absolute={ConfiguredAbsolute}m, effective idle={EffectiveIdle}m absolute={EffectiveAbsolute}m.",
+        aiRemoteOptions.SessionIdleMinutes,
+        aiRemoteOptions.SessionAbsoluteMinutes,
+        effectiveRemoteIdleMinutes,
+        effectiveRemoteAbsoluteMinutes);
+}
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
@@ -902,8 +914,8 @@ static void ValidateConfiguration(
 static void ValidateAiRemoteConfiguration(AiRemoteBrowserOptions options, BrowserOptions browser)
 {
     EnsureRange(options.StartChallengeTtlSeconds, 30, 1800, "AiRemoteBrowser:StartChallengeTtlSeconds");
-    EnsureRange(options.SessionIdleMinutes, 5, browser.SessionIdleMinutes, "AiRemoteBrowser:SessionIdleMinutes");
-    EnsureRange(options.SessionAbsoluteMinutes, options.SessionIdleMinutes, browser.SessionAbsoluteMinutes, "AiRemoteBrowser:SessionAbsoluteMinutes");
+    EnsureRange(options.SessionIdleMinutes, 5, 120, "AiRemoteBrowser:SessionIdleMinutes");
+    EnsureRange(options.SessionAbsoluteMinutes, options.SessionIdleMinutes, 240, "AiRemoteBrowser:SessionAbsoluteMinutes");
     EnsureRange(options.MaxSessionsPerNetwork, 1, 10, "AiRemoteBrowser:MaxSessionsPerNetwork");
     EnsureRange(options.MaxValueCharacters, 1000, 20000, "AiRemoteBrowser:MaxValueCharacters");
     EnsureRange(options.DefaultWidth, browser.MinViewportWidth, browser.MaxViewportWidth, "AiRemoteBrowser:DefaultWidth");

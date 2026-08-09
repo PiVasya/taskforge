@@ -93,6 +93,13 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 registration = $"Navigate the remote Chromium tab to /register?accountType=ai and fill/click the ordinary UI yourself.",
                 authenticatedPrivateScreenshots = true,
                 fullPageScreenshots = true,
+                sessionLifetime = new
+                {
+                    configuredIdleMinutes = _remoteOptions.SessionIdleMinutes,
+                    configuredAbsoluteMinutes = _remoteOptions.SessionAbsoluteMinutes,
+                    effectiveIdleMinutes = _remoteOptions.GetEffectiveSessionIdleMinutes(_options),
+                    effectiveAbsoluteMinutes = _remoteOptions.GetEffectiveSessionAbsoluteMinutes(_options)
+                },
                 secretTransport = "public session GUID in path + high-entropy k query capability; JWT/browser-session token stay server-side",
                 maxWaitMilliseconds = _options.MaxWaitMilliseconds
             },

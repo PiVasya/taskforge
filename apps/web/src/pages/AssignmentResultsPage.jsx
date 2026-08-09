@@ -345,12 +345,22 @@ export default function AssignmentResultsPage() {
             </a>
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={() => nav(0)} variant="outline">
+            <Button
+              onClick={() => nav(0)}
+              variant="outline"
+              data-taskforge-automation-id="refresh-results"
+              data-taskforge-agent-role="solution-results-action"
+              data-taskforge-agent-action="refresh-results"
+            >
               <RotateCcw size={16} className="mr-1" /> Обновить
             </Button>
           </div>
         </div>
-        <Card>
+        <Card
+          data-taskforge-automation-id="solution-results"
+          data-taskforge-agent-role="solution-status"
+          data-taskforge-agent-state="missing"
+        >
           <div className="text-neutral-500 p-3">Нет данных для отображения.</div>
         </Card>
       </>
@@ -384,14 +394,24 @@ export default function AssignmentResultsPage() {
           {view === 'smoke' && <Badge>Пробный прогон</Badge>}
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => nav(0)} variant="outline">
+          <Button
+            onClick={() => nav(0)}
+            variant="outline"
+            data-taskforge-automation-id="refresh-results"
+            data-taskforge-agent-role="solution-results-action"
+            data-taskforge-agent-action="refresh-results"
+          >
             <RotateCcw size={16} className="mr-1" /> Обновить
           </Button>
         </div>
       </div>
 
-      <Card>
-        <div className="p-4">
+      <Card
+        data-taskforge-automation-id="solution-results"
+        data-taskforge-agent-role="solution-status"
+        data-taskforge-agent-state={pending ? 'running' : passedAll ? 'accepted' : 'rejected'}
+      >
+        <div className="p-4" aria-live="polite">
           <div className="mb-3">
             {pending ? (
               <div className="text-sky-700 font-medium">Проверка ещё выполняется</div>
@@ -443,7 +463,14 @@ export default function AssignmentResultsPage() {
               const expectedText = c.expected ?? c.expectedOutput ?? c.ExpectedOutput ?? '';
               const actualText   = c.actual   ?? c.actualOutput   ?? c.ActualOutput   ?? '';
               return (
-                <div key={i} className={`rounded border p-3 ${isHiddenTestCase(c) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}>
+                <div
+                  key={i}
+                  className={`rounded border p-3 ${isHiddenTestCase(c) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}
+                  data-taskforge-automation-id={`solution-test-${i + 1}`}
+                  data-taskforge-agent-role="test-result"
+                  data-taskforge-agent-state={isCasePassedStrict(c) ? 'passed' : 'failed'}
+                  data-taskforge-agent-kind={isHiddenTestCase(c) ? 'hidden' : 'visible'}
+                >
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-medium">Тест #{i + 1}</div>

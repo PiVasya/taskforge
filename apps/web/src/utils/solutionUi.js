@@ -100,6 +100,11 @@ export function getSolutionStatusIntent(solutionOrStatus) {
   return 'secondary';
 }
 
+export function getSolutionAutomationState(solution) {
+  if (isPendingSolution(solution)) return 'running';
+  return isAcceptedSolution(solution) ? 'accepted' : 'rejected';
+}
+
 export function getSolutionScore(solution) {
   return firstNumber(solution?.score, solution?.Score, solution?.result?.score, solution?.result?.scorePercent);
 }

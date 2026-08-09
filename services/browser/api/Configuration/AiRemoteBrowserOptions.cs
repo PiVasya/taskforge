@@ -22,4 +22,14 @@ public sealed class AiRemoteBrowserOptions
     public int ActionWindowSeconds { get; set; } = 60;
     public int ScreenshotLimit { get; set; } = 30;
     public int ScreenshotWindowSeconds { get; set; } = 60;
+
+    public int GetEffectiveSessionIdleMinutes(BrowserOptions browser)
+        => Math.Min(Math.Clamp(SessionIdleMinutes, 5, 120), browser.SessionIdleMinutes);
+
+    public int GetEffectiveSessionAbsoluteMinutes(BrowserOptions browser)
+    {
+        var idle = GetEffectiveSessionIdleMinutes(browser);
+        var absolute = Math.Min(Math.Clamp(SessionAbsoluteMinutes, 5, 240), browser.SessionAbsoluteMinutes);
+        return Math.Max(idle, absolute);
+    }
 }
