@@ -773,3 +773,104 @@ html.neo-brutal .tf-modal-backdrop {
   background: rgba(20 20 22 / 0.48);
   backdrop-filter: none;
 }
+
+/* Sidebar groups should not become giant framed cards in neo-brutal mode. */
+html.neo-brutal .side-nav-panel {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal .dnd-nest-hint {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.7rem;
+  background: rgb(var(--brand-200));
+  box-shadow: 4px 4px 0 -1px rgb(var(--neo-ink));
+  font-weight: 850;
+  backdrop-filter: none;
+}
+
+html.neo-brutal .course-flow-shell {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(var(--neo-ink) / 0.13) 1px, transparent 1.5px),
+    rgb(var(--card));
+  background-size: 18px 18px;
+  box-shadow: 6px 6px 0 -2px rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-help {
+  border-bottom: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--card));
+}
+
+html.neo-brutal .course-flow-root-node,
+html.neo-brutal .course-flow-node,
+html.neo-brutal .course-flow-add-node {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.85rem;
+  box-shadow: 5px 5px 0 -2px rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-node--course {
+  background: rgb(255 223 111);
+  color: rgb(20 20 22);
+}
+
+html.dark.neo-brutal .course-flow-node--course {
+  background: rgb(115 90 32);
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .course-flow-node--assignment {
+  background: rgb(var(--card));
+}
+
+html.neo-brutal .course-flow-node--drop-inside {
+  background: rgb(var(--brand-200));
+  box-shadow: 7px 7px 0 -2px rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-handle {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--brand-300));
+  box-shadow: none;
+}
+
+html.neo-brutal .course-flow-connector-line {
+  height: 3px;
+  background: rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-connector-arrow {
+  color: rgb(var(--neo-ink));
+  font-weight: 900;
+}
+
+html.neo-brutal .course-flow-drop-guide span {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.55rem;
+  background: rgb(var(--card));
+  box-shadow: 3px 3px 0 -1px rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-drop-guide span.is-active {
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal .course-flow-connector.is-drop-active .course-flow-connector-line {
+  height: 4px;
+  background: rgb(var(--brand-400));
+  box-shadow: 0 0 0 1px rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-connector-drop-label {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.45rem;
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+  box-shadow: 2px 2px 0 -1px rgb(var(--neo-ink));
+}

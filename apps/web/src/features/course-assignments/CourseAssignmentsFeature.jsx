@@ -19,6 +19,7 @@ import IfEditor from "../../components/IfEditor";
 import { useNotify } from "../../components/notify/NotifyProvider";
 import { handleApiError } from "../../utils/handleApiError";
 import { notifyOnce } from "../../utils/notifyOnce";
+import { resolveCardDropIntent, resolveFlowNodeDropIntent } from "../../utils/gridDragDrop";
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorMode } from '../../contexts/EditorModeContext';
@@ -46,7 +47,9 @@ import {
   shortImportValue,
   buildJsonImportDiff,
 } from './courseAssignmentsModel';
-import CourseContentCard from './components/CourseContentCard';
+import CourseContentGrid from './components/CourseContentGrid';
+import CourseFlowEditor from './components/CourseFlowEditor';
+import CourseLayoutToggle from './components/CourseLayoutToggle';
 
 const EMPTY_LIST = Object.freeze([]);
 const EMPTY_COURSE_BUNDLE = Object.freeze({
@@ -137,6 +140,15 @@ export default function CourseAssignmentsPage() {
   const [childProgressByCourseId, setChildProgressByCourseId] = useState({});
   const [courseProgressByCourseId, setCourseProgressByCourseId] = useState({});
   const [q, setQ] = useState('');
+  const [contentLayout, setContentLayout] = useState(() => {
+    if (typeof window === 'undefined') return 'flow';
+    try {
+      const saved = window.localStorage.getItem('taskforge-course-editor-layout');
+      return saved === 'grid' ? 'grid' : 'flow';
+    } catch {
+      return 'flow';
+    }
+  });
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createMode, setCreateMode] = useState('choice');
@@ -152,11 +164,20 @@ export default function CourseAssignmentsPage() {
   const [draggedContentKey, setDraggedContentKey] = useState(null);
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const [dragOverContentMode, setDragOverContentMode] = useState('before');
+  const [dragOverContentEdge, setDragOverContentEdge] = useState('top');
   const [extractDropActive, setExtractDropActive] = useState(false);
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, entry: null, canEdit: false });
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
+  const showFlowLayout = isEditorMode && courseCanEdit && contentLayout === 'flow' && sortMode === 'default';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('taskforge-course-editor-layout', contentLayout);
+    } catch {}
+  }, [contentLayout]);
 
   const closeContextMenu = React.useCallback(() => {
     setContextMenu((current) => current.open ? { ...current, open: false } : current);
@@ -378,6 +399,7 @@ export default function CourseAssignmentsPage() {
   }, [courseProgressByCourseId, courseId, directCourseProgress]);
 
   const setSortMode = (mode) => {
+    if (mode !== 'default' && contentLayout === 'flow') setContentLayout('grid');
     const next = new URLSearchParams(params);
     next.set("sort", mode);
     setParams(next, { replace: true });
@@ -389,16 +411,17 @@ export default function CourseAssignmentsPage() {
     return canEdit && item?.assignment?.canEdit !== false;
   };
 
-  const contentDropModeFromEvent = (event, targetEntry) => {
-    const source = orderedAll.find((x) => x.key === draggedContentKey);
-    if (source?.kind === "course" && targetEntry?.kind === "course" && source.key !== targetEntry.key) {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const y = event.clientY - rect.top;
-      if (y < rect.height * 0.25) return "before";
-      if (y > rect.height * 0.75) return "after";
-      return "inside";
-    }
-    return "before";
+  const contentDropIntentFromEvent = (event, targetEntry) => {
+    const sourceKey = event?.dataTransfer?.getData?.('text/plain') || draggedContentKey;
+    const source = orderedAll.find((entry) => entry.key === sourceKey);
+    const allowInside = source?.kind === 'course'
+      && targetEntry?.kind === 'course'
+      && source.key !== targetEntry.key
+      && canReorderContentItem(targetEntry);
+    const isFlowNode = event?.currentTarget?.dataset?.courseFlowNode === 'true';
+    return isFlowNode
+      ? resolveFlowNodeDropIntent(event, { allowInside })
+      : resolveCardDropIntent(event, { allowInside });
   };
 
   const moveCourseIntoParent = async (sourceKey, parentCourseId) => {
@@ -409,11 +432,9 @@ export default function CourseAssignmentsPage() {
     }
 
     const parentId = parentCourseId || null;
-    const siblingsCount = (allCourses || []).filter((x) => String(x?.parentCourseId || '') === String(parentId || '')).length;
-
     setChildCourses((prev) => prev.filter((x) => String(x.id) !== String(source.id)));
     try {
-      await moveCoursePosition(source.id, parentId, siblingsCount + 1);
+      await moveCoursePosition(source.id, parentId, null);
       notify.success(parentId ? "Курс вложен" : "Курс вынесен на уровень выше");
       await reloadCourseData();
     } catch (e) {
@@ -432,7 +453,7 @@ export default function CourseAssignmentsPage() {
     if (calls.length > 0) await Promise.all(calls);
   };
 
-  const moveToPosition = async (contentItemKey, newPos1Based) => {
+  const moveContentRelativeToTarget = async (sourceKey, targetKey, mode) => {
     if (!courseCanEdit) {
       notify.error("Недостаточно прав");
       return;
@@ -442,42 +463,35 @@ export default function CourseAssignmentsPage() {
       return;
     }
 
-    const n = orderedAll.length;
-    let targetPos = parseInt(String(newPos1Based || ""), 10);
-    if (!Number.isFinite(targetPos)) return;
-    if (targetPos < 1) targetPos = 1;
-    if (targetPos > n) targetPos = n;
-
-    const curIndex = orderedAll.findIndex((x) => x.key === contentItemKey);
-    if (curIndex < 0) return;
-    const source = orderedAll[curIndex];
+    const source = orderedAll.find((x) => x.key === sourceKey);
+    const target = orderedAll.find((x) => x.key === targetKey);
+    if (!source || !target || source.key === target.key) return;
     if (!canReorderContentItem(source)) {
       notify.error("Недостаточно прав");
       return;
     }
 
-    const newIndex = targetPos - 1;
-    if (newIndex === curIndex) return;
+    const nextOrder = orderedAll.filter((entry) => entry.key !== sourceKey);
+    const targetIndex = nextOrder.findIndex((entry) => entry.key === targetKey);
+    if (targetIndex < 0) return;
+    const insertIndex = targetIndex + (mode === 'after' ? 1 : 0);
+    nextOrder.splice(insertIndex, 0, source);
 
-    const nextOrder = [...orderedAll];
-    const [moved] = nextOrder.splice(curIndex, 1);
-    nextOrder.splice(newIndex, 0, moved);
-
-    const newSort = new Map(nextOrder.map((x, idx) => [x.key, idx]));
-    setItems((prev) => prev.map((x) => {
-      const next = newSort.get(contentKey("assignment", x.id));
-      return Number.isFinite(next) ? { ...x, sort: next } : x;
+    const newSort = new Map(nextOrder.map((entry, index) => [entry.key, index]));
+    setItems((prev) => prev.map((item) => {
+      const next = newSort.get(contentKey("assignment", item.id));
+      return Number.isFinite(next) ? { ...item, sort: next } : item;
     }));
-    setChildCourses((prev) => prev.map((x) => {
-      const next = newSort.get(contentKey("course", x.id));
-      return Number.isFinite(next) ? { ...x, sort: next } : x;
+    setChildCourses((prev) => prev.map((item) => {
+      const next = newSort.get(contentKey("course", item.id));
+      return Number.isFinite(next) ? { ...item, sort: next } : item;
     }));
 
     try {
       await saveMixedOrder(nextOrder);
-      notify.success("Позиция обновлена");
+      notify.success("Порядок обновлён");
     } catch (e) {
-      handleApiError(e, notify, "Не удалось изменить позицию");
+      handleApiError(e, notify, "Не удалось изменить порядок");
       await Promise.all([
         reloadAssignments(true).catch(() => []),
         reloadCourseData().catch(() => []),
@@ -490,35 +504,38 @@ export default function CourseAssignmentsPage() {
     setDraggedContentKey(null);
     setDragOverContentKey(null);
     setDragOverContentMode('before');
+    setDragOverContentEdge('top');
     if (!sourceKey || !targetKey || sourceKey === targetKey) return;
     if (sortMode !== "default") {
       notify.info("Перетаскивание доступно только в стандартной сортировке");
       return;
     }
-    const source = orderedAll.find((x) => x.key === sourceKey);
-    const target = orderedAll.find((x) => x.key === targetKey);
-    const targetPos = positionByKey.get(targetKey);
-    if (!source || !target || !targetPos) return;
-    if (!canReorderContentItem(source)) {
-      notify.error("Недостаточно прав");
-      return;
-    }
-    if (mode === 'inside' && source.kind === 'course' && target.kind === 'course') {
+
+    if (mode === 'inside') {
+      const source = orderedAll.find((entry) => entry.key === sourceKey);
+      const target = orderedAll.find((entry) => entry.key === targetKey);
+      if (source?.kind !== 'course' || target?.kind !== 'course') return;
+      if (!canReorderContentItem(target)) {
+        notify.warn('Нельзя вкладывать курс в курс без прав на целевой курс');
+        return;
+      }
       await moveCourseIntoParent(sourceKey, target.id);
       return;
     }
-    await moveToPosition(sourceKey, mode === 'after' ? targetPos + 1 : targetPos);
+
+    await moveContentRelativeToTarget(sourceKey, targetKey, mode === 'after' ? 'after' : 'before');
   };
 
   const dragHandlersRef = useRef({});
   dragHandlersRef.current = {
-    contentDropModeFromEvent,
+    contentDropIntentFromEvent,
     handleDropOnContentItem,
     draggedContentKey,
     dragOverContentKey,
     setDraggedContentKey,
     setDragOverContentKey,
     setDragOverContentMode,
+    setDragOverContentEdge,
     setExtractDropActive,
     dragStartedRef,
     nav,
@@ -543,34 +560,44 @@ export default function CourseAssignmentsPage() {
       const current = dragHandlersRef.current;
       if (!current.draggedContentKey || current.draggedContentKey === entry.key) return;
       event.preventDefault();
+      const intent = current.contentDropIntentFromEvent(event, entry);
       current.setDragOverContentKey(entry.key);
-      current.setDragOverContentMode(current.contentDropModeFromEvent(event, entry));
+      current.setDragOverContentMode(intent.mode);
+      current.setDragOverContentEdge(intent.edge);
     },
     onOver(event, entry) {
       const current = dragHandlersRef.current;
       if (!current.draggedContentKey || current.draggedContentKey === entry.key) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      current.setDragOverContentMode(current.contentDropModeFromEvent(event, entry));
+      const intent = current.contentDropIntentFromEvent(event, entry);
+      current.setDragOverContentKey(entry.key);
+      current.setDragOverContentMode(intent.mode);
+      current.setDragOverContentEdge(intent.edge);
     },
-    onLeave(entry) {
+    onLeave(event, entry) {
       const current = dragHandlersRef.current;
+      if (event.currentTarget?.contains?.(event.relatedTarget)) return;
       if (current.dragOverContentKey === entry.key) {
         current.setDragOverContentKey(null);
         current.setDragOverContentMode('before');
+        current.setDragOverContentEdge('top');
       }
     },
     onDrop(event, entry) {
       event.preventDefault();
+      event.stopPropagation();
       const sourceKey = event.dataTransfer.getData('text/plain');
       const current = dragHandlersRef.current;
-      current.handleDropOnContentItem(entry.key, sourceKey, current.contentDropModeFromEvent(event, entry));
+      const intent = current.contentDropIntentFromEvent(event, entry);
+      current.handleDropOnContentItem(entry.key, sourceKey, intent.mode);
     },
     onEnd() {
       const current = dragHandlersRef.current;
       current.setDraggedContentKey(null);
       current.setDragOverContentKey(null);
       current.setDragOverContentMode('before');
+      current.setDragOverContentEdge('top');
       current.setExtractDropActive(false);
       setTimeout(() => { current.dragStartedRef.current = false; }, 0);
     },
@@ -583,6 +610,7 @@ export default function CourseAssignmentsPage() {
     setDraggedContentKey(null);
     setDragOverContentKey(null);
     setDragOverContentMode('before');
+    setDragOverContentEdge('top');
     if (!sourceKey) return;
     const source = orderedAll.find((x) => x.key === sourceKey);
     if (!source || source.kind !== 'course') return;
@@ -848,6 +876,18 @@ export default function CourseAssignmentsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:justify-end xl:gap-3">
+          <IfEditor>
+            {courseCanEdit ? (
+              <CourseLayoutToggle
+                value={contentLayout}
+                onChange={(layout) => {
+                  setContentLayout(layout);
+                  if (layout === 'flow' && sortMode !== 'default') setSortMode('default');
+                }}
+              />
+            ) : null}
+          </IfEditor>
+
           <div className="min-w-0 xl:min-w-[190px]">
             <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
               {SORT_OPTIONS.map((o) => (
@@ -876,7 +916,7 @@ export default function CourseAssignmentsPage() {
 
 
       <IfEditor>
-        {courseCanEdit && childCourses.length > 0 && getDraggedCourseItem() ? (
+        {!showFlowLayout && courseCanEdit && childCourses.length > 0 && getDraggedCourseItem() ? (
           <div
             className={
               "fixed bottom-5 left-1/2 z-[1000] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-dashed px-5 py-4 text-sm shadow-2xl backdrop-blur transition sm:bottom-7 " +
@@ -1237,34 +1277,48 @@ export default function CourseAssignmentsPage() {
       {err && <div className="text-red-500 mb-4">{err}</div>}
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
-      <div
-        className="auto-fill-grid auto-fill-grid--dense"
-        onContextMenu={(event) => {
-          if (event.target === event.currentTarget) openContextMenu(event);
-        }}
-      >
-        {filtered.map((entry, index) => {
-          const itemCanEdit = canReorderContentItem(entry);
-          const dropMode = dragOverContentKey === entry.key ? dragOverContentMode : '';
-          return (
-            <CourseContentCard
-              key={entry.key}
-              entry={entry}
-              position={positionByKey.get(entry.key) ?? index + 1}
-              canEdit={itemCanEdit}
-              courseCanEdit={courseCanEdit}
-              sortMode={sortMode}
-              isDragged={draggedContentKey === entry.key}
-              dropMode={dropMode}
-              progress={entry.kind === 'course' ? childProgressByCourseId[entry.id] : null}
-              dragApi={dragApi}
-              onContextMenu={openContextMenu}
-            />
-          );
-        })}
-      </div>
+      {showFlowLayout ? (
+        <CourseFlowEditor
+          course={course}
+          entries={filtered}
+          positionByKey={positionByKey}
+          childProgressByCourseId={childProgressByCourseId}
+          canReorderContentItem={canReorderContentItem}
+          courseCanEdit={courseCanEdit}
+          draggedContentKey={draggedContentKey}
+          dragOverContentKey={dragOverContentKey}
+          dragOverContentMode={dragOverContentMode}
+          dragApi={dragApi}
+          onContextMenu={openContextMenu}
+          onCreate={() => openCreateDialog('choice')}
+          onDropContent={handleDropOnContentItem}
+          extractDropActive={extractDropActive}
+          onExtractDragOver={handleExtractZoneDragOver}
+          onExtractDragLeave={handleExtractZoneDragLeave}
+          onExtractDrop={handleDropCourseOneLevelUp}
+        />
+      ) : (
+        <CourseContentGrid
+          entries={filtered}
+          positionByKey={positionByKey}
+          canReorderContentItem={canReorderContentItem}
+          courseCanEdit={courseCanEdit}
+          sortMode={sortMode}
+          draggedContentKey={draggedContentKey}
+          dragOverContentKey={dragOverContentKey}
+          dragOverContentMode={dragOverContentMode}
+          dragOverContentEdge={dragOverContentEdge}
+          setDragOverContentKey={setDragOverContentKey}
+          setDragOverContentMode={setDragOverContentMode}
+          setDragOverContentEdge={setDragOverContentEdge}
+          childProgressByCourseId={childProgressByCourseId}
+          dragApi={dragApi}
+          onContextMenu={openContextMenu}
+          onDropContent={handleDropOnContentItem}
+        />
+      )}
 
-      {!loading && filtered.length === 0 && (
+      {!loading && !showFlowLayout && filtered.length === 0 && (
         <div className="card-muted p-8 text-center text-neutral-500 mt-6" onContextMenu={(event) => openContextMenu(event)}>
           Пока заданий нет. Создайте первое ✨
         </div>

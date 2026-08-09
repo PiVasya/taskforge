@@ -7,6 +7,7 @@ import { Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
+import { resolveCardDropIntent, resolveGridGapDropIntent, isPointerInsideDndItem } from "../utils/gridDragDrop";
 
 const COURSE_PAGE_SIZE = 50;
 
@@ -85,6 +86,7 @@ function CourseCard({
   isDragged,
   isDropTarget,
   dropMode,
+  dropEdge,
   onNavigate,
   onDragStart,
   onDragEnter,
@@ -105,9 +107,9 @@ function CourseCard({
         ? "border-neutral-300/60 bg-neutral-500/5 opacity-70 grayscale-[0.25] "
         : "border-[rgba(var(--accent)/0.25)] ") +
     (isDragged ? "opacity-60 scale-[0.99] " : "") +
-    (isDropTarget && dropMode === "inside" ? "ring-2 ring-[rgb(var(--accent))] " : "") +
-    (isDropTarget && dropMode === "before" ? "border-t-4 border-t-[rgb(var(--accent))] " : "") +
-    (isDropTarget && dropMode === "after" ? "border-b-4 border-b-[rgb(var(--accent))] " : "") +
+    (isDropTarget && dropMode !== "inside" ? "dnd-insert-target " : "") +
+    (isDropTarget && dropMode === "inside" ? "dnd-nest-target " : "") +
+    (isDropTarget && dropMode !== "inside" && dropEdge ? `dnd-insert-${dropEdge} ` : "") +
     (canDrag ? "cursor-move " : "cursor-pointer ");
 
   return (
@@ -118,13 +120,14 @@ function CourseCard({
         role="button"
         tabIndex={0}
         draggable={canDrag}
+        data-dnd-course-id={course.id}
         onDragStart={onDragStart}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onDragEnd={onDragEnd}
-        title={canDrag ? "Клик — редактировать курс. Перетащи: между карточками — сортировка, на середину карточки — вложить внутрь" : "Открыть курс"}
+        title={canDrag ? "Край карточки — изменить порядок. Центр другой карточки — вложить курс внутрь." : "Открыть курс"}
         data-taskforge-automation-id={`course-${course.id}`}
         data-taskforge-agent-role="course-card"
         data-taskforge-agent-action="open-course"
@@ -151,6 +154,7 @@ function CourseCard({
             </div>
           </div>
         </div>
+        {isDropTarget && dropMode === "inside" ? <div className="dnd-nest-hint">Вложить курс сюда</div> : null}
       </Card>
     </div>
   );
@@ -170,6 +174,7 @@ export default function CoursesPage() {
   const [draggedCourseId, setDraggedCourseId] = useState(null);
   const [dragOverCourseId, setDragOverCourseId] = useState(null);
   const [dragOverMode, setDragOverMode] = useState("before");
+  const [dragOverEdge, setDragOverEdge] = useState("top");
   const dragStartedRef = useRef(false);
 
   const nav = useNavigate();
@@ -177,17 +182,18 @@ export default function CoursesPage() {
   const { canEdit, isEditorMode } = useEditorMode();
 
   const editorTools = canEdit && isEditorMode;
+  const orderedRootCourses = useMemo(
+    () => (items || []).filter((course) => !course?.parentCourseId).sort(compareCourses),
+    [items],
+  );
   const rootCourses = useMemo(() => {
     const query = q.trim().toLowerCase();
-    return (items || [])
-      .filter((course) => !course?.parentCourseId)
-      .filter((course) => {
-        if (!query) return true;
-        return String(course?.title || "").toLowerCase().includes(query)
-          || String(course?.description || "").toLowerCase().includes(query);
-      })
-      .sort(compareCourses);
-  }, [items, q]);
+    if (!query) return orderedRootCourses;
+    return orderedRootCourses.filter((course) => (
+      String(course?.title || "").toLowerCase().includes(query)
+      || String(course?.description || "").toLowerCase().includes(query)
+    ));
+  }, [orderedRootCourses, q]);
 
 
   const visibleCourses = useMemo(
@@ -277,7 +283,7 @@ export default function CoursesPage() {
         visibleGroupIds: [],
         ownerIds: [],
         parentCourseId: null,
-        sort: rootCourses.length,
+        sort: orderedRootCourses.length,
       });
       notify.success("Курс создан");
       nav(`/courses/${id}/edit`);
@@ -286,26 +292,20 @@ export default function CoursesPage() {
     }
   };
 
-  const getDropMode = (event, targetCourse) => {
-    if (!draggedCourseId || String(draggedCourseId) === String(targetCourse.id)) return "before";
-    const rect = event.currentTarget.getBoundingClientRect();
-    const y = event.clientY - rect.top;
-    if (y < rect.height * 0.25) return "before";
-    if (y > rect.height * 0.75) return "after";
-    return "inside";
-  };
+  const getDropIntent = (event, targetCourse) => resolveCardDropIntent(event, { allowInside: targetCourse?.canEdit !== false });
 
   const resetDrag = () => {
     setDraggedCourseId(null);
     setDragOverCourseId(null);
     setDragOverMode("before");
+    setDragOverEdge("top");
     setTimeout(() => {
       dragStartedRef.current = false;
     }, 0);
   };
 
   const moveRootCourse = async (sourceCourse, targetCourse, mode) => {
-    const nextRoot = rootCourses.filter((x) => String(x.id) !== String(sourceCourse.id));
+    const nextRoot = orderedRootCourses.filter((x) => String(x.id) !== String(sourceCourse.id));
     const targetIndex = nextRoot.findIndex((x) => String(x.id) === String(targetCourse.id));
     if (targetIndex < 0) return;
     const insertIndex = mode === "after" ? targetIndex + 1 : targetIndex;
@@ -320,19 +320,10 @@ export default function CoursesPage() {
     await moveCoursePosition(sourceCourse.id, null, insertIndex + 1);
   };
 
-  const moveCourseInside = async (sourceCourse, targetCourse) => {
-    const childCount = (items || []).filter((x) => String(x?.parentCourseId || "") === String(targetCourse.id)).length;
-    setItems((prev) => prev.map((x) => (
-      String(x.id) === String(sourceCourse.id)
-        ? { ...x, parentCourseId: targetCourse.id, sort: childCount }
-        : x
-    )));
-    await moveCoursePosition(sourceCourse.id, targetCourse.id, childCount + 1);
-  };
 
   const handleDropCourse = async (targetCourse, modeFromEvent) => {
     const sourceId = draggedCourseId;
-    const mode = modeFromEvent || dragOverMode;
+    const mode = modeFromEvent === "inside" ? "inside" : modeFromEvent === "after" ? "after" : "before";
     resetDrag();
     if (!editorTools || !sourceId || String(sourceId) === String(targetCourse.id)) return;
 
@@ -341,15 +332,19 @@ export default function CoursesPage() {
       notify.warn("Вы не владелец курса — менять порядок нельзя");
       return;
     }
+
     if (mode === "inside" && targetCourse.canEdit === false) {
-      notify.warn("Нельзя вложить курс в чужой курс");
+      notify.warn("Нельзя вкладывать курс в курс без прав на целевой курс");
       return;
     }
 
     try {
       if (mode === "inside") {
-        await moveCourseInside(sourceCourse, targetCourse);
-        notify.success("Курс вложен");
+        setItems((prev) => prev.map((item) => String(item.id) === String(sourceCourse.id)
+          ? { ...item, parentCourseId: targetCourse.id }
+          : item));
+        await moveCoursePosition(sourceCourse.id, targetCourse.id, null);
+        notify.success(`Курс вложен в «${targetCourse.title || 'курс'}»`);
       } else {
         await moveRootCourse(sourceCourse, targetCourse, mode);
         notify.success("Порядок курсов обновлён");
@@ -380,7 +375,7 @@ export default function CoursesPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-400">Каталог</div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Курсы</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500">
-              В каталоге показываются только курсы верхнего уровня. В режиме редактора порядок и вложенность меняются перетаскиванием карточек.
+              В каталоге показываются курсы верхнего уровня. В редакторе край карточки меняет порядок, а центр другой карточки вкладывает курс внутрь.
             </p>
           </div>
 
@@ -420,7 +415,43 @@ export default function CoursesPage() {
       )}
 
       {!loading && (
-        <div className="auto-fill-grid">
+        <div
+          className="auto-fill-grid"
+          onDragOver={(event) => {
+            if (!draggedCourseId || !editorTools) return;
+            if (isPointerInsideDndItem(event, '[data-dnd-course-id]')) return;
+            const intent = resolveGridGapDropIntent(
+              event.currentTarget,
+              event.clientX,
+              event.clientY,
+              '[data-dnd-course-id]',
+              String(draggedCourseId),
+              (element) => String(element.dataset.dndCourseId || ''),
+            );
+            if (!intent) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOverCourseId(intent.key);
+            setDragOverMode(intent.mode);
+            setDragOverEdge(intent.edge);
+          }}
+          onDrop={(event) => {
+            if (!draggedCourseId || !editorTools) return;
+            if (isPointerInsideDndItem(event, '[data-dnd-course-id]')) return;
+            const intent = resolveGridGapDropIntent(
+              event.currentTarget,
+              event.clientX,
+              event.clientY,
+              '[data-dnd-course-id]',
+              String(draggedCourseId),
+              (element) => String(element.dataset.dndCourseId || ''),
+            );
+            if (!intent) return;
+            event.preventDefault();
+            const targetCourse = orderedRootCourses.find((item) => String(item.id) === String(intent.key));
+            if (targetCourse) handleDropCourse(targetCourse, intent.mode);
+          }}
+        >
           {rootCourses.map((course, index) => (
             <CourseCard
               key={course.id}
@@ -430,7 +461,8 @@ export default function CoursesPage() {
               progress={progressByCourseId[course.id]}
               isDragged={String(draggedCourseId || "") === String(course.id)}
               isDropTarget={String(dragOverCourseId || "") === String(course.id)}
-              dropMode={dragOverMode}
+              dropMode={String(dragOverCourseId || "") === String(course.id) ? dragOverMode : ""}
+              dropEdge={String(dragOverCourseId || "") === String(course.id) && dragOverMode !== "inside" ? dragOverEdge : ""}
               onNavigate={() => navigateCourse(course)}
               onDragStart={(e) => {
                 if (!editorTools || course.canEdit === false) {
@@ -445,26 +477,33 @@ export default function CoursesPage() {
               onDragEnter={(e) => {
                 if (!draggedCourseId || String(draggedCourseId) === String(course.id)) return;
                 e.preventDefault();
+                const intent = getDropIntent(e, course);
                 setDragOverCourseId(course.id);
-                setDragOverMode(getDropMode(e, course));
+                setDragOverMode(intent.mode);
+                setDragOverEdge(intent.edge);
               }}
               onDragOver={(e) => {
                 if (!draggedCourseId || String(draggedCourseId) === String(course.id)) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
+                const intent = getDropIntent(e, course);
                 setDragOverCourseId(course.id);
-                setDragOverMode(getDropMode(e, course));
+                setDragOverMode(intent.mode);
+                setDragOverEdge(intent.edge);
               }}
-              onDragLeave={() => {
+              onDragLeave={(e) => {
+                if (e.currentTarget?.contains?.(e.relatedTarget)) return;
                 if (String(dragOverCourseId || "") === String(course.id)) {
                   setDragOverCourseId(null);
                   setDragOverMode("before");
+                  setDragOverEdge("top");
                 }
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const mode = getDropMode(e, course);
-                handleDropCourse(course, mode);
+                e.stopPropagation();
+                const intent = getDropIntent(e, course);
+                handleDropCourse(course, intent.mode);
               }}
               onDragEnd={resetDrag}
             />

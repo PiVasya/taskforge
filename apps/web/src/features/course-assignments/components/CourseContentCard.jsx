@@ -45,12 +45,12 @@ function CourseContentCard({
   sortMode,
   isDragged,
   dropMode,
+  dropEdge,
   progress,
   dragApi,
   onContextMenu,
 }) {
   const navigate = useNavigate();
-  const isDropTarget = Boolean(dropMode);
   const draggable = canEdit && sortMode === 'default';
 
   const sharedDragProps = draggable ? {
@@ -58,7 +58,7 @@ function CourseContentCard({
     onDragStart: (event) => dragApi.onStart(event, entry),
     onDragEnter: (event) => dragApi.onEnter(event, entry),
     onDragOver: (event) => dragApi.onOver(event, entry),
-    onDragLeave: () => dragApi.onLeave(entry),
+    onDragLeave: (event) => dragApi.onLeave(event, entry),
     onDrop: (event) => dragApi.onDrop(event, entry),
     onDragEnd: dragApi.onEnd,
   } : {};
@@ -82,10 +82,9 @@ function CourseContentCard({
     const className = [
       'assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 border-[rgba(var(--accent)/0.35)]',
       isDragged ? 'assignment-card--dragging' : '',
-      isDropTarget ? 'assignment-card--drop-target' : '',
-      dropMode === 'inside' ? 'ring-2 ring-[rgb(var(--accent))]' : '',
-      dropMode === 'after' ? 'border-b-4 border-b-[rgb(var(--accent))]' : '',
-      dropMode === 'before' ? 'border-t-4 border-t-[rgb(var(--accent))]' : '',
+      dropMode && dropMode !== 'inside' ? 'dnd-insert-target' : '',
+      dropMode === 'inside' ? 'dnd-nest-target' : '',
+      dropEdge && dropMode !== 'inside' ? `dnd-insert-${dropEdge}` : '',
       draggable ? 'cursor-move' : 'cursor-pointer',
     ].filter(Boolean).join(' ');
     const staticCard = <Card className={className}>{main}</Card>;
@@ -93,6 +92,7 @@ function CourseContentCard({
       <Card
         role="link"
         tabIndex={0}
+        data-dnd-content-key={entry.key}
         {...sharedDragProps}
         onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
         onClick={() => dragApi.openAfterDrag(editorHref)}
@@ -103,9 +103,10 @@ function CourseContentCard({
           }
         }}
         className={className}
-        title={sortMode === 'default' ? 'Перетащи карточку, чтобы изменить общий порядок' : 'Открыть курс'}
+        title={sortMode === 'default' ? 'Край карточки меняет порядок, центр другого курса вкладывает курс внутрь' : 'Открыть курс'}
       >
         {main}
+        {dropMode === 'inside' ? <div className="dnd-nest-hint">Вложить курс сюда</div> : null}
       </Card>
     );
     return (
@@ -143,9 +144,9 @@ function CourseContentCard({
     'assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5',
     solved ? 'assignment-card--solved' : '',
     isDragged ? 'assignment-card--dragging' : '',
-    isDropTarget ? 'assignment-card--drop-target' : '',
-    dropMode === 'after' ? 'border-b-4 border-b-[rgb(var(--accent))]' : '',
-    dropMode === 'before' ? 'border-t-4 border-t-[rgb(var(--accent))]' : '',
+    dropMode && dropMode !== 'inside' ? 'dnd-insert-target' : '',
+    dropMode === 'inside' ? 'dnd-nest-target' : '',
+    dropEdge && dropMode !== 'inside' ? `dnd-insert-${dropEdge}` : '',
     draggable ? 'cursor-move' : 'cursor-pointer',
   ].filter(Boolean).join(' ');
   const staticCard = <Card className={className}>{main}</Card>;
@@ -153,6 +154,7 @@ function CourseContentCard({
     <Card
       role="link"
       tabIndex={0}
+      data-dnd-content-key={entry.key}
       {...sharedDragProps}
       onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
       onClick={() => dragApi.openAfterDrag(editorHref)}
