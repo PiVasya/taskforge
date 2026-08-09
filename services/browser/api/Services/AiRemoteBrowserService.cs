@@ -361,7 +361,7 @@ internal sealed class AiRemoteBrowserService(
             try
             {
                 var normalized = base64Url.Replace('-', '+').Replace('_', '/');
-                normalized += normalized.Length % 4 switch { 0 => string.Empty, 2 => "==", 3 => "=", _ => throw new FormatException() };
+                normalized += (normalized.Length % 4) switch { 0 => string.Empty, 2 => "==", 3 => "=", _ => throw new FormatException() };
                 value = StrictUtf8.GetString(Convert.FromBase64String(normalized));
             }
             catch (Exception ex) when (ex is FormatException or DecoderFallbackException)
