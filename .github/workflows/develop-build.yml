@@ -45,6 +45,9 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
@@ -55,10 +58,13 @@ jobs:
 
       - id: matrix
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           build_all="${{ github.event.inputs.build_all || 'false' }}"
+          force_build_all="false"
           requested_images="${{ github.event.inputs.images || '' }}"
           debug_logs="${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}"
           echo "Workflow build switch: TASKFORGE_DEBUG_LOGS=${debug_logs}"
@@ -107,13 +113,42 @@ jobs:
 
           changed_files=""
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # A PR diff already includes every commit in the PR, so a failed earlier PR run
+            # cannot make image-affecting changes disappear from the next run.
             changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")"
           elif [ "${{ github.event_name }}" = "push" ]; then
-            before="${{ github.event.before }}"
-            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-              changed_files="$(git diff --name-only HEAD~1 HEAD || git ls-files)"
+            if [[ "$GITHUB_REF" == refs/heads/* ]]; then
+              # IMPORTANT: do not diff only github.event.before..HEAD here. If a workflow
+              # fails before Docker builds (compile/security/compose/etc.), the next fix
+              # commit would otherwise forget image changes from the failed push.
+              #
+              # The last successful automatic docker-images run is the deployment/build
+              # baseline. Everything since that SHA remains pending until a full workflow
+              # succeeds. This also handles cancelled runs and Docker build failures.
+              baseline_sha="$(
+                gh api \
+                  -H 'Accept: application/vnd.github+json' \
+                  -H 'X-GitHub-Api-Version: 2022-11-28' \
+                  "/repos/${GITHUB_REPOSITORY}/actions/workflows/develop-build.yml/runs?branch=${GITHUB_REF_NAME}&event=push&status=success&per_page=1" \
+                  --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true
+              )"
+
+              if [ -n "$baseline_sha" ] \
+                && git cat-file -e "${baseline_sha}^{commit}" 2>/dev/null \
+                && git merge-base --is-ancestor "$baseline_sha" "${{ github.sha }}"; then
+                echo "Last successful docker-images baseline: $baseline_sha"
+                changed_files="$(git diff --name-only "$baseline_sha" "${{ github.sha }}")"
+              else
+                echo "No usable successful docker-images baseline found; forcing a full rebuild to avoid stale images."
+                force_build_all="true"
+                changed_files="$(git ls-files)"
+              fi
             else
-              changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+              # Release tags must represent a complete image set, not only files touched by
+              # the commit immediately before the tag.
+              echo "Tag push detected; forcing a full rebuild."
+              force_build_all="true"
+              changed_files="$(git ls-files)"
             fi
           fi
 
@@ -130,6 +165,10 @@ jobs:
 
           if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             build_all="false"
+          fi
+
+          if [ "$force_build_all" = "true" ]; then
+            build_all="true"
           fi
 
           is_requested() {

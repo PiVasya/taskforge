@@ -60,19 +60,19 @@ public static class AiRemoteBrowserEndpoints
         {
             var root = PublicRoot(request);
             var start = $"{root}/api/ai/browser/start?format=html";
-            var html = $"""
+            var html = $$"""
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">
 <title>TaskForge AI Remote Browser</title>
-<style>body{{font:16px/1.5 system-ui;max-width:980px;margin:40px auto;padding:0 20px}}code,pre{{background:#111;color:#eee;border-radius:6px}}code{{padding:.15rem .35rem}}pre{{padding:1rem;overflow:auto}}a{{font-weight:700}}</style></head><body>
+<style>body{font:16px/1.5 system-ui;max-width:980px;margin:40px auto;padding:0 20px}code,pre{background:#111;color:#eee;border-radius:6px}code{padding:.15rem .35rem}pre{padding:1rem;overflow:auto}a{font-weight:700}</style></head><body>
 <h1>TaskForge AI Remote Browser</h1>
 <p>This is a low-level compatibility controller over the existing Browser API. It does not choose courses, assignments or answers. The agent sees the real page and decides every action.</p>
-<ol><li><a href="{WebUtility.HtmlEncode(start)}">Create a side-effect-free start challenge</a>.</li>
+<ol><li><a href="{{WebUtility.HtmlEncode(start)}}">Create a side-effect-free start challenge</a>.</li>
 <li>Open the returned confirmation URL to create a temporary writable Chromium session.</li>
 <li>Use snapshot or visual view, then navigate/click/fill/select/check/press as needed.</li>
 <li>For an AI-marked account, the agent may navigate to <code>/register?accountType=ai</code> and fill the ordinary registration UI itself.</li></ol>
 <p>After login, the same Chromium context keeps the normal TaskForge auth cookies, so private pages and screenshots remain available through the same remote-browser session.</p>
-<p><a href="{root}/.well-known/taskforge-ai-browser.json">Discovery JSON</a> · <a href="{root}/api/browser/openapi.json">Normal Browser API OpenAPI</a> · <a href="{root}/ai-access">Crawler access</a></p>
+<p><a href="{{root}}/.well-known/taskforge-ai-browser.json">Discovery JSON</a> · <a href="{{root}}/api/browser/openapi.json">Normal Browser API OpenAPI</a> · <a href="{{root}}/ai-access">Crawler access</a></p>
 </body></html>
 """;
             return Results.Content(html, "text/html; charset=utf-8", Encoding.UTF8);
@@ -441,14 +441,14 @@ public static class AiRemoteBrowserEndpoints
         var snapshot = WebUtility.HtmlEncode(response.Links.Snapshot);
         var full = WebUtility.HtmlEncode(response.Links.FullPageView);
         var current = WebUtility.HtmlEncode(response.Snapshot.Url);
-        return $"""
+        return $$"""
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer"><title>TaskForge AI remote view</title>
-<style>body{{font:15px/1.45 system-ui;margin:20px;background:#111;color:#eee}}a{{color:#9cf}}img{{display:block;max-width:100%;height:auto;border:1px solid #555;background:white}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#191919;padding:16px;border-radius:8px}}</style></head><body>
-<h1>Live TaskForge Chromium view</h1><p><strong>Current page:</strong> {current}</p>
-<p><a href="{snapshot}">semantic snapshot JSON</a> · <a href="{full}">full-page visual view</a></p>
-<img src="{image}" alt="Live screenshot of the current TaskForge browser session">
-<h2>Semantic snapshot</h2><pre>{json}</pre></body></html>
+<style>body{font:15px/1.45 system-ui;margin:20px;background:#111;color:#eee}a{color:#9cf}img{display:block;max-width:100%;height:auto;border:1px solid #555;background:white}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#191919;padding:16px;border-radius:8px}</style></head><body>
+<h1>Live TaskForge Chromium view</h1><p><strong>Current page:</strong> {{current}}</p>
+<p><a href="{{snapshot}}">semantic snapshot JSON</a> · <a href="{{full}}">full-page visual view</a></p>
+<img src="{{image}}" alt="Live screenshot of the current TaskForge browser session">
+<h2>Semantic snapshot</h2><pre>{{json}}</pre></body></html>
 """;
     }
 
