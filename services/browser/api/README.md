@@ -166,7 +166,7 @@ Browser:MaxArtifactResponseBytes    default 32 MiB
 
 A valid render may be returned without being cached when it exceeds the cache limit. A render over the response limit is rejected with HTTP 413.
 
-Public crawler captures have an independent bounded deadline (`Browser:CaptureTimeoutSeconds`, default 75 seconds), but the discovery path is optimized for short external crawler deadlines: it uses `Browser:AgentCaptureWaitMilliseconds` (default 150 ms), persists snapshot JSON + PNG synchronously, and leaves PDF to the explicit `/api/site/render.pdf` endpoint. Navigation waits for DOM readiness, then a bounded `data-taskforge-ready`/mounted-root signal and font stabilization rather than unbounded `networkidle`. A true server timeout returns a structured HTTP 504 diagnostic including the stage, safe URL, readiness state and pending requests; a caller disconnect is logged separately and is not reported as an internal server failure.
+Public crawler captures have an independent bounded deadline (`Browser:CaptureTimeoutSeconds`, default 75 seconds) and a dedicated global work cap (`Browser:MaxConcurrentPublicCaptures`, default 2), but the discovery path is optimized for short external crawler deadlines: it uses `Browser:AgentCaptureWaitMilliseconds` (default 150 ms), persists snapshot JSON + PNG synchronously, and leaves PDF to the explicit `/api/site/render.pdf` endpoint. Navigation waits for DOM readiness, then a bounded `data-taskforge-ready`/mounted-root signal and font stabilization rather than unbounded `networkidle`. A true server timeout returns a structured HTTP 504 diagnostic including the stage, safe URL, readiness state and pending requests; a caller disconnect is logged separately and is not reported as an internal server failure.
 
 ## Rate-limit response contract
 
@@ -183,7 +183,7 @@ X-RateLimit-Reset      Unix reset timestamp, compatibility only
 Retry-After            on HTTP 429
 ```
 
-The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need.
+The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need. Excess unique public captures wait only `Browser:PublicCaptureQueueWaitMilliseconds` (default 250 ms) before a fast HTTP 429, so distributed crawler IPs cannot build an unbounded Chromium queue.
 
 ## Scale model
 
@@ -218,3 +218,6 @@ Static security invariants:
 ```bash
 bash scripts/security/check-browser-api-security.sh
 ```
+
+
+Public `/ai-artifacts/*` responses are explicitly `noindex, noarchive`; a syntactically valid artifact ID that is no longer available returns HTTP 410 so crawler caches do not report ordinary TTL expiry as a broken persistent resource.

@@ -84,7 +84,9 @@ public sealed class PublicAgentArtifactStore(
             throw new BrowserApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 "AGENT_ARTIFACT_STORE_UNAVAILABLE",
-                "Не удалось сохранить временный публичный артефакт Browser API. Повторите попытку позже.");
+                "Не удалось сохранить временный публичный артефакт Browser API. Повторите попытку позже.",
+                retryAfterSeconds: 2,
+                innerException: ex);
         }
 
         return manifest;
@@ -110,10 +112,15 @@ public sealed class PublicAgentArtifactStore(
 
             return new PublicAgentArtifactBundle(manifest, snapshot, png, pdf);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not BrowserApiException)
         {
             _logger.LogWarning(ex, "Failed to read public agent artifact {ArtifactId}.", id);
-            return null;
+            throw new BrowserApiException(
+                StatusCodes.Status503ServiceUnavailable,
+                "AGENT_ARTIFACT_STORE_UNAVAILABLE",
+                "Временное хранилище Browser API артефактов недоступно. Повторите попытку позже.",
+                retryAfterSeconds: 2,
+                innerException: ex);
         }
     }
 

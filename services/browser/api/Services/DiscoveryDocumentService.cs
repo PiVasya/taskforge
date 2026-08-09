@@ -43,6 +43,8 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 renderPdf = $"{root}/api/site/render.pdf?path=/courses&width=390&height=844",
                 crawlerCapture = $"{root}/api/site/agent/capture/main/390/844/viewport/",
                 recommendedCaptureConcurrency = _options.RecommendedCaptureConcurrency,
+                maxConcurrentPublicCaptures = _options.MaxConcurrentPublicCaptures,
+                publicCaptureQueueWaitMilliseconds = _options.PublicCaptureQueueWaitMilliseconds,
                 captureTimeoutSeconds = _options.CaptureTimeoutSeconds,
                 captureCacheSeconds = _options.CaptureCacheSeconds,
                 captureSettleMilliseconds = _options.AgentCaptureWaitMilliseconds,
@@ -52,7 +54,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                     "Use site=ct for the CT frontend.",
                     "Snapshot elements receive stable-within-snapshot tfN references for interactive session actions.",
                     "Crawler capture snapshots include source, current-viewport, mobile and desktop follow-up capture links; mobile/desktop discovery links prefer viewport mode for low latency.",
-                    "Do not issue parallel expensive captures beyond recommendedCaptureConcurrency. Identical public captures are single-flight coalesced and briefly cached.",
+                    "Do not issue parallel expensive captures beyond recommendedCaptureConcurrency. Identical public captures are single-flight coalesced and briefly cached; excess unique public captures are rejected quickly instead of building a long Chromium queue.",
                     "Public crawler captures synchronously persist snapshot JSON and PNG only. Use /api/site/render.pdf explicitly when a PDF is required."
                 }
             },
@@ -195,8 +197,8 @@ The PNG is the pixel-authoritative visual render. The PDF endpoint is only a com
 
 ## Rate limits and capture discipline
 - Recommended expensive-capture concurrency: {{_options.RecommendedCaptureConcurrency}}.
-- Public capture timeout: {{_options.CaptureTimeoutSeconds}} seconds.
-- Identical public captures are coalesced and cached for {{_options.CaptureCacheSeconds}} seconds; public immutable artifacts live for {{_options.AgentArtifactTtlSeconds}} seconds.
+- Public capture timeout: {{_options.CaptureTimeoutSeconds}} seconds; at most {{_options.MaxConcurrentPublicCaptures}} unique public captures run concurrently per Browser API instance.
+- Identical public captures are coalesced and cached for {{_options.CaptureCacheSeconds}} seconds; public immutable artifacts live for {{_options.AgentArtifactTtlSeconds}} seconds. Expired valid artifact IDs return HTTP 410 and must be regenerated from the capture endpoint.
 - Read `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy` on responses. `RateLimit-Reset` is seconds until reset; compatibility `X-RateLimit-Reset` is a UTC Unix timestamp. A 429 also includes `Retry-After`.
 - Cache public stateless renders when practical and never flood parallel render/capture requests.
 

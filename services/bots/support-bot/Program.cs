@@ -17,6 +17,7 @@ builder.Services.AddHttpClient("identity-api", (sp, client) =>
     client.BaseAddress = new Uri((cfg["IdentityApi:BaseUrl"] ?? cfg["Services:IdentityApi"] ?? "http://identity-api:8080").TrimEnd('/') + "/");
 });
 builder.Services.AddSingleton<AiAccessDigestAggregator>();
+builder.Services.AddHostedService<GatewayAiAccessLogIngestor>();
 builder.Services.AddSingleton<Worker>();
 builder.Services.AddHostedService<Worker>(sp => sp.GetRequiredService<Worker>());
 

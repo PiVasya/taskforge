@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      GATEWAY_AI_TELEMETRY_LOG_RETENTION_SECONDS: ${GATEWAY_AI_TELEMETRY_LOG_RETENTION_SECONDS:-21600}
       GATEWAY_MODE: dev
       TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
       DOMAIN: ${DOMAIN:-taskforge.local}
@@ -16,6 +17,8 @@ services:
         aliases:
           - ${DOMAIN:-taskforge.local}
           - ${CT_DOMAIN:-ct.taskforge.local}
+    volumes:
+      - gateway-ai-telemetry:/var/log/taskforge-ai
     depends_on:
       front:
         condition: service_healthy
@@ -85,3 +88,5 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+volumes:
+  gateway-ai-telemetry:

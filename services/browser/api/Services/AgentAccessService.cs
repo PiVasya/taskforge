@@ -62,9 +62,8 @@ public sealed class AgentAccessService(
         return sb.ToString();
     }
 
-    public void EnrichDiscoveredLinks(SiteSnapshotResponse snapshot, string site, bool fullPage)
+    public void EnrichDiscoveredLinks(SiteSnapshotResponse snapshot, string site)
     {
-        var mode = fullPage ? "full" : "viewport";
         snapshot.DiscoveredLinks = snapshot.Elements
             .Where(element => string.Equals(element.Role, "link", StringComparison.OrdinalIgnoreCase))
             .Where(element => IsFollowablePageHref(element.Href))
@@ -79,7 +78,7 @@ public sealed class AgentAccessService(
                 {
                     Name = label,
                     SourcePath = href,
-                    CaptureCurrentViewport = CapturePath(site, snapshot.Viewport.Width, snapshot.Viewport.Height, mode, href),
+                    CaptureCurrentViewport = CapturePath(site, snapshot.Viewport.Width, snapshot.Viewport.Height, "viewport", href),
                     CaptureMobile = CapturePath(site, 390, 844, "viewport", href),
                     CaptureDesktop = CapturePath(site, 1440, 900, "viewport", href)
                 };
@@ -97,7 +96,7 @@ public sealed class AgentAccessService(
         var html = new StringBuilder();
         html.Append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">")
             .Append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
-            .Append("<meta name=\"robots\" content=\"noindex,follow\">")
+            .Append("<meta name=\"robots\" content=\"noindex,follow,noarchive,nosnippet\">")
             .Append("<title>TaskForge capture - ").Append(Html(manifest.Title)).Append("</title></head><body><main>")
             .Append("<h1>TaskForge Chromium capture</h1>")
             .Append("<p><strong>Source:</strong> <a href=\"").Append(Html(manifest.SourceUrl)).Append("\">").Append(Html(manifest.SourceUrl)).Append("</a></p>")

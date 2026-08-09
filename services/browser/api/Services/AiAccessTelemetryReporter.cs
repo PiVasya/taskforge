@@ -91,7 +91,7 @@ public sealed class AiAccessTelemetryReporter(
                 targetSite,
                 targetPath,
                 refererHost,
-                Clamp(http.TraceIdentifier, 96));
+                Clamp(http.Request.Headers["X-TaskForge-Gateway-Request-Id"].FirstOrDefault() ?? http.TraceIdentifier, 96));
 
             if (!_channel.Writer.TryWrite(evt))
             {

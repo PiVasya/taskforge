@@ -330,7 +330,7 @@ app.MapGet("/api/site/snapshot", async (
     var result = await inspections.SnapshotAsync(site, path, width ?? 1440, height ?? 900, NormalizeWait(waitMs, options), includeText ?? true, caller, ct);
     if (!caller.IsAuthenticated)
     {
-        access.EnrichDiscoveredLinks(result.Snapshot, result.Snapshot.Site, fullPage: false);
+        access.EnrichDiscoveredLinks(result.Snapshot, result.Snapshot.Site);
     }
     ApplyArtifactHeaders(http.Response, result.CacheHit, false, false, false, result.Snapshot.Viewport.Width, result.Snapshot.Viewport.Height, options, caller);
     return Results.Ok(result.Snapshot);
@@ -428,6 +428,7 @@ app.MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**pa
     var relativePath = string.IsNullOrWhiteSpace(path) ? "/" : "/" + path.TrimStart('/');
     var capture = await captures.CaptureAsync(site, relativePath, width, height, fullPage, ct);
     http.Response.Headers.CacheControl = "no-store";
+    http.Response.Headers["X-Robots-Tag"] = "noindex, noarchive, nosnippet";
     http.Response.Headers["X-TaskForge-Agent-Artifact-Id"] = capture.Manifest.Id;
     http.Response.Headers["X-TaskForge-Capture-Cache"] = capture.CacheHit ? "HIT" : "MISS";
     http.Response.Headers["X-TaskForge-Snapshot-Version"] = capture.Snapshot.SemanticSnapshotVersion;
@@ -451,10 +452,16 @@ app.MapGet("/ai-artifacts/{id}/{fileName}", async (
     callerResolver.ThrowIfInvalidCredential(caller);
     await EnforceRateLimit(http, limiter, caller, "metadata", limits.MetadataLimit, limits.MetadataWindowSeconds, ct);
 
+    http.Response.Headers["X-Robots-Tag"] = "noindex, noarchive, nosnippet";
     var bundle = await artifacts.GetAsync(id, ct);
     if (bundle is null)
     {
-        throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_NOT_FOUND", "Публичный Browser API артефакт не найден или уже истёк.");
+        if (PublicAgentArtifactStore.IsValidId(id))
+        {
+            throw new BrowserApiException(StatusCodes.Status410Gone, "AGENT_ARTIFACT_EXPIRED_OR_MISSING", "Временный Browser API артефакт уже недоступен. Создайте новый capture вместо повторного использования старой artifact-ссылки.");
+        }
+
+        throw new BrowserApiException(StatusCodes.Status404NotFound, "AGENT_ARTIFACT_NOT_FOUND", "Публичный Browser API артефакт не найден.");
     }
 
     var maxAge = Math.Max(0, (int)Math.Floor((bundle.Manifest.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
@@ -724,6 +731,8 @@ static void ValidateConfiguration(
     EnsureRange(options.CaptureTimeoutSeconds, 10, 180, "Browser:CaptureTimeoutSeconds");
     EnsureRange(options.CaptureCacheSeconds, 0, 3600, "Browser:CaptureCacheSeconds");
     EnsureRange(options.RecommendedCaptureConcurrency, 1, 16, "Browser:RecommendedCaptureConcurrency");
+    EnsureRange(options.MaxConcurrentPublicCaptures, 1, 16, "Browser:MaxConcurrentPublicCaptures");
+    EnsureRange(options.PublicCaptureQueueWaitMilliseconds, 0, 5000, "Browser:PublicCaptureQueueWaitMilliseconds");
     if (options.DefaultWaitMilliseconds > options.MaxWaitMilliseconds)
         throw new InvalidOperationException("Browser:DefaultWaitMilliseconds cannot exceed Browser:MaxWaitMilliseconds.");
 

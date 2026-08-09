@@ -253,7 +253,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
         responses["Unauthorized"] = ErrorResponse("Missing or invalid ordinary TaskForge authentication or session token.");
         responses["Forbidden"] = ErrorResponse("The ordinary TaskForge user is not allowed to perform the requested mutation.");
         responses["NotFound"] = ErrorResponse("Route, session, element or temporary artifact was not found.");
-        responses["Gone"] = ErrorResponse("The browser session existed but has already been closed or expired.");
+        responses["Gone"] = ErrorResponse("The browser session or temporary artifact is no longer available and must be recreated.");
         responses["Conflict"] = ErrorResponse("The browser state changed, the page left the selected origin, or an element reference became stale.");
         responses["PayloadTooLarge"] = ErrorResponse("The generated visual artifact exceeds configured limits.");
         responses["InternalError"] = ErrorResponse("Unexpected Browser API failure. Use traceId when reporting the problem.");
@@ -347,6 +347,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
                 if (pathPair.Key.StartsWith("/ai-artifacts/", StringComparison.Ordinal))
                 {
                     EnsureResponseRef(responses, "404", "NotFound");
+                    EnsureResponseRef(responses, "410", "Gone");
                 }
             }
         }

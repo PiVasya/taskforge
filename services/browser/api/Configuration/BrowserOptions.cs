@@ -23,6 +23,8 @@ public sealed class BrowserOptions
     public int CaptureTimeoutSeconds { get; set; } = 75;
     public int CaptureCacheSeconds { get; set; } = 30;
     public int RecommendedCaptureConcurrency { get; set; } = 1;
+    public int MaxConcurrentPublicCaptures { get; set; } = 2;
+    public int PublicCaptureQueueWaitMilliseconds { get; set; } = 250;
     public int MinViewportWidth { get; set; } = 320;
     public int MaxViewportWidth { get; set; } = 2560;
     public int MinViewportHeight { get; set; } = 320;

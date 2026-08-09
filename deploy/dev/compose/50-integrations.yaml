@@ -71,6 +71,8 @@ services:
       AiAccessTelemetry__MaxPendingEvents: ${AI_ACCESS_TELEMETRY_MAX_PENDING_EVENTS:-2000}
       AiAccessTelemetry__MaxEventsPerDigest: ${AI_ACCESS_TELEMETRY_MAX_EVENTS_PER_DIGEST:-500}
       AiAccessTelemetry__MaxVisitorsPerDigest: ${AI_ACCESS_TELEMETRY_MAX_VISITORS_PER_DIGEST:-6}
+      AiAccessTelemetry__MaxClientGroupsPerDigest: ${AI_ACCESS_TELEMETRY_MAX_CLIENT_GROUPS_PER_DIGEST:-6}
+      AiAccessTelemetry__GatewayLogPath: /var/log/taskforge-gateway/edge-events.log
       AiAccessTelemetry__IncludeFullIp: ${AI_ACCESS_TELEMETRY_INCLUDE_FULL_IP:-false}
       Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
       Telegram__SupportGroupId: ${SUPPORT_BOT_GROUP_ID:-}
@@ -89,6 +91,8 @@ services:
       Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
+    volumes:
+      - gateway-ai-telemetry:/var/log/taskforge-gateway:ro
     expose:
       - '8080'
     depends_on:
@@ -365,6 +369,8 @@ services:
       Browser__CaptureTimeoutSeconds: ${BROWSER_CAPTURE_TIMEOUT_SECONDS:-75}
       Browser__CaptureCacheSeconds: ${BROWSER_CAPTURE_CACHE_SECONDS:-30}
       Browser__RecommendedCaptureConcurrency: ${BROWSER_RECOMMENDED_CAPTURE_CONCURRENCY:-1}
+      Browser__MaxConcurrentPublicCaptures: ${BROWSER_MAX_CONCURRENT_PUBLIC_CAPTURES:-2}
+      Browser__PublicCaptureQueueWaitMilliseconds: ${BROWSER_PUBLIC_CAPTURE_QUEUE_WAIT_MILLISECONDS:-250}
       Browser__MinViewportWidth: ${BROWSER_MIN_VIEWPORT_WIDTH:-320}
       Browser__MaxViewportWidth: ${BROWSER_MAX_VIEWPORT_WIDTH:-2560}
       Browser__MinViewportHeight: ${BROWSER_MIN_VIEWPORT_HEIGHT:-320}
