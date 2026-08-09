@@ -14,13 +14,15 @@ import {
   exportAssignmentsToJson,
   updateAssignmentSort,
 } from "../../api/assignments";
-import { Plus, Layers, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle } from "lucide-react";
+import { Plus, Layers, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle, ExternalLink, Pencil, FilePlus2, FolderPlus } from "lucide-react";
 import IfEditor from "../../components/IfEditor";
 import { useNotify } from "../../components/notify/NotifyProvider";
 import { handleApiError } from "../../utils/handleApiError";
 import { notifyOnce } from "../../utils/notifyOnce";
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
+import { useEditorMode } from '../../contexts/EditorModeContext';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
 
 import {
   isAssignmentSolved,
@@ -60,6 +62,7 @@ export default function CourseAssignmentsPage() {
   const [params, setParams] = useSearchParams();
   const notify = useNotify();
   const queryClient = useQueryClient();
+  const { isEditorMode } = useEditorMode();
   const assignmentsKey = useMemo(() => ['course-assignments', courseId], [courseId]);
   const courseBundleKey = useMemo(() => ['course-bundle', courseId], [courseId]);
 
@@ -150,9 +153,34 @@ export default function CourseAssignmentsPage() {
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const [dragOverContentMode, setDragOverContentMode] = useState('before');
   const [extractDropActive, setExtractDropActive] = useState(false);
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, entry: null, canEdit: false });
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
+
+  const closeContextMenu = React.useCallback(() => {
+    setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  }, []);
+
+  const openContextMenu = React.useCallback((event, entry = null, canEditEntry = false) => {
+    if (!isEditorMode || !courseCanEdit) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      open: true,
+      x: event.clientX,
+      y: event.clientY,
+      entry,
+      canEdit: Boolean(canEditEntry),
+    });
+  }, [courseCanEdit, isEditorMode]);
+
+  const openCreateDialog = React.useCallback((mode = 'choice') => {
+    closeContextMenu();
+    setCreateMode(mode);
+    setJsonDocsOpen(false);
+    setCreateDialogOpen(true);
+  }, [closeContextMenu]);
 
   useEffect(() => {
     if (!jsonImportDiffOpen) return undefined;
@@ -836,7 +864,7 @@ export default function CourseAssignmentsPage() {
                 <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
                   <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={() => { setCreateMode("choice"); setJsonDocsOpen(false); setCreateDialogOpen(true); }}>
+                <Button className="w-full sm:w-auto" onClick={() => openCreateDialog("choice")}>
                   <Plus size={16} /> Создать
                 </Button>
               </>
@@ -1209,7 +1237,12 @@ export default function CourseAssignmentsPage() {
       {err && <div className="text-red-500 mb-4">{err}</div>}
       {loading && <div className="text-neutral-500">Загрузка…</div>}
 
-      <div className="auto-fill-grid auto-fill-grid--dense">
+      <div
+        className="auto-fill-grid auto-fill-grid--dense"
+        onContextMenu={(event) => {
+          if (event.target === event.currentTarget) openContextMenu(event);
+        }}
+      >
         {filtered.map((entry, index) => {
           const itemCanEdit = canReorderContentItem(entry);
           const dropMode = dragOverContentKey === entry.key ? dragOverContentMode : '';
@@ -1225,16 +1258,72 @@ export default function CourseAssignmentsPage() {
               dropMode={dropMode}
               progress={entry.kind === 'course' ? childProgressByCourseId[entry.id] : null}
               dragApi={dragApi}
+              onContextMenu={openContextMenu}
             />
           );
         })}
       </div>
 
       {!loading && filtered.length === 0 && (
-        <div className="card-muted p-8 text-center text-neutral-500 mt-6">
+        <div className="card-muted p-8 text-center text-neutral-500 mt-6" onContextMenu={(event) => openContextMenu(event)}>
           Пока заданий нет. Создайте первое ✨
         </div>
       )}
+
+      <ContextMenu
+        open={contextMenu.open}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        onClose={closeContextMenu}
+        ariaLabel="Быстрые действия курса"
+      >
+        {contextMenu.entry ? (
+          <>
+            <ContextMenuLabel>{contextMenu.entry.kind === 'course' ? 'Курс' : 'Задание'}</ContextMenuLabel>
+            <ContextMenuItem
+              icon={ExternalLink}
+              onClick={() => {
+                const entry = contextMenu.entry;
+                closeContextMenu();
+                nav(entry.kind === 'course' ? `/course/${entry.id}` : `/assignment/${entry.id}`);
+              }}
+            >
+              Открыть
+            </ContextMenuItem>
+            {contextMenu.canEdit ? (
+              <ContextMenuItem
+                icon={Pencil}
+                onClick={() => {
+                  const entry = contextMenu.entry;
+                  closeContextMenu();
+                  nav(entry.kind === 'course' ? `/courses/${entry.id}/edit` : `/assignment/${entry.id}/edit`);
+                }}
+              >
+                Редактировать
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+          </>
+        ) : null}
+
+        <ContextMenuLabel>Создать</ContextMenuLabel>
+        <ContextMenuItem icon={FilePlus2} onClick={() => openCreateDialog('manual')}>
+          Новое задание
+        </ContextMenuItem>
+        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>
+          Импорт из JSON
+        </ContextMenuItem>
+        <ContextMenuItem
+          icon={FolderPlus}
+          disabled={Boolean(createBusyType || jsonImportBusy)}
+          onClick={() => {
+            closeContextMenu();
+            void handleCreateChildCourse();
+          }}
+        >
+          Вложенный курс
+        </ContextMenuItem>
+      </ContextMenu>
     </>
   );
 }

@@ -47,6 +47,7 @@ function CourseContentCard({
   dropMode,
   progress,
   dragApi,
+  onContextMenu,
 }) {
   const navigate = useNavigate();
   const isDropTarget = Boolean(dropMode);
@@ -93,6 +94,7 @@ function CourseContentCard({
         role="link"
         tabIndex={0}
         {...sharedDragProps}
+        onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
         onClick={() => dragApi.openAfterDrag(editorHref)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -152,6 +154,7 @@ function CourseContentCard({
       role="link"
       tabIndex={0}
       {...sharedDragProps}
+      onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
       onClick={() => dragApi.openAfterDrag(editorHref)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {

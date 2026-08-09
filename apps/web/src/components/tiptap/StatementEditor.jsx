@@ -124,6 +124,7 @@ function pickFirstImageFileFromDataTransfer(dt) {
 
 function StatementEditor({ value, onChange }) {
   const editorRef = useRef(null);
+  const lastEmittedValueRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const initialContent = useMemo(() => {
     const doc = safeParseJson(value);
@@ -196,12 +197,32 @@ function StatementEditor({ value, onChange }) {
     },
 
     onUpdate: ({ editor }) => {
-      onChange(JSON.stringify(editor.getJSON()));
+      const nextValue = JSON.stringify(editor.getJSON());
+      lastEmittedValueRef.current = nextValue;
+      onChange(nextValue);
     },
   });
 
-  
-  
+  useEffect(() => {
+    if (!editor) return;
+
+    const incomingValue = String(value ?? "");
+    if (incomingValue === lastEmittedValueRef.current) return;
+
+    const nextContent = safeParseJson(value) ?? plainTextToDoc(value ?? "");
+    if (typeof nextContent === "object" && nextContent !== null) {
+      const currentValue = JSON.stringify(editor.getJSON());
+      const normalizedNextValue = JSON.stringify(nextContent);
+      if (currentValue === normalizedNextValue) {
+        lastEmittedValueRef.current = incomingValue;
+        return;
+      }
+    }
+
+    editor.commands.setContent(nextContent, { emitUpdate: false });
+    lastEmittedValueRef.current = incomingValue;
+  }, [editor, value]);
+
   useEffect(() => {
     if (!ctxMenu.open) return;
 
