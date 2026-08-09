@@ -1,9 +1,46 @@
 import React from 'react';
 import { Button, Card } from '../../../components/ui';
 
+function StyleSwitch({ enabled, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Необрутализм"
+      onClick={() => onChange(!enabled)}
+      className={`tf-style-switch ${enabled ? 'is-on' : ''}`}
+    >
+      <span className="tf-style-switch__thumb" />
+    </button>
+  );
+}
+
 function AppearanceSettingsSection({ form, setField }) {
+  const neobrutal = form.uiStyle === 'neobrutal';
+
   return (
     <div className="space-y-4">
+      <Card className="p-4 space-y-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="font-semibold">Необрутализм</div>
+            <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              Жёсткие рамки, смещённые тени, плоские яркие поверхности и более графичный интерфейс по всему сайту.
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="text-sm font-semibold">{neobrutal ? 'Включён' : 'Выключен'}</span>
+            <StyleSwitch enabled={neobrutal} onChange={(value) => setField('uiStyle', value ? 'neobrutal' : 'default')} />
+          </div>
+        </div>
+        <div className="tf-neobrutal-preview" aria-hidden="true">
+          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--cyan">TASK</div>
+          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--yellow">RUN</div>
+          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--pink">OK!</div>
+        </div>
+      </Card>
+
       <Card className="p-4 space-y-4">
         <div><div className="font-semibold">Режим</div><div className="text-sm text-neutral-500 dark:text-neutral-400">Светлая или тёмная тема.</div></div>
         <div className="flex flex-wrap gap-2">

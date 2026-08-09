@@ -17,6 +17,7 @@ const PALETTES = new Set(['blue', 'pink', 'apple', 'red', 'honey', 'violet']);
 const DEFAULT_SETTINGS = Object.freeze({
   colorTheme: 'pink',
   mode: 'dark',
+  uiStyle: 'default',
   bgFx: false,
   fxMode: 'random',
   fxVariant: '2',
@@ -67,6 +68,7 @@ function normalizeSettings(input = {}) {
   const rawPalette = String(read('colorTheme', DEFAULT_SETTINGS.colorTheme));
   const colorTheme = PALETTES.has(rawPalette) ? rawPalette : DEFAULT_SETTINGS.colorTheme;
   const mode = read('mode', DEFAULT_SETTINGS.mode) === 'light' ? 'light' : 'dark';
+  const uiStyle = read('uiStyle', DEFAULT_SETTINGS.uiStyle) === 'neobrutal' ? 'neobrutal' : 'default';
   const fxMode = read('fxMode', DEFAULT_SETTINGS.fxMode) === 'fixed' ? 'fixed' : 'random';
   const codeSolveLayout = read('codeSolveLayout', DEFAULT_SETTINGS.codeSolveLayout) === 'editorTop'
     ? 'editorTop'
@@ -88,6 +90,7 @@ function normalizeSettings(input = {}) {
   return {
     colorTheme,
     mode,
+    uiStyle,
     bgFx: typeof input.bgFx === 'boolean' ? input.bgFx : storedBgFx,
     fxMode,
     fxVariant: String(read('fxVariant', DEFAULT_SETTINGS.fxVariant)),
@@ -114,6 +117,7 @@ function persistSettingsSnapshot(settings) {
   try {
     window.localStorage.setItem('colorTheme', settings.colorTheme);
     window.localStorage.setItem('mode', settings.mode);
+    window.localStorage.setItem('uiStyle', settings.uiStyle);
     window.localStorage.setItem('bgFx', settings.bgFx ? '1' : '0');
     window.localStorage.setItem('fxMode', settings.fxMode);
     window.localStorage.setItem('fxVariant', settings.fxVariant);
@@ -134,6 +138,7 @@ function persistSettingsSnapshot(settings) {
     const remoteCompatibleSettings = {
       colorTheme: settings.colorTheme,
       mode: settings.mode,
+      uiStyle: settings.uiStyle,
       bgFx: settings.bgFx,
       fxMode: settings.fxMode,
       fxVariant: settings.fxVariant,
@@ -148,12 +153,13 @@ function persistSettingsSnapshot(settings) {
   } catch {}
 }
 
-function applyThemeClasses(mode, colorTheme) {
+function applyThemeClasses(mode, colorTheme, uiStyle) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   root.classList.remove(...PALETTES);
   root.classList.add(PALETTES.has(colorTheme) ? colorTheme : DEFAULT_SETTINGS.colorTheme);
   root.classList.toggle('dark', mode === 'dark');
+  root.classList.toggle('neo-brutal', uiStyle === 'neobrutal');
 }
 
 function persistSidebarCollapsed(value) {
@@ -196,8 +202,8 @@ export function UiSettingsProvider({ children }) {
   }, [authenticated]);
 
   useLayoutEffect(() => {
-    applyThemeClasses(settings.mode, settings.colorTheme);
-  }, [settings.mode, settings.colorTheme]);
+    applyThemeClasses(settings.mode, settings.colorTheme, settings.uiStyle);
+  }, [settings.mode, settings.colorTheme, settings.uiStyle]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -256,9 +262,10 @@ export function UiSettingsProvider({ children }) {
     () => ({
       colorTheme: settings.colorTheme,
       mode: settings.mode,
+      uiStyle: settings.uiStyle,
       paletteKey: `${settings.mode}:${settings.colorTheme}`,
     }),
-    [settings.colorTheme, settings.mode],
+    [settings.colorTheme, settings.mode, settings.uiStyle],
   );
 
   const backgroundValue = useMemo(
@@ -324,6 +331,7 @@ export function useUiTheme() {
   return useContext(ThemeContext) || {
     colorTheme: DEFAULT_SETTINGS.colorTheme,
     mode: DEFAULT_SETTINGS.mode,
+    uiStyle: DEFAULT_SETTINGS.uiStyle,
     paletteKey: `${DEFAULT_SETTINGS.mode}:${DEFAULT_SETTINGS.colorTheme}`,
   };
 }

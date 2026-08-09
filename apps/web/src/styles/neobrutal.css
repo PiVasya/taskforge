@@ -1,0 +1,721 @@
+.tf-style-switch {
+  position: relative;
+  width: 3.6rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border: 2px solid rgb(24 24 27);
+  border-radius: 9999px;
+  background: rgb(228 228 231);
+  box-shadow: 3px 3px 0 rgb(24 24 27);
+  transition: background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.tf-style-switch:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(24 24 27);
+}
+
+.tf-style-switch:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgb(24 24 27);
+}
+
+.tf-style-switch.is-on {
+  background: rgb(var(--brand-300));
+}
+
+.tf-style-switch__thumb {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.22rem;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 2px solid rgb(24 24 27);
+  border-radius: 9999px;
+  background: rgb(255 255 255);
+  transition: transform 150ms ease;
+}
+
+.tf-style-switch.is-on .tf-style-switch__thumb {
+  transform: translateX(1.52rem);
+}
+
+.tf-neobrutal-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  max-width: 30rem;
+}
+
+.tf-neobrutal-preview__card {
+  display: grid;
+  min-height: 3.4rem;
+  place-items: center;
+  border: 2px solid rgb(24 24 27);
+  border-radius: 0.75rem;
+  box-shadow: 4px 4px 0 rgb(24 24 27);
+  color: rgb(24 24 27);
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.tf-neobrutal-preview__card--cyan { background: rgb(143 222 239); }
+.tf-neobrutal-preview__card--yellow { background: rgb(255 220 61); }
+.tf-neobrutal-preview__card--pink { background: rgb(249 168 212); }
+
+html.neo-brutal {
+  --page-bg: 238 235 250;
+  --card: 255 253 247;
+  --muted: 237 244 238;
+  --text: 23 23 23;
+  --text-muted: 79 73 86;
+  --border: 24 24 27;
+  --neo-ink: 24 24 27;
+  --neo-paper: 255 253 247;
+  --neo-paper-alt: 245 241 255;
+  --neo-shadow: 6px 6px 0 rgb(var(--neo-ink));
+  --neo-shadow-sm: 4px 4px 0 rgb(var(--neo-ink));
+  --neo-shadow-xs: 3px 3px 0 rgb(var(--neo-ink));
+  --neo-radius: 0.85rem;
+  --neo-radius-lg: 1.05rem;
+}
+
+html.neo-brutal.dark {
+  --page-bg: 35 33 40;
+  --card: 55 52 60;
+  --muted: 65 61 70;
+  --text: 255 251 240;
+  --text-muted: 216 207 220;
+  --border: 8 8 10;
+  --neo-ink: 8 8 10;
+  --neo-paper: 55 52 60;
+  --neo-paper-alt: 67 62 76;
+}
+
+html.neo-brutal body {
+  background-color: rgb(var(--page-bg));
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(var(--neo-ink) / 0.09) 1px, transparent 1.15px),
+    linear-gradient(135deg, rgba(var(--brand-200) / 0.08), transparent 42%);
+  background-size: 12px 12px, 100% 100%;
+  font-family: Arial, "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+}
+
+html.neo-brutal.dark body {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255 255 255 / 0.055) 1px, transparent 1.15px),
+    linear-gradient(135deg, rgba(var(--brand-500) / 0.1), transparent 42%);
+}
+
+html.neo-brutal h1,
+html.neo-brutal h2,
+html.neo-brutal h3,
+html.neo-brutal .h1,
+html.neo-brutal .h2,
+html.neo-brutal .h3 {
+  font-weight: 850;
+  letter-spacing: -0.035em;
+}
+
+html.neo-brutal header.sticky {
+  border-bottom: 3px solid rgb(var(--neo-ink)) !important;
+  background: rgb(var(--card)) !important;
+  box-shadow: 0 4px 0 rgba(var(--neo-ink) / 0.14);
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal footer {
+  border-color: rgb(var(--neo-ink)) !important;
+  border-width: 2px 0 0 !important;
+  background: rgb(var(--card));
+}
+
+html.neo-brutal .card,
+html.neo-brutal .card-muted,
+html.neo-brutal .page-hero-card,
+html.neo-brutal .page-search-card {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: var(--neo-radius-lg) !important;
+  background: rgb(var(--card)) !important;
+  box-shadow: var(--neo-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal .card-muted {
+  background: rgb(var(--muted)) !important;
+}
+
+html.neo-brutal .layout-topbar-surface {
+  background: rgb(var(--card)) !important;
+}
+
+html.neo-brutal .shadow-soft,
+html.neo-brutal .shadow-lg,
+html.neo-brutal .shadow-xl,
+html.neo-brutal .shadow-2xl {
+  box-shadow: var(--neo-shadow-sm) !important;
+}
+
+html.neo-brutal :where(div, section, article, aside, nav)[class*="rounded-"][class*="border"]:not([class*="rounded-full"]):not(.card):not(.card-muted) {
+  border-color: rgb(var(--neo-ink)) !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-radius: var(--neo-radius) !important;
+  box-shadow: var(--neo-shadow-xs);
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal .btn,
+html.neo-brutal .btn-primary,
+html.neo-brutal .btn-outline,
+html.neo-brutal .btn-ghost {
+  min-height: 42px;
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.7rem !important;
+  box-shadow: var(--neo-shadow-xs);
+  font-weight: 800;
+  transform: translate(0, 0);
+  transition: transform 110ms ease, box-shadow 110ms ease, background-color 110ms ease;
+}
+
+html.neo-brutal .btn-primary {
+  background: rgb(var(--brand-300)) !important;
+  color: rgb(20 20 22) !important;
+}
+
+html.neo-brutal .btn-primary:hover {
+  background: rgb(var(--brand-400)) !important;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .btn-outline {
+  background: rgb(var(--card)) !important;
+  color: rgb(var(--text)) !important;
+}
+
+html.neo-brutal .btn-outline:hover {
+  background: rgb(var(--brand-100)) !important;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .btn-ghost {
+  border-color: transparent !important;
+  box-shadow: none;
+}
+
+html.neo-brutal .btn-ghost:hover {
+  border-color: rgb(var(--neo-ink)) !important;
+  background: rgb(var(--brand-100)) !important;
+  box-shadow: var(--neo-shadow-xs);
+}
+
+html.neo-brutal :where(button, a)[class*="rounded-"]:not([class*="rounded-full"]):not(.btn):not(.btn-primary):not(.btn-outline):not(.btn-ghost):not(.tf-style-switch):not(.side-nav-link):not(.header-quick-action):not(.mobile-nav-card) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.7rem !important;
+  box-shadow: var(--neo-shadow-xs);
+  font-weight: 700;
+  transition: transform 110ms ease, box-shadow 110ms ease, background-color 110ms ease;
+}
+
+html.neo-brutal :where(button, a)[class*="rounded-"]:not([class*="rounded-full"]):not(.btn):not(.btn-primary):not(.btn-outline):not(.btn-ghost):not(.tf-style-switch):not(.side-nav-link):not(.header-quick-action):not(.mobile-nav-card):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal :where(.btn, .btn-primary, .btn-outline, button[class*="rounded-"], a[class*="rounded-"]):active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 1px 1px 0 rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal :where(input, textarea, select, .input, .textarea, .select) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.65rem !important;
+  background-color: rgb(var(--card)) !important;
+  color: rgb(var(--text)) !important;
+  box-shadow: 3px 3px 0 rgba(var(--neo-ink) / 0.95);
+  font-weight: 600;
+}
+
+html.neo-brutal :where(input, textarea, select, .input, .textarea, .select)::placeholder {
+  color: rgb(var(--text-muted));
+  opacity: 0.72;
+  font-weight: 500;
+}
+
+html.neo-brutal :where(input, textarea, select, .input, .textarea, .select):focus {
+  border-color: rgb(var(--neo-ink)) !important;
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink)), 0 0 0 3px rgba(var(--brand-300) / 0.55) !important;
+}
+
+html.neo-brutal input[type="checkbox"],
+html.neo-brutal input[type="radio"] {
+  box-shadow: none;
+  accent-color: rgb(var(--brand-500));
+}
+
+html.neo-brutal input[type="file"]::file-selector-button {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.55rem;
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  font-weight: 800;
+}
+
+html.neo-brutal .badge,
+html.neo-brutal [class*="badge-"] {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 9999px !important;
+  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  font-weight: 800;
+}
+
+html.neo-brutal .badge-secondary,
+html.neo-brutal .badge-outline {
+  background: rgb(var(--muted)) !important;
+  color: rgb(var(--text)) !important;
+}
+
+html.neo-brutal .badge-primary,
+html.neo-brutal .badge-info {
+  background: rgb(var(--brand-200)) !important;
+  color: rgb(20 20 22) !important;
+}
+
+html.neo-brutal .side-nav-link {
+  border: 2px solid transparent;
+  border-radius: 0.75rem;
+  font-weight: 700;
+}
+
+html.neo-brutal .side-nav-link:hover {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--brand-100));
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .side-nav-link.is-active {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--brand-200));
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal .side-nav-icon {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.65rem;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .side-nav-link.is-active .side-nav-icon {
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal .header-quick-action {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.7rem;
+  background: rgb(var(--card));
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+  font-weight: 800;
+}
+
+html.neo-brutal .header-quick-action:hover {
+  background: rgb(var(--brand-100));
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .header-quick-action.is-active {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal .assignment-card--solved {
+  opacity: 0.72;
+  filter: grayscale(0.15) saturate(0.75);
+}
+
+html.neo-brutal .assignment-card-status,
+html.neo-brutal .assignment-card-title-tooltip {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--card));
+  box-shadow: var(--neo-shadow-xs);
+  backdrop-filter: none;
+}
+
+html.neo-brutal .tf-skeleton {
+  border: 1px solid rgba(var(--neo-ink) / 0.55);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgb(var(--muted)),
+    rgb(var(--muted)) 8px,
+    rgba(var(--brand-200) / 0.6) 8px,
+    rgba(var(--brand-200) / 0.6) 16px
+  );
+  animation: none;
+}
+
+html.neo-brutal .code-editor-shell,
+html.neo-brutal .cm-editor,
+html.neo-brutal .cm-scroller {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.75rem !important;
+  box-shadow: var(--neo-shadow-xs);
+}
+
+html.neo-brutal .monaco-editor,
+html.neo-brutal .monaco-editor .overflow-guard {
+  border-radius: 0.6rem;
+}
+
+html.neo-brutal .mobile-nav-backdrop {
+  background: rgba(20 20 22 / 0.48);
+  backdrop-filter: none;
+}
+
+html.neo-brutal .mobile-nav-sheet {
+  border: 3px solid rgb(var(--neo-ink));
+  border-radius: 1rem;
+  box-shadow: 8px 8px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .mobile-nav-sheet__header,
+html.neo-brutal .admin-mobile-tabs {
+  border-color: rgb(var(--neo-ink));
+  border-width: 0 0 2px;
+  background: rgb(var(--card));
+  backdrop-filter: none;
+}
+
+html.neo-brutal .mobile-nav-close,
+html.neo-brutal .mobile-nav-card,
+html.neo-brutal .admin-mobile-tab {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.7rem;
+  background: rgb(var(--card));
+  box-shadow: var(--neo-shadow-xs);
+  color: rgb(var(--text));
+  font-weight: 800;
+}
+
+html.neo-brutal .mobile-nav-card.is-active,
+html.neo-brutal .admin-mobile-tab.is-active {
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal :where([role="dialog"], [role="menu"])[class*="rounded-"],
+html.neo-brutal [class*="absolute"][class*="rounded-"][class*="shadow-"] {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  background: rgb(var(--card)) !important;
+  box-shadow: var(--neo-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal .bg-white,
+html.neo-brutal .bg-white\/60,
+html.neo-brutal .bg-white\/70,
+html.neo-brutal .bg-white\/75,
+html.neo-brutal .bg-white\/80,
+html.neo-brutal .bg-white\/90 {
+  background-color: rgb(var(--card)) !important;
+}
+
+html.neo-brutal .bg-neutral-50,
+html.neo-brutal .bg-neutral-100,
+html.neo-brutal .bg-neutral-950 {
+  background-color: rgb(var(--muted)) !important;
+}
+
+html.neo-brutal.dark .dark\:bg-neutral-950,
+html.neo-brutal.dark .dark\:bg-neutral-900 {
+  background-color: rgb(var(--muted)) !important;
+}
+
+html.neo-brutal .min-h-screen.bg-neutral-50,
+html.neo-brutal.dark .min-h-screen.dark\:bg-neutral-950 {
+  background-color: transparent !important;
+}
+
+html.neo-brutal .border-neutral-200,
+html.neo-brutal .border-neutral-300,
+html.neo-brutal .border-neutral-700,
+html.neo-brutal .border-neutral-800,
+html.neo-brutal [class*="border-neutral-200/"],
+html.neo-brutal [class*="border-neutral-300/"],
+html.neo-brutal [class*="border-neutral-700/"],
+html.neo-brutal [class*="border-neutral-800/"] {
+  border-color: rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal .bg-\[rgb\(var\(--card\)\)\],
+html.neo-brutal [class*="bg-[rgb(var(--card))]"] {
+  background-color: rgb(var(--card)) !important;
+}
+
+
+html.neo-brutal table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.75rem;
+  background: rgb(var(--card));
+  box-shadow: var(--neo-shadow-sm);
+  overflow: hidden;
+}
+
+html.neo-brutal th {
+  background: rgb(var(--brand-100));
+  color: rgb(var(--text));
+  font-weight: 850;
+}
+
+html.neo-brutal :where(th, td) {
+  border-color: rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal :where(thead tr, tbody tr:not(:last-child)) > :where(th, td) {
+  border-bottom-width: 2px !important;
+}
+
+html.neo-brutal :where(th, td):not(:last-child) {
+  border-right-width: 1px;
+}
+
+html.neo-brutal hr,
+html.neo-brutal .h-px {
+  border-color: rgb(var(--neo-ink)) !important;
+  background-color: rgba(var(--neo-ink) / 0.65) !important;
+}
+
+html.neo-brutal progress {
+  overflow: hidden;
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 9999px;
+  background: rgb(var(--card));
+  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  outline: 3px solid rgb(var(--brand-300));
+  outline-offset: 3px;
+  box-shadow: var(--neo-shadow-xs) !important;
+}
+
+html.neo-brutal .tf-style-switch {
+  border-color: rgb(var(--neo-ink));
+  box-shadow: var(--neo-shadow-xs);
+}
+
+html.neo-brutal .tf-style-switch__thumb {
+  border-color: rgb(var(--neo-ink));
+}
+
+@media (max-width: 640px) {
+  html.neo-brutal {
+    --neo-shadow: 4px 4px 0 rgb(var(--neo-ink));
+    --neo-shadow-sm: 3px 3px 0 rgb(var(--neo-ink));
+    --neo-shadow-xs: 2px 2px 0 rgb(var(--neo-ink));
+  }
+
+  html.neo-brutal .card,
+  html.neo-brutal .card-muted,
+  html.neo-brutal .page-hero-card,
+  html.neo-brutal .page-search-card {
+    border-radius: 0.85rem !important;
+  }
+
+  .tf-neobrutal-preview {
+    gap: 0.5rem;
+  }
+
+  .tf-neobrutal-preview__card {
+    min-height: 3rem;
+    box-shadow: 3px 3px 0 rgb(24 24 27);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.neo-brutal .btn,
+  html.neo-brutal .btn-primary,
+  html.neo-brutal .btn-outline,
+  html.neo-brutal .btn-ghost,
+  html.neo-brutal button,
+  html.neo-brutal a,
+  .tf-style-switch,
+  .tf-style-switch__thumb {
+    transition: none !important;
+  }
+}
+
+html.neo-brutal :where(
+  .landing-hero,
+  .landing-preview-card,
+  .landing-check-demo,
+  .landing-metric-card,
+  .landing-feature-panel,
+  .landing-audience-card,
+  .landing-flow-card,
+  .landing-flow-step,
+  .landing-faq-item,
+  .landing-final-cta,
+  .changelog-hero,
+  .changelog-card,
+  .changelog-post-hero,
+  .changelog-section,
+  .changelog-callout,
+  .changelog-stat,
+  .changelog-empty,
+  .changelog-benefit-card,
+  .changelog-death-card,
+  .changelog-mob-card,
+  .compiler-toolbar,
+  .compiler-workspace,
+  .compiler-language-select__menu,
+  .solve-action-dock-panel,
+  .solve-tests-card,
+  .tf-choice-card,
+  .tf-modal-panel
+) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: var(--neo-radius-lg) !important;
+  background: rgb(var(--card)) !important;
+  box-shadow: var(--neo-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+html.neo-brutal .landing-hero {
+  background: rgb(var(--neo-paper-alt)) !important;
+}
+
+html.neo-brutal .landing-grid {
+  opacity: 0.16;
+  mask-image: none;
+  background-image:
+    linear-gradient(rgb(var(--neo-ink)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--neo-ink)) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+
+html.neo-brutal .landing-orb {
+  display: none;
+}
+
+html.neo-brutal :where(.landing-pill, .landing-panel-label, .landing-section-kicker, .landing-check-badge, .changelog-pill, .changelog-badge, .changelog-cost) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  background: rgb(var(--brand-200)) !important;
+  color: rgb(20 20 22) !important;
+  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  font-weight: 850;
+}
+
+html.neo-brutal :where(.landing-btn, .landing-demo-submit, .compiler-button, .compiler-language-select__trigger) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.7rem !important;
+  box-shadow: var(--neo-shadow-xs) !important;
+  font-weight: 850;
+}
+
+html.neo-brutal :where(.landing-btn-primary, .landing-demo-submit, .compiler-button--run) {
+  background: rgb(var(--brand-300)) !important;
+  color: rgb(20 20 22) !important;
+}
+
+html.neo-brutal :where(.landing-btn-ghost, .compiler-button) {
+  background: rgb(var(--card)) !important;
+  color: rgb(var(--text)) !important;
+}
+
+html.neo-brutal :where(.landing-btn, .landing-demo-submit, .compiler-button, .compiler-language-select__trigger):hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal :where(.landing-btn, .landing-demo-submit, .compiler-button, .compiler-language-select__trigger):active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal :where(.landing-feature-tab, .landing-preview-row, .landing-check-io > div, .landing-check-step, .changelog-highlight, .changelog-bullet, .changelog-feature-list) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.75rem !important;
+  background: rgb(var(--muted)) !important;
+  box-shadow: var(--neo-shadow-xs);
+}
+
+html.neo-brutal .landing-feature-tab.is-active,
+html.neo-brutal .landing-feature-tab:hover {
+  background: rgb(var(--brand-200)) !important;
+  color: rgb(20 20 22);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal :where(.landing-feature-icon, .landing-audience-icon, .landing-preview-score, .changelog-icon, .changelog-number, .changelog-benefit-icon, .changelog-death-icon, .compiler-page__mark) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.7rem !important;
+  background: rgb(var(--brand-300)) !important;
+  color: rgb(20 20 22) !important;
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal :where(.landing-code-window, .landing-demo-code) {
+  border: 2px solid rgb(var(--neo-ink)) !important;
+  border-radius: 0.75rem !important;
+  background: rgb(var(--muted)) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--neo-ink) / 0.15), var(--neo-shadow-xs) !important;
+}
+
+html.neo-brutal :where(.landing-progress-shell, .landing-submit-track) {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--card));
+  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal :where(.landing-progress-fill, .landing-submit-track span) {
+  background: rgb(var(--brand-400));
+}
+
+html.neo-brutal .landing-check-final,
+html.neo-brutal .landing-check-result-badge {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(187 247 208);
+  color: rgb(20 20 22);
+  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .changelog-card__line,
+html.neo-brutal .changelog-post-hero::after {
+  background: rgb(var(--brand-400));
+}
+
+html.neo-brutal .compiler-workspace {
+  overflow: hidden;
+}
+
+html.neo-brutal .compiler-pane + .compiler-pane,
+html.neo-brutal .compiler-pane--terminal {
+  border-left: 2px solid rgb(var(--neo-ink));
+}
+
+html.neo-brutal .compiler-language-select__option {
+  border-radius: 0.5rem;
+  font-weight: 700;
+}
+
+html.neo-brutal .compiler-language-select__option:hover,
+html.neo-brutal .compiler-language-select__option.is-selected {
+  background: rgb(var(--brand-200));
+  color: rgb(20 20 22);
+}
+
+html.neo-brutal .tf-modal-backdrop {
+  background: rgba(20 20 22 / 0.48);
+  backdrop-filter: none;
+}

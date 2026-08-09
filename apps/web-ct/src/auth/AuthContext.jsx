@@ -3,47 +3,7 @@ import { setAccessToken } from '../api/http';
 import { AuthApi } from '../api/auth';
 import { getMyUiSettings } from '../api/uiSettings';
 import { getProfile } from '../api/profile';
-
-
-
-const UI_LS_KEY = 'uiSettings';
-function persistUiSettingsFromBackend(s) {
-  if (!s || typeof s !== 'object') return;
-
-  const prev = (() => {
-    try {
-      const raw = localStorage.getItem(UI_LS_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  const merged = {
-    colorTheme: s.colorTheme || prev?.colorTheme || localStorage.getItem('colorTheme') || 'blue',
-    mode: s.mode || prev?.mode || localStorage.getItem('mode') || 'light',
-    bgFx:
-      typeof s.bgFx === 'boolean'
-        ? s.bgFx
-        : (typeof prev?.bgFx === 'boolean' ? prev.bgFx : localStorage.getItem('bgFx') === '1'),
-    fxMode: s.fxMode || prev?.fxMode || localStorage.getItem('fxMode') || 'random',
-    fxVariant: String(s.fxVariant ?? prev?.fxVariant ?? localStorage.getItem('fxVariant') ?? '2'),
-    codeSolveLayout: s.codeSolveLayout || prev?.codeSolveLayout || localStorage.getItem('codeSolveLayout') || 'split',
-    codeEditorStyle: s.codeEditorStyle === 'mono' ? 'mono' : 'color',
-  };
-
-  localStorage.setItem('colorTheme', merged.colorTheme);
-  localStorage.setItem('mode', merged.mode);
-  localStorage.setItem('bgFx', merged.bgFx ? '1' : '0');
-  localStorage.setItem('fxMode', merged.fxMode);
-  localStorage.setItem('fxVariant', merged.fxVariant);
-  localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
-  localStorage.setItem('codeEditorStyle', merged.codeEditorStyle);
-  localStorage.setItem(UI_LS_KEY, JSON.stringify(merged));
-
-  
-  window.dispatchEvent(new Event('tf-ui-settings-changed'));
-}
+import { persistUiSettingsFromBackend } from '../utils/uiAppearance';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;

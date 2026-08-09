@@ -13,6 +13,7 @@ import './features/landing/landing.css';
 import './features/assignment-solve/assignment-solve.css';
 import './features/news/news.css';
 import './components/shell/mobile-shell.css';
+import './styles/neobrutal.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <BrowserRouter>

@@ -43,6 +43,7 @@ function normalizeRemoteUiSettings(remote, previous) {
   return {
     colorTheme: remote.colorTheme || previous.colorTheme,
     mode: remote.mode || previous.mode,
+    uiStyle: remote.uiStyle === 'neobrutal' ? 'neobrutal' : (previous.uiStyle || 'default'),
     bgFx: Boolean(remote.bgFx),
     fxMode: remote.fxMode || previous.fxMode,
     fxVariant: String(remote.fxVariant ?? previous.fxVariant),
@@ -252,6 +253,7 @@ export default function SettingsFeature() {
         const payload = {
           colorTheme: form.colorTheme,
           mode: form.mode,
+          uiStyle: form.uiStyle === 'neobrutal' ? 'neobrutal' : 'default',
           bgFx: Boolean(form.bgFx),
           fxMode: form.fxMode,
           fxVariant: Number(form.fxVariant),
