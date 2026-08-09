@@ -29,7 +29,7 @@ function BucketChip({ icon: Icon, title, bucket, compact = false, mobile = false
       aria-label={fullTitle}
       className={[
         'quota-chip inline-flex min-w-0 items-center rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/90 shadow-soft backdrop-blur',
-        compact ? 'gap-1.5 px-2.5 py-1.5' : 'gap-2 px-3 py-2',
+        compact ? 'quota-chip--compact gap-1.5 px-2.5 py-1.5' : 'gap-2 px-3 py-2',
         mobile ? 'quota-chip--mobile flex-1' : '',
         bucket.isEmpty ? 'quota-chip--empty' : '',
       ].join(' ')}
@@ -47,7 +47,7 @@ function BucketChip({ icon: Icon, title, bucket, compact = false, mobile = false
           ].join(' ')}>
             {valueText}
           </span>
-          {!mobile && etaText ? (
+          {!mobile && !compact && etaText ? (
             <span className={[
               'tabular-nums text-neutral-500 dark:text-neutral-400 shrink-0',
               compact ? 'text-[11px]' : 'text-xs',
@@ -75,7 +75,7 @@ function QuotaStatusBar({ className = '', compact = false, mobile = false }) {
       mobile
         ? 'quota-status-mobile flex min-w-0 items-stretch gap-2'
         : compact
-          ? 'flex items-center gap-2 shrink-0'
+          ? 'quota-status-compact flex items-center gap-2 shrink-0'
           : 'hidden md:flex flex-wrap items-center justify-center gap-2',
       className,
     ].join(' ')}>

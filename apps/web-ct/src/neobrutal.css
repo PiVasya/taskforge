@@ -6,18 +6,18 @@
   border: 2px solid rgb(24 24 27);
   border-radius: 9999px;
   background: rgb(228 228 231);
-  box-shadow: 3px 3px 0 rgb(24 24 27);
+  box-shadow: 4px 4px 0 -1px rgb(24 24 27);
   transition: background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 
 .tf-style-switch:hover {
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 rgb(24 24 27);
+  box-shadow: 5px 5px 0 -1px rgb(24 24 27);
 }
 
 .tf-style-switch:active {
   transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 rgb(24 24 27);
+  box-shadow: 2px 2px 0 -1px rgb(24 24 27);
 }
 
 .tf-style-switch.is-on {
@@ -53,7 +53,7 @@
   place-items: center;
   border: 2px solid rgb(24 24 27);
   border-radius: 0.75rem;
-  box-shadow: 4px 4px 0 rgb(24 24 27);
+  box-shadow: 5px 5px 0 -1px rgb(24 24 27);
   color: rgb(24 24 27);
   font-size: 0.8rem;
   font-weight: 900;
@@ -74,9 +74,9 @@ html.neo-brutal {
   --neo-ink: 24 24 27;
   --neo-paper: 255 253 247;
   --neo-paper-alt: 245 241 255;
-  --neo-shadow: 6px 6px 0 rgb(var(--neo-ink));
-  --neo-shadow-sm: 4px 4px 0 rgb(var(--neo-ink));
-  --neo-shadow-xs: 3px 3px 0 rgb(var(--neo-ink));
+  --neo-shadow: 6px 6px 0 -2px rgb(var(--neo-ink));
+  --neo-shadow-sm: 5px 5px 0 -2px rgb(var(--neo-ink));
+  --neo-shadow-xs: 4px 4px 0 -1px rgb(var(--neo-ink));
   --neo-radius: 0.85rem;
   --neo-radius-lg: 1.05rem;
 }
@@ -157,12 +157,9 @@ html.neo-brutal .shadow-2xl {
   box-shadow: var(--neo-shadow-sm) !important;
 }
 
-html.neo-brutal :where(div, section, article, aside, nav)[class*="rounded-"][class*="border"]:not([class*="rounded-full"]):not(.card):not(.card-muted) {
+html.neo-brutal :where(div, section, article, aside, nav)[class*="rounded-"][class*="border"]:not([class*="rounded-full"]):not(.card):not(.card-muted):not(.quota-chip):not(.code-editor-shell) {
   border-color: rgb(var(--neo-ink)) !important;
-  border-width: 2px !important;
-  border-style: solid !important;
   border-radius: var(--neo-radius) !important;
-  box-shadow: var(--neo-shadow-xs);
   backdrop-filter: none !important;
 }
 
@@ -187,7 +184,7 @@ html.neo-brutal .btn-primary {
 html.neo-brutal .btn-primary:hover {
   background: rgb(var(--brand-400)) !important;
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+  box-shadow: 5px 5px 0 -1px rgb(var(--neo-ink));
 }
 
 html.neo-brutal .btn-outline {
@@ -198,7 +195,7 @@ html.neo-brutal .btn-outline {
 html.neo-brutal .btn-outline:hover {
   background: rgb(var(--brand-100)) !important;
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+  box-shadow: 5px 5px 0 -1px rgb(var(--neo-ink));
 }
 
 html.neo-brutal .btn-ghost {
@@ -222,32 +219,32 @@ html.neo-brutal :where(button, a)[class*="rounded-"]:not([class*="rounded-full"]
 
 html.neo-brutal :where(button, a)[class*="rounded-"]:not([class*="rounded-full"]):not(.btn):not(.btn-primary):not(.btn-outline):not(.btn-ghost):not(.tf-style-switch):not(.side-nav-link):not(.header-quick-action):not(.mobile-nav-card):hover {
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+  box-shadow: 5px 5px 0 -1px rgb(var(--neo-ink));
 }
 
 html.neo-brutal :where(.btn, .btn-primary, .btn-outline, button[class*="rounded-"], a[class*="rounded-"]):active {
   transform: translate(2px, 2px) !important;
-  box-shadow: 1px 1px 0 rgb(var(--neo-ink)) !important;
+  box-shadow: 2px 2px 0 -1px rgb(var(--neo-ink)) !important;
 }
 
-html.neo-brutal :where(input, textarea, select, .input, .textarea, .select) {
+html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textarea, .select) {
   border: 2px solid rgb(var(--neo-ink)) !important;
   border-radius: 0.65rem !important;
   background-color: rgb(var(--card)) !important;
   color: rgb(var(--text)) !important;
-  box-shadow: 3px 3px 0 rgba(var(--neo-ink) / 0.95);
+  box-shadow: 4px 4px 0 -1px rgba(var(--neo-ink) / 0.95);
   font-weight: 600;
 }
 
-html.neo-brutal :where(input, textarea, select, .input, .textarea, .select)::placeholder {
+html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textarea, .select)::placeholder {
   color: rgb(var(--text-muted));
   opacity: 0.72;
   font-weight: 500;
 }
 
-html.neo-brutal :where(input, textarea, select, .input, .textarea, .select):focus {
+html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textarea, .select):focus {
   border-color: rgb(var(--neo-ink)) !important;
-  box-shadow: 3px 3px 0 rgb(var(--neo-ink)), 0 0 0 3px rgba(var(--brand-300) / 0.55) !important;
+  box-shadow: 4px 4px 0 -1px rgb(var(--neo-ink)), 0 0 0 3px rgba(var(--brand-300) / 0.55) !important;
 }
 
 html.neo-brutal input[type="checkbox"],
@@ -261,7 +258,7 @@ html.neo-brutal input[type="file"]::file-selector-button {
   border-radius: 0.55rem;
   background: rgb(var(--brand-300));
   color: rgb(20 20 22);
-  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  box-shadow: 3px 3px 0 -1px rgb(var(--neo-ink));
   font-weight: 800;
 }
 
@@ -269,7 +266,7 @@ html.neo-brutal .badge,
 html.neo-brutal [class*="badge-"] {
   border: 2px solid rgb(var(--neo-ink)) !important;
   border-radius: 9999px !important;
-  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  box-shadow: 3px 3px 0 -1px rgb(var(--neo-ink));
   font-weight: 800;
 }
 
@@ -294,13 +291,13 @@ html.neo-brutal .side-nav-link {
 html.neo-brutal .side-nav-link:hover {
   border-color: rgb(var(--neo-ink));
   background: rgb(var(--brand-100));
-  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+  box-shadow: 4px 4px 0 -1px rgb(var(--neo-ink));
 }
 
 html.neo-brutal .side-nav-link.is-active {
   border-color: rgb(var(--neo-ink));
   background: rgb(var(--brand-200));
-  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+  box-shadow: 4px 4px 0 -1px rgb(var(--neo-ink));
   color: rgb(20 20 22);
 }
 
@@ -320,14 +317,14 @@ html.neo-brutal .header-quick-action {
   border: 2px solid rgb(var(--neo-ink));
   border-radius: 0.7rem;
   background: rgb(var(--card));
-  box-shadow: 3px 3px 0 rgb(var(--neo-ink));
+  box-shadow: 4px 4px 0 -1px rgb(var(--neo-ink));
   font-weight: 800;
 }
 
 html.neo-brutal .header-quick-action:hover {
   background: rgb(var(--brand-100));
   transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 rgb(var(--neo-ink));
+  box-shadow: 5px 5px 0 -1px rgb(var(--neo-ink));
 }
 
 html.neo-brutal .header-quick-action.is-active {
@@ -499,13 +496,16 @@ html.neo-brutal progress {
   border: 2px solid rgb(var(--neo-ink));
   border-radius: 9999px;
   background: rgb(var(--card));
-  box-shadow: 2px 2px 0 rgb(var(--neo-ink));
+  box-shadow: 3px 3px 0 -1px rgb(var(--neo-ink));
 }
 
-html.neo-brutal :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline: 3px solid rgb(var(--brand-300));
-  outline-offset: 3px;
-  box-shadow: var(--neo-shadow-xs) !important;
+html.neo-brutal :where(a, button):focus-visible {
+  outline: none !important;
+  box-shadow: var(--neo-shadow-xs), 0 0 0 3px rgba(var(--brand-300) / 0.58) !important;
+}
+
+html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textarea, .select):focus-visible {
+  outline: none !important;
 }
 
 html.neo-brutal .tf-style-switch {
@@ -519,9 +519,9 @@ html.neo-brutal .tf-style-switch__thumb {
 
 @media (max-width: 640px) {
   html.neo-brutal {
-    --neo-shadow: 4px 4px 0 rgb(var(--neo-ink));
-    --neo-shadow-sm: 3px 3px 0 rgb(var(--neo-ink));
-    --neo-shadow-xs: 2px 2px 0 rgb(var(--neo-ink));
+    --neo-shadow: 5px 5px 0 -2px rgb(var(--neo-ink));
+    --neo-shadow-sm: 4px 4px 0 -1px rgb(var(--neo-ink));
+    --neo-shadow-xs: 3px 3px 0 -1px rgb(var(--neo-ink));
   }
 
   html.neo-brutal .card,
@@ -537,7 +537,7 @@ html.neo-brutal .tf-style-switch__thumb {
 
   .tf-neobrutal-preview__card {
     min-height: 3rem;
-    box-shadow: 3px 3px 0 rgb(24 24 27);
+    box-shadow: 4px 4px 0 -1px rgb(24 24 27);
   }
 }
 

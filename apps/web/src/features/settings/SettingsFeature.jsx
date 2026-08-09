@@ -55,7 +55,7 @@ function normalizeRemoteUiSettings(remote, previous) {
 
 function SettingsNavigation({ activeSection, onOpen, profile, extra }) {
   return (
-    <aside className="self-start space-y-3">
+    <aside className="settings-navigation self-start space-y-3 lg:pb-2 lg:pr-2">
       <Card className="p-2">
         <nav className="space-y-1" aria-label="Разделы настроек">
           {SETTINGS_SECTIONS.map((section) => (
@@ -435,14 +435,14 @@ export default function SettingsFeature() {
 
   return (
     <div className="w-full max-w-[1320px]">
-      <div className="grid items-start gap-4 lg:grid-cols-[244px_minmax(0,1040px)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[252px_minmax(0,1040px)]">
         <MemoSettingsNavigation activeSection={activeSection} onOpen={openSection} profile={profile} extra={extra} />
-        <section className="min-w-0 max-w-[1040px]">
+        <section className="min-w-0 max-w-[1040px] pb-20">
           {loading ? <div className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
           {profileQuery.error && !profile ? <Card className="mb-4 p-4 text-sm text-red-500">Не удалось загрузить профиль. <Button variant="outline" onClick={profileQuery.refetch}>Повторить</Button></Card> : null}
           {activeContent}
-          <div className="sticky bottom-4 z-10 mt-5 flex justify-end pointer-events-none">
-            <Button onClick={save} disabled={saving || !canSave} className="pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
+          <div className="fixed bottom-4 right-4 z-40 flex justify-end pointer-events-none">
+            <Button onClick={save} disabled={saving || !canSave} className="settings-save-button pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
               {saving ? 'Сохранение…' : hasChanges ? 'Сохранить' : 'Сохранено'}
             </Button>
           </div>

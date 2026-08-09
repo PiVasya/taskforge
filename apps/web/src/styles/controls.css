@@ -74,14 +74,22 @@ code, pre,
   --editor-bg: var(--card);
 }
 
-.cm-editor, .cm-scroller {
+.cm-editor {
   background: rgb(var(--editor-bg)) !important;
   color: inherit;
-  border-radius: 0.75rem;
   border: 1px solid rgba(var(--border) / 0.8);
+  border-radius: 0.75rem;
+  overflow: hidden;
 }
 
-.dark .cm-editor, .dark .cm-scroller {
+.cm-scroller {
+  background: rgb(var(--editor-bg)) !important;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+}
+
+.dark .cm-editor {
   border-color: rgba(var(--border) / 0.8);
 }
 

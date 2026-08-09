@@ -1,4 +1,15 @@
 /* Mobile quotas and the dedicated phone navigation shell. */
+.quota-status-compact .quota-chip--compact {
+  width: 5.75rem;
+  min-width: 5.75rem;
+  max-width: 5.75rem;
+  justify-content: center;
+}
+
+.quota-status-compact .quota-chip__body {
+  flex: 0 1 auto;
+}
+
 .quota-chip--empty {
   border-color: rgba(var(--accent) / 0.35);
 }
