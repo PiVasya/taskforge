@@ -4,8 +4,20 @@ import { Badge, Card } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import { isAssignmentSolved, previewAssignmentDescription, previewAssignmentTitle } from '../courseAssignmentsModel';
 
-function StaticLink({ to, children }) {
-  return <Link to={to} className="block group">{children}</Link>;
+function StaticLink({ to, children, agentId, agentRole, agentAction, agentState, agentKind }) {
+  return (
+    <Link
+      to={to}
+      className="block group"
+      data-taskforge-automation-id={agentId}
+      data-taskforge-agent-role={agentRole}
+      data-taskforge-agent-action={agentAction}
+      data-taskforge-agent-state={agentState}
+      data-taskforge-agent-kind={agentKind}
+    >
+      {children}
+    </Link>
+  );
 }
 
 function CourseProgress({ progress }) {
@@ -95,8 +107,8 @@ function CourseContentCard({
       </Card>
     );
     return (
-      <IfEditor otherwise={<StaticLink to={viewHref}>{staticCard}</StaticLink>}>
-        {canEdit ? editorCard : <StaticLink to={viewHref}>{staticCard}</StaticLink>}
+      <IfEditor otherwise={<StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"}>{staticCard}</StaticLink>}>
+        {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"}>{staticCard}</StaticLink>}
       </IfEditor>
     );
   }
@@ -154,8 +166,8 @@ function CourseContentCard({
     </Card>
   );
   return (
-    <IfEditor otherwise={<StaticLink to={viewHref}>{staticCard}</StaticLink>}>
-      {canEdit ? editorCard : <StaticLink to={viewHref}>{staticCard}</StaticLink>}
+    <IfEditor otherwise={<StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"}>{staticCard}</StaticLink>}>
+      {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"}>{staticCard}</StaticLink>}
     </IfEditor>
   );
 }

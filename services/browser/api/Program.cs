@@ -215,8 +215,39 @@ app.MapGet("/llms.txt", (HttpRequest request, DiscoveryDocumentService discovery
     .AllowAnonymous();
 
 app.MapGet("/robots.txt", (HttpRequest request) =>
-    Results.Text($"User-agent: *\nAllow: /\nSitemap: {PublicRoot(request)}/sitemap.xml\n", "text/plain; charset=utf-8"))
-    .ExcludeFromDescription();
+{
+    var sitemap = $"Sitemap: {PublicRoot(request)}/sitemap.xml";
+    var text = string.Join("\n", new[]
+    {
+        "User-agent: MJ12bot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: AhrefsBot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: SemrushBot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: Googlebot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: bingbot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: YandexBot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: DuckDuckBot",
+        "Disallow: /ai-artifacts/",
+        "",
+        "User-agent: *",
+        "Allow: /",
+        sitemap,
+        ""
+    });
+    return Results.Text(text, "text/plain; charset=utf-8");
+})
+.ExcludeFromDescription();
 
 app.MapGet("/ai-access", (HttpRequest request, AgentAccessService access) =>
     Results.Content(access.BuildIndexHtml(request), "text/html; charset=utf-8"))
@@ -274,7 +305,7 @@ app.MapGet("/api/site/info", async (
             options.CaptureTimeoutSeconds,
             options.CaptureCacheSeconds,
             options.RecommendedCaptureConcurrency,
-            "2.0",
+            "2.1",
             new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Reset", "Retry-After" })));
 })
 .WithName("GetSiteInfo")
@@ -306,6 +337,51 @@ app.MapGet("/api/site/routes", async (
 .WithName("GetKnownSiteRoutes")
 .WithTags("Site inspection")
 .Produces<SiteRoutesResponse>(StatusCodes.Status200OK)
+.AllowAnonymous();
+
+app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions options) =>
+{
+    var root = PublicRoot(request);
+    return Results.Ok(new
+    {
+        version = "1.0",
+        purpose = "Register an AI-marked ordinary user, sign in, browse courses, solve code assignments and verify verdicts through the interactive Browser API.",
+        principles = new[]
+        {
+            "Prefer one interactive session over repeated public captures once authenticated.",
+            "Use automationId/automationRole/automationAction/automationState from semantic snapshots instead of CSS selectors or translated button text.",
+            "After mutations request a session snapshot with waitMs=1500..5000 instead of tight polling.",
+            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden access."
+        },
+        onboarding = new
+        {
+            registerApi = $"{root}/api/auth/register",
+            loginApi = $"{root}/api/auth/login",
+            registerUi = $"{root}/register?accountType=ai",
+            accountType = "ai"
+        },
+        browser = new
+        {
+            createSession = $"{root}/api/browser/sessions",
+            sessionTokenHeader = "X-TaskForge-Browser-Session-Token",
+            recommendedWaitMs = new { afterNavigation = 1200, afterSubmit = 2500, max = options.MaxWaitMilliseconds },
+            idleMinutes = options.SessionIdleMinutes,
+            absoluteMinutes = options.SessionAbsoluteMinutes
+        },
+        workflow = new object[]
+        {
+            new { step = 1, action = "register", note = "POST /api/auth/register with accountType=ai, then POST /api/auth/login and keep the returned ordinary access token." },
+            new { step = 2, action = "create-session", note = "Create readOnly=false session with Authorization: Bearer <access-token>, site=main, path=/courses." },
+            new { step = 3, action = "choose-course", targetRole = "course-card", preferredState = "incomplete" },
+            new { step = 4, action = "choose-assignment", targetRole = "assignment-card", preferredState = "unsolved", preferredKind = "code-test" },
+            new { step = 5, action = "solve", targets = new[] { "solution-language", "solution-code-editor", "submit-code-solution" }, note = "For the submit click set waitMs=2500..5000 and includeSnapshot=true; if state is still queued/running, use GET session snapshot with another waitMs." },
+            new { step = 6, action = "verify", targetRole = "solution-status", acceptedState = "accepted", note = "Use snapshot?waitMs=2500 or larger when execution is still queued/running." },
+            new { step = 7, action = "continue", targetAction = "next-assignment" }
+        }
+    });
+})
+.WithName("GetAgentPlaybook")
+.WithTags("Discovery")
 .AllowAnonymous();
 
 app.MapGet("/api/site/snapshot", async (
@@ -527,7 +603,9 @@ app.MapGet("/api/browser/sessions/{id:guid}/snapshot", async (
     Guid id,
     HttpContext http,
     bool? includeText,
+    int? waitMs,
     BrowserSessionRegistry sessions,
+    BrowserOptions options,
     BrowserRateLimitOptions limits,
     BrowserCallerResolver callerResolver,
     RedisFixedWindowRateLimiter limiter,
@@ -537,7 +615,13 @@ app.MapGet("/api/browser/sessions/{id:guid}/snapshot", async (
     callerResolver.ThrowIfInvalidCredential(caller);
     await EnforceRateLimit(http, limiter, caller, "session-action", limits.SessionActionLimit, limits.SessionActionWindowSeconds, ct);
     http.Response.Headers.CacheControl = "no-store";
-    return Results.Ok(await sessions.SnapshotAsync(id, SessionToken(http), caller, includeText ?? true, ct));
+    return Results.Ok(await sessions.SnapshotAsync(
+        id,
+        SessionToken(http),
+        caller,
+        includeText ?? true,
+        System.Math.Clamp(waitMs ?? 0, 0, options.MaxWaitMilliseconds),
+        ct));
 })
 .WithName("GetBrowserSessionSnapshot")
 .WithTags("Interactive browser")

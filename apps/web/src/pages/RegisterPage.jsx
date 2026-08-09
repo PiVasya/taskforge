@@ -125,6 +125,9 @@ export default function RegisterPage() {
                                     onChange={(e) => setLogin(e.target.value)}
                                     autoComplete="username"
                                     placeholder="krytoichel"
+                                    data-taskforge-automation-id="register-login"
+                                    data-taskforge-agent-role="registration-login"
+                                    data-taskforge-agent-action="fill"
                                 />
                                 {normalizedLogin && !loginLooksOk && (
                                     <div className="mt-1 text-xs text-red-500">
@@ -139,6 +142,9 @@ export default function RegisterPage() {
                                         value={firstName}
                                         onChange={(e) => setFirstName(e.target.value)}
                                         autoComplete="given-name"
+                                        data-taskforge-automation-id="register-first-name"
+                                        data-taskforge-agent-role="registration-first-name"
+                                        data-taskforge-agent-action="fill"
                                     />
                                 </Field>
                                 <Field label="Фамилия">
@@ -146,6 +152,9 @@ export default function RegisterPage() {
                                         value={lastName}
                                         onChange={(e) => setLastName(e.target.value)}
                                         autoComplete="family-name"
+                                        data-taskforge-automation-id="register-last-name"
+                                        data-taskforge-agent-role="registration-last-name"
+                                        data-taskforge-agent-action="fill"
                                     />
                                 </Field>
                             </div>
@@ -159,6 +168,9 @@ export default function RegisterPage() {
                                         autoComplete="new-password"
                                         minLength={8}
                                         placeholder="Минимум 8 символов"
+                                        data-taskforge-automation-id="register-password"
+                                        data-taskforge-agent-role="registration-password"
+                                        data-taskforge-agent-action="fill"
                                     />
                                     {password && password.length < 8 && (
                                         <div className="mt-1 text-xs text-red-500">Минимум 8 символов.</div>
@@ -172,6 +184,9 @@ export default function RegisterPage() {
                                         autoComplete="new-password"
                                         minLength={8}
                                         placeholder="Повторите пароль"
+                                        data-taskforge-automation-id="register-password-confirm"
+                                        data-taskforge-agent-role="registration-password-confirm"
+                                        data-taskforge-agent-action="fill"
                                     />
                                     {password2 && password !== password2 && (
                                         <div className="mt-1 text-xs text-red-500">Пароли не совпадают.</div>
@@ -269,6 +284,9 @@ export default function RegisterPage() {
                                 className="mt-1"
                                 checked={acceptedPolicy}
                                 onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                                data-taskforge-automation-id="register-policy"
+                                data-taskforge-agent-role="registration-policy"
+                                data-taskforge-agent-action="check"
                             />
                             <label htmlFor="policyAgreement" className="leading-5">
                                 Я соглашаюсь с{' '}
@@ -278,7 +296,14 @@ export default function RegisterPage() {
                             </label>
                         </div>
 
-                        <Button type="submit" disabled={!canSubmit || busy} className="mt-4 w-full">
+                        <Button
+                            type="submit"
+                            disabled={!canSubmit || busy}
+                            className="mt-4 w-full"
+                            data-taskforge-automation-id="register-submit"
+                            data-taskforge-agent-role="registration-submit"
+                            data-taskforge-agent-action="register"
+                        >
                             {busy ? "Создаю аккаунт…" : "Зарегистрироваться"}
                         </Button>
 

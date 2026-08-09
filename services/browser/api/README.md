@@ -11,6 +11,7 @@ GET /api/browser/openapi.json
 GET /api/site/info
 GET /api/site/routes
 GET /api/site/routes?site=ct
+GET /api/site/agent/playbook
 ```
 
 The discovery document tells an agent how to register an ordinary account with `accountType: "ai"`, how to inspect public pages and how to create an interactive browser session.
@@ -50,7 +51,7 @@ GET /api/site/render.pdf?path=/courses&width=1440&height=900&fullPage=true
 
 Use `site=ct` for the CT frontend. Add an ordinary TaskForge access token as `Authorization: Bearer ...` to render pages available to that user. Browser API authentication is intentionally explicit: ambient `tf_at` cookies are ignored. Stateless renders are always read-only.
 
-The semantic snapshot contract version is `2.0`. A semantic snapshot includes:
+The semantic snapshot contract version is `2.1`. A semantic snapshot includes:
 
 - `semanticSnapshotVersion`, capture mode, current `document.readyState`, the TaskForge app-ready marker and the stage where stabilization finished;
 - visible page text and headings;
@@ -122,7 +123,7 @@ POST   /api/browser/sessions/{id}/reload
 DELETE /api/browser/sessions/{id}
 ```
 
-Actions use `elementId` values from the latest snapshot, not arbitrary CSS selectors. Obtain a new snapshot after navigation or a major DOM change because references are intentionally scoped to the current page state.
+Actions use `elementId` values from the latest snapshot, not arbitrary CSS selectors. Obtain a new snapshot after navigation or a major DOM change because references are intentionally scoped to the current page state. Action bodies also accept optional `waitMs` up to 15000 ms; use it when a click/submit triggers asynchronous work and you want the returned action snapshot only after a deliberate stabilization window.
 
 Anonymous sessions are always read-only. `readOnly=false` requires a valid ordinary TaskForge access token and still grants only that account's existing permissions.
 
@@ -155,7 +156,7 @@ Policy-blocked requests are not counted as site failures. They are reported sepa
 
 Read-only mode blocks `POST`, `PUT`, `PATCH`, `DELETE` and same-origin WebSockets at the browser network layer. It cannot repair an application endpoint that incorrectly mutates state through `GET`/`HEAD`; TaskForge APIs must preserve normal HTTP method semantics.
 
-Authenticated contexts receive the caller's existing access token. They do not receive the caller's refresh token. Keep the access-token lifetime longer than the configured session lifetime (the current defaults are 120 and 30 minutes), or create a new browser session after token expiry.
+Authenticated contexts receive the caller's existing access token. They do not receive the caller's refresh token. Keep the access-token lifetime longer than the configured session lifetime (the current defaults are 120 and 110 minutes), or create a new browser session after token expiry.
 
 Artifact limits are separate:
 
@@ -183,7 +184,7 @@ X-RateLimit-Reset      Unix reset timestamp, compatibility only
 Retry-After            on HTTP 429
 ```
 
-The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need. Excess unique public captures wait only `Browser:PublicCaptureQueueWaitMilliseconds` (default 250 ms) before a fast HTTP 429, so distributed crawler IPs cannot build an unbounded Chromium queue.
+The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need. Excess unique public captures wait only `Browser:PublicCaptureQueueWaitMilliseconds` (default 3000 ms) before a fast HTTP 429, so distributed crawler IPs cannot build an unbounded Chromium queue.
 
 ## Scale model
 
@@ -220,4 +221,11 @@ bash scripts/security/check-browser-api-security.sh
 ```
 
 
-Public `/ai-artifacts/*` responses are explicitly `noindex, noarchive`; a syntactically valid artifact ID that is no longer available returns HTTP 410 so crawler caches do not report ordinary TTL expiry as a broken persistent resource.
+Public `/ai-artifacts/*` responses are explicitly `noindex, noarchive`; a syntactically valid artifact ID that is no longer available returns HTTP 410 so crawler caches do not report ordinary TTL expiry as a broken persistent resource. `robots.txt` additionally keeps known traditional SEO/search crawlers such as MJ12bot, AhrefsBot and SemrushBot away from temporary artifact paths while leaving the dedicated AI-agent flow available.
+
+
+## Agent-friendly interactive workflow
+
+`GET /api/site/agent/playbook` is the concise machine workflow for AI onboarding and solving assignments. Interactive Browser API pages expose stable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata in semantic snapshot v2.1. `<select>` controls also expose exact option `value`/label pairs and form fields expose their current value.
+
+Browser API Chromium contexts set `window.__TASKFORGE_BROWSER_AUTOMATION__ = true`; the solve page responds by exposing the code editor as a normal textarea instead of Monaco, so `fill` is deterministic. Session snapshots accept `waitMs` up to 15000 ms, authenticated sessions default to 45 minutes idle / 110 minutes absolute lifetime, and public artifacts default to a one-hour TTL.

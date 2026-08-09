@@ -30,7 +30,14 @@ function SolveDraftEditor({
       {showLanguage ? (
         <div>
           <label className="label">Язык</label>
-          <Select value={draft.language} onChange={(event) => store?.setLanguage(event.target.value)}>
+          <Select
+            value={draft.language}
+            onChange={(event) => store?.setLanguage(event.target.value)}
+            data-taskforge-automation-id="solution-language"
+            data-taskforge-agent-role="solution-language"
+            data-taskforge-agent-action="select-language"
+            aria-label="Язык решения"
+          >
             {langsForSelect.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}
           </Select>
           {showAllowedHint && allowedLangs?.length > 0 ? (
@@ -49,6 +56,9 @@ function SolveDraftEditor({
           value={draft.code}
           onChange={(value) => store?.setCode(value || '')}
           height={height}
+          automationId="solution-code-editor"
+          automationRole="code-editor"
+          automationAction="fill-solution-code"
         />
       </div>
     </div>

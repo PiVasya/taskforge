@@ -16,6 +16,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
             name = "TaskForge.by",
             purpose = "Educational platform for programming courses, study notes, assignments, automated checking and progress tracking, with machine-readable inspection and controlled Chromium APIs.",
             agentAccess = $"{root}/ai-access",
+            agentPlaybook = $"{root}/api/site/agent/playbook",
             website = _urlPolicy.Sites.ToDictionary(x => x.Key, x => x.Value.AbsoluteUri.TrimEnd('/')),
             anonymousBrowsing = new
             {
@@ -60,7 +61,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
             },
             semanticSnapshot = new
             {
-                version = "2.0",
+                version = "2.1",
                 topLevelReadiness = new[] { "captureMode", "policyInterference", "pageReadyState", "appReady", "readiness" },
                 diagnostics = new[] { "console", "networkFailures", "httpErrors", "policyBlockedRequests" },
                 visibility = "Interactive elements respect hidden, aria-hidden, inert, closed details, CSS visibility and clipping ancestors.",
@@ -74,7 +75,9 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 mutatingModeRequiresTaskForgeAccessToken = true,
                 anonymousSessionAuthorization = "session-token",
                 authenticatedSessionAuthorization = "same-taskforge-user+session-token",
-                actions = new[] { "navigate", "snapshot", "screenshot", "click", "fill", "press", "select", "hover", "check", "scroll", "back", "reload", "close" }
+                actions = new[] { "navigate", "snapshot", "screenshot", "click", "fill", "press", "select", "hover", "check", "scroll", "back", "reload", "close" },
+                stableAutomationMetadata = new[] { "automationId", "automationRole", "automationAction", "automationState", "automationKind" },
+                snapshotWaitMilliseconds = new { max = _options.MaxWaitMilliseconds, recommendedAfterSubmit = 2500 }
             },
             rateLimits = new
             {
@@ -150,7 +153,7 @@ Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls a
 - Crawler-friendly fast capture page: `GET {{root}}/api/site/agent/capture/main/390/844/viewport/courses`
 - Full-page crawler capture when explicitly needed: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
 
-Semantic snapshot version `2.0` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
+Semantic snapshot version `2.1` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
 
 Important top-level fields:
 - `captureMode`: anonymous-read-only, authenticated-read-only or authenticated-interactive.
@@ -163,6 +166,10 @@ Important top-level fields:
 Interactive controls are assigned `tf1`, `tf2`, ... references. These references are valid for the current page state and should be refreshed after navigation or major DOM changes. Hidden, inert, aria-hidden, clipped and closed-collapsible controls are excluded. The `ariaSnapshot` field uses Playwright's AI-oriented ARIA representation with bounding boxes when available.
 
 ## Interactive Chromium sessions
+For the shortest end-to-end onboarding/solve workflow first read `GET {{root}}/api/site/agent/playbook`.
+
+Semantic snapshot v2.1 exposes durable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata. Find a target by those stable fields, then send its current ephemeral `id` (`tfN`) to click/fill/select/check actions. Select controls expose exact option values. Password values are never returned by snapshots. Action bodies accept optional `waitMs` (up to 15000) so an agent can deliberately wait for asynchronous UI changes before receiving the action snapshot.
+
 Create a session:
 ```http
 POST {{root}}/api/browser/sessions
@@ -184,7 +191,7 @@ X-TaskForge-Browser-Session-Token: <session token>
 
 Anonymous read-only sessions use X-TaskForge-Browser-Session-Token as their session credential and are not bound to a source IP. Authenticated sessions additionally require the same TaskForge.by access-token identity that created them.
 
-Available actions are navigate, snapshot, screenshot, click, fill, press, select, hover, check, scroll, back, reload and close. Use `elementId` values from the latest snapshot rather than CSS selectors.
+Available actions are navigate, snapshot, screenshot, click, fill, press, select, hover, check, scroll, back, reload and close. Use `elementId` values from the latest snapshot rather than CSS selectors. `GET /api/browser/sessions/{id}/snapshot?waitMs=2500` can intentionally wait for page/application stabilization after a mutation; waitMs is capped at {{_options.MaxWaitMilliseconds}} ms.
 
 Read-only sessions block every non-safe same-origin HTTP request. `readOnly: false` is accepted only for authenticated TaskForge.by users and still grants no permissions beyond that user's ordinary account rights.
 
@@ -206,7 +213,7 @@ The PNG is the pixel-authoritative visual render. The PDF endpoint is only a com
 - Only configured TaskForge.by origins and explicitly configured static-resource origins can be requested.
 - Inspection accepts relative TaskForge paths, never an arbitrary URL.
 - Browser API endpoints cannot recursively render themselves.
-- Calls are protected by Nginx limits, Redis-backed endpoint quotas, global Chromium capacity limits and short session TTLs.
+- Calls are protected by Nginx limits, Redis-backed endpoint quotas and global Chromium capacity limits. Interactive sessions have bounded idle/absolute lifetimes rather than per-request hurry-up deadlines.
 - Third-party resources can be intentionally blocked unless the operator allowlists their origin; expected policy blocks are reported separately from real failures.
 """;
     }

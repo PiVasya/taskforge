@@ -63,6 +63,9 @@ export default function LoginPage() {
                 required
                 autoComplete="username"
                 placeholder="krytoichel или krytoichel@example.com"
+                data-taskforge-automation-id="login-identity"
+                data-taskforge-agent-role="login-identity"
+                data-taskforge-agent-action="fill"
               />
             </Field>
 
@@ -73,6 +76,9 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
+                data-taskforge-automation-id="login-password"
+                data-taskforge-agent-role="login-password"
+                data-taskforge-agent-action="fill"
               />
             </Field>
 
@@ -82,7 +88,13 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            <Button disabled={busy} className="w-full">
+            <Button
+              disabled={busy}
+              className="w-full"
+              data-taskforge-automation-id="login-submit"
+              data-taskforge-agent-role="login-submit"
+              data-taskforge-agent-action="login"
+            >
               {busy ? "Входим…" : (
                 <>
                   <LogIn size={16} /> <span className="ml-1">Войти</span>

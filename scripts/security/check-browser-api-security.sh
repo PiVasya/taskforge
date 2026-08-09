@@ -177,12 +177,44 @@ for forbidden_marker in ('Password', 'Email', 'Authorization', 'Cookie', 'Access
 
 for required_marker in (
     'MapGet("/ai-access"',
+    'MapGet("/api/site/agent/playbook"',
     'MapGet("/api/site/agent/capture/{site}/{width:int}/{height:int}/{mode}/{**path}"',
     'MapGet("/ai-artifacts/{id}/{fileName}"',
     'PUBLIC_ARTIFACT_REQUIRES_ANONYMOUS',
 ):
     if required_marker not in program:
         die(f'crawler self-discovery route/security marker missing: {required_marker}')
+
+if 'User-agent: MJ12bot' not in program or 'Disallow: /ai-artifacts/' not in program:
+    die('temporary artifacts are no longer shielded from known traditional crawlers')
+robots_wildcard = re.search(r'"User-agent: \*"(?P<body>.*?)(?:sitemap|Sitemap)', program, re.S)
+if robots_wildcard and 'Disallow: /ai-artifacts/' in robots_wildcard.group('body'):
+    die('robots.txt must not block temporary artifacts for every user-agent; dedicated AI clients need direct artifact access')
+
+for marker in ('AutomationId', 'AutomationRole', 'AutomationAction', 'AutomationState', 'AutomationKind', 'SnapshotSelectOption'):
+    if marker not in contracts:
+        die(f'semantic snapshot AI contract marker missing: {marker}')
+for request_name in ('ClickBrowserSessionRequest', 'FillBrowserSessionRequest', 'SelectBrowserSessionRequest', 'CheckBrowserSessionRequest'):
+    request_body = next((body for name, body in request_records if name == request_name), '')
+    if 'WaitMs' not in request_body:
+        die(f'{request_name} no longer supports a deliberate post-action wait')
+
+snapshot_builder = text('services/browser/api/Services/SnapshotBuilder.cs')
+for marker in ('data-taskforge-automation-id', 'automationState', 'automationKind', 'HTMLSelectElement', 'interactiveElements'):
+    if marker not in snapshot_builder:
+        die(f'agent-friendly semantic snapshot marker missing: {marker}')
+
+code_editor = text('apps/web/src/components/CodeEditor.jsx')
+for marker in ('__TASKFORGE_BROWSER_AUTOMATION__', 'data-taskforge-automation-id'):
+    if marker not in code_editor:
+        die(f'agent-friendly code editor fallback marker missing: {marker}')
+solve_editor = text('apps/web/src/features/assignment-solve/components/SolveDraftEditor.jsx')
+if 'solution-code-editor' not in solve_editor:
+    die('solve editor no longer exposes the stable solution-code-editor automation id')
+
+for marker in ('CrawlerFamily', 'MJ12bot', 'Web crawler / MJ12bot'):
+    if marker not in support_telemetry:
+        die(f'crawler telemetry classification marker missing: {marker}')
 
 agent_access = text('services/browser/api/Services/AgentAccessService.cs')
 for required_marker in ('TaskForge AI / crawler access', '/api/site/agent/capture/', 'authoritative Chromium PNG', 'RequiresAuthentication'):

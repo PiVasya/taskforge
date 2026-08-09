@@ -101,13 +101,24 @@ public sealed partial class BrowserSessionRegistry(
         string? token,
         BrowserCaller caller,
         bool includeText,
+        int waitMilliseconds,
         CancellationToken cancellationToken)
         => UseAsync(
             id,
             token,
             caller,
             "snapshot",
-            session => _snapshotBuilder.BuildAsync(session.Handle, includeText, cancellationToken),
+            async session =>
+            {
+                if (waitMilliseconds > 0)
+                {
+                    await _pageFactory.StabilizeAsync(
+                        session.Handle,
+                        System.Math.Clamp(waitMilliseconds, 0, _options.MaxWaitMilliseconds),
+                        cancellationToken);
+                }
+                return await _snapshotBuilder.BuildAsync(session.Handle, includeText, cancellationToken);
+            },
             cancellationToken);
 
     public Task<BrowserScreenshot> ScreenshotAsync(
@@ -136,7 +147,7 @@ public sealed partial class BrowserSessionRegistry(
                 request.Path,
                 System.Math.Clamp(request.WaitMs ?? _options.DefaultWaitMilliseconds, 0, _options.MaxWaitMilliseconds),
                 cancellationToken);
-        }, includeSnapshot, cancellationToken);
+        }, includeSnapshot, null, cancellationToken);
 
     public Task<BrowserActionResponse> ClickAsync(
         Guid id,
@@ -152,7 +163,7 @@ public sealed partial class BrowserSessionRegistry(
                 ClickCount = System.Math.Clamp(request.ClickCount ?? 1, 1, 2)
             }).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, _options.DefaultWaitMilliseconds, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> FillAsync(
         Guid id,
@@ -171,7 +182,7 @@ public sealed partial class BrowserSessionRegistry(
             var locator = await ResolveElementAsync(session, request.ElementId);
             await locator.FillAsync(value).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 100, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> PressAsync(
         Guid id,
@@ -190,7 +201,7 @@ public sealed partial class BrowserSessionRegistry(
             var locator = await ResolveElementAsync(session, request.ElementId);
             await locator.PressAsync(key).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 250, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> SelectAsync(
         Guid id,
@@ -209,7 +220,7 @@ public sealed partial class BrowserSessionRegistry(
             var locator = await ResolveElementAsync(session, request.ElementId);
             await locator.SelectOptionAsync(value).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 150, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> HoverAsync(
         Guid id,
@@ -222,7 +233,7 @@ public sealed partial class BrowserSessionRegistry(
             var locator = await ResolveElementAsync(session, request.ElementId);
             await locator.HoverAsync().WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 150, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> CheckAsync(
         Guid id,
@@ -235,7 +246,7 @@ public sealed partial class BrowserSessionRegistry(
             var locator = await ResolveElementAsync(session, request.ElementId);
             await locator.SetCheckedAsync(request.Checked ?? true).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, 150, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> ScrollAsync(
         Guid id,
@@ -258,7 +269,7 @@ public sealed partial class BrowserSessionRegistry(
             }
 
             await _pageFactory.StabilizeAsync(session.Handle, 150, cancellationToken);
-        }, request.IncludeSnapshot ?? true, cancellationToken);
+        }, request.IncludeSnapshot ?? true, request.WaitMs, cancellationToken);
 
     public Task<BrowserActionResponse> BackAsync(
         Guid id,
@@ -274,7 +285,7 @@ public sealed partial class BrowserSessionRegistry(
                 Timeout = System.Math.Clamp(_options.NavigationTimeoutSeconds, 1, 120) * 1000
             }).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, _options.DefaultWaitMilliseconds, cancellationToken);
-        }, includeSnapshot, cancellationToken);
+        }, includeSnapshot, null, cancellationToken);
 
     public Task<BrowserActionResponse> ReloadAsync(
         Guid id,
@@ -290,7 +301,7 @@ public sealed partial class BrowserSessionRegistry(
                 Timeout = System.Math.Clamp(_options.NavigationTimeoutSeconds, 1, 120) * 1000
             }).WaitAsync(cancellationToken);
             await _pageFactory.StabilizeAsync(session.Handle, _options.DefaultWaitMilliseconds, cancellationToken);
-        }, includeSnapshot, cancellationToken);
+        }, includeSnapshot, null, cancellationToken);
 
     public async Task CloseAsync(Guid id, string? token, BrowserCaller caller)
     {
@@ -313,11 +324,19 @@ public sealed partial class BrowserSessionRegistry(
         string action,
         Func<BrowserSession, Task> operation,
         bool includeSnapshot,
+        int? waitMilliseconds,
         CancellationToken cancellationToken)
         => await UseAsync(id, token, caller, action, async session =>
         {
             await operation(session);
             await _pageFactory.EnsureSafeStateAsync(session.Handle, cancellationToken);
+            if (waitMilliseconds is > 0)
+            {
+                await _pageFactory.StabilizeAsync(
+                    session.Handle,
+                    System.Math.Clamp(waitMilliseconds.Value, 0, _options.MaxWaitMilliseconds),
+                    cancellationToken);
+            }
             var page = session.Handle.Page;
             var snapshot = includeSnapshot
                 ? await _snapshotBuilder.BuildAsync(session.Handle, true, cancellationToken)

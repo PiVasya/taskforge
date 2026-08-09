@@ -728,7 +728,16 @@ export default function AssignmentSolvePage() {
       : success
         ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
         : 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200';
-    return <div className={`rounded-xl border px-3 py-2 text-sm ${cls}`}>{text}</div>;
+    return (
+      <div
+        className={`rounded-xl border px-3 py-2 text-sm ${cls}`}
+        data-taskforge-automation-id="solution-submit-state"
+        data-taskforge-agent-role="solution-status"
+        data-taskforge-agent-state={submitPhase === 'final' ? (result?.__allPassed ? 'accepted' : 'rejected') : submitPhase}
+      >
+        {text}
+      </div>
+    );
   };
 
 
@@ -756,7 +765,13 @@ export default function AssignmentSolvePage() {
     }[summary.tone] || 'bg-white/10';
 
     return (
-      <Card id="solution-check-result" className={`scroll-mt-24 ${toneClass}`}>
+      <Card
+        id="solution-check-result"
+        className={`scroll-mt-24 ${toneClass}`}
+        data-taskforge-automation-id="solution-status"
+        data-taskforge-agent-role="solution-status"
+        data-taskforge-agent-state={pending ? "running" : result?.__allPassed ? "accepted" : "rejected"}
+      >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
@@ -1145,7 +1160,7 @@ export default function AssignmentSolvePage() {
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
-            <Card className="assignment-reveal">
+            <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
               <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
@@ -1360,7 +1375,7 @@ export default function AssignmentSolvePage() {
   };
 
   const renderTestsCard = () => (
-    <Card className="solve-tests-card solve-user-reveal-block">
+    <Card className="solve-tests-card solve-user-reveal-block" data-taskforge-automation-id="assignment-tests" data-taskforge-agent-role="assignment-tests" data-taskforge-agent-kind={a?.type || "code-test"}>
       <div className="flex items-center justify-between mb-3">
         <div className="font-medium">{assignmentTestsTitle}</div>
       </div>
@@ -1400,7 +1415,7 @@ export default function AssignmentSolvePage() {
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
-            <Card className="assignment-reveal">
+            <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
               <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
                 {a.tags && (
@@ -1525,7 +1540,7 @@ export default function AssignmentSolvePage() {
             </div>
           </Card>
 
-          <Card className="assignment-reveal">
+          <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
             <SolvePart loading={partLoading.statement} delay={90}>
               {renderAssignmentStatement(5, true)}
             </SolvePart>

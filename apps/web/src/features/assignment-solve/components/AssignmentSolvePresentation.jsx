@@ -284,6 +284,9 @@ const SolveActionDock = React.memo(function SolveActionDock({
           className="solve-action-button"
           variant="outline"
           onClick={onNext}
+          data-taskforge-automation-id="next-assignment"
+          data-taskforge-agent-role="navigation-action"
+          data-taskforge-agent-action="next-assignment"
           disabled={nextDisabled}
           title={nextTitle || 'Следующее задание'}
         >
@@ -305,6 +308,9 @@ const SolveActionDock = React.memo(function SolveActionDock({
         <Button
           className="solve-action-button solve-action-button--primary"
           onClick={onPrimary}
+          data-taskforge-automation-id="submit-code-solution"
+          data-taskforge-agent-role="solution-submit"
+          data-taskforge-agent-action="submit-code-solution"
           disabled={primaryDisabled}
         >
           {PrimaryIcon ? <PrimaryIcon size={16} className="mr-1" /> : null}

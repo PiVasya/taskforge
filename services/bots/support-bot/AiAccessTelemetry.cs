@@ -311,7 +311,9 @@ public sealed class AiAccessDigestAggregator(IConfiguration cfg, ILogger<AiAcces
     {
         if (evt.IsAuthenticated && evt.UserId.HasValue) return $"user:{evt.UserId.Value:N}";
         var family = AgentFamily(evt.UserAgent);
-        return family is null ? $"network:{evt.VisitorKey}" : $"agent:{family}";
+        if (family is not null) return $"agent:{family}";
+        var crawler = CrawlerFamily(evt.UserAgent);
+        return crawler is null ? $"network:{evt.VisitorKey}" : $"crawler:{crawler}";
     }
 
     private static string? AgentFamily(string? ua)
@@ -321,7 +323,23 @@ public sealed class AiAccessDigestAggregator(IConfiguration cfg, ILogger<AiAcces
         if (value.Contains("Claude", StringComparison.OrdinalIgnoreCase) || value.Contains("Anthropic", StringComparison.OrdinalIgnoreCase)) return "anthropic";
         if (value.Contains("Perplexity", StringComparison.OrdinalIgnoreCase)) return "perplexity";
         if (value.Contains("Gemini", StringComparison.OrdinalIgnoreCase) || value.Contains("Google-Extended", StringComparison.OrdinalIgnoreCase)) return "google";
-        if (value.Contains("Copilot", StringComparison.OrdinalIgnoreCase) || value.Contains("bingbot", StringComparison.OrdinalIgnoreCase)) return "microsoft";
+        if (value.Contains("Copilot", StringComparison.OrdinalIgnoreCase)) return "microsoft";
+        return null;
+    }
+
+    private static string? CrawlerFamily(string? ua)
+    {
+        var value = ua ?? string.Empty;
+        if (value.Contains("MJ12bot", StringComparison.OrdinalIgnoreCase)) return "mj12";
+        if (value.Contains("Googlebot", StringComparison.OrdinalIgnoreCase)) return "googlebot";
+        if (value.Contains("bingbot", StringComparison.OrdinalIgnoreCase)) return "bingbot";
+        if (value.Contains("YandexBot", StringComparison.OrdinalIgnoreCase)) return "yandex";
+        if (value.Contains("AhrefsBot", StringComparison.OrdinalIgnoreCase)) return "ahrefs";
+        if (value.Contains("SemrushBot", StringComparison.OrdinalIgnoreCase)) return "semrush";
+        if (value.Contains("DuckDuckBot", StringComparison.OrdinalIgnoreCase)) return "duckduckbot";
+        if (value.Contains("bot", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("crawler", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("spider", StringComparison.OrdinalIgnoreCase)) return "generic";
         return null;
     }
 
@@ -354,6 +372,22 @@ public sealed class AiAccessDigestAggregator(IConfiguration cfg, ILogger<AiAcces
                 "google" => "Google / Gemini",
                 "microsoft" => "Microsoft / Copilot",
                 _ => "AI client"
+            };
+        }
+
+        var crawler = items.Select(x => CrawlerFamily(x.UserAgent)).FirstOrDefault(x => x is not null);
+        if (crawler is not null)
+        {
+            return crawler switch
+            {
+                "mj12" => "Web crawler / MJ12bot",
+                "googlebot" => "Web crawler / Googlebot",
+                "bingbot" => "Web crawler / Bingbot",
+                "yandex" => "Web crawler / YandexBot",
+                "ahrefs" => "Web crawler / AhrefsBot",
+                "semrush" => "Web crawler / SemrushBot",
+                "duckduckbot" => "Web crawler / DuckDuckBot",
+                _ => "Web crawler / bot"
             };
         }
 

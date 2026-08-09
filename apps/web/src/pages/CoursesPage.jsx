@@ -125,6 +125,10 @@ function CourseCard({
         onDrop={onDrop}
         onDragEnd={onDragEnd}
         title={canDrag ? "Клик — редактировать курс. Перетащи: между карточками — сортировка, на середину карточки — вложить внутрь" : "Открыть курс"}
+        data-taskforge-automation-id={`course-${course.id}`}
+        data-taskforge-agent-role="course-card"
+        data-taskforge-agent-action="open-course"
+        data-taskforge-agent-state={(progress?.isComplete || course.isCompletedForCurrentUser) ? "completed" : "incomplete"}
       >
         <div className="flex h-full flex-col justify-between gap-4">
           <div className="min-w-0">

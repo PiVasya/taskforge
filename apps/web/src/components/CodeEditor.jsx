@@ -202,11 +202,16 @@ function CodeEditor({
   height = 320,
   lineNumbers = "on",
   readOnly = false,
+  automationId = null,
+  automationRole = null,
+  automationAction = null,
+  automationState = null,
 }) {
   const { mode } = useUiTheme();
   const { codeEditorStyle } = useEditorUiSettings();
   const isDark = mode === "dark";
   const editorStyle = normalizeEditorStyle(codeEditorStyle);
+  const browserAutomation = typeof window !== "undefined" && window.__TASKFORGE_BROWSER_AUTOMATION__ === true;
   const [loadFailed, setLoadFailed] = useState(false);
   const [monacoReady, setMonacoReady] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -426,6 +431,11 @@ function CodeEditor({
         onChange={(event) => handleValueChange(event.target.value)}
         readOnly={readOnly}
         spellCheck={false}
+        data-taskforge-automation-id={automationId || undefined}
+        data-taskforge-agent-role={automationRole || undefined}
+        data-taskforge-agent-action={automationAction || undefined}
+        data-taskforge-agent-state={automationState || undefined}
+        aria-label={automationRole === "code-editor" ? "Код решения" : undefined}
         style={{
           height,
           padding: 8,
@@ -441,7 +451,7 @@ function CodeEditor({
     </div>
   );
 
-  if (loadFailed) {
+  if (browserAutomation || loadFailed) {
     return fallbackEditor;
   }
 

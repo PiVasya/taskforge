@@ -172,6 +172,16 @@ public sealed class BrowserPageFactory(
     private async Task ConfigureContextAsync(IBrowserContext context, Uri site, BrowserCaller caller)
     {
         await context.AddInitScriptAsync(PerformanceObserverScript);
+        await context.AddInitScriptAsync("""
+(() => {
+  window.__TASKFORGE_BROWSER_AUTOMATION__ = true;
+  const mark = () => {
+    try { document.documentElement?.setAttribute('data-taskforge-browser-automation', 'true'); } catch {}
+  };
+  mark();
+  document.addEventListener('DOMContentLoaded', mark, { once: true });
+})();
+""");
 
         if (!caller.IsAuthenticated || string.IsNullOrWhiteSpace(caller.AccessToken)) return;
 

@@ -67,49 +67,56 @@ public sealed record SiteInfoResponse(
 public sealed record CreateBrowserSessionRequest(
     [property: StringLength(32)] string? Site,
     [property: StringLength(2048)] string? Path,
-    [property: Range(240, 4096)] int? Width,
-    [property: Range(240, 4096)] int? Height,
+    [property: Range(320, 2560)] int? Width,
+    [property: Range(320, 1440)] int? Height,
     bool? ReadOnly,
-    [property: Range(0, 30000)] int? WaitMs);
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record NavigateBrowserSessionRequest(
     [property: StringLength(2048)] string? Path,
-    [property: Range(0, 30000)] int? WaitMs);
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record ClickBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
     [property: Range(1, 2)] int? ClickCount,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record FillBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
     [property: StringLength(20000)] string? Value,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record PressBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
     [property: Required, StringLength(64, MinimumLength = 1)] string? Key,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record SelectBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
     [property: Required, StringLength(1000)] string? Value,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record HoverBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record CheckBrowserSessionRequest(
     [property: Required, RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
     bool? Checked,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record ScrollBrowserSessionRequest(
     [property: Range(-5000d, 5000d)] double? DeltaX,
     [property: Range(-5000d, 5000d)] double? DeltaY,
     [property: RegularExpression("^tf[1-9][0-9]{0,5}$")] string? ElementId,
-    bool? IncludeSnapshot);
+    bool? IncludeSnapshot,
+    [property: Range(0, 15000)] int? WaitMs);
 
 public sealed record BrowserSessionSnapshotRequest(bool? IncludeText);
 
@@ -142,7 +149,7 @@ public sealed record BrowserActionResponse(
 
 public sealed class SiteSnapshotResponse
 {
-    public string SemanticSnapshotVersion { get; set; } = "2.0";
+    public string SemanticSnapshotVersion { get; set; } = "2.1";
     public string Site { get; set; } = "main";
     public string Url { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -220,6 +227,14 @@ public sealed class SnapshotElement
     public string? Href { get; set; }
     public string? Placeholder { get; set; }
     public string? TestId { get; set; }
+    public string? AutomationId { get; set; }
+    public string? AutomationRole { get; set; }
+    public string? AutomationAction { get; set; }
+    public string? AutomationState { get; set; }
+    public string? AutomationKind { get; set; }
+    public string? Value { get; set; }
+    public List<SnapshotSelectOption> Options { get; set; } = [];
+    public bool Interactive { get; set; }
     public bool Disabled { get; set; }
     public bool Checked { get; set; }
     public bool Selected { get; set; }
@@ -228,6 +243,14 @@ public sealed class SnapshotElement
     public double VisibleRatio { get; set; }
     public SnapshotRect Bounds { get; set; } = new();
     public SnapshotRect VisibleBounds { get; set; } = new();
+}
+
+public sealed class SnapshotSelectOption
+{
+    public string Value { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public bool Selected { get; set; }
+    public bool Disabled { get; set; }
 }
 
 public sealed class SnapshotDiscoveredLink

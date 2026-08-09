@@ -393,14 +393,14 @@ services:
       Browser__ActionTimeoutSeconds: ${BROWSER_ACTION_TIMEOUT_SECONDS:-10}
       Browser__DefaultWaitMilliseconds: ${BROWSER_DEFAULT_WAIT_MILLISECONDS:-800}
       Browser__AgentCaptureWaitMilliseconds: ${BROWSER_AGENT_CAPTURE_WAIT_MILLISECONDS:-150}
-      Browser__MaxWaitMilliseconds: ${BROWSER_MAX_WAIT_MILLISECONDS:-5000}
+      Browser__MaxWaitMilliseconds: ${BROWSER_MAX_WAIT_MILLISECONDS:-15000}
       Browser__AppReadyTimeoutMilliseconds: ${BROWSER_APP_READY_TIMEOUT_MILLISECONDS:-3500}
       Browser__FontReadyTimeoutMilliseconds: ${BROWSER_FONT_READY_TIMEOUT_MILLISECONDS:-1500}
       Browser__CaptureTimeoutSeconds: ${BROWSER_CAPTURE_TIMEOUT_SECONDS:-75}
       Browser__CaptureCacheSeconds: ${BROWSER_CAPTURE_CACHE_SECONDS:-30}
       Browser__RecommendedCaptureConcurrency: ${BROWSER_RECOMMENDED_CAPTURE_CONCURRENCY:-1}
       Browser__MaxConcurrentPublicCaptures: ${BROWSER_MAX_CONCURRENT_PUBLIC_CAPTURES:-2}
-      Browser__PublicCaptureQueueWaitMilliseconds: ${BROWSER_PUBLIC_CAPTURE_QUEUE_WAIT_MILLISECONDS:-250}
+      Browser__PublicCaptureQueueWaitMilliseconds: ${BROWSER_PUBLIC_CAPTURE_QUEUE_WAIT_MILLISECONDS:-3000}
       Browser__MinViewportWidth: ${BROWSER_MIN_VIEWPORT_WIDTH:-320}
       Browser__MaxViewportWidth: ${BROWSER_MAX_VIEWPORT_WIDTH:-2560}
       Browser__MinViewportHeight: ${BROWSER_MIN_VIEWPORT_HEIGHT:-320}
@@ -416,9 +416,10 @@ services:
       Browser__MaxActiveSessions: ${BROWSER_MAX_ACTIVE_SESSIONS:-8}
       Browser__MaxAnonymousSessionsPerOwner: ${BROWSER_MAX_ANONYMOUS_SESSIONS_PER_OWNER:-2}
       Browser__MaxAuthenticatedSessionsPerOwner: ${BROWSER_MAX_AUTHENTICATED_SESSIONS_PER_OWNER:-3}
-      Browser__SessionIdleMinutes: ${BROWSER_SESSION_IDLE_MINUTES:-10}
-      Browser__SessionAbsoluteMinutes: ${BROWSER_SESSION_ABSOLUTE_MINUTES:-30}
+      Browser__SessionIdleMinutes: ${BROWSER_SESSION_IDLE_MINUTES:-45}
+      Browser__SessionAbsoluteMinutes: ${BROWSER_SESSION_ABSOLUTE_MINUTES:-110}
       Browser__PublicCacheSeconds: ${BROWSER_PUBLIC_CACHE_SECONDS:-30}
+      Browser__AgentArtifactTtlSeconds: ${BROWSER_AGENT_ARTIFACT_TTL_SECONDS:-3600}
       Browser__MaxCachedArtifactBytes: ${BROWSER_MAX_CACHED_ARTIFACT_BYTES:-4194304}
       Browser__MaxArtifactResponseBytes: ${BROWSER_MAX_ARTIFACT_RESPONSE_BYTES:-33554432}
       Browser__ReduceMotion: ${BROWSER_REDUCE_MOTION:-true}

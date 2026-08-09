@@ -30,7 +30,7 @@ public sealed class AgentAccessService(
           .Append("</head><body><main>")
           .Append("<h1>TaskForge AI / crawler access — TaskForge.by</h1>")
           .Append("<h2>Product summary</h2><p><strong>TaskForge.by</strong> is an educational platform for programming courses, study notes, coding and test assignments, automated solution checking, progress tracking and ratings.</p><p>This is the non-JavaScript entry point for automated clients. If an agent only knows <code>").Append(Html(root)).Append("</code>, it should discover this page from the root HTML and continue here.</p>")
-          .Append("<p class=\"links\"><a href=\"/.well-known/taskforge-ai.json\">Discovery JSON</a><a href=\"/llms.txt\">llms.txt</a><a href=\"/api/site/info\">Site API info</a><a href=\"/api/site/routes\">Route catalog</a><a href=\"/api/browser/openapi.json\">OpenAPI</a></p>")
+          .Append("<p class=\"links\"><a href=\"/.well-known/taskforge-ai.json\">Discovery JSON</a><a href=\"/llms.txt\">llms.txt</a><a href=\"/api/site/info\">Site API info</a><a href=\"/api/site/routes\">Route catalog</a><a href=\"/api/site/agent/playbook\">Agent playbook</a><a href=\"/api/browser/openapi.json\">OpenAPI</a></p>")
           .Append("<h2>Visual captures that do not require query-string links</h2>")
           .Append("<p>Each capture link opens the real TaskForge page in Chromium and stores short-lived immutable snapshot JSON plus the authoritative PNG. Discovery links use viewport captures for low latency; request full-page or PDF renders only when they are actually needed.</p>")
           .Append("<p class=\"muted\">Public captures are anonymous and read-only. Authenticated/private pages are intentionally not persisted into public artifact URLs.</p>");
@@ -56,7 +56,7 @@ public sealed class AgentAccessService(
         }
 
         sb.Append("<h2>Interactive agents</h2>")
-          .Append("<p>Clients that can issue POST requests can register an ordinary AI-marked user, create a Browser API session and use click/fill/scroll actions. See <a href=\"/llms.txt\">llms.txt</a> and <a href=\"/api/browser/openapi.json\">OpenAPI</a>.</p>")
+          .Append("<p>Clients that can issue POST requests can register an ordinary AI-marked user, create a Browser API session and use click/fill/scroll actions. Start with the <a href=\"/api/site/agent/playbook\">agent playbook</a>, then use <a href=\"/llms.txt\">llms.txt</a> and <a href=\"/api/browser/openapi.json\">OpenAPI</a> for the full contract.</p>")
           .Append("<p class=\"muted\">Recommended expensive-capture concurrency: ").Append(_options.RecommendedCaptureConcurrency).Append(". Artifact TTL: ").Append(_options.AgentArtifactTtlSeconds).Append(" seconds.</p>")
           .Append("</main></body></html>");
         return sb.ToString();

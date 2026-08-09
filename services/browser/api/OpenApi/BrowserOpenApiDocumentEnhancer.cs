@@ -22,8 +22,8 @@ public sealed class BrowserOpenApiDocumentEnhancer
         PatchResponses(components);
         PatchPaths(root);
         PatchTags(root);
-        root["x-taskforge-snapshot-version"] = "2.0";
-        root["x-taskforge-agent-contract"] = "1.2";
+        root["x-taskforge-snapshot-version"] = "2.1";
+        root["x-taskforge-agent-contract"] = "1.3";
         return root.ToJsonString(JsonOptions);
     }
 
@@ -195,6 +195,12 @@ public sealed class BrowserOpenApiDocumentEnhancer
         });
         PatchProperty(schemas, "CreateBrowserSessionRequest", "path", RelativePathSchema());
         PatchProperty(schemas, "NavigateBrowserSessionRequest", "path", RelativePathSchema());
+        PatchProperty(schemas, "SnapshotElement", "automationId", NullableStringSchema("Stable TaskForge automation identifier. Prefer this field to recognize the same logical control across snapshots; send the current ephemeral element id (tfN) to action endpoints."));
+        PatchProperty(schemas, "SnapshotElement", "automationRole", NullableStringSchema("Stable machine role such as course-card, assignment-card, code-editor, solution-submit or solution-status."));
+        PatchProperty(schemas, "SnapshotElement", "automationAction", NullableStringSchema("Stable intended action such as open-course, open-assignment, fill-solution-code, select-language or submit-code-solution."));
+        PatchProperty(schemas, "SnapshotElement", "automationState", NullableStringSchema("Machine-readable current state such as solved, unsolved, completed, incomplete, accepted, rejected, queued or running."));
+        PatchProperty(schemas, "SnapshotElement", "automationKind", NullableStringSchema("Machine-readable subtype when useful, for example assignment type."));
+        PatchProperty(schemas, "SnapshotElement", "value", NullableStringSchema("Current safe form value. Password values are deliberately omitted."));
         foreach (var schemaName in new[]
                  {
                      "ClickBrowserSessionRequest", "FillBrowserSessionRequest", "PressBrowserSessionRequest",
@@ -203,6 +209,14 @@ public sealed class BrowserOpenApiDocumentEnhancer
                  })
         {
             PatchProperty(schemas, schemaName, "elementId", ElementIdSchema(nullable: schemaName == "ScrollBrowserSessionRequest"));
+            PatchProperty(schemas, schemaName, "waitMs", new JsonObject
+            {
+                ["type"] = "integer",
+                ["nullable"] = true,
+                ["minimum"] = 0,
+                ["maximum"] = 15000,
+                ["description"] = "Optional additional stabilization time after the action and before the returned snapshot. Use 1500-5000 ms for submissions or asynchronous UI transitions instead of tight polling."
+            });
         }
 
         PatchRequired(schemas, "SiteRouteDto", "site", "path", "title", "requiresAuthentication", "kind");
@@ -389,10 +403,10 @@ public sealed class BrowserOpenApiDocumentEnhancer
             ["waitMs"] = 800
         });
         SetExample(paths, "/api/browser/sessions/{id}/navigate", "post", new JsonObject { ["path"] = "/news", ["waitMs"] = 800 });
-        SetExample(paths, "/api/browser/sessions/{id}/click", "post", new JsonObject { ["elementId"] = "tf3", ["includeSnapshot"] = true });
-        SetExample(paths, "/api/browser/sessions/{id}/fill", "post", new JsonObject { ["elementId"] = "tf2", ["value"] = "my-agent-name", ["includeSnapshot"] = true });
+        SetExample(paths, "/api/browser/sessions/{id}/click", "post", new JsonObject { ["elementId"] = "tf3", ["includeSnapshot"] = true, ["waitMs"] = 2500 });
+        SetExample(paths, "/api/browser/sessions/{id}/fill", "post", new JsonObject { ["elementId"] = "tf2", ["value"] = "my-agent-name", ["includeSnapshot"] = true, ["waitMs"] = 150 });
         SetExample(paths, "/api/browser/sessions/{id}/press", "post", new JsonObject { ["elementId"] = "tf2", ["key"] = "Enter", ["includeSnapshot"] = true });
-        SetExample(paths, "/api/browser/sessions/{id}/select", "post", new JsonObject { ["elementId"] = "tf4", ["value"] = "option-value", ["includeSnapshot"] = true });
+        SetExample(paths, "/api/browser/sessions/{id}/select", "post", new JsonObject { ["elementId"] = "tf4", ["value"] = "option-value", ["includeSnapshot"] = true, ["waitMs"] = 250 });
         SetExample(paths, "/api/browser/sessions/{id}/hover", "post", new JsonObject { ["elementId"] = "tf3", ["includeSnapshot"] = false });
         SetExample(paths, "/api/browser/sessions/{id}/check", "post", new JsonObject { ["elementId"] = "tf5", ["checked"] = true, ["includeSnapshot"] = true });
         SetExample(paths, "/api/browser/sessions/{id}/scroll", "post", new JsonObject { ["deltaY"] = 600, ["includeSnapshot"] = true });

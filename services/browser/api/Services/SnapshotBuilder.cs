@@ -53,7 +53,7 @@ public sealed class SnapshotBuilder(
 
         return new SiteSnapshotResponse
         {
-            SemanticSnapshotVersion = "2.0",
+            SemanticSnapshotVersion = "2.1",
             Site = handle.Site,
             Url = SafePageUrl(handle.Page.Url),
             Title = await handle.Page.TitleAsync().WaitAsync(cancellationToken),
@@ -85,7 +85,7 @@ public sealed class SnapshotBuilder(
                 TextTruncated = textTruncated,
                 ElementsTruncated = elementsTruncated,
                 AriaSnapshotTruncated = ariaSnapshotTruncated,
-                TotalInteractiveElements = totalElements
+                TotalInteractiveElements = payload.Document.InteractiveElementCount
             }
         };
     }
@@ -281,8 +281,18 @@ public sealed class SnapshotBuilder(
     '[role="tab"]',
     '[role="menuitem"]',
     '[role="option"]',
-    '[tabindex]:not([tabindex="-1"])'
+    '[tabindex]:not([tabindex="-1"])',
+    '[data-taskforge-agent-role]',
+    '[data-taskforge-agent-action]',
+    '[data-taskforge-automation-id]'
   ];
+
+  const interactiveSelector = [
+    'a[href]', 'button', 'input:not([type="hidden"])', 'select', 'textarea', 'summary',
+    '[contenteditable="true"]', '[role="button"]', '[role="link"]', '[role="checkbox"]',
+    '[role="radio"]', '[role="switch"]', '[role="tab"]', '[role="menuitem"]', '[role="option"]',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
 
   const unique = [];
   const seen = new Set();
@@ -291,10 +301,10 @@ public sealed class SnapshotBuilder(
     const visibility = visibilityOf(element);
     if (!visibility) return;
     seen.add(element);
-    unique.push({ element, visibility });
+    unique.push({ element, visibility, interactive: element.matches(interactiveSelector) });
   });
 
-  const elements = unique.map(({ element, visibility }, index) => {
+  const elements = unique.map(({ element, visibility, interactive }, index) => {
     const id = `tf${index + 1}`;
     element.setAttribute('data-taskforge-agent-id', id);
     const rect = visibility.source;
@@ -324,6 +334,25 @@ public sealed class SnapshotBuilder(
       href,
       placeholder: element.getAttribute('placeholder'),
       testId: element.getAttribute('data-testid'),
+      automationId: element.getAttribute('data-taskforge-automation-id') || null,
+      automationRole: element.getAttribute('data-taskforge-agent-role') || null,
+      automationAction: element.getAttribute('data-taskforge-agent-action') || null,
+      automationState: element.getAttribute('data-taskforge-agent-state') || null,
+      automationKind: element.getAttribute('data-taskforge-agent-kind') || null,
+      value: element instanceof HTMLInputElement && String(element.type || '').toLowerCase() === 'password'
+        ? null
+        : (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)
+          ? String(element.value ?? '')
+          : null,
+      options: element instanceof HTMLSelectElement
+        ? Array.from(element.options).map((option) => ({
+            value: String(option.value ?? ''),
+            label: cleanText(option.label || option.textContent, 300),
+            selected: option.selected,
+            disabled: option.disabled
+          }))
+        : [],
+      interactive,
       disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true'),
       checked: Boolean(element.checked || element.getAttribute('aria-checked') === 'true'),
       selected: Boolean(element.selected || element.getAttribute('aria-selected') === 'true'),
@@ -336,9 +365,10 @@ public sealed class SnapshotBuilder(
     };
   });
 
-  const smallTargets = elements.filter((x) => x.visibleBounds.width < 24 || x.visibleBounds.height < 24);
-  const touchTargetsBelow44 = elements.filter((x) => x.visibleBounds.width < 44 || x.visibleBounds.height < 44);
-  const unlabelled = elements.filter((x) => !x._semanticName);
+  const interactiveElements = elements.filter((x) => x.interactive);
+  const smallTargets = interactiveElements.filter((x) => x.visibleBounds.width < 24 || x.visibleBounds.height < 24);
+  const touchTargetsBelow44 = interactiveElements.filter((x) => x.visibleBounds.width < 44 || x.visibleBounds.height < 44);
+  const unlabelled = interactiveElements.filter((x) => !x._semanticName);
   elements.forEach((element) => delete element._semanticName);
 
   const images = Array.from(document.images).filter((image) => visibilityOf(image));
@@ -402,7 +432,7 @@ public sealed class SnapshotBuilder(
       height: documentHeight,
       horizontalOverflow: documentWidth > document.documentElement.clientWidth + 1,
       language: document.documentElement.lang || '',
-      interactiveElementCount: elements.length,
+      interactiveElementCount: interactiveElements.length,
       imageCount: images.length
     },
     text: document.body?.innerText || '',
