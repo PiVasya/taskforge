@@ -219,7 +219,14 @@ public sealed class ExecutionService : IExecutionService
     private static string CreateWorkDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "taskforge-csharp-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(path);
+        }
+        else
+        {
+            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         return path;
     }
 
@@ -247,7 +254,10 @@ public sealed class ExecutionService : IExecutionService
         {
             return;
         }
-        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         directory.Refresh();
 
         foreach (var entry in directory.EnumerateFileSystemInfos())
@@ -261,7 +271,10 @@ public sealed class ExecutionService : IExecutionService
 
             if ((entry.Attributes & FileAttributes.Directory) != 0)
             {
-                File.SetUnixFileMode(entry.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(entry.FullName, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
                 DeleteTreeWithoutFollowingLinks(entry.FullName);
             }
             else

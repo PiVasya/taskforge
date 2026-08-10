@@ -44,6 +44,37 @@ ExpectAccepted(
     }
     """);
 
+ExpectAccepted(
+    "record",
+    """
+    using System;
+
+    var value = new Point(3, 4);
+    Console.WriteLine(value);
+
+    public sealed record Point(int X, int Y);
+    """);
+
+ExpectAccepted(
+    "large-array-initializer",
+    """
+    using System;
+    using System.Linq;
+
+    var values = new[]
+    {
+        1, 2, 3, 4, 5, 6, 7, 8,
+        9, 10, 11, 12, 13, 14, 15, 16,
+        17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31, 32,
+        33, 34, 35, 36, 37, 38, 39, 40,
+        41, 42, 43, 44, 45, 46, 47, 48,
+        49, 50, 51, 52, 53, 54, 55, 56,
+        57, 58, 59, 60, 61, 62, 63, 64
+    };
+    Console.WriteLine(values.Sum());
+    """);
+
 ExpectRejected(
     "process",
     """
@@ -59,10 +90,55 @@ ExpectRejected(
     """);
 
 ExpectRejected(
+    "process-alias",
+    """
+    using P = System.Diagnostics.Process;
+    P.Start("sh");
+    """);
+
+ExpectRejected(
+    "filesystem-fully-qualified",
+    """
+    using System;
+    Console.WriteLine(global::System.IO.File.ReadAllText("/etc/passwd"));
+    """);
+
+ExpectRejected(
+    "get-type",
+    """
+    using System;
+    var type = new object().GetType();
+    Console.WriteLine(type.FullName);
+    """);
+
+ExpectRejected(
     "environment-exit",
     """
     using System;
     Environment.Exit(0);
+    """);
+
+ExpectRejected(
+    "system-type",
+    """
+    using System;
+    Console.WriteLine(typeof(string));
+    """);
+
+ExpectRejected(
+    "runtime-helpers",
+    """
+    using System;
+    using System.Runtime.CompilerServices;
+    Console.WriteLine(RuntimeHelpers.GetHashCode(new object()));
+    """);
+
+ExpectRejected(
+    "raw-standard-stream",
+    """
+    using System;
+    using var output = Console.OpenStandardOutput();
+    Console.WriteLine(output.CanWrite);
     """);
 
 ExpectRejected(
@@ -73,6 +149,21 @@ ExpectRejected(
 
     [assembly: Debuggable(DebuggableAttribute.DebuggingModes.Default)]
     Console.WriteLine("blocked");
+    """);
+
+ExpectRejected(
+    "dll-import",
+    """
+    using System;
+    using System.Runtime.InteropServices;
+
+    Console.WriteLine(Native.getpid());
+
+    static class Native
+    {
+        [DllImport("libc")]
+        public static extern int getpid();
+    }
     """);
 
 ExpectCompileError(
@@ -90,7 +181,7 @@ void ExpectAccepted(string name, string code)
     var result = compiler.Compile(code);
     if (!result.Ok)
     {
-        throw new InvalidOperationException($"expected '{name}' to compile, got: {result.Error}");
+        throw new InvalidOperationException($"expected '{name}' to compile, got {result.FailureKind}: {result.Error}");
     }
 }
 

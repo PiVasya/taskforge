@@ -30,11 +30,10 @@ public sealed partial class PolicyAttestationVerifier : IDisposable
             _rsa.Dispose();
             throw new InvalidOperationException("Code analyzer RSA key is too small.");
         }
-        _policyVersion = Environment.GetEnvironmentVariable("CODE_ANALYZER_POLICY_VERSION")?.Trim();
-        if (string.IsNullOrWhiteSpace(_policyVersion))
-        {
-            _policyVersion = DefaultPolicyVersion;
-        }
+        var configuredPolicyVersion = Environment.GetEnvironmentVariable("CODE_ANALYZER_POLICY_VERSION")?.Trim();
+        _policyVersion = string.IsNullOrWhiteSpace(configuredPolicyVersion)
+            ? DefaultPolicyVersion
+            : configuredPolicyVersion;
     }
 
     public string? Verify(string language, string profile, string source, PolicyAttestation? attestation)

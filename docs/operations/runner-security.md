@@ -32,9 +32,9 @@ Do not pass database, Redis, object-storage, signing, API, or service-to-service
 
 ## C# defense layers
 
-C# submissions are checked twice around compilation. `RoslynSecurityPolicy` validates the syntax and resolved framework symbols before emit, while `ManagedPeSecurityPolicy` validates the generated managed PE before execution. The PE layer permits only a narrow set of debugger metadata types that Roslyn itself may synthesize (`DebuggableAttribute`, compiler-generated `Debugger*` attributes, and `DebuggerBrowsableState`); explicit student references to `System.Diagnostics` remain blocked by the source-level policy.
+C# submissions are checked twice around compilation. `RoslynSecurityPolicy` validates the syntax and resolved framework symbols before emit, while `ManagedPeSecurityPolicy` validates the generated managed PE before execution. These layers intentionally check different things: the Roslyn layer owns the user-facing framework API denylist, while the PE layer is a structural backstop for native/imported methods, raw standard handles, and forbidden interop or early-execution attributes. Do not reapply the framework namespace/type denylist to every emitted `TypeRef`/`MemberRef`: Roslyn legitimately synthesizes framework references for normal language features such as async/iterator state machines, records, large array initializers, and debugger metadata. Explicit student references to blocked APIs remain rejected by semantic symbol analysis before emit.
 
-The CI regression project at `tools/csharp-runner-policy-check` compiles safe language features such as top-level statements, anonymous types, async code, and iterators, and verifies that process, filesystem, environment-exit, and explicit debugger-attribute access stays rejected. Keep this check in the OJ security invariant jobs.
+The CI regression project at `tools/csharp-runner-policy-check` compiles safe language features such as top-level statements, anonymous types, async code, iterators, records, and compiler-optimized array initialization. It also verifies that process, filesystem, environment-exit, `System.Type`, `RuntimeHelpers`, raw standard handles, explicit debugger attributes, and P/Invoke access stay rejected. Keep this check in the OJ security invariant jobs.
 
 ## C and C++ defense layers
 

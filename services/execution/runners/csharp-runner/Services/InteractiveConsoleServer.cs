@@ -180,7 +180,14 @@ public sealed class InteractiveConsoleServer : BackgroundService
             }
 
             var workDirectory = Path.Combine(Path.GetTempPath(), "taskforge-csharp-interactive-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(workDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            if (OperatingSystem.IsWindows())
+            {
+                Directory.CreateDirectory(workDirectory);
+            }
+            else
+            {
+                Directory.CreateDirectory(workDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
             try
             {
                 var assemblyPath = Path.Combine(workDirectory, "UserSubmission.dll");

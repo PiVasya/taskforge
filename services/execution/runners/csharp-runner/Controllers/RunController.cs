@@ -36,7 +36,17 @@ public sealed class RunController : ControllerBase
     [HttpPost("/run")]
     public async Task<ActionResult<RunResponse>> Run([FromBody] RunRequest request)
     {
-        var validationError = request is null ? "Request is empty." : RunnerLimits.Validate(request);
+        if (request is null)
+        {
+            return BadRequest(new RunResponse
+            {
+                Status = "bad_request",
+                ExitCode = 1,
+                Error = "Request is empty."
+            });
+        }
+
+        var validationError = RunnerLimits.Validate(request);
         if (validationError is not null)
         {
             return BadRequest(new RunResponse
@@ -131,7 +141,12 @@ public sealed class RunController : ControllerBase
     [HttpPost("/run-tests")]
     public async Task<ActionResult<TestResultsResponse>> RunTests([FromBody] RunRequestWithTests request)
     {
-        var validationError = request is null ? "Request is empty." : RunnerLimits.Validate(request);
+        if (request is null)
+        {
+            return BadRequest(new { error = "Request is empty." });
+        }
+
+        var validationError = RunnerLimits.Validate(request);
         if (validationError is not null)
         {
             return BadRequest(new { error = validationError });

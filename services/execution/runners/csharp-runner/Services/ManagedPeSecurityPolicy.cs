@@ -6,52 +6,6 @@ namespace Runner.Services;
 
 internal static class ManagedPeSecurityPolicy
 {
-    private static readonly string[] ForbiddenNamespacePrefixes =
-    [
-        "System.Diagnostics",
-        "System.IO",
-        "System.Net",
-        "System.Reflection",
-        "System.Runtime.InteropServices",
-        "System.Runtime.Loader",
-        "System.Linq.Expressions",
-        "System.CodeDom",
-        "System.Security",
-        "System.Management",
-        "System.DirectoryServices",
-        "Microsoft.Win32",
-        "Microsoft.CSharp.RuntimeBinder"
-    ];
-
-    private static readonly string[] ForbiddenTypeNames =
-    [
-        "System.Environment",
-        "System.AppDomain",
-        "System.Activator",
-        "System.Type",
-        "System.Delegate",
-        "System.Threading.Thread",
-        "System.Threading.ThreadPool",
-        "System.Runtime.CompilerServices.RuntimeHelpers",
-        "System.Runtime.CompilerServices.Unsafe",
-        "System.Runtime.CompilerServices.UnmanagedCallersOnlyAttribute",
-        "System.Runtime.CompilerServices.ModuleInitializerAttribute"
-    ];
-
-    // Roslyn emits these harmless debugger-only attributes into otherwise safe
-    // assemblies. The source-level RoslynSecurityPolicy still rejects explicit
-    // user references to the whole System.Diagnostics namespace.
-    private static readonly string[] CompilerGeneratedDiagnosticMetadataTypes =
-    [
-        "System.Diagnostics.DebuggableAttribute",
-        "System.Diagnostics.DebuggerBrowsableAttribute",
-        "System.Diagnostics.DebuggerBrowsableState",
-        "System.Diagnostics.DebuggerDisplayAttribute",
-        "System.Diagnostics.DebuggerHiddenAttribute",
-        "System.Diagnostics.DebuggerNonUserCodeAttribute",
-        "System.Diagnostics.DebuggerStepThroughAttribute"
-    ];
-
     internal static string? Validate(byte[] peImage)
     {
         try
@@ -64,13 +18,17 @@ internal static class ManagedPeSecurityPolicy
             }
 
             var metadata = peReader.GetMetadataReader();
-            foreach (var handle in metadata.TypeReferences)
-            {
-                if (IsForbidden(GetTypeName(metadata, handle)))
-                {
-                    return "Security policy: compiled assembly references a forbidden framework API.";
-                }
-            }
+
+            // Do not apply the source-level framework API denylist to every TypeRef/MemberRef
+            // in the emitted PE. Roslyn legitimately synthesizes framework references that do
+            // not exist in the student's source (async/iterator state machines, records, array
+            // initializers and debugger metadata are common examples). Treating all emitted
+            // references as user intent makes ordinary C# language features fail closed.
+            //
+            // User-selected framework APIs are already checked semantically before emit by
+            // RoslynSecurityPolicy. This PE pass is the independent structural backstop: it
+            // rejects native/imported code and early-execution/interoperability attributes that
+            // must never survive into a submission assembly.
 
             foreach (var handle in metadata.TypeDefinitions)
             {
@@ -96,10 +54,6 @@ internal static class ManagedPeSecurityPolicy
             {
                 var member = metadata.GetMemberReference(handle);
                 var owner = GetParentTypeName(metadata, member.Parent);
-                if (IsForbidden(owner))
-                {
-                    return "Security policy: compiled assembly references a forbidden framework API.";
-                }
                 var memberName = metadata.GetString(member.Name);
                 if (string.Equals(owner, "System.Console", StringComparison.Ordinal)
                     && memberName.StartsWith("OpenStandard", StringComparison.Ordinal))
@@ -112,11 +66,7 @@ internal static class ManagedPeSecurityPolicy
             {
                 var attribute = metadata.GetCustomAttribute(handle);
                 var owner = GetAttributeTypeName(metadata, attribute.Constructor);
-                if (IsForbidden(owner)
-                    || owner.Contains("DllImport", StringComparison.OrdinalIgnoreCase)
-                    || owner.Contains("LibraryImport", StringComparison.OrdinalIgnoreCase)
-                    || owner.Contains("UnmanagedCallersOnly", StringComparison.OrdinalIgnoreCase)
-                    || owner.Contains("ModuleInitializer", StringComparison.OrdinalIgnoreCase))
+                if (ContainsForbiddenAttributeName(owner))
                 {
                     return "Security policy: compiled assembly contains a forbidden attribute.";
                 }
@@ -134,21 +84,12 @@ internal static class ManagedPeSecurityPolicy
         }
     }
 
-    private static bool IsForbidden(string fullName)
-    {
-        if (string.IsNullOrEmpty(fullName)) return false;
-        if (CompilerGeneratedDiagnosticMetadataTypes.Any(value => string.Equals(value, fullName, StringComparison.Ordinal)))
-        {
-            return false;
-        }
-        if (ForbiddenTypeNames.Any(value => string.Equals(value, fullName, StringComparison.Ordinal)))
-        {
-            return true;
-        }
-        return ForbiddenNamespacePrefixes.Any(prefix =>
-            string.Equals(fullName, prefix, StringComparison.Ordinal)
-            || fullName.StartsWith(prefix + ".", StringComparison.Ordinal));
-    }
+    private static bool ContainsForbiddenAttributeName(string fullName)
+        => fullName.Contains("DllImport", StringComparison.OrdinalIgnoreCase)
+            || fullName.Contains("LibraryImport", StringComparison.OrdinalIgnoreCase)
+            || fullName.Contains("UnmanagedCallersOnly", StringComparison.OrdinalIgnoreCase)
+            || fullName.Contains("ModuleInitializer", StringComparison.OrdinalIgnoreCase)
+            || fullName.Contains("SuppressUnmanagedCodeSecurity", StringComparison.OrdinalIgnoreCase);
 
     private static string GetTypeName(MetadataReader metadata, TypeReferenceHandle handle)
     {
