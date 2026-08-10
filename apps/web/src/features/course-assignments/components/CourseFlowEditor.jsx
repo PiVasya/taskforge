@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
-import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
@@ -23,7 +23,7 @@ import { useNotify } from '../../../components/notify/NotifyProvider';
 import { useAuth } from '../../../auth/AuthContext';
 import { createAssignment, deleteAssignment, getAssignmentsByCourseTree } from '../../../api/assignments';
 import { createCourse, deleteCourse } from '../../../api/courses';
-import { getCourseMap, saveCourseMap } from '../../../api/courseMaps';
+import { getCourseMap, getLearningCourseMap, saveCourseMap } from '../../../api/courseMaps';
 import { createCourseMapPresenceConnection, disposeCourseMapPresenceConnection } from '../../../realtime/courseMapHub';
 import { getApiErrorMessage } from '../../../api/http';
 import { buildDefaultAssignmentPayload, previewAssignmentDescription } from '../courseAssignmentsModel';
@@ -45,6 +45,7 @@ import CodeTestNode from '../nodes/CodeTestNode';
 import TestNode from '../nodes/TestNode';
 import ImageCodeNode from '../nodes/ImageCodeNode';
 import MathNode from '../nodes/MathNode';
+import LockedNode from '../nodes/LockedNode';
 
 const NODE_TYPES = {
   course: CourseNode,
@@ -52,6 +53,7 @@ const NODE_TYPES = {
   test: TestNode,
   'image-code': ImageCodeNode,
   math: MathNode,
+  locked: LockedNode,
 };
 
 function userDisplayName(user) {
@@ -92,12 +94,58 @@ function subtreeCourses(rootId, allCourses, rootCourse) {
   return result;
 }
 
-function edgeStyle(editorMode) {
+const EDGE_EFFECTS = new Set(['inherit', 'start', 'stop']);
+
+function normalizeEdgeEffect(value, legacyStart = false) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (EDGE_EFFECTS.has(normalized)) return normalized;
+  return legacyStart ? 'start' : 'inherit';
+}
+
+function edgeAccessSettings(edge) {
+  const settings = edge?.settings && typeof edge.settings === 'object' ? edge.settings : {};
+  const legacyMode = String(settings.accessMode || 'normal').trim().toLowerCase();
+  const legacyHiddenStart = settings.gateUntilPrerequisites === true || legacyMode === 'after-prerequisites';
+  const legacySequentialStart = settings.sequentialReveal === true || legacyMode === 'sequential';
+  return {
+    hiddenEffect: normalizeEdgeEffect(settings.hiddenEffect, legacyHiddenStart),
+    sequentialEffect: normalizeEdgeEffect(settings.sequentialEffect, legacySequentialStart),
+  };
+}
+
+function edgeEffectLabel(accessSettings) {
+  const parts = [];
+  if (accessSettings.hiddenEffect === 'start') parts.push('СКРЫТЬ');
+  if (accessSettings.hiddenEffect === 'stop') parts.push('КОНЕЦ СКРЫТИЯ');
+  if (accessSettings.sequentialEffect === 'start') parts.push('ПО 1');
+  if (accessSettings.sequentialEffect === 'stop') parts.push('КОНЕЦ ПО 1');
+  return parts.join(' · ');
+}
+
+function edgeStyle(editorMode, edge = null) {
+  const accessSettings = edgeAccessSettings(edge);
+  const synthetic = Boolean(edge?.settings?.synthetic);
+  const classes = ['course-map-edge'];
+  if (editorMode) classes.push('is-editable');
+  if (accessSettings.hiddenEffect === 'start') classes.push('is-hidden-start');
+  if (accessSettings.hiddenEffect === 'stop') classes.push('is-hidden-stop');
+  if (accessSettings.sequentialEffect === 'start') classes.push('is-sequential-start');
+  if (accessSettings.sequentialEffect === 'stop') classes.push('is-sequential-stop');
+  if (synthetic) classes.push('is-locked');
+  const label = editorMode && !synthetic ? edgeEffectLabel(accessSettings) : '';
   return {
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-    className: `course-map-edge${editorMode ? ' is-editable' : ''}`,
+    className: classes.join(' '),
     type: 'smoothstep',
     interactionWidth: editorMode ? 28 : 18,
+    ...(label ? {
+      label,
+      labelShowBg: true,
+      labelBgPadding: [5, 3],
+      labelBgBorderRadius: 5,
+      labelStyle: { fontSize: 9, fontWeight: 850, fill: 'rgb(var(--fg))' },
+      labelBgStyle: { fill: 'rgb(var(--bg))', fillOpacity: 0.94 },
+    } : {}),
   };
 }
 
@@ -138,6 +186,24 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const rootId = String(course?.id || '');
   const visibleCourses = React.useMemo(() => subtreeCourses(rootId, allCourses, course), [allCourses, course, rootId]);
+  const hiddenCourseIdsForStudents = React.useMemo(() => {
+    const byId = new Map(visibleCourses.map((item) => [String(item?.id || ''), item]));
+    const hidden = new Set();
+    for (const item of visibleCourses) {
+      const originId = String(item?.id || '');
+      let current = item;
+      const seen = new Set();
+      while (current?.id && !seen.has(String(current.id))) {
+        seen.add(String(current.id));
+        if (current.isHiddenFromStudents) {
+          hidden.add(originId);
+          break;
+        }
+        current = current.parentCourseId ? byId.get(String(current.parentCourseId)) : null;
+      }
+    }
+    return hidden;
+  }, [visibleCourses]);
   const entityIndex = React.useMemo(() => buildEntityIndex(visibleCourses, assignments), [assignments, visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
 
@@ -173,13 +239,16 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [editorMode, loading, rootId]);
 
   const persistSession = React.useCallback((nextDirty = dirtyRef.current) => {
-    if (!rootId || !nodesRef.current.length) return;
+    // Learner maps can contain synthetic lock nodes. Never place that sanitized
+    // document into the editor session cache, otherwise switching to editor mode
+    // could accidentally restore synthetic nodes into a map that may be saved.
+    if (!editorMode || !rootId || !nodesRef.current.length) return;
     setCourseMapSessionState(rootId, {
       version: recordRef.current.version || 0,
       dirty: Boolean(nextDirty),
       document: serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current),
     });
-  }, [rootId]);
+  }, [editorMode, rootId]);
 
   const rememberBeforeNavigate = React.useCallback(() => persistSession(dirtyRef.current), [persistSession]);
 
@@ -235,8 +304,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const q = String(query || '').trim().toLowerCase();
     const progressByCourse = computeCourseProgress(rawNodes, edgesRef.current, assignments, rootId);
     return rawNodes.map((node) => {
+      if (node.type === 'locked') {
+        const settings = node.settings || node.data?.settings || {};
+        const searchText = `${settings.title || ''} ${settings.requirement || ''}`.toLowerCase();
+        const searchMatch = !q || searchText.includes(q);
+        return {
+          ...node,
+          type: 'locked',
+          className: searchMatch ? '' : 'course-map-search-dimmed',
+          data: { settings, editorMode: false, searchMatch },
+        };
+      }
+
       const isCourse = node.type === 'course';
-      const entity = isCourse ? entityIndex.courseById.get(String(node.entityId)) : entityIndex.assignmentById.get(String(node.entityId));
+      const rawEntity = isCourse ? entityIndex.courseById.get(String(node.entityId)) : entityIndex.assignmentById.get(String(node.entityId));
+      const entity = isCourse && rawEntity
+        ? { ...rawEntity, isHiddenForStudents: hiddenCourseIdsForStudents.has(String(rawEntity.id)) }
+        : rawEntity;
       const progress = isCourse ? (progressByCourse.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null;
       const searchText = `${entity?.title || ''} ${previewAssignmentDescription(entity?.description || '')} ${entity?.tags || ''}`.toLowerCase();
       const searchMatch = !q || searchText.includes(q);
@@ -249,6 +333,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           entityId: node.entityId,
           entity,
           progress,
+          settings: node.settings,
           editorMode,
           searchMatch,
           onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
@@ -257,9 +342,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         },
       };
     });
-  }, [assignments, editAssignment, editCourse, editorMode, entityIndex, focusBranch, focusNode, openAssignment, query, rootId]);
+  }, [assignments, editAssignment, editCourse, editorMode, entityIndex, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
 
-  const decorateEdges = React.useCallback((rawEdges) => rawEdges.map((edge) => ({ ...edge, ...edgeStyle(editorMode) })), [editorMode]);
+  const decorateEdges = React.useCallback((rawEdges) => rawEdges.map((edge) => ({ ...edge, ...edgeStyle(editorMode, edge) })), [editorMode]);
 
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
@@ -267,11 +352,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const initialForRoot = loadedRootRef.current !== rootId;
     if (!quiet && initialForRoot) setLoading(true);
     try {
-      const [mapRecord, treeAssignments] = await Promise.all([getCourseMap(rootId), getAssignmentsByCourseTree(rootId)]);
+      const [mapRecord, treeAssignments] = await Promise.all([editorMode ? getCourseMap(rootId) : getLearningCourseMap(rootId), getAssignmentsByCourseTree(rootId)]);
       if (requestId !== loadRequestRef.current) return;
       const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
       const nextCourses = subtreeCourses(rootId, allCourses, course);
-      const session = preferSession ? getCourseMapSessionState(rootId) : null;
+      const session = editorMode && preferSession ? getCourseMapSessionState(rootId) : null;
       const serverVersion = Number(mapRecord?.version || 0);
       const sessionVersion = Number(session?.version || 0);
       const sessionIsDirty = Boolean(session?.dirty);
@@ -306,6 +391,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const idx = buildEntityIndex(nextCourses, nextAssignments);
       const progress = computeCourseProgress(document.nodes || [], document.edges || [], nextAssignments, rootId);
       const nextNodes = (document.nodes || []).map((node) => {
+        if (node.type === 'locked') {
+          return {
+            ...node,
+            type: 'locked',
+            className: '',
+            data: { settings: node.settings || {}, editorMode: false, searchMatch: true },
+          };
+        }
         const isCourse = node.type === 'course';
         const entity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
         return {
@@ -316,6 +409,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             entityId: node.entityId,
             entity,
             progress: isCourse ? (progress.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null,
+            settings: node.settings,
             editorMode,
             onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
             onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
@@ -453,6 +547,42 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return true;
   }, [editorMode, markDirty, setEdges]);
 
+  const updateEdgeAccessSettings = React.useCallback((edgeId, patch) => {
+    if (!editorMode) return;
+    const buildUpdatedEdge = (edge) => {
+      const currentAccess = edgeAccessSettings(edge);
+      const nextAccess = {
+        hiddenEffect: normalizeEdgeEffect(patch?.hiddenEffect ?? currentAccess.hiddenEffect),
+        sequentialEffect: normalizeEdgeEffect(patch?.sequentialEffect ?? currentAccess.sequentialEffect),
+      };
+      const otherSettings = { ...(edge.settings || {}) };
+      delete otherSettings.accessMode;
+      delete otherSettings.gateUntilPrerequisites;
+      delete otherSettings.sequentialReveal;
+      const updated = {
+        ...edge,
+        settings: {
+          ...otherSettings,
+          hiddenEffect: nextAccess.hiddenEffect,
+          sequentialEffect: nextAccess.sequentialEffect,
+        },
+      };
+      return { ...updated, ...edgeStyle(true, updated) };
+    };
+
+    setEdges((current) => {
+      const next = current.map((edge) => String(edge.id) === String(edgeId) ? buildUpdatedEdge(edge) : edge);
+      edgesRef.current = next;
+      return next;
+    });
+    setContext((current) => {
+      if (!current?.edge || String(current.edge.id) !== String(edgeId)) return current;
+      return { ...current, edge: buildUpdatedEdge(current.edge) };
+    });
+    markDirty();
+    setGraphRevision((value) => value + 1);
+  }, [editorMode, markDirty, setEdges]);
+
   const onNodesChange = React.useCallback((changes) => {
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
@@ -487,13 +617,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const duplicate = currentEdges.some((edge) => edge.source === connection.source && edge.target === connection.target);
     if (duplicate) return;
     setEdges((current) => {
-      const next = addEdge({
+      const created = {
         ...connection,
         sourceHandle: connection.sourceHandle || 'out',
         targetHandle: connection.targetHandle || 'in',
         id: `edge:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
-        ...edgeStyle(true),
-      }, current);
+        settings: { hiddenEffect: 'inherit', sequentialEffect: 'inherit' },
+      };
+      const next = addEdge({ ...created, ...edgeStyle(true, created) }, current);
       edgesRef.current = next;
       return next;
     });
@@ -682,6 +813,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           target: String(edge.target),
           sourceHandle: edge.sourceHandle || 'out',
           targetHandle: edge.targetHandle || 'in',
+          settings: edge.settings && typeof edge.settings === 'object' ? { ...edge.settings } : undefined,
         })),
     };
     pasteSequenceRef.current = 0;
@@ -713,14 +845,17 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     });
 
     const currentEdges = edgesRef.current.map((edge) => ({ ...edge, selected: false }));
-    const pastedEdges = buffer.edges.map((edge, index) => ({
-      id: `edge:copy:${stamp}:${serial}:${index}:${Math.random().toString(36).slice(2, 7)}`,
-      source: idMap.get(String(edge.source)),
-      target: idMap.get(String(edge.target)),
-      sourceHandle: edge.sourceHandle || 'out',
-      targetHandle: edge.targetHandle || 'in',
-      ...edgeStyle(true),
-    })).filter((edge) => edge.source && edge.target);
+    const pastedEdges = buffer.edges.map((edge, index) => {
+      const pasted = {
+        id: `edge:copy:${stamp}:${serial}:${index}:${Math.random().toString(36).slice(2, 7)}`,
+        source: idMap.get(String(edge.source)),
+        target: idMap.get(String(edge.target)),
+        sourceHandle: edge.sourceHandle || 'out',
+        targetHandle: edge.targetHandle || 'in',
+        settings: edge.settings && typeof edge.settings === 'object' ? { ...edge.settings } : { hiddenEffect: 'inherit', sequentialEffect: 'inherit' },
+      };
+      return { ...pasted, ...edgeStyle(true, pasted) };
+    }).filter((edge) => edge.source && edge.target);
     const nextEdges = [...currentEdges, ...pastedEdges];
     edgesRef.current = nextEdges;
 
@@ -922,6 +1057,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onNodeContextMenu={onNodeContextMenu}
           onNodeDoubleClick={(event, node) => {
             event.preventDefault();
+            if (node.type === 'locked') return;
             if (node.type === 'course') focusBranch(node.id);
             else openAssignment(node.entityId);
           }}
@@ -946,7 +1082,34 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       <ContextMenu open={context.open} x={context.x} y={context.y} onClose={closeContext} ariaLabel="Действия карты курса">
         {context.edge ? (
           <>
-            <ContextMenuLabel>Связь</ContextMenuLabel>
+            <ContextMenuLabel>Эффекты стрелки</ContextMenuLabel>
+            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit', sequentialEffect: 'inherit' }); closeContext(); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'inherit' && edgeAccessSettings(context.edge).sequentialEffect === 'inherit' ? '✓ ' : ''}Обычная — наследовать режим</span><span className="text-[11px] text-neutral-500">Эта стрелка сама ничего не начинает и не заканчивает.</span></span>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuLabel>Полностью скрытый участок</ContextMenuLabel>
+            <ContextMenuItem icon={LockKeyhole} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'start' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'start' ? '✓ ' : ''}Начать полное скрытие</span><span className="text-[11px] text-neutral-500">Следующая часть не существует, пока не решены все задания на пути до этой точки. Внутри участка правило продолжается.</span></span>
+            </ContextMenuItem>
+            <ContextMenuItem icon={RotateCcw} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'stop' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'stop' ? '✓ ' : ''}Закончить полное скрытие</span><span className="text-[11px] text-neutral-500">После этой стрелки скрытый режим больше не действует. Последняя скрытая точка должна быть пройдена.</span></span>
+            </ContextMenuItem>
+            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'inherit' ? '✓ ' : ''}Не менять полное скрытие</span><span className="text-[11px] text-neutral-500">Продолжить состояние, пришедшее по предыдущим стрелкам.</span></span>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuLabel>Открытие по одному заданию</ContextMenuLabel>
+            <ContextMenuItem icon={ListOrdered} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'start' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'start' ? '✓ ' : ''}Начать открывать по одному</span><span className="text-[11px] text-neutral-500">Следующая нода видна; после неё показывается закрытое продолжение с условием открытия.</span></span>
+            </ContextMenuItem>
+            <ContextMenuItem icon={RotateCcw} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'stop' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'stop' ? '✓ ' : ''}Закончить открытие по одному</span><span className="text-[11px] text-neutral-500">После решения текущей точки продолжение снова отображается без пошагового ограничения.</span></span>
+            </ContextMenuItem>
+            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'inherit' }); }}>
+              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'inherit' ? '✓ ' : ''}Не менять пошаговый режим</span><span className="text-[11px] text-neutral-500">Продолжить состояние, пришедшее по предыдущим стрелкам.</span></span>
+            </ContextMenuItem>
+            <div className="px-3 pb-2 text-[10px] leading-4 text-neutral-500">Эффекты независимы и могут пересекаться. Полное скрытие сильнее: пока оно активно, закрытый хвост вообще не выдаётся ученику.</div>
+            <ContextMenuSeparator />
             <ContextMenuItem icon={Unlink2} danger onClick={() => { const edge = context.edge; closeContext(); removeEdges([String(edge.id)]); }}>Разорвать связь</ContextMenuItem>
           </>
         ) : context.node ? (

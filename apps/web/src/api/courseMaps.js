@@ -5,6 +5,11 @@ export async function getCourseMap(courseId) {
   return res.data;
 }
 
+export async function getLearningCourseMap(courseId) {
+  const res = await api.get(`/api/courses/${courseId}/learning-map`);
+  return res.data;
+}
+
 export async function saveCourseMap(courseId, expectedVersion, document) {
   const res = await api.put(`/api/courses/${courseId}/map`, {
     expectedVersion,

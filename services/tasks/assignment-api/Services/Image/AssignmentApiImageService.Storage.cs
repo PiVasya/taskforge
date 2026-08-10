@@ -105,7 +105,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> CompareImageUpload(Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
         var referenceKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
         var referenceBase64 = StripDataUrl(NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64"));

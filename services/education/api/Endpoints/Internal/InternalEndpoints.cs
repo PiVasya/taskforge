@@ -45,12 +45,25 @@ internal static partial class EducationApiEndpoints
 
         app.MapGet("/api/internal/courses/{courseId:guid}/access/{userId:guid}", async (Guid courseId, Guid userId, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId, ct);
-            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var allById = await LoadCoursesWithAncestorsAsync(new[] { courseId }, db, ct);
+            if (!allById.TryGetValue(courseId, out var course)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             var groupIds = await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync(ct);
             var access = new EducationAccessContext(userId, false, groupIds.ToHashSet());
-            return Microsoft.AspNetCore.Http.Results.Ok(new { courseId, userId, canView = CanViewCourse(access, course), canEdit = CanEditCourse(access, course), isPublic = course.IsPublic });
+            var rootCourseId = ResolveRootCourseId(course, allById);
+            var mapJson = await db.CourseMaps.AsNoTracking()
+                .Where(x => x.RootCourseId == rootCourseId)
+                .Select(x => x.DocumentJson)
+                .FirstOrDefaultAsync(ct);
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseAccessDto(
+                course.Id,
+                userId,
+                CanViewCourse(access, course, IsHiddenByHierarchy(course, allById)),
+                CanEditCourse(access, course),
+                course.IsPublic,
+                rootCourseId,
+                ContainsProgressionRules(mapJson)));
         });
 
 
@@ -72,22 +85,32 @@ internal static partial class EducationApiEndpoints
                 .Select(x => x.GroupId)
                 .ToListAsync(ct);
             var access = new EducationAccessContext(request.UserId, false, groupIds.ToHashSet());
-            var courses = await db.Courses.AsNoTracking()
-                .Where(x => courseIds.Contains(x.Id))
-                .ToListAsync(ct);
+            var allById = await LoadCoursesWithAncestorsAsync(courseIds, db, ct);
+            var courses = courseIds.Where(allById.ContainsKey).Select(id => allById[id]).ToList();
 
             var byId = courses.ToDictionary(x => x.Id);
+            var rootByCourseId = courses.ToDictionary(x => x.Id, x => ResolveRootCourseId(x, allById));
+            var rootIds = rootByCourseId.Values.Distinct().ToArray();
+            var mapRows = await db.CourseMaps.AsNoTracking()
+                .Where(x => rootIds.Contains(x.RootCourseId))
+                .Select(x => new { x.RootCourseId, x.DocumentJson })
+                .ToListAsync(ct);
+            var progressionByRootId = mapRows.ToDictionary(x => x.RootCourseId, x => ContainsProgressionRules(x.DocumentJson));
+
             var rows = courseIds
                 .Where(byId.ContainsKey)
                 .Select(id =>
                 {
                     var course = byId[id];
+                    var rootCourseId = rootByCourseId[id];
                     return new CourseAccessDto(
                         course.Id,
                         request.UserId,
-                        CanViewCourse(access, course),
+                        CanViewCourse(access, course, IsHiddenByHierarchy(course, allById)),
                         CanEditCourse(access, course),
-                        course.IsPublic);
+                        course.IsPublic,
+                        rootCourseId,
+                        progressionByRootId.GetValueOrDefault(rootCourseId));
                 })
                 .ToArray();
 
@@ -96,42 +119,115 @@ internal static partial class EducationApiEndpoints
 
         app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
-            var rows = await db.Courses.AsNoTracking()
-                .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.Sort))
-                .ToListAsync(ct);
+            var courses = await LoadCourseSubtreeRowsAsync(courseId, db, ct);
+            if (courses.Count == 0) return Microsoft.AspNetCore.Http.Results.NotFound();
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseTreeResponse(courseId, courses.Select(x => x.Id).ToArray(), courses));
+        });
 
-            if (!rows.Any(x => x.Id == courseId)) return Microsoft.AspNetCore.Http.Results.NotFound();
-
-            var children = rows
-                .Where(x => x.ParentCourseId.HasValue)
-                .GroupBy(x => x.ParentCourseId!.Value)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderBy(x => x.Sort).ThenBy(x => x.Title).Select(x => x.Id).ToList());
-
-            var courseIds = new List<Guid>();
-            var seen = new HashSet<Guid>();
-            var queue = new Queue<Guid>();
-            queue.Enqueue(courseId);
-
-            while (queue.Count > 0)
-            {
-                var id = queue.Dequeue();
-                if (!seen.Add(id)) continue;
-                courseIds.Add(id);
-                if (!children.TryGetValue(id, out var directChildren)) continue;
-                foreach (var childId in directChildren) queue.Enqueue(childId);
-            }
-
-            var courseIdSet = courseIds.ToHashSet();
-            var courses = rows
-                .Where(x => courseIdSet.Contains(x.Id))
-                .OrderBy(x => courseIds.IndexOf(x.Id))
-                .ToList();
-
-            return Microsoft.AspNetCore.Http.Results.Ok(new CourseTreeResponse(courseId, courseIds.ToArray(), courses));
+        app.MapGet("/api/internal/courses/{courseId:guid}/map", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
+        {
+            var root = await ResolveRootCourseAsync(courseId, db, ct);
+            if (root is null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var map = await db.CourseMaps.AsNoTracking().FirstOrDefaultAsync(x => x.RootCourseId == root.Id, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
+                root.Id,
+                courseId,
+                map?.Version ?? 0,
+                map is null ? null : ParseDocumentElement(map.DocumentJson),
+                map?.UpdatedAt,
+                map?.UpdatedBy));
         });
 
         return app;
+    }
+
+    private static async Task<Dictionary<Guid, Course>> LoadCoursesWithAncestorsAsync(
+        IEnumerable<Guid> courseIds,
+        EducationDbContext db,
+        CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, Course>();
+        var frontier = courseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
+
+        while (frontier.Length > 0)
+        {
+            var rows = await db.Courses.AsNoTracking().Where(x => frontier.Contains(x.Id)).ToListAsync(ct);
+            foreach (var row in rows) result[row.Id] = row;
+
+            frontier = rows
+                .Where(x => x.ParentCourseId.HasValue && !result.ContainsKey(x.ParentCourseId.Value))
+                .Select(x => x.ParentCourseId!.Value)
+                .Distinct()
+                .ToArray();
+        }
+
+        return result;
+    }
+
+    private static Guid ResolveRootCourseId(Course course, IReadOnlyDictionary<Guid, Course> byId)
+    {
+        var current = course;
+        var seen = new HashSet<Guid>();
+        while (current.ParentCourseId.HasValue && seen.Add(current.Id) && byId.TryGetValue(current.ParentCourseId.Value, out var parent))
+        {
+            current = parent;
+        }
+        return current.Id;
+    }
+
+    private static bool ContainsProgressionRules(string? documentJson)
+    {
+        if (string.IsNullOrWhiteSpace(documentJson)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(documentJson);
+            if (!doc.RootElement.TryGetProperty("edges", out var edges) || edges.ValueKind != JsonValueKind.Array) return false;
+            foreach (var edge in edges.EnumerateArray())
+            {
+                if (edge.ValueKind != JsonValueKind.Object
+                    || !edge.TryGetProperty("settings", out var settings)
+                    || settings.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (settings.TryGetProperty("gateUntilPrerequisites", out var gate)
+                    && gate.ValueKind == JsonValueKind.True)
+                {
+                    return true;
+                }
+                if (settings.TryGetProperty("sequentialReveal", out var sequential)
+                    && sequential.ValueKind == JsonValueKind.True)
+                {
+                    return true;
+                }
+                foreach (var effectName in new[] { "hiddenEffect", "sequentialEffect" })
+                {
+                    if (!settings.TryGetProperty(effectName, out var effect) || effect.ValueKind != JsonValueKind.String) continue;
+                    var value = effect.GetString()?.Trim();
+                    if (string.Equals(value, "start", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(value, "stop", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                if (settings.TryGetProperty("accessMode", out var mode) && mode.ValueKind == JsonValueKind.String)
+                {
+                    var value = mode.GetString()?.Trim();
+                    if (string.Equals(value, "after-prerequisites", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(value, "sequential", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Course-map writes validate JSON. Treat legacy/corrupt documents as
+            // having no progression flags here; the map endpoint remains the source
+            // of truth and will not expose invalid progression settings to learners.
+        }
+        return false;
     }
 }

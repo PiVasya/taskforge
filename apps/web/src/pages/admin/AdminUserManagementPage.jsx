@@ -137,7 +137,7 @@ export default function AdminUserManagementPage() {
       setUser(userDto);
       setForm({
         login: userDto?.login || '', email: userDto?.email || '', firstName: userDto?.firstName || '', lastName: userDto?.lastName || '',
-        phoneNumber: userDto?.phoneNumber || '', profilePictureUrl: userDto?.profilePictureUrl || '', role: userDto?.role || 'User', accountType: userDto?.accountType || 'human',
+        phoneNumber: userDto?.phoneNumber || '', profilePictureUrl: userDto?.profilePictureUrl || '', bio: userDto?.bio || '', role: userDto?.role || 'User', accountType: userDto?.accountType || 'human',
         roles: userDto?.roles || [], featureRoles: userDto?.featureRoles || [],
       });
       setRating(ratingDto || null);
@@ -181,7 +181,7 @@ export default function AdminUserManagementPage() {
       setSaving(true);
       await updateAdminUser(userId, {
         login: form.login, email: form.email, firstName: form.firstName, lastName: form.lastName,
-        phoneNumber: form.phoneNumber || null, profilePictureUrl: form.profilePictureUrl || null, role: form.role, accountType: form.accountType || 'human',
+        phoneNumber: form.phoneNumber || null, profilePictureUrl: form.profilePictureUrl || null, bio: form.bio ?? '', role: form.role, accountType: form.accountType || 'human',
       });
       notify.success('Пользователь сохранён');
       await load();
@@ -297,6 +297,7 @@ export default function AdminUserManagementPage() {
             <Field label="Имя"><Input disabled={!isActive} value={form.firstName || ''} onChange={(e) => updateForm({ firstName: e.target.value })} /></Field>
             <Field label="Фамилия"><Input disabled={!isActive} value={form.lastName || ''} onChange={(e) => updateForm({ lastName: e.target.value })} /></Field>
             <div className="md:col-span-2"><Field label="Аватар / URL картинки"><Input disabled={!isActive} value={form.profilePictureUrl || ''} onChange={(e) => updateForm({ profilePictureUrl: e.target.value })} /></Field></div>
+            <div className="md:col-span-2"><Field label="Описание профиля"><Textarea disabled={!isActive} rows={5} maxLength={4000} value={form.bio || ''} onChange={(e) => updateForm({ bio: e.target.value })} placeholder="Описание пользователя в публичном профиле" /></Field><div className="mt-1 text-xs text-neutral-500">Администратор может изменить это описание независимо от того, включил ли пользователь его отображение в публичных настройках.</div></div>
           </div> : <div className="text-sm text-neutral-500">Нет данных профиля.</div>}
           <div className="mt-5 flex flex-wrap gap-2"><Button onClick={saveUser} disabled={!form || saving || !isActive}><Save size={16} /><span className="ml-1">Сохранить профиль</span></Button><Link to={`/users/${userId}`}><Button variant="outline"><ExternalLink size={16} /><span className="ml-1">Публичный профиль</span></Button></Link></div>
         </Card>

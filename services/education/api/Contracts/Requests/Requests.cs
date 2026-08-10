@@ -15,7 +15,15 @@ public sealed record CourseGroupsRequest(Guid[]? GroupIds);
 
 public sealed record CourseOwnersRequest(Guid[]? OwnerIds);
 
-public sealed record CourseRequest(string? Title, string? Description, bool? IsPublic, Guid[]? VisibleGroupIds, Guid[]? OwnerIds, int? Sort, Guid? ParentCourseId);
+public sealed record CourseRequest(
+    string? Title,
+    string? Description,
+    bool? IsPublic,
+    Guid[]? VisibleGroupIds,
+    Guid[]? OwnerIds,
+    int? Sort,
+    Guid? ParentCourseId,
+    bool? IsHiddenFromStudents);
 
 public sealed record CourseSortRequest(int Sort);
 

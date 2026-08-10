@@ -38,6 +38,7 @@ export default function CourseEditPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [isHiddenFromStudents, setIsHiddenFromStudents] = useState(false);
   const [visibleGroupIds, setVisibleGroupIds] = useState([]);
   const [ownerIds, setOwnerIds] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -94,6 +95,7 @@ export default function CourseEditPage() {
         setTitle(c.title || '');
         setDescription(c.description || '');
         setIsPublic(!!c.isPublic);
+        setIsHiddenFromStudents(!!c.isHiddenFromStudents);
         setVisibleGroupIds(Array.isArray(c.visibleGroupIds) ? c.visibleGroupIds : []);
         const loadedOwnerIds = Array.isArray(c.ownerIds) && c.ownerIds.length ? c.ownerIds : (c.ownerId ? [c.ownerId] : []);
         setOwnerIds(loadedOwnerIds);
@@ -177,6 +179,7 @@ export default function CourseEditPage() {
         title,
         description,
         isPublic,
+        isHiddenFromStudents,
         visibleGroupIds: isPublic ? [] : (visibleGroupIds || []),
         ownerIds: ownerIds || [],
       };
@@ -260,6 +263,24 @@ export default function CourseEditPage() {
                   />
                   <span className="text-sm">
                     Публичный курс <span className="text-neutral-500">(виден всем)</span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="sm:col-span-2 rounded-2xl border border-[rgba(var(--accent)/0.28)] bg-[rgba(var(--accent)/0.05)] p-4">
+                <label className="flex cursor-pointer items-start gap-3 select-none">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-neutral-300"
+                    checked={isHiddenFromStudents}
+                    onChange={(e) => setIsHiddenFromStudents(e.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">Полностью скрыть курс от учеников</span>
+                    <span className="mt-1 block text-xs leading-5 text-neutral-500">
+                      Курс и всё его поддерево не появятся в списках, на карте и по прямым ссылкам.
+                      Admin/Editor продолжат видеть его в редакторе, где скрытые ноды специально выделены.
+                    </span>
                   </span>
                 </label>
               </div>

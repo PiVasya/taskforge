@@ -11,7 +11,7 @@ using TaskForge.Tasks.Api.Domain;
 
 namespace TaskForge.Tasks.Api.Contracts;
 
-public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules);
 
 public sealed record SolvedAssignmentsResponse(Guid UserId, Guid[]? SolvedAssignmentIds);
 
@@ -35,7 +35,18 @@ public sealed class CourseTreeCourseDto
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public bool IsPublic { get; set; }
+    public bool IsHiddenFromStudents { get; set; }
     public int Sort { get; set; }
+}
+
+public sealed class CourseMapInternalResponse
+{
+    public Guid RootCourseId { get; set; }
+    public Guid RequestedCourseId { get; set; }
+    public int Version { get; set; }
+    public JsonElement? Document { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
 }
 
 public sealed class CourseAssignmentExportNode

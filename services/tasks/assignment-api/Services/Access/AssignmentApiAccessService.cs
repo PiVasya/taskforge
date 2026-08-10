@@ -21,11 +21,14 @@ namespace TaskForge.Tasks.Api.Services.Access;
 
 internal static class AssignmentApiAccessService
 {
-    internal static async Task<bool> CanUserAccessAssignmentAsync(Assignment assignment, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+    internal static async Task<bool> CanUserAccessAssignmentAsync(Assignment assignment, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
     {
         if (IsEditor(http, cfg)) return true;
         if (!assignment.IsVisible) return false;
-        return await CanUserAccessCourseAsync(assignment.CourseId, http, cfg, clients, ct);
+        var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+        if (!userId.HasValue) return false;
+        var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId.Value, db, clients, cfg, ct);
+        return evaluation?.VisibleAssignmentIds.Contains(assignment.Id) == true;
     }
 
     internal static async Task<bool> CanUserAccessCourseAsync(Guid courseId, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
@@ -43,24 +46,34 @@ internal static class AssignmentApiAccessService
     }
 
 
-    internal static async Task<HashSet<Guid>> LoadAccessibleCourseIdsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static async Task<List<CourseAccessDto>> LoadCourseAccessRowsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
         var ids = courseIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
-        if (ids.Length == 0 || userId == Guid.Empty) return new HashSet<Guid>();
+        if (ids.Length == 0 || userId == Guid.Empty) return new List<CourseAccessDto>();
 
-        var rows = await PostInternalAsync<List<CourseAccessDto>>(
+        return await PostInternalAsync<List<CourseAccessDto>>(
             clients,
             cfg,
             ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
             "/api/internal/courses/access",
             new { userId, courseIds = ids },
-            ct);
+            ct)
+            ?? new List<CourseAccessDto>();
+    }
 
-        return rows?
-            .Where(x => x.CanView)
-            .Select(x => x.CourseId)
-            .ToHashSet()
-            ?? new HashSet<Guid>();
+    internal static async Task<HashSet<Guid>> LoadAccessibleCourseIdsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    {
+        var ids = courseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
+        var result = new HashSet<Guid>();
+        foreach (var batch in ids.Chunk(2000))
+        {
+            var rows = await LoadCourseAccessRowsAsync(batch, userId, clients, cfg, ct);
+            foreach (var row in rows)
+            {
+                if (row.CanView) result.Add(row.CourseId);
+            }
+        }
+        return result;
     }
 
     internal static bool IsEditor(HttpContext http, IConfiguration cfg)

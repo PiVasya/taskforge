@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
@@ -43,6 +44,23 @@ internal static class IdentityApiImageService
         user.CreatedAt,
         user.LastLoginAt
     };
+
+
+    internal static string UpdatePublicProfileBio(string? json, string? bio)
+    {
+        JsonObject root;
+        try
+        {
+            root = !string.IsNullOrWhiteSpace(json) ? JsonNode.Parse(json) as JsonObject ?? new JsonObject() : new JsonObject();
+        }
+        catch
+        {
+            root = new JsonObject();
+        }
+
+        root["bio"] = (bio ?? string.Empty).Trim();
+        return root.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
 
     internal static PublicProfileExtra ReadPublicProfileExtra(string? json)
     {

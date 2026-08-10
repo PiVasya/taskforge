@@ -35,10 +35,10 @@ internal static partial class EducationApiEndpoints
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
             var requested = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == courseId, ct);
-            if (requested is null || !CanViewCourse(access, requested)) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (requested is null) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             var root = await ResolveRootCourseAsync(courseId, db, ct);
-            if (root is null || !CanViewCourse(access, root)) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (root is null || !CanEditCourse(access, root)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             var map = await db.CourseMaps.AsNoTracking().FirstOrDefaultAsync(x => x.RootCourseId == root.Id, ct);
             if (map is null)
@@ -191,41 +191,54 @@ internal static partial class EducationApiEndpoints
 
     private static async Task<Course?> ResolveRootCourseAsync(Guid requestedCourseId, EducationDbContext db, CancellationToken ct)
     {
-        var rows = await db.Courses.AsNoTracking().Select(x => new { x.Id, x.ParentCourseId }).ToListAsync(ct);
-        var parents = rows.ToDictionary(x => x.Id, x => x.ParentCourseId);
-        if (!parents.ContainsKey(requestedCourseId)) return null;
-
-        var current = requestedCourseId;
+        var currentId = requestedCourseId;
         var seen = new HashSet<Guid>();
-        while (parents.TryGetValue(current, out var parent) && parent.HasValue)
+        while (seen.Add(currentId))
         {
-            if (!seen.Add(current)) return null;
-            current = parent.Value;
+            var current = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == currentId, ct);
+            if (current is null) return null;
+            if (!current.ParentCourseId.HasValue) return current;
+            currentId = current.ParentCourseId.Value;
+        }
+        return null;
+    }
+
+    private static async Task<List<CourseTreeCourseDto>> LoadCourseSubtreeRowsAsync(Guid rootCourseId, EducationDbContext db, CancellationToken ct)
+    {
+        var root = await db.Courses.AsNoTracking()
+            .Where(x => x.Id == rootCourseId)
+            .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.IsHiddenFromStudents, x.Sort))
+            .FirstOrDefaultAsync(ct);
+        if (root is null) return new List<CourseTreeCourseDto>();
+
+        var result = new List<CourseTreeCourseDto> { root };
+        var seen = new HashSet<Guid> { root.Id };
+        var frontier = new List<Guid> { root.Id };
+
+        while (frontier.Count > 0)
+        {
+            var parentOrder = frontier.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
+            var children = await db.Courses.AsNoTracking()
+                .Where(x => x.ParentCourseId.HasValue && frontier.Contains(x.ParentCourseId.Value))
+                .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.IsHiddenFromStudents, x.Sort))
+                .ToListAsync(ct);
+
+            var ordered = children
+                .Where(x => seen.Add(x.Id))
+                .OrderBy(x => x.ParentCourseId.HasValue && parentOrder.TryGetValue(x.ParentCourseId.Value, out var index) ? index : int.MaxValue)
+                .ThenBy(x => x.Sort)
+                .ThenBy(x => x.Title)
+                .ToList();
+
+            result.AddRange(ordered);
+            frontier = ordered.Select(x => x.Id).ToList();
         }
 
-        return await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == current, ct);
+        return result;
     }
 
     private static async Task<HashSet<Guid>> LoadCourseSubtreeIdsAsync(Guid rootCourseId, EducationDbContext db, CancellationToken ct)
-    {
-        var rows = await db.Courses.AsNoTracking().Select(x => new { x.Id, x.ParentCourseId }).ToListAsync(ct);
-        var children = rows
-            .Where(x => x.ParentCourseId.HasValue)
-            .GroupBy(x => x.ParentCourseId!.Value)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToArray());
-
-        var result = new HashSet<Guid>();
-        var stack = new Stack<Guid>();
-        stack.Push(rootCourseId);
-        while (stack.Count > 0)
-        {
-            var id = stack.Pop();
-            if (!result.Add(id)) continue;
-            if (!children.TryGetValue(id, out var childIds)) continue;
-            foreach (var childId in childIds) stack.Push(childId);
-        }
-        return result;
-    }
+        => (await LoadCourseSubtreeRowsAsync(rootCourseId, db, ct)).Select(x => x.Id).ToHashSet();
 
     private static async Task<(string Code, string Message)?> ValidateCourseMapDocumentAsync(JsonElement document, Guid rootCourseId, EducationDbContext db, CancellationToken ct)
     {
@@ -293,6 +306,38 @@ internal static partial class EducationApiEndpoints
             var targetHandle = edge.TryGetProperty("targetHandle", out var targetHandleElement) ? targetHandleElement.GetString()?.Trim() : "in";
             if (!string.Equals(sourceHandle, "out", StringComparison.Ordinal) || !string.Equals(targetHandle, "in", StringComparison.Ordinal))
                 return ("COURSE_MAP_HANDLE_INVALID", "Связи карты должны идти из handle 'out' в handle 'in'.");
+
+            if (edge.TryGetProperty("settings", out var settingsElement) && settingsElement.ValueKind != JsonValueKind.Null)
+            {
+                if (settingsElement.ValueKind != JsonValueKind.Object)
+                    return ("COURSE_MAP_EDGE_SETTINGS_INVALID", "Настройки связи должны быть объектом.");
+                if (settingsElement.TryGetProperty("accessMode", out var modeElement) && modeElement.ValueKind != JsonValueKind.Null)
+                {
+                    if (modeElement.ValueKind != JsonValueKind.String)
+                        return ("COURSE_MAP_EDGE_ACCESS_MODE_INVALID", "Режим открытия ветки должен быть строкой.");
+                    var mode = modeElement.GetString()?.Trim().ToLowerInvariant();
+                    if (mode is not null and not "normal" and not "after-prerequisites" and not "sequential")
+                        return ("COURSE_MAP_EDGE_ACCESS_MODE_INVALID", "Неизвестный режим открытия ветки.");
+                }
+
+                foreach (var flagName in new[] { "gateUntilPrerequisites", "sequentialReveal" })
+                {
+                    if (!settingsElement.TryGetProperty(flagName, out var flagElement) || flagElement.ValueKind == JsonValueKind.Null) continue;
+                    if (flagElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+                        return ("COURSE_MAP_EDGE_ACCESS_FLAG_INVALID", $"Настройка {flagName} должна быть логическим значением.");
+                }
+
+                foreach (var effectName in new[] { "hiddenEffect", "sequentialEffect" })
+                {
+                    if (!settingsElement.TryGetProperty(effectName, out var effectElement) || effectElement.ValueKind == JsonValueKind.Null) continue;
+                    if (effectElement.ValueKind != JsonValueKind.String)
+                        return ("COURSE_MAP_EDGE_EFFECT_INVALID", $"Настройка {effectName} должна быть строкой.");
+                    var effect = effectElement.GetString()?.Trim().ToLowerInvariant();
+                    if (effect is not "inherit" and not "start" and not "stop")
+                        return ("COURSE_MAP_EDGE_EFFECT_INVALID", $"Неизвестное значение {effectName}: {effect ?? "(empty)"}.");
+                }
+            }
+
             if (!logicalEdges.Add($"{source}\u001f{target}"))
                 return ("COURSE_MAP_EDGE_DUPLICATE", "Между двумя узлами уже существует такая связь.");
             adjacency[source].Add(target);

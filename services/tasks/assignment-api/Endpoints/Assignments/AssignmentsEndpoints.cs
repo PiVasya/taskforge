@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Access;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -27,58 +28,97 @@ internal static partial class AssignmentApiEndpoints
         app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var includeHidden = IsEditor(http, cfg);
-            if (!includeHidden && !await CanUserAccessCourseAsync(courseId, http, cfg, clients, ct))
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!includeHidden)
             {
-                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+                if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+                var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
+                if (evaluation == null)
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+
+                var visibleIds = evaluation.VisibleAssignmentIds;
+                var rows = await db.Assignments.AsNoTracking()
+                    .Where(x => x.CourseId == courseId && visibleIds.Contains(x.Id))
+                    .OrderBy(x => x.Sort)
+                    .ThenBy(x => x.CreatedAt)
+                    .ToListAsync(ct);
+                return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
             }
 
-            var query = db.Assignments.AsNoTracking().Where(x => x.CourseId == courseId);
-            if (!includeHidden) query = query.Where(x => x.IsVisible);
-            var rows = await query.OrderBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync(ct);
-
-            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
-            var solvedIds = userId.HasValue
-                ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
+            var editorRows = await db.Assignments.AsNoTracking()
+                .Where(x => x.CourseId == courseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+            var editorSolvedIds = userId.HasValue
+                ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
+            return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
+        });
 
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
+
+        app.MapGet("/api/courses/{courseId:guid}/learning-map", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
+            var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
+            if (evaluation == null)
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                rootCourseId = evaluation.RootCourseId,
+                requestedCourseId = evaluation.RequestedCourseId,
+                version = evaluation.Version,
+                document = evaluation.LearningDocument,
+                updatedAt = evaluation.UpdatedAt,
+                updatedBy = evaluation.UpdatedBy
+            });
         });
 
 
         app.MapGet("/api/courses/{courseId:guid}/assignments/tree", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            var includeHidden = IsEditor(http, cfg);
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!includeHidden)
+            {
+                if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+                var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
+                if (evaluation == null)
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+
+                var visibleIds = evaluation.VisibleAssignmentIds;
+                var rows = await db.Assignments.AsNoTracking()
+                    .Where(x => evaluation.RequestedSubtreeCourseIds.Contains(x.CourseId) && visibleIds.Contains(x.Id))
+                    .OrderBy(x => x.CourseId)
+                    .ThenBy(x => x.Sort)
+                    .ThenBy(x => x.CreatedAt)
+                    .ToListAsync(ct);
+                return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
+            }
+
             var tree = await GetInternalAsync<CourseTreeResponse>(
                 clients,
                 cfg,
                 ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
                 $"/api/internal/courses/{courseId:D}/tree",
                 ct);
-
             if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != courseId))
-            {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Не удалось получить дерево курса.", code = "COURSE_TREE_UNAVAILABLE" }, statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
 
             var requestedIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
-            var includeHidden = IsEditor(http, cfg);
-            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
-            var allowedIds = requestedIds;
-            if (!includeHidden)
-            {
-                if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
-                var allowed = await LoadAccessibleCourseIdsAsync(requestedIds, userId.Value, clients, cfg, ct);
-                if (!allowed.Contains(courseId)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
-                allowedIds = requestedIds.Where(allowed.Contains).ToArray();
-            }
-
-            var query = db.Assignments.AsNoTracking().Where(x => allowedIds.Contains(x.CourseId));
-            if (!includeHidden) query = query.Where(x => x.IsVisible);
-            var rows = await query.OrderBy(x => x.CourseId).ThenBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync(ct);
-            var solvedIds = userId.HasValue
-                ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
+            var editorRows = await db.Assignments.AsNoTracking()
+                .Where(x => requestedIds.Contains(x.CourseId))
+                .OrderBy(x => x.CourseId)
+                .ThenBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+            var editorSolvedIds = userId.HasValue
+                ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
-
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
         });
 
 
@@ -98,6 +138,9 @@ internal static partial class AssignmentApiEndpoints
             var includeHidden = IsEditor(http, cfg);
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             var allowedIds = requestedIds;
+            var accessByCourseId = new Dictionary<Guid, CourseAccessDto>();
+            var progressionByRootId = new Dictionary<Guid, CourseMapProgressionService.Evaluation?>();
+
             if (!includeHidden)
             {
                 if (!userId.HasValue)
@@ -105,8 +148,39 @@ internal static partial class AssignmentApiEndpoints
                     return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseAssignmentProgressDto>());
                 }
 
-                var allowed = await LoadAccessibleCourseIdsAsync(requestedIds, userId.Value, clients, cfg, ct);
-                allowedIds = requestedIds.Where(allowed.Contains).ToArray();
+                var accessRows = await LoadCourseAccessRowsAsync(requestedIds, userId.Value, clients, cfg, ct);
+                accessByCourseId = accessRows
+                    .Where(x => x.CanView)
+                    .GroupBy(x => x.CourseId)
+                    .ToDictionary(x => x.Key, x => x.First());
+
+                // Progress counters must obey the same graph gates as the map itself.
+                // Otherwise a fully hidden branch could still leak its number of tasks
+                // through the X/Y badge on the course card. Evaluate once per distinct
+                // root map, not once per requested child course.
+                var gatedRootIds = accessByCourseId.Values
+                    .Where(x => x.HasProgressionRules && x.RootCourseId != Guid.Empty)
+                    .Select(x => x.RootCourseId)
+                    .Distinct()
+                    .ToArray();
+
+                foreach (var rootCourseId in gatedRootIds)
+                {
+                    progressionByRootId[rootCourseId] = await CourseMapProgressionService.LoadEvaluationAsync(
+                        rootCourseId,
+                        userId.Value,
+                        db,
+                        clients,
+                        cfg,
+                        ct);
+                }
+
+                allowedIds = requestedIds
+                    .Where(id => accessByCourseId.TryGetValue(id, out var courseAccess)
+                        && (!courseAccess.HasProgressionRules
+                            || (progressionByRootId.TryGetValue(courseAccess.RootCourseId, out var evaluation)
+                                && evaluation?.VisibleCourseIds.Contains(id) == true)))
+                    .ToArray();
             }
 
             if (allowedIds.Length == 0)
@@ -120,6 +194,17 @@ internal static partial class AssignmentApiEndpoints
             var rows = await query
                 .Select(x => new { x.Id, x.CourseId })
                 .ToListAsync(ct);
+
+            if (!includeHidden)
+            {
+                rows = rows.Where(row =>
+                {
+                    if (!accessByCourseId.TryGetValue(row.CourseId, out var courseAccess) || !courseAccess.HasProgressionRules)
+                        return true;
+                    return progressionByRootId.TryGetValue(courseAccess.RootCourseId, out var evaluation)
+                        && evaluation?.VisibleAssignmentIds.Contains(row.Id) == true;
+                }).ToList();
+            }
 
             var solvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
@@ -142,6 +227,7 @@ internal static partial class AssignmentApiEndpoints
                     ? progress
                     : new CourseAssignmentProgressDto(id, 0, 0, 0, false)).ToList());
         });
+
 
         app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
@@ -331,7 +417,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
 
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             var solved = userId.HasValue
@@ -346,7 +432,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             return Microsoft.AspNetCore.Http.Results.Ok(ToSolveStatementDto(assignment, includeSensitive));
         });
 
@@ -355,7 +441,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             return Microsoft.AspNetCore.Http.Results.Ok(ToSolveTestsDto(assignment, includeSensitive));
         });
 
@@ -364,7 +450,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive));
         });
 

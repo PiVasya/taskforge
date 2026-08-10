@@ -32,7 +32,7 @@ public sealed record ChangeEmailRequest(string? NewEmail, string? Password);
 
 public sealed record RevealEmailRequest(string? Password);
 
-public sealed record AdminUserUpdateRequest(string? Login, string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role, string? AccountType);
+public sealed record AdminUserUpdateRequest(string? Login, string? Email, string? FirstName, string? LastName, string? PhoneNumber, string? ProfilePictureUrl, string? Role, string? AccountType, string? Bio);
 
 public sealed record RoleAssignRequest(string? Code);
 

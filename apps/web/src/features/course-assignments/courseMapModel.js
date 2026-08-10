@@ -1,7 +1,7 @@
 import { isAssignmentSolved } from './courseAssignmentsModel';
 
 export const COURSE_MAP_SCHEMA_VERSION = 1;
-export const COURSE_MAP_NODE_TYPES = Object.freeze(['course', 'code-test', 'test', 'image-code', 'math']);
+export const COURSE_MAP_NODE_TYPES = Object.freeze(['course', 'code-test', 'test', 'image-code', 'math', 'locked']);
 
 export function assignmentNodeType(type) {
   const normalized = String(type || '').trim().toLowerCase();
@@ -87,6 +87,7 @@ function makeEdge(source, target, index) {
     sourceHandle: 'out',
     target,
     targetHandle: 'in',
+    settings: { hiddenEffect: 'inherit', sequentialEffect: 'inherit' },
   };
 }
 
@@ -234,17 +235,19 @@ export function normalizeStoredMap(document, courses, assignments) {
   const nodes = [];
   const validIds = new Set();
   for (const raw of Array.isArray(document.nodes) ? document.nodes : []) {
+    if (!raw?.id || validIds.has(String(raw.id))) continue;
+    const isLocked = raw?.type === 'locked';
     const entityId = String(raw?.entityId || '');
     const isCourse = raw?.type === 'course';
-    const entity = isCourse ? courseById.get(entityId) : assignmentById.get(entityId);
-    if (!raw?.id || !entity || validIds.has(String(raw.id))) continue;
-    const type = isCourse ? 'course' : assignmentNodeType(entity.type);
+    const entity = isLocked ? null : (isCourse ? courseById.get(entityId) : assignmentById.get(entityId));
+    if (!isLocked && !entity) continue;
+    const type = isLocked ? 'locked' : (isCourse ? 'course' : assignmentNodeType(entity.type));
     const x = Number(raw?.position?.x);
     const y = Number(raw?.position?.y);
     nodes.push({
       id: String(raw.id),
       type,
-      entityId,
+      ...(isLocked ? {} : { entityId }),
       position: {
         x: Number.isFinite(x) ? x : 0,
         y: Number.isFinite(y) ? y : 0,
@@ -261,6 +264,7 @@ export function normalizeStoredMap(document, courses, assignments) {
       target: String(edge.target),
       sourceHandle: edge.sourceHandle || 'out',
       targetHandle: edge.targetHandle || 'in',
+      ...(edge?.settings && typeof edge.settings === 'object' ? { settings: edge.settings } : {}),
     }));
   return {
     schemaVersion: COURSE_MAP_SCHEMA_VERSION,
@@ -297,7 +301,7 @@ export function serializeCourseMap(nodes, edges, viewport) {
     nodes: (nodes || []).map((node) => ({
       id: String(node.id),
       type: String(node.type),
-      entityId: String(node.entityId || node.data?.entityId || ''),
+      ...(node.type === 'locked' ? {} : { entityId: String(node.entityId || node.data?.entityId || '') }),
       position: {
         x: Number(node.position?.x) || 0,
         y: Number(node.position?.y) || 0,
@@ -310,6 +314,7 @@ export function serializeCourseMap(nodes, edges, viewport) {
       sourceHandle: edge.sourceHandle || 'out',
       target: String(edge.target),
       targetHandle: edge.targetHandle || 'in',
+      ...(edge?.settings && typeof edge.settings === 'object' ? { settings: edge.settings } : {}),
     })),
   };
 }

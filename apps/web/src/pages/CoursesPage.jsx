@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Card, Button, Input } from "../components/ui";
+import { Badge, Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
 import { getCourseProgressByCourses } from "../api/assignments";
 import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { EyeOff, Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
@@ -98,6 +98,7 @@ function CourseCard({
   const progressText = progress?.loading ? "—/—" : `${progress?.solved ?? 0}/${progress?.total ?? 0}`;
   const unavailable = course.canAccess === false || course.isAccessible === false || course.isAvailable === false;
   const foreignInEditor = editorTools && course.canEdit === false;
+  const hiddenFromStudents = editorTools && Boolean(course.isHiddenFromStudents);
   const canDrag = editorTools && course.canEdit !== false;
   const cardClass =
     "transition hover:shadow-lg cursor-pointer p-5 min-h-[190px] " +
@@ -106,6 +107,7 @@ function CourseCard({
       : foreignInEditor || unavailable
         ? "border-neutral-300/60 bg-neutral-500/5 opacity-70 grayscale-[0.25] "
         : "border-[rgba(var(--accent)/0.25)] ") +
+    (hiddenFromStudents ? "ring-2 ring-[rgba(var(--accent)/0.55)] ring-offset-2 ring-offset-[rgb(var(--bg))] border-dashed " : "") +
     (isDragged ? "opacity-60 scale-[0.99] " : "") +
     (isDropTarget && dropMode !== "inside" ? "dnd-insert-target " : "") +
     (isDropTarget && dropMode === "inside" ? "dnd-nest-target " : "") +
@@ -135,7 +137,11 @@ function CourseCard({
       >
         <div className="flex h-full flex-col justify-between gap-4">
           <div className="min-w-0">
-            <div className="min-w-0 text-lg font-semibold leading-7 truncate">{course.title}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="min-w-0 flex-1 text-lg font-semibold leading-7 truncate">{course.title}</div>
+              {hiddenFromStudents ? <Badge intent="outline"><EyeOff size={13} className="mr-1 inline" />Скрыт от учеников</Badge> : null}
+            </div>
+            {hiddenFromStudents ? <div className="mt-2 text-xs font-medium text-[rgb(var(--accent))]">Ученики не получают этот курс и его поддерево даже по прямой ссылке.</div> : null}
 
             {course.description ? (
               <p className="text-sm text-neutral-500 mt-2 line-clamp-3">{course.description}</p>

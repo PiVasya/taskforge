@@ -1043,3 +1043,147 @@ html.neo-brutal .course-map-controls .react-flow__controls-button {
 html.neo-brutal .course-map-controls .react-flow__controls-button:last-child {
   border-bottom: 0;
 }
+
+/* Access/progression states -------------------------------------------------- */
+.course-map-node--locked {
+  min-width: 270px;
+  max-width: 360px;
+  min-height: 128px;
+  border: 2px dashed rgba(var(--fg) / .34);
+  border-top: 3px solid rgba(var(--fg) / .44);
+  background:
+    repeating-linear-gradient(135deg, rgba(var(--fg) / .025) 0 10px, transparent 10px 20px),
+    rgba(var(--card) / .94);
+  box-shadow: 0 10px 26px rgba(18, 20, 28, .08);
+}
+
+.course-map-node--locked:hover {
+  transform: none;
+  border-color: rgba(var(--fg) / .48);
+  box-shadow: 0 12px 30px rgba(18, 20, 28, .1);
+}
+
+.course-map-node--locked .course-map-node-icon {
+  border-color: rgba(var(--fg) / .22);
+  background: rgba(var(--fg) / .07);
+  color: rgba(var(--fg) / .72);
+}
+
+.course-map-locked-requirement {
+  margin-top: 9px;
+  color: rgba(var(--fg) / .7);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.course-map-locked-hint {
+  margin-top: 8px;
+  color: rgba(var(--fg) / .44);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.course-map-node--course.is-hidden-from-students {
+  outline: 3px dashed rgba(var(--accent) / .56);
+  outline-offset: 4px;
+  border-width: 2px;
+  border-top-width: 5px;
+  box-shadow:
+    0 18px 40px rgba(18, 20, 28, .16),
+    0 0 0 6px rgba(var(--accent) / .08);
+}
+
+.course-map-hidden-course-warning {
+  display: inline-flex;
+  margin-top: 9px;
+  border: 1px solid rgba(var(--accent) / .42);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(var(--accent) / .1);
+  color: rgb(var(--accent));
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.course-map-hover-hidden-note {
+  margin-bottom: 8px;
+  border: 1px dashed rgba(var(--accent) / .38);
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: rgba(var(--accent) / .07);
+  color: rgba(var(--fg) / .72);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-start .react-flow__edge-path {
+  stroke: rgb(var(--accent));
+  stroke-width: 3.1;
+  stroke-dasharray: 14 6;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-stop .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .76);
+  stroke-width: 3;
+  stroke-dasharray: 2 4 11 4;
+}
+
+.react-flow__edge.course-map-edge.is-sequential-start .react-flow__edge-path {
+  stroke: rgb(var(--accent));
+  stroke-width: 2.6;
+  stroke-dasharray: 3 5;
+}
+
+.react-flow__edge.course-map-edge.is-sequential-stop .react-flow__edge-path {
+  stroke: rgba(var(--accent) / .72);
+  stroke-width: 2.6;
+  stroke-dasharray: 9 4 2 4;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-start.is-sequential-start .react-flow__edge-path {
+  stroke-width: 3.4;
+  stroke-dasharray: 14 5 3 5;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-stop.is-sequential-stop .react-flow__edge-path {
+  stroke-width: 3.2;
+  stroke-dasharray: 2 3 10 3 2 6;
+}
+
+.react-flow__edge.course-map-edge .react-flow__edge-text {
+  letter-spacing: .035em;
+  pointer-events: none;
+}
+
+.react-flow__edge.course-map-edge.is-locked .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .34);
+  stroke-width: 2;
+  stroke-dasharray: 5 6;
+}
+
+html.neo-brutal .course-map-node--locked {
+  border: 2px dashed rgb(var(--neo-ink));
+  border-top: 2px dashed rgb(var(--neo-ink));
+  border-radius: .8rem;
+  background: rgb(var(--neo-paper-alt));
+  box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-node--course.is-hidden-from-students {
+  outline: 3px dashed rgb(var(--neo-ink));
+  outline-offset: 5px;
+  box-shadow: 8px 8px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-hidden-course-warning,
+html.neo-brutal .course-map-hover-hidden-note {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: .45rem;
+  background: rgb(var(--brand-300));
+  color: rgb(20 20 22);
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Access;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -52,7 +53,10 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
 
             var courseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId, clients, cfg, ct);
-            var canView = assignment.IsVisible && courseAccess?.CanView == true;
+            var evaluation = assignment.IsVisible && courseAccess?.CanView == true
+                ? await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId, db, clients, cfg, ct)
+                : null;
+            var canView = assignment.IsVisible && evaluation?.VisibleAssignmentIds.Contains(assignment.Id) == true;
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignmentId,

@@ -25,7 +25,7 @@ internal static partial class AssignmentApiEndpoints
 
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            if (!await AssignmentApiAccessService.CanUserAccessAssignmentAsync(assignment, http, cfg, clients, ct))
+            if (!await AssignmentApiAccessService.CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct))
             {
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             }

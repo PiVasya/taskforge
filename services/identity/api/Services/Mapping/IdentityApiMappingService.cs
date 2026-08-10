@@ -35,6 +35,7 @@ internal static class IdentityApiMappingService
         user.LastName,
         user.PhoneNumber,
         user.ProfilePictureUrl,
+        bio = ReadPublicProfileExtra(user.AdditionalDataJson).Bio,
         fullName = DisplayName(user),
         displayName = DisplayName(user),
         user.Role,

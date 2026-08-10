@@ -72,27 +72,32 @@ internal static class AssignmentApiResultsService
 
     internal static async Task<HashSet<Guid>> LoadSolvedAssignmentIdsAsync(Guid userId, IEnumerable<Guid> assignmentIds, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
-        var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+        var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         var solved = new HashSet<Guid>();
         if (ids.Length == 0) return solved;
 
-        var taskSolved = await db.Attempts.AsNoTracking()
-            .Where(x => x.UserId == userId && ids.Contains(x.TaskAssignmentId) && x.Passed)
-            .Select(x => x.TaskAssignmentId)
-            .Distinct()
-            .ToListAsync(ct);
-        foreach (var id in taskSolved) solved.Add(id);
-
-        var response = await PostInternalAsync<SolvedAssignmentsResponse>(
-            clients,
-            cfg,
-            ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
-            $"/api/internal/users/{userId:D}/solved-assignments",
-            new SolvedAssignmentsRequest(ids),
-            ct);
-
-        if (response?.SolvedAssignmentIds != null)
+        // Internal solution lookups intentionally cap one request at 2000 ids. A
+        // course map may contain up to 5000 nodes, so truncating here would make
+        // progression after the 2000th assignment permanently appear unsolved.
+        // Batch instead of imposing a hidden functional limit on large branches.
+        foreach (var batch in ids.Chunk(2000))
         {
+            var taskSolved = await db.Attempts.AsNoTracking()
+                .Where(x => x.UserId == userId && batch.Contains(x.TaskAssignmentId) && x.Passed)
+                .Select(x => x.TaskAssignmentId)
+                .Distinct()
+                .ToListAsync(ct);
+            foreach (var id in taskSolved) solved.Add(id);
+
+            var response = await PostInternalAsync<SolvedAssignmentsResponse>(
+                clients,
+                cfg,
+                ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
+                $"/api/internal/users/{userId:D}/solved-assignments",
+                new SolvedAssignmentsRequest(batch),
+                ct);
+
+            if (response?.SolvedAssignmentIds == null) continue;
             foreach (var id in response.SolvedAssignmentIds)
             {
                 if (id != Guid.Empty) solved.Add(id);

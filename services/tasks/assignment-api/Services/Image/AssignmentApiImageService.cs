@@ -24,7 +24,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
@@ -52,7 +52,7 @@ internal static partial class AssignmentApiImageService
     internal static async Task<IResult> CompareImageCode(Guid assignmentId, ImageCodeRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, bool submit, HttpContext? context = null)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
-        if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, clients, CancellationToken.None))) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, db, clients, CancellationToken.None))) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var currentUserId = context is not null ? RequireUser(context, cfg) : null;
         if (context is not null && currentUserId == null) return Unauthorized();
 

@@ -9,13 +9,13 @@ namespace TaskForge.Education.Api.Contracts;
 
 public sealed record EducationAccessContext(Guid? UserId, bool IsEditorOrAdmin, HashSet<Guid> GroupIds);
 
-public sealed record CourseDto(Guid Id, string Title, string? Description, bool IsPublic, Guid[] VisibleGroupIds, Guid[] OwnerIds, bool CanEdit, bool IsCompletedForCurrentUser, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? ParentCourseId, int Sort);
+public sealed record CourseDto(Guid Id, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, Guid[] VisibleGroupIds, Guid[] OwnerIds, bool CanEdit, bool IsCompletedForCurrentUser, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? ParentCourseId, int Sort);
 
 public sealed record CourseMetadataDto(Guid Id, Guid CourseId, string Title, string CourseTitle, string? Description, bool IsPublic);
 
-public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules);
 
-public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string Title, string? Description, bool IsPublic, int Sort);
+public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, int Sort);
 
 public sealed record CourseTreeResponse(Guid CourseId, Guid[] CourseIds, List<CourseTreeCourseDto> Courses);
 

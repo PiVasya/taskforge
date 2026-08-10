@@ -126,6 +126,12 @@ internal static partial class IdentityApiEndpoints
             if (request.LastName != null) user.LastName = request.LastName.Trim();
             if (request.PhoneNumber != null) user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
             if (request.ProfilePictureUrl != null) user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl) ? null : request.ProfilePictureUrl.Trim();
+            if (request.Bio != null)
+            {
+                if (request.Bio.Length > 4000)
+                    return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Описание профиля не может быть длиннее 4000 символов.", code = "BIO_TOO_LONG" });
+                user.AdditionalDataJson = UpdatePublicProfileBio(user.AdditionalDataJson, request.Bio);
+            }
             if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
             if (request.AccountType != null)
             {
