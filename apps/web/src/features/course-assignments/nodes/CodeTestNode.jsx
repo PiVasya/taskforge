@@ -1,6 +1,6 @@
 import React from 'react';
 import { Code2 } from 'lucide-react';
-import { AssignmentFooter, CourseMapHandles, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function CodeTestNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -17,6 +17,7 @@ export default function CodeTestNode({ data, selected }) {
       aria-label={`Code test: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />
+      <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Code2} kicker="Code test" />
       <div className="course-map-node-title">{assignment.title || 'Без названия'}</div>
       <AssignmentFooter assignment={assignment} fallback="код" />

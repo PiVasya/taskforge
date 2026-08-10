@@ -26,6 +26,25 @@ export function CourseMapHandles() {
   );
 }
 
+
+export function NodeAccessBadges({ effects, editorMode }) {
+  if (!editorMode || !effects || (!effects.hidden && !effects.sequential)) return null;
+  return (
+    <div className="course-map-node-access-badges" aria-hidden="true">
+      {effects.hidden ? (
+        <span className={`course-map-node-access-badge is-hidden${effects.hiddenMixed ? ' is-mixed' : ''}`}>
+          {effects.hiddenMixed ? 'скрытие · частично' : 'скрытие'}
+        </span>
+      ) : null}
+      {effects.sequential ? (
+        <span className={`course-map-node-access-badge is-sequential${effects.sequentialMixed ? ' is-mixed' : ''}`}>
+          {effects.sequentialMixed ? 'по одному · частично' : 'по одному'}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function NodeTopline({ icon: Icon, kicker, badge }) {
   return (
     <div className="course-map-node-topline">

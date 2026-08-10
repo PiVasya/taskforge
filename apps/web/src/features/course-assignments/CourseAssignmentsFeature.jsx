@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Card, Button, Input, Textarea, Badge } from "../../components/ui";
 
@@ -51,7 +51,7 @@ import CourseContentGrid from './components/CourseContentGrid';
 import CourseFlowEditor from './components/CourseFlowEditor';
 import CourseLayoutToggle from './components/CourseLayoutToggle';
 import { resolveRootCourseId } from './courseMapModel';
-
+import { navigateToCourseEditor } from './courseMapNavigation';
 const EMPTY_LIST = Object.freeze([]);
 const EMPTY_COURSE_BUNDLE = Object.freeze({
   course: null,
@@ -63,6 +63,7 @@ const EMPTY_COURSE_BUNDLE = Object.freeze({
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const notify = useNotify();
   const queryClient = useQueryClient();
@@ -696,7 +697,7 @@ export default function CourseAssignmentsPage() {
       setCreateDialogOpen(false);
       setCreateMode("choice");
       notify.success("Вложенный курс создан");
-      if (id) nav(`/courses/${id}/edit`);
+      if (id) navigateToCourseEditor(nav, location, courseId, id);
     } catch (e) {
       handleApiError(e, notify, "Не удалось создать вложенный курс");
     } finally {
@@ -1364,7 +1365,8 @@ export default function CourseAssignmentsPage() {
                 onClick={() => {
                   const entry = contextMenu.entry;
                   closeContextMenu();
-                  nav(entry.kind === 'course' ? `/courses/${entry.id}/edit` : `/assignment/${entry.id}/edit`);
+                  if (entry.kind === 'course') navigateToCourseEditor(nav, location, courseId, entry.id);
+                  else nav(`/assignment/${entry.id}/edit`);
                 }}
               >
                 Редактировать

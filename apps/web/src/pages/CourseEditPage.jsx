@@ -6,7 +6,7 @@ import { getCourse, updateCourse, deleteCourse } from '../api/courses';
 import { getGroups } from '../api/groups';
 import { searchUsersOnce } from '../api/admin';
 import { getAdminUsers } from '../api/adminUsers';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Save, Trash2, ArrowLeft, Layers, UserPlus, X } from 'lucide-react';
 
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -18,9 +18,10 @@ import { useQueryClient } from '../data/QueryClientProvider';
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
 
-export default function CourseEditPage() {
+export default function CourseEditPage({ overlay = false }) {
   const { courseId } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const notify = useNotify();
   const { isAdmin } = useEditorMode();
@@ -31,9 +32,15 @@ export default function CourseEditPage() {
     return value.startsWith('/') && !value.startsWith('//') ? value : '';
   }, [searchParams]);
 
+  const isRouteOverlay = Boolean(overlay || location.state?.courseMapOverlay);
+
   const returnFromEditor = React.useCallback(() => {
+    if (isRouteOverlay) {
+      nav(-1);
+      return;
+    }
     nav(returnTo || `/course/${courseId}`);
-  }, [nav, returnTo, courseId]);
+  }, [courseId, isRouteOverlay, nav, returnTo]);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,6 +59,19 @@ export default function CourseEditPage() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isRouteOverlay) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape' || busy) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest('[role="dialog"] [data-prevent-escape-close="true"]')) return;
+      event.preventDefault();
+      returnFromEditor();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [busy, isRouteOverlay, returnFromEditor]);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map((x) => String(x).toLowerCase())), [ownerIds]);
 
@@ -191,7 +211,7 @@ export default function CourseEditPage() {
     } catch (e) {
       if (e?.response?.status === 403) {
         notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
-        nav(returnTo || `/course/${courseId}`, { replace: true });
+        returnFromEditor();
         return;
       }
       handleApiError(e, notify, 'Не удалось сохранить');
@@ -220,7 +240,7 @@ export default function CourseEditPage() {
   };
 
   return (
-    <>
+    <div className={isRouteOverlay ? 'course-edit-overlay-content' : undefined}>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Layers size={20} />
@@ -427,6 +447,6 @@ export default function CourseEditPage() {
           </Card>
         </div>
       </div>
-    </>
+    </div>
   );
 }

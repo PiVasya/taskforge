@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderTree } from 'lucide-react';
-import { CourseMapHandles, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function CourseNode({ data, selected }) {
   const course = data?.entity || {};
@@ -18,6 +18,7 @@ export default function CourseNode({ data, selected }) {
       aria-label={`Курс ${course.title || 'Без названия'}. ${hiddenFromStudents ? 'Скрыт от учеников. ' : ''}Решено ${progress.solved || 0} из ${progress.total || 0}.`}
     >
       <CourseMapHandles />
+      <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={FolderTree} kicker="Курс · развилка" badge={hiddenFromStudents ? 'СКРЫТ' : null} />
       {hiddenFromStudents ? <div className="course-map-hidden-course-warning">{inheritedHidden ? 'Скрыт вместе с родительским курсом' : 'Не существует для учеников'}</div> : null}
       <div className="course-map-node-title">{course.title || 'Без названия'}</div>

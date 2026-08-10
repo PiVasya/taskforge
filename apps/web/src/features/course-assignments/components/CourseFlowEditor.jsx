@@ -15,7 +15,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import '../course-map.css';
 import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
 import { Button } from '../../../components/ui';
@@ -32,6 +32,7 @@ import {
   assignmentNodeType,
   buildDefaultCourseMap,
   buildEntityIndex,
+  computeCourseMapAccessEffects,
   computeCourseProgress,
   courseNodeId,
   findUnplacedEntities,
@@ -40,12 +41,14 @@ import {
   wouldCreateCycle,
 } from '../courseMapModel';
 import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
+import { navigateToCourseEditor } from '../courseMapNavigation';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
 import TestNode from '../nodes/TestNode';
 import ImageCodeNode from '../nodes/ImageCodeNode';
 import MathNode from '../nodes/MathNode';
 import LockedNode from '../nodes/LockedNode';
+import CourseMapEdge from './CourseMapEdge';
 
 const NODE_TYPES = {
   course: CourseNode,
@@ -54,6 +57,10 @@ const NODE_TYPES = {
   'image-code': ImageCodeNode,
   math: MathNode,
   locked: LockedNode,
+};
+
+const EDGE_TYPES = {
+  courseMap: CourseMapEdge,
 };
 
 function userDisplayName(user) {
@@ -113,13 +120,15 @@ function edgeAccessSettings(edge) {
   };
 }
 
-function edgeEffectLabel(accessSettings) {
-  const parts = [];
-  if (accessSettings.hiddenEffect === 'start') parts.push('СКРЫТЬ');
-  if (accessSettings.hiddenEffect === 'stop') parts.push('КОНЕЦ СКРЫТИЯ');
-  if (accessSettings.sequentialEffect === 'start') parts.push('ПО 1');
-  if (accessSettings.sequentialEffect === 'stop') parts.push('КОНЕЦ ПО 1');
-  return parts.join(' · ');
+function edgeEffectBadges(accessSettings) {
+  const badges = [];
+  if (accessSettings.hiddenEffect === 'start' || accessSettings.hiddenEffect === 'stop') {
+    badges.push({ kind: 'hidden', transition: accessSettings.hiddenEffect });
+  }
+  if (accessSettings.sequentialEffect === 'start' || accessSettings.sequentialEffect === 'stop') {
+    badges.push({ kind: 'sequential', transition: accessSettings.sequentialEffect });
+  }
+  return badges;
 }
 
 function edgeStyle(editorMode, edge = null) {
@@ -132,25 +141,36 @@ function edgeStyle(editorMode, edge = null) {
   if (accessSettings.sequentialEffect === 'start') classes.push('is-sequential-start');
   if (accessSettings.sequentialEffect === 'stop') classes.push('is-sequential-stop');
   if (synthetic) classes.push('is-locked');
-  const label = editorMode && !synthetic ? edgeEffectLabel(accessSettings) : '';
+  const effectBadges = editorMode && !synthetic ? edgeEffectBadges(accessSettings) : [];
   return {
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
     className: classes.join(' '),
-    type: 'smoothstep',
+    type: 'courseMap',
     interactionWidth: editorMode ? 28 : 18,
-    ...(label ? {
-      label,
-      labelShowBg: true,
-      labelBgPadding: [5, 3],
-      labelBgBorderRadius: 5,
-      labelStyle: { fontSize: 9, fontWeight: 850, fill: 'rgb(var(--fg))' },
-      labelBgStyle: { fill: 'rgb(var(--bg))', fillOpacity: 0.94 },
-    } : {}),
+    // Explicitly clear legacy/default ReactFlow labels. Without this, spreading a
+    // previously decorated edge could leave the old text visible after an effect
+    // is reset to inherit. The custom edge renders compact HTML badges instead.
+    label: undefined,
+    labelShowBg: false,
+    labelStyle: undefined,
+    labelBgStyle: undefined,
+    data: { ...(edge?.data || {}), effectBadges },
   };
+}
+
+function nodeAccessClassName(searchMatch, accessEffects, editorMode) {
+  const classes = [];
+  if (!searchMatch) classes.push('course-map-search-dimmed');
+  if (editorMode && accessEffects?.hidden) classes.push('course-map-access-hidden');
+  if (editorMode && accessEffects?.sequential) classes.push('course-map-access-sequential');
+  if (editorMode && accessEffects?.hiddenMixed) classes.push('course-map-access-hidden-mixed');
+  if (editorMode && accessEffects?.sequentialMixed) classes.push('course-map-access-sequential-mixed');
+  return classes.join(' ');
 }
 
 function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false }) {
   const nav = useNavigate();
+  const location = useLocation();
   const notify = useNotify();
   const { access, user } = useAuth();
   const flow = useReactFlow();
@@ -265,9 +285,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const editCourse = React.useCallback((courseId) => {
     rememberBeforeNavigate();
-    const returnTo = `/course/${rootId}`;
-    nav(`/courses/${courseId}/edit?returnTo=${encodeURIComponent(returnTo)}`);
-  }, [nav, rememberBeforeNavigate, rootId]);
+    navigateToCourseEditor(nav, location, rootId, courseId);
+  }, [location, nav, rememberBeforeNavigate, rootId]);
 
   const focusNode = React.useCallback((nodeId) => {
     const node = flow.getNode(nodeId);
@@ -303,6 +322,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const decorateNodes = React.useCallback((rawNodes) => {
     const q = String(query || '').trim().toLowerCase();
     const progressByCourse = computeCourseProgress(rawNodes, edgesRef.current, assignments, rootId);
+    const accessByNode = computeCourseMapAccessEffects(rawNodes, edgesRef.current);
     return rawNodes.map((node) => {
       if (node.type === 'locked') {
         const settings = node.settings || node.data?.settings || {};
@@ -325,10 +345,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const searchText = `${entity?.title || ''} ${previewAssignmentDescription(entity?.description || '')} ${entity?.tags || ''}`.toLowerCase();
       const searchMatch = !q || searchText.includes(q);
       const visualType = isCourse ? 'course' : assignmentNodeType(entity?.type || node.type);
+      const accessEffects = accessByNode.get(String(node.id)) || null;
       return {
         ...node,
         type: visualType,
-        className: searchMatch ? '' : 'course-map-search-dimmed',
+        className: nodeAccessClassName(searchMatch, accessEffects, editorMode),
         data: {
           entityId: node.entityId,
           entity,
@@ -336,6 +357,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           settings: node.settings,
           editorMode,
           searchMatch,
+          accessEffects,
           onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
           onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
           onEdit: isCourse ? () => editCourse(node.entityId) : () => editAssignment(node.entityId),
@@ -390,6 +412,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
       const idx = buildEntityIndex(nextCourses, nextAssignments);
       const progress = computeCourseProgress(document.nodes || [], document.edges || [], nextAssignments, rootId);
+      const accessByNode = computeCourseMapAccessEffects(document.nodes || [], document.edges || []);
       const nextNodes = (document.nodes || []).map((node) => {
         if (node.type === 'locked') {
           return {
@@ -401,16 +424,18 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }
         const isCourse = node.type === 'course';
         const entity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
+        const accessEffects = accessByNode.get(String(node.id)) || null;
         return {
           ...node,
           type: isCourse ? 'course' : assignmentNodeType(entity?.type || node.type),
-          className: '',
+          className: nodeAccessClassName(true, accessEffects, editorMode),
           data: {
             entityId: node.entityId,
             entity,
             progress: isCourse ? (progress.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null,
             settings: node.settings,
             editorMode,
+            accessEffects,
             onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
             onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
             onEdit: isCourse ? () => editCourse(node.entityId) : () => editAssignment(node.entityId),
@@ -874,6 +899,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   React.useEffect(() => {
     if (!editorMode) return undefined;
     const onKeyDown = (event) => {
+      // The route-backed course editor intentionally keeps this map mounted in
+      // the background. Do not let global map shortcuts mutate a hidden graph.
+      if (document.querySelector('.course-map-route-overlay')) return;
       if (isEditableShortcutTarget(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = String(event.key || '').toLowerCase();
@@ -1044,6 +1072,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           nodes={nodes}
           edges={edges}
           nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}

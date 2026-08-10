@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sigma } from 'lucide-react';
-import { AssignmentFooter, CourseMapHandles, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function MathNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -17,6 +17,7 @@ export default function MathNode({ data, selected }) {
       aria-label={`Математика: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />
+      <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Sigma} kicker="Математика" badge="β" />
       <div className="course-map-node-title">{assignment.title || 'Без названия'}</div>
       <AssignmentFooter assignment={assignment} fallback="в разработке" />

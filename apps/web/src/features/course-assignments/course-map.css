@@ -1187,3 +1187,268 @@ html.neo-brutal .course-map-hover-hidden-note {
   color: rgb(20 20 22);
   box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
 }
+
+/* Progression editor polish ------------------------------------------------- */
+.course-map-shell {
+  --course-map-edge-base: rgba(var(--fg) / .56);
+  --course-map-edge-hover: rgba(var(--fg) / .92);
+  --course-map-edge-special: rgb(var(--accent));
+}
+
+/* Links must stay readable on both ends of the theme spectrum. In dark mode
+   the foreground variable is light, in light mode it is dark. */
+html.dark .course-map-shell {
+  --course-map-edge-base: rgba(var(--fg) / .70);
+  --course-map-edge-hover: rgba(var(--fg) / .98);
+}
+
+html:not(.dark) .course-map-shell {
+  --course-map-edge-base: rgba(var(--fg) / .62);
+  --course-map-edge-hover: rgba(var(--fg) / .94);
+}
+
+.course-map-edge .react-flow__edge-path,
+.react-flow__edge.course-map-edge .react-flow__edge-path {
+  stroke: var(--course-map-edge-base);
+  stroke-width: 2.05;
+}
+
+.react-flow__edge.course-map-edge:hover .react-flow__edge-path,
+.react-flow__edge.course-map-edge.selected .react-flow__edge-path {
+  stroke: var(--course-map-edge-hover);
+  stroke-width: 2.9;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-start .react-flow__edge-path {
+  stroke: var(--course-map-edge-special);
+  stroke-width: 3.25;
+  stroke-dasharray: 13 6;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-stop .react-flow__edge-path {
+  stroke: var(--course-map-edge-hover);
+  stroke-width: 3.05;
+  stroke-dasharray: 2 4 10 4;
+}
+
+.react-flow__edge.course-map-edge.is-sequential-start .react-flow__edge-path {
+  stroke: color-mix(in srgb, rgb(var(--accent)) 62%, rgb(var(--fg)) 38%);
+  stroke-width: 2.8;
+  stroke-dasharray: 2 5;
+}
+
+.react-flow__edge.course-map-edge.is-sequential-stop .react-flow__edge-path {
+  stroke: color-mix(in srgb, rgb(var(--accent)) 38%, rgb(var(--fg)) 62%);
+  stroke-width: 2.8;
+  stroke-dasharray: 9 4 2 4;
+}
+
+.react-flow__edge.course-map-edge.is-hidden-start.is-sequential-start .react-flow__edge-path {
+  stroke-width: 3.5;
+  stroke-dasharray: 13 5 2 5;
+}
+
+.course-map-edge-badges {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.course-map-edge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 3px 7px 3px 6px;
+  border: 1px solid rgba(var(--border) / .88);
+  border-radius: 999px;
+  background: rgba(var(--card) / .94);
+  color: rgba(var(--fg) / .84);
+  box-shadow: 0 4px 12px rgba(10, 12, 18, .13);
+  backdrop-filter: blur(10px);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.course-map-edge-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .72;
+}
+
+.course-map-edge-badge b {
+  font-weight: 850;
+}
+
+.course-map-edge-badge i {
+  border-left: 1px solid rgba(var(--border) / .72);
+  padding-left: 5px;
+  color: rgba(var(--fg) / .56);
+  font-style: normal;
+  font-weight: 800;
+}
+
+.course-map-edge-badge.is-hidden {
+  border-color: rgba(var(--accent) / .42);
+  color: color-mix(in srgb, rgb(var(--accent)) 68%, rgb(var(--fg)) 32%);
+}
+
+.course-map-edge-badge.is-stop {
+  background: rgba(var(--bg) / .94);
+}
+
+.course-map-node-access-badges {
+  position: absolute;
+  z-index: 8;
+  top: -12px;
+  left: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: calc(100% - 30px);
+  pointer-events: none;
+}
+
+.course-map-node-access-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  border: 1px solid rgba(var(--border) / .9);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(var(--card) / .97);
+  box-shadow: 0 4px 12px rgba(10, 12, 18, .12);
+  color: rgba(var(--fg) / .78);
+  font-size: 8px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.course-map-node-access-badge.is-hidden {
+  border-color: rgba(var(--accent) / .46);
+  color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--fg)) 30%);
+}
+
+.course-map-node-access-badge.is-sequential {
+  border-style: dashed;
+  border-color: rgba(var(--fg) / .38);
+}
+
+.course-map-node-access-badge.is-mixed {
+  opacity: .72;
+}
+
+.react-flow__node.course-map-access-hidden .course-map-node {
+  outline: 2px dashed rgba(var(--accent) / .48);
+  outline-offset: 4px;
+}
+
+.react-flow__node.course-map-access-sequential .course-map-node {
+  box-shadow:
+    0 10px 28px rgba(18, 20, 28, .11),
+    inset 0 -3px 0 rgba(var(--fg) / .14);
+}
+
+.react-flow__node.course-map-access-hidden.course-map-access-sequential .course-map-node {
+  box-shadow:
+    0 10px 28px rgba(18, 20, 28, .11),
+    inset 0 -3px 0 color-mix(in srgb, rgb(var(--accent)) 48%, transparent);
+}
+
+.react-flow__node.course-map-access-hidden-mixed .course-map-node,
+.react-flow__node.course-map-access-sequential-mixed .course-map-node {
+  outline-style: dotted;
+}
+
+/* Route-backed course editor. The course map stays mounted underneath this
+   layer, so closing the editor reveals the same ReactFlow instance/viewport. */
+.course-map-route-overlay {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 18px;
+  background: rgba(var(--bg) / .54);
+  backdrop-filter: blur(5px) saturate(.85);
+}
+
+.course-map-route-overlay-panel {
+  width: min(1040px, calc(100vw - 36px));
+  height: calc(100dvh - 36px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(var(--border) / .86);
+  border-radius: 26px;
+  background: rgb(var(--bg));
+  box-shadow: 0 28px 90px rgba(8, 10, 16, .30);
+}
+
+.course-edit-overlay-content {
+  min-height: 100%;
+  padding: 24px;
+}
+
+@media (max-width: 760px) {
+  .course-map-route-overlay {
+    padding: 0;
+  }
+
+  .course-map-route-overlay-panel {
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .course-edit-overlay-content {
+    padding: 16px;
+  }
+
+  .course-map-edge-badges {
+    transform-origin: center;
+  }
+}
+
+/* Neo-brutal used to force every connection to --neo-ink. On the dark theme
+   that becomes nearly black on black, so progression links lost contrast. */
+html.neo-brutal.dark .course-map-edge .react-flow__edge-path,
+html.neo-brutal.dark .react-flow__edge.course-map-edge .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .74);
+}
+
+html.neo-brutal:not(.dark) .course-map-edge .react-flow__edge-path,
+html.neo-brutal:not(.dark) .react-flow__edge.course-map-edge .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .68);
+}
+
+html.neo-brutal .react-flow__edge.course-map-edge.is-hidden-start .react-flow__edge-path {
+  stroke: rgb(var(--brand-500));
+  stroke-width: 3.25;
+}
+
+html.neo-brutal.dark .react-flow__edge.course-map-edge.is-hidden-stop .react-flow__edge-path,
+html.neo-brutal.dark .react-flow__edge.course-map-edge.is-sequential-stop .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .88);
+}
+
+html.neo-brutal:not(.dark) .react-flow__edge.course-map-edge.is-hidden-stop .react-flow__edge-path,
+html.neo-brutal:not(.dark) .react-flow__edge.course-map-edge.is-sequential-stop .react-flow__edge-path {
+  stroke: rgba(var(--fg) / .80);
+}
+
+html.neo-brutal .react-flow__edge.course-map-edge.is-sequential-start .react-flow__edge-path {
+  stroke: color-mix(in srgb, rgb(var(--brand-500)) 68%, rgb(var(--fg)) 32%);
+}

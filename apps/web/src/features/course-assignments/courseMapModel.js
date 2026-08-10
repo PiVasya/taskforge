@@ -69,6 +69,104 @@ export function resolveRootCourseId(courseId, courses) {
   return String(courseId || '');
 }
 
+function normalizeMapEffect(value, legacyStart = false) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'start' || normalized === 'stop' || normalized === 'inherit') return normalized;
+  return legacyStart ? 'start' : 'inherit';
+}
+
+function mapEdgeEffects(edge) {
+  const settings = edge?.settings && typeof edge.settings === 'object' ? edge.settings : {};
+  const legacyMode = String(settings.accessMode || 'normal').trim().toLowerCase();
+  return {
+    hidden: normalizeMapEffect(
+      settings.hiddenEffect,
+      settings.gateUntilPrerequisites === true || legacyMode === 'after-prerequisites',
+    ),
+    sequential: normalizeMapEffect(
+      settings.sequentialEffect,
+      settings.sequentialReveal === true || legacyMode === 'sequential',
+    ),
+  };
+}
+
+function applyMapEffect(current, transition) {
+  if (transition === 'start') return true;
+  if (transition === 'stop') return false;
+  return current;
+}
+
+// Structural preview for the editor. This deliberately ignores the learner's solved
+// state and only answers: "which access modes can be active at this node?".  The
+// backend remains the source of truth for actual visibility.  Tracking four boolean
+// states per node also mirrors the bounded O(V + E) traversal used by the API.
+export function computeCourseMapAccessEffects(nodes, edges) {
+  const mapNodes = Array.isArray(nodes) ? nodes : [];
+  const mapEdges = Array.isArray(edges) ? edges : [];
+  const nodeIds = new Set(mapNodes.map((node) => String(node?.id || '')).filter(Boolean));
+  const incomingCount = new Map([...nodeIds].map((id) => [id, 0]));
+  const outgoing = new Map([...nodeIds].map((id) => [id, []]));
+
+  for (const edge of mapEdges) {
+    const source = String(edge?.source || '');
+    const target = String(edge?.target || '');
+    if (!nodeIds.has(source) || !nodeIds.has(target) || source === target) continue;
+    outgoing.get(source).push(edge);
+    incomingCount.set(target, (incomingCount.get(target) || 0) + 1);
+  }
+
+  const roots = [...nodeIds].filter((id) => (incomingCount.get(id) || 0) === 0);
+  if (!roots.length && mapNodes[0]?.id) roots.push(String(mapNodes[0].id));
+
+  const queue = roots.map((id) => ({ id, hidden: false, sequential: false }));
+  let queueIndex = 0;
+  const seen = new Set();
+  const rawStates = new Map();
+
+  while (queueIndex < queue.length) {
+    const state = queue[queueIndex++];
+    if (!state || !nodeIds.has(state.id)) continue;
+    const key = `${state.id}\u001f${state.hidden ? 1 : 0}\u001f${state.sequential ? 1 : 0}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (!rawStates.has(state.id)) rawStates.set(state.id, []);
+    rawStates.get(state.id).push({ hidden: state.hidden, sequential: state.sequential });
+
+    for (const edge of outgoing.get(state.id) || []) {
+      const effects = mapEdgeEffects(edge);
+      queue.push({
+        id: String(edge.target),
+        hidden: applyMapEffect(state.hidden, effects.hidden),
+        sequential: applyMapEffect(state.sequential, effects.sequential),
+      });
+    }
+  }
+
+  // Disconnected fragments without an incoming-free root are invalid for progression,
+  // but the editor should still render them deterministically instead of dropping all
+  // decoration. Treat any unseen node as a normal standalone fragment.
+  for (const id of nodeIds) {
+    if (!rawStates.has(id)) rawStates.set(id, [{ hidden: false, sequential: false }]);
+  }
+
+  const result = new Map();
+  for (const [id, states] of rawStates) {
+    const hidden = states.some((state) => state.hidden);
+    const visible = states.some((state) => !state.hidden);
+    const sequential = states.some((state) => state.sequential);
+    const nonSequential = states.some((state) => !state.sequential);
+    result.set(id, {
+      hidden,
+      sequential,
+      hiddenMixed: hidden && visible,
+      sequentialMixed: sequential && nonSequential,
+      combined: states.some((state) => state.hidden && state.sequential),
+    });
+  }
+  return result;
+}
+
 function snakePosition(index) {
   const columns = 5;
   const column = index % columns;

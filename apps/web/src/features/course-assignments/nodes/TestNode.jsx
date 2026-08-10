@@ -1,6 +1,6 @@
 import React from 'react';
 import { ListChecks } from 'lucide-react';
-import { AssignmentFooter, CourseMapHandles, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function TestNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -18,6 +18,7 @@ export default function TestNode({ data, selected }) {
       aria-label={`Тест: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />
+      <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={ListChecks} kicker="Тест" badge={questionCount || undefined} />
       <div className="course-map-test-dots"><i /><i /><i /></div>
       <div className="course-map-node-title">{assignment.title || 'Без названия'}</div>

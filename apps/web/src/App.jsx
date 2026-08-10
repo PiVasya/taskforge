@@ -56,10 +56,14 @@ function AdminAiRedirect() {
 }
 
 export default function App() {
+  const location = useLocation();
+  const backgroundLocation = location.state?.courseMapOverlay ? location.state?.backgroundLocation : null;
+  const showCourseMapEditorOverlay = Boolean(backgroundLocation && location.state?.courseMapOverlay);
+
   return (
     <>
       <PageMeta />
-      <Routes>
+      <Routes location={backgroundLocation || location}>
         <Route element={<RootShell />}>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -120,6 +124,20 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
+
+      {showCourseMapEditorOverlay ? (
+        <div className="course-map-route-overlay" role="presentation">
+          <div className="course-map-route-overlay-panel" role="dialog" aria-modal="true" aria-label="Редактирование курса">
+            <Routes location={location}>
+              <Route element={<ProtectedRoute />}>
+                <Route element={<EditorRoute fallbackTo="courses" />}>
+                  <Route path="/courses/:courseId/edit" element={<CourseEditPage overlay />} />
+                </Route>
+              </Route>
+            </Routes>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
