@@ -181,8 +181,8 @@ services:
         hard: 256
     cap_drop: *id002
     pids_limit: ${RUNNER_PIDS_LIMIT:-128}
-    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
-    memswap_limit: ${RUNNER_MEM_LIMIT:-512m}
+    mem_limit: ${CSHARP_RUNNER_MEM_LIMIT:-768m}
+    memswap_limit: ${CSHARP_RUNNER_MEM_LIMIT:-768m}
     cpus: ${RUNNER_CPUS:-1.0}
     read_only: true
     tmpfs: *id003

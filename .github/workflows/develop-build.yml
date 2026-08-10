@@ -253,10 +253,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
       - name: Install security check dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check OJ security invariants
         run: bash scripts/security/check-oj-security.sh
+      - name: Check C# runner policy regressions
+        run: dotnet run --project tools/csharp-runner-policy-check/TaskForge.CSharpRunner.PolicyCheck.csproj -c Release
 
   browser-security-invariants:
     runs-on: ubuntu-latest

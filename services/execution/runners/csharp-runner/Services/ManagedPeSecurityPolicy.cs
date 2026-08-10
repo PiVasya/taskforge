@@ -38,6 +38,20 @@ internal static class ManagedPeSecurityPolicy
         "System.Runtime.CompilerServices.ModuleInitializerAttribute"
     ];
 
+    // Roslyn emits these harmless debugger-only attributes into otherwise safe
+    // assemblies. The source-level RoslynSecurityPolicy still rejects explicit
+    // user references to the whole System.Diagnostics namespace.
+    private static readonly string[] CompilerGeneratedDiagnosticMetadataTypes =
+    [
+        "System.Diagnostics.DebuggableAttribute",
+        "System.Diagnostics.DebuggerBrowsableAttribute",
+        "System.Diagnostics.DebuggerBrowsableState",
+        "System.Diagnostics.DebuggerDisplayAttribute",
+        "System.Diagnostics.DebuggerHiddenAttribute",
+        "System.Diagnostics.DebuggerNonUserCodeAttribute",
+        "System.Diagnostics.DebuggerStepThroughAttribute"
+    ];
+
     internal static string? Validate(byte[] peImage)
     {
         try
@@ -123,6 +137,10 @@ internal static class ManagedPeSecurityPolicy
     private static bool IsForbidden(string fullName)
     {
         if (string.IsNullOrEmpty(fullName)) return false;
+        if (CompilerGeneratedDiagnosticMetadataTypes.Any(value => string.Equals(value, fullName, StringComparison.Ordinal)))
+        {
+            return false;
+        }
         if (ForbiddenTypeNames.Any(value => string.Equals(value, fullName, StringComparison.Ordinal)))
         {
             return true;

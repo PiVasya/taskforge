@@ -3,14 +3,38 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace Runner.Services;
 
+public enum CompilationFailureKind
+{
+    None,
+    CompileError,
+    PolicyError
+}
+
+public readonly record struct RoslynCompilationResult(
+    bool Ok,
+    byte[]? Pe,
+    byte[]? Pdb,
+    string Error,
+    CompilationFailureKind FailureKind)
+{
+    public static RoslynCompilationResult Success(byte[] pe, byte[] pdb)
+        => new(true, pe, pdb, string.Empty, CompilationFailureKind.None);
+
+    public static RoslynCompilationResult CompilationError(string error)
+        => new(false, null, null, error, CompilationFailureKind.CompileError);
+
+    public static RoslynCompilationResult PolicyError(string error)
+        => new(false, null, null, error, CompilationFailureKind.PolicyError);
+}
+
 public interface IRoslynCompilationService
 {
-    (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code, CancellationToken cancellationToken = default);
+    RoslynCompilationResult Compile(string code, CancellationToken cancellationToken = default);
 }
 
 public sealed class RoslynCompilationService : IRoslynCompilationService
 {
-    public (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) Compile(string code, CancellationToken cancellationToken = default)
+    public RoslynCompilationResult Compile(string code, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -54,7 +78,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
             var securityError = RoslynSecurityPolicy.Validate(compilation, syntax, cancellationToken);
             if (securityError is not null)
             {
-                return (false, null, null, securityError);
+                return RoslynCompilationResult.PolicyError(securityError);
             }
 
             using var peStream = new MemoryStream();
@@ -66,17 +90,17 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
                 var errors = string.Join("\n", emit.Diagnostics
                     .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
                     .Select(diagnostic => diagnostic.ToString()));
-                return (false, null, null, errors);
+                return RoslynCompilationResult.CompilationError(errors);
             }
 
             var pe = peStream.ToArray();
             var metadataSecurityError = ManagedPeSecurityPolicy.Validate(pe);
             if (metadataSecurityError is not null)
             {
-                return (false, null, null, metadataSecurityError);
+                return RoslynCompilationResult.PolicyError(metadataSecurityError);
             }
 
-            return (true, pe, pdbStream.ToArray(), "");
+            return RoslynCompilationResult.Success(pe, pdbStream.ToArray());
         }
         catch (OperationCanceledException)
         {
@@ -84,7 +108,7 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
         }
         catch (Exception ex)
         {
-            return (false, null, null, ex.Message);
+            return RoslynCompilationResult.CompilationError(ex.Message);
         }
     }
 }

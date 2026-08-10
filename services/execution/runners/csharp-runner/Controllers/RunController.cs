@@ -65,7 +65,7 @@ public sealed class RunController : ControllerBase
             await _jobGate.EnterAsync(HttpContext.RequestAborted);
             entered = true;
 
-            (bool compiled, byte[]? pe, byte[]? pdb, string compileError) compileResult;
+            RoslynCompilationResult compileResult;
             using (var compilationCts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted))
             {
                 compilationCts.CancelAfter(CompilationTimeout);
@@ -86,23 +86,23 @@ public sealed class RunController : ControllerBase
                 }
             }
 
-            var (compiled, pe, pdb, compileError) = compileResult;
-            if (!compiled || pe is null)
+            if (!compileResult.Ok || compileResult.Pe is null)
             {
+                var policyFailure = compileResult.FailureKind == CompilationFailureKind.PolicyError;
                 return Ok(new RunResponse
                 {
-                    Status = "compile_error",
+                    Status = policyFailure ? "policy_error" : "compile_error",
                     Stdout = "",
                     Stderr = "",
-                    ExitCode = 1,
-                    Error = SanitizeRunnerText(compileError)
+                    ExitCode = policyFailure ? 126 : 1,
+                    Error = SanitizeRunnerText(compileResult.Error)
                 });
             }
 
             var input = string.IsNullOrEmpty(request.Input) ? "\n" : request.Input;
             var (ran, stdout, error, status) = await _execution.RunAsync(
-                pe,
-                pdb ?? [],
+                compileResult.Pe,
+                compileResult.Pdb ?? [],
                 input,
                 RunnerLimits.TimeLimitMs(request.TimeLimitMs),
                 RunnerLimits.MemoryLimitMb(request.MemoryLimitMb),
@@ -155,7 +155,7 @@ public sealed class RunController : ControllerBase
             entered = true;
 
             var tests = request.Tests ?? [];
-            (bool compiled, byte[]? pe, byte[]? pdb, string compileError) compileResult;
+            RoslynCompilationResult compileResult;
             using (var compilationCts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted))
             {
                 compilationCts.CancelAfter(CompilationTimeout);
@@ -187,10 +187,10 @@ public sealed class RunController : ControllerBase
                 }
             }
 
-            var (compiled, pe, pdb, compileError) = compileResult;
-            if (!compiled || pe is null)
+            if (!compileResult.Ok || compileResult.Pe is null)
             {
                 var first = tests.FirstOrDefault();
+                var policyFailure = compileResult.FailureKind == CompilationFailureKind.PolicyError;
                 return Ok(new TestResultsResponse
                 {
                     Results =
@@ -201,10 +201,10 @@ public sealed class RunController : ControllerBase
                             ExpectedOutput = first?.ExpectedOutput ?? "",
                             ActualOutput = "",
                             Passed = false,
-                            Status = "compile_error",
-                            ExitCode = 1,
-                            Stderr = "",
-                            CompileStderr = SanitizeRunnerText(compileError),
+                            Status = policyFailure ? "policy_error" : "compile_error",
+                            ExitCode = policyFailure ? 126 : 1,
+                            Stderr = policyFailure ? "Решение отклонено системой безопасности." : "",
+                            CompileStderr = policyFailure ? null : SanitizeRunnerText(compileResult.Error),
                             Hidden = first?.IsHidden ?? false
                         }
                     ]
@@ -232,8 +232,8 @@ public sealed class RunController : ControllerBase
                 try
                 {
                     runResult = await _execution.RunAsync(
-                        pe,
-                        pdb ?? [],
+                        compileResult.Pe,
+                        compileResult.Pdb ?? [],
                         input,
                         timeLimitMs,
                         memoryLimitMb,

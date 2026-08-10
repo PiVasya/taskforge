@@ -148,7 +148,7 @@ public sealed class InteractiveConsoleServer : BackgroundService
             }
 
             await SendAsync(new { type = "status", phase = "compiling", message = "Компиляция..." }, stoppingToken);
-            (bool Ok, byte[]? Pe, byte[]? Pdb, string Error) compilation;
+            RoslynCompilationResult compilation;
             using (var compileCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
             {
                 compileCts.CancelAfter(CompilationTimeout);
@@ -166,8 +166,16 @@ public sealed class InteractiveConsoleServer : BackgroundService
 
             if (!compilation.Ok || compilation.Pe is null)
             {
-                await SendAsync(new { type = "output", stream = "stderr", data = NormalizeTerminalText(compilation.Error) }, stoppingToken);
-                await SendAsync(new { type = "exit", exitCode = 1, reason = "compile_error", durationMs = 0 }, stoppingToken);
+                var policyFailure = compilation.FailureKind == CompilationFailureKind.PolicyError;
+                var message = policyFailure ? "Решение отклонено системой безопасности." : compilation.Error;
+                await SendAsync(new { type = "output", stream = "stderr", data = NormalizeTerminalText(message) }, stoppingToken);
+                await SendAsync(new
+                {
+                    type = "exit",
+                    exitCode = policyFailure ? 126 : 1,
+                    reason = policyFailure ? "policy_error" : "compile_error",
+                    durationMs = 0
+                }, stoppingToken);
                 return;
             }
 

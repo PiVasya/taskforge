@@ -11,7 +11,7 @@ Current baseline:
 - `cap_drop: ALL`
 - an internal runner network without direct external routing
 - `pids_limit` through `RUNNER_PIDS_LIMIT`
-- memory limit through `RUNNER_MEM_LIMIT`
+- memory limit through `RUNNER_MEM_LIMIT`; the Roslyn-based C# service has separate headroom through `CSHARP_RUNNER_MEM_LIMIT`
 - a read-only root filesystem
 - writable temporary storage only through `/tmp` tmpfs controlled by `RUNNER_TMPFS_SIZE`
 
@@ -19,6 +19,7 @@ Default limits:
 
 ```env
 RUNNER_MEM_LIMIT=512m
+CSHARP_RUNNER_MEM_LIMIT=768m
 RUNNER_PIDS_LIMIT=128
 RUNNER_TMPFS_SIZE=256m
 ```
@@ -28,6 +29,12 @@ RUNNER_TMPFS_SIZE=256m
 Regular non-image runner compiler and submission processes receive an explicit allowlist instead of inheriting the runner service environment. The child environment contains only runtime values such as `PATH`, locale/time-zone values, language-runtime paths where needed, and temporary `HOME`/`TMPDIR` values.
 
 Do not pass database, Redis, object-storage, signing, API, or service-to-service credentials to a runner. The C# runner is intentionally stateless and has no Redis registration or Redis secret in its compose environment.
+
+## C# defense layers
+
+C# submissions are checked twice around compilation. `RoslynSecurityPolicy` validates the syntax and resolved framework symbols before emit, while `ManagedPeSecurityPolicy` validates the generated managed PE before execution. The PE layer permits only a narrow set of debugger metadata types that Roslyn itself may synthesize (`DebuggableAttribute`, compiler-generated `Debugger*` attributes, and `DebuggerBrowsableState`); explicit student references to `System.Diagnostics` remain blocked by the source-level policy.
+
+The CI regression project at `tools/csharp-runner-policy-check` compiles safe language features such as top-level statements, anonymous types, async code, and iterators, and verifies that process, filesystem, environment-exit, and explicit debugger-attribute access stays rejected. Keep this check in the OJ security invariant jobs.
 
 ## C and C++ defense layers
 
