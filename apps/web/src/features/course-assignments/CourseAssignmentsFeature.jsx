@@ -846,6 +846,7 @@ export default function CourseAssignmentsPage() {
 
   return (
     <>
+      {!showFlowLayout ? (
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
@@ -925,6 +926,7 @@ export default function CourseAssignmentsPage() {
         </div>
       </div>
       </div>
+      ) : null}
 
 
       <IfEditor>
@@ -1275,6 +1277,7 @@ export default function CourseAssignmentsPage() {
         </div>
       )}
 
+      {!showFlowLayout ? (
       <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
@@ -1285,9 +1288,10 @@ export default function CourseAssignmentsPage() {
             />
           </div>        </div>
       </Card>
+      ) : null}
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-neutral-500">Загрузка…</div>}
+      {loading && !showFlowLayout ? <div className="text-neutral-500">Загрузка…</div> : null}
 
       {showFlowLayout ? (
         <CourseFlowEditor
@@ -1296,6 +1300,11 @@ export default function CourseAssignmentsPage() {
           courseCanEdit={courseCanEdit}
           editorMode={Boolean(isEditorMode && courseCanEdit)}
           query={q}
+          onQueryChange={setQ}
+          onShowGrid={isEditorMode && courseCanEdit ? () => setContentLayout('grid') : null}
+          onExportJson={isEditorMode && courseCanEdit ? handleExportJson : null}
+          onImportJson={isEditorMode && courseCanEdit ? () => openCreateDialog('json') : null}
+          exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}
           dataRevision={assignmentsQuery.updatedAt || 0}
           onRefreshCourseData={async () => {

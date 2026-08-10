@@ -250,7 +250,6 @@ internal static partial class EducationApiEndpoints
 
         var subtreeCourseIds = await LoadCourseSubtreeIdsAsync(rootCourseId, db, ct);
         var nodeIds = new HashSet<string>(StringComparer.Ordinal);
-        var entityIds = new HashSet<Guid>();
         var adjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var hasRootCourseNode = false;
 
@@ -263,7 +262,6 @@ internal static partial class EducationApiEndpoints
             if (string.IsNullOrWhiteSpace(id) || id.Length > 160 || !nodeIds.Add(id)) return ("COURSE_MAP_NODE_ID_INVALID", "Узлы карты должны иметь уникальные непустые id.");
             if (string.IsNullOrWhiteSpace(kind) || !CourseMapNodeKinds.Contains(kind)) return ("COURSE_MAP_NODE_TYPE_INVALID", $"Неизвестный тип узла: {kind ?? "(empty)"}.");
             if (!Guid.TryParse(entityRaw, out var entityId) || entityId == Guid.Empty) return ("COURSE_MAP_ENTITY_INVALID", "Узел карты должен ссылаться на корректный entityId.");
-            if (!entityIds.Add(entityId)) return ("COURSE_MAP_ENTITY_DUPLICATE", "Одна сущность не может быть размещена на карте дважды.");
             if (string.Equals(kind, "course", StringComparison.OrdinalIgnoreCase) && !subtreeCourseIds.Contains(entityId))
                 return ("COURSE_MAP_COURSE_OUTSIDE_TREE", "Карта содержит курс за пределами текущего дерева.");
             if (string.Equals(kind, "course", StringComparison.OrdinalIgnoreCase) && entityId == rootCourseId)

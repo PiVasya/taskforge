@@ -4,14 +4,15 @@ import { AssignmentFooter, CourseMapHandles, NodeHover, NodeTopline } from './Co
 
 export default function ImageCodeNode({ data, selected }) {
   const assignment = data?.entity || {};
+  const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
   return (
     <div
-      className={`course-map-node course-map-node--image${selected ? ' is-selected' : ''}`}
+      className={`course-map-node course-map-node--image${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="assignment"
       data-taskforge-entity-id={assignment.id || data?.entityId}
       data-taskforge-assignment-type="image-test"
-      data-taskforge-agent-state={assignment?.solvedByCurrentUser || assignment?.isSolved ? 'solved' : 'unsolved'}
+      data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-action="open-assignment"
       aria-label={`Картинки и код: ${assignment.title || 'Без названия'}`}
     >

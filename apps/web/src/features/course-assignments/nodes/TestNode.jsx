@@ -4,15 +4,16 @@ import { AssignmentFooter, CourseMapHandles, NodeHover, NodeTopline } from './Co
 
 export default function TestNode({ data, selected }) {
   const assignment = data?.entity || {};
+  const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
   const questionCount = Array.isArray(assignment?.questions) ? assignment.questions.length : null;
   return (
     <div
-      className={`course-map-node course-map-node--test${selected ? ' is-selected' : ''}`}
+      className={`course-map-node course-map-node--test${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="assignment"
       data-taskforge-entity-id={assignment.id || data?.entityId}
       data-taskforge-assignment-type="test"
-      data-taskforge-agent-state={assignment?.solvedByCurrentUser || assignment?.isSolved ? 'solved' : 'unsolved'}
+      data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-action="open-assignment"
       aria-label={`Тест: ${assignment.title || 'Без названия'}`}
     >

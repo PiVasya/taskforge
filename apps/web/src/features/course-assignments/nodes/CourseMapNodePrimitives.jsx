@@ -6,8 +6,22 @@ import { previewAssignmentDescription } from '../courseAssignmentsModel';
 export function CourseMapHandles() {
   return (
     <>
-      <Handle id="in" type="target" position={Position.Left} className="course-map-handle course-map-handle--in" />
-      <Handle id="out" type="source" position={Position.Right} className="course-map-handle course-map-handle--out" />
+      <Handle
+        id="in"
+        type="target"
+        position={Position.Left}
+        isConnectableStart={false}
+        isConnectableEnd
+        className="course-map-handle course-map-handle--in"
+      />
+      <Handle
+        id="out"
+        type="source"
+        position={Position.Right}
+        isConnectableStart
+        isConnectableEnd={false}
+        className="course-map-handle course-map-handle--out"
+      />
     </>
   );
 }
@@ -22,7 +36,7 @@ export function NodeTopline({ icon: Icon, kicker, badge }) {
 }
 
 export function AssignmentFooter({ assignment, fallback }) {
-  const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser);
+  const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
   const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '') || fallback || '';
   return (
     <div className="course-map-node-footer">

@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
-import { Eye, FileCode2, FolderTree, Image as ImageIcon, Pencil, Save, Sigma, Trash2, X, ListChecks, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
@@ -62,6 +62,12 @@ function userAvatar(user) {
   return user?.avatarUrl || user?.avatar || user?.imageUrl || null;
 }
 
+function isEditableShortcutTarget(target) {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor, .ProseMirror')) return true;
+  return false;
+}
+
 function subtreeCourses(rootId, allCourses, rootCourse) {
   const rows = [...(Array.isArray(allCourses) ? allCourses : [])];
   if (rootCourse?.id && !rows.some((item) => String(item?.id) === String(rootCourse.id))) rows.push(rootCourse);
@@ -91,10 +97,11 @@ function edgeStyle(editorMode) {
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
     className: `course-map-edge${editorMode ? ' is-editable' : ''}`,
     type: 'smoothstep',
+    interactionWidth: editorMode ? 28 : 18,
   };
 }
 
-function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData }) {
+function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false }) {
   const nav = useNavigate();
   const notify = useNotify();
   const { access, user } = useAuth();
@@ -107,11 +114,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [loading, setLoading] = React.useState(true);
   const [dirty, setDirty] = React.useState(false);
   const [presence, setPresence] = React.useState([]);
-  const [context, setContext] = React.useState({ open: false, x: 0, y: 0, flowPosition: null, node: null });
+  const [context, setContext] = React.useState({ open: false, x: 0, y: 0, flowPosition: null, node: null, edge: null });
   const [unplacedOpen, setUnplacedOpen] = React.useState(false);
   const [serverChanged, setServerChanged] = React.useState(false);
   const [interacting, setInteracting] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(Boolean(query));
   const [graphRevision, setGraphRevision] = React.useState(0);
+  const [mapHeight, setMapHeight] = React.useState(null);
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
@@ -121,6 +130,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const focusedCourseRef = React.useRef('');
   const dataRevisionRef = React.useRef(dataRevision);
   const loadMapRef = React.useRef(null);
+  const loadRequestRef = React.useRef(0);
+  const loadedRootRef = React.useRef('');
+  const copyBufferRef = React.useRef(null);
+  const pasteSequenceRef = React.useRef(0);
+  const searchInputRef = React.useRef(null);
 
   const rootId = String(course?.id || '');
   const visibleCourses = React.useMemo(() => subtreeCourses(rootId, allCourses, course), [allCourses, course, rootId]);
@@ -131,6 +145,32 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   React.useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
   React.useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   React.useEffect(() => { edgesRef.current = edges; }, [edges]);
+  React.useEffect(() => { if (query) setSearchOpen(true); }, [query]);
+  React.useEffect(() => {
+    if (!searchOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchOpen]);
+
+  React.useLayoutEffect(() => {
+    if (loading) return undefined;
+    let frame = 0;
+    const updateHeight = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const rect = shellRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const available = Math.floor(window.innerHeight - rect.top - 14);
+        setMapHeight(Math.max(360, Math.min(1000, available)));
+      });
+    };
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, [editorMode, loading, rootId]);
 
   const persistSession = React.useCallback((nextDirty = dirtyRef.current) => {
     if (!rootId || !nodesRef.current.length) return;
@@ -197,7 +237,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return rawNodes.map((node) => {
       const isCourse = node.type === 'course';
       const entity = isCourse ? entityIndex.courseById.get(String(node.entityId)) : entityIndex.assignmentById.get(String(node.entityId));
-      const progress = isCourse ? (progressByCourse.get(String(node.entityId)) || { total: 0, solved: 0, percent: 0 }) : null;
+      const progress = isCourse ? (progressByCourse.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null;
       const searchText = `${entity?.title || ''} ${previewAssignmentDescription(entity?.description || '')} ${entity?.tags || ''}`.toLowerCase();
       const searchMatch = !q || searchText.includes(q);
       const visualType = isCourse ? 'course' : assignmentNodeType(entity?.type || node.type);
@@ -223,9 +263,12 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
-    if (!quiet) setLoading(true);
+    const requestId = ++loadRequestRef.current;
+    const initialForRoot = loadedRootRef.current !== rootId;
+    if (!quiet && initialForRoot) setLoading(true);
     try {
       const [mapRecord, treeAssignments] = await Promise.all([getCourseMap(rootId), getAssignmentsByCourseTree(rootId)]);
+      if (requestId !== loadRequestRef.current) return;
       const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
       const nextCourses = subtreeCourses(rootId, allCourses, course);
       const session = preferSession ? getCourseMapSessionState(rootId) : null;
@@ -272,7 +315,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           data: {
             entityId: node.entityId,
             entity,
-            progress: isCourse ? (progress.get(String(node.entityId)) || { total: 0, solved: 0, percent: 0 }) : null,
+            progress: isCourse ? (progress.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null,
             editorMode,
             onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
             onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
@@ -285,18 +328,27 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       edgesRef.current = nextEdges;
       setNodes(nextNodes);
       setEdges(nextEdges);
+      loadedRootRef.current = rootId;
       requestAnimationFrame(() => {
         try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
       });
     } catch (error) {
-      notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
+      if (requestId === loadRequestRef.current) notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
     } finally {
-      if (!quiet) setLoading(false);
+      if (requestId === loadRequestRef.current && initialForRoot) setLoading(false);
     }
   }, [allCourses, course, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, notify, openAssignment, rootId, setEdges, setNodes]);
 
-  React.useEffect(() => { void loadMap({ preferSession: true }); }, [loadMap]);
-  React.useEffect(() => { loadMapRef.current = loadMap; }, [loadMap]);
+  loadMapRef.current = loadMap;
+  React.useEffect(() => {
+    if (!rootId) return;
+    if (loadedRootRef.current !== rootId) {
+      setLoading(true);
+      setNodes([]);
+      setEdges([]);
+    }
+    void loadMapRef.current?.({ preferSession: true, quiet: loadedRootRef.current === rootId });
+  }, [editorMode, rootId, setEdges, setNodes]);
 
   React.useEffect(() => {
     if (dataRevisionRef.current === dataRevision) return;
@@ -387,6 +439,20 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     dirtyRef.current = true;
   }, [editorMode]);
 
+  const removeEdges = React.useCallback((edgeIds) => {
+    if (!editorMode) return false;
+    const ids = edgeIds instanceof Set ? edgeIds : new Set(edgeIds || []);
+    if (!ids.size) return false;
+    const existing = edgesRef.current;
+    const next = existing.filter((edge) => !ids.has(String(edge.id)));
+    if (next.length === existing.length) return false;
+    edgesRef.current = next;
+    setEdges(next);
+    markDirty();
+    setGraphRevision((value) => value + 1);
+    return true;
+  }, [editorMode, markDirty, setEdges]);
+
   const onNodesChange = React.useCallback((changes) => {
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
@@ -411,6 +477,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const onConnect = React.useCallback((connection) => {
     if (!editorMode) return;
+    if ((connection.sourceHandle && connection.sourceHandle !== 'out') || (connection.targetHandle && connection.targetHandle !== 'in')) return;
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
     if (wouldCreateCycle(currentNodes, currentEdges, connection.source, connection.target)) {
@@ -437,27 +504,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const onEdgeDoubleClick = React.useCallback((event, edge) => {
     if (!editorMode) return;
     event.preventDefault();
-    setEdges((current) => {
-      const next = current.filter((item) => item.id !== edge.id);
-      edgesRef.current = next;
-      return next;
-    });
-    markDirty();
-    setGraphRevision((value) => value + 1);
-  }, [editorMode, markDirty, setEdges]);
+    event.stopPropagation();
+    removeEdges([String(edge.id)]);
+  }, [editorMode, removeEdges]);
+
+  const onEdgeContextMenu = React.useCallback((event, edge) => {
+    if (!editorMode || !courseCanEdit) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setContext({ open: true, x: event.clientX, y: event.clientY, flowPosition: null, node: null, edge });
+  }, [courseCanEdit, editorMode]);
 
   const onPaneContextMenu = React.useCallback((event) => {
     if (!editorMode || !courseCanEdit) return;
     event.preventDefault();
     const position = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    setContext({ open: true, x: event.clientX, y: event.clientY, flowPosition: position, node: null });
+    setContext({ open: true, x: event.clientX, y: event.clientY, flowPosition: position, node: null, edge: null });
   }, [courseCanEdit, editorMode, flow]);
 
   const onNodeContextMenu = React.useCallback((event, node) => {
     if (!editorMode || !courseCanEdit) return;
     event.preventDefault();
     event.stopPropagation();
-    setContext({ open: true, x: event.clientX, y: event.clientY, flowPosition: null, node });
+    setContext({ open: true, x: event.clientX, y: event.clientY, flowPosition: null, node, edge: null });
   }, [courseCanEdit, editorMode]);
 
   const closeContext = React.useCallback(() => setContext((current) => ({ ...current, open: false })), []);
@@ -535,6 +604,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     setGraphRevision((value) => value + 1);
   }, [markDirty, notify, rootId, setEdges, setNodes]);
 
+  const removeEntityFromMap = React.useCallback((entityId) => {
+    const key = String(entityId || '');
+    if (!key) return;
+    const nodeIds = new Set(nodesRef.current
+      .filter((item) => String(item.entityId || item.data?.entityId || '') === key)
+      .map((item) => String(item.id)));
+    if (!nodeIds.size) return;
+    const nextNodes = nodesRef.current.filter((item) => !nodeIds.has(String(item.id)));
+    const nextEdges = edgesRef.current.filter((edge) => !nodeIds.has(String(edge.source)) && !nodeIds.has(String(edge.target)));
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    markDirty();
+    setGraphRevision((value) => value + 1);
+  }, [markDirty, setEdges, setNodes]);
+
   const deleteEntity = React.useCallback(async (node) => {
     if (!node) return;
     const entity = node.data?.entity;
@@ -544,14 +630,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     try {
       if (node.type === 'course') await deleteCourse(node.entityId);
       else await deleteAssignment(node.entityId);
-      removeNodeFromMap(node);
+      removeEntityFromMap(node.entityId);
       if (node.type !== 'course') setAssignments((current) => current.filter((item) => String(item.id) !== String(node.entityId)));
       await onRefreshCourseData?.();
       notify.success(node.type === 'course' ? 'Курс удалён' : 'Задание удалено');
     } catch (error) {
       notify.error(getApiErrorMessage(error, `Не удалось удалить ${label}`));
     }
-  }, [notify, onRefreshCourseData, removeNodeFromMap, setAssignments]);
+  }, [notify, onRefreshCourseData, removeEntityFromMap, setAssignments]);
 
   const save = React.useCallback(async () => {
     if (!editorMode || !dirtyRef.current || !rootId) return;
@@ -574,6 +660,110 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
     }
   }, [editorMode, notify, rootId]);
+
+  const copySelection = React.useCallback(() => {
+    if (!editorMode) return false;
+    const selected = nodesRef.current.filter((node) => node.selected && !(node.type === 'course' && String(node.entityId || node.data?.entityId || '') === rootId));
+    if (!selected.length) return false;
+    const selectedIds = new Set(selected.map((node) => String(node.id)));
+    copyBufferRef.current = {
+      nodes: selected.map((node) => ({
+        id: String(node.id),
+        type: String(node.type),
+        entityId: String(node.entityId || node.data?.entityId || ''),
+        position: { x: Number(node.position?.x) || 0, y: Number(node.position?.y) || 0 },
+        settings: node.settings || node.data?.settings || undefined,
+      })),
+      edges: edgesRef.current
+        .filter((edge) => selectedIds.has(String(edge.source)) && selectedIds.has(String(edge.target)))
+        .map((edge) => ({
+          id: String(edge.id),
+          source: String(edge.source),
+          target: String(edge.target),
+          sourceHandle: edge.sourceHandle || 'out',
+          targetHandle: edge.targetHandle || 'in',
+        })),
+    };
+    pasteSequenceRef.current = 0;
+    notify.info(`Скопировано узлов: ${selected.length}`);
+    return true;
+  }, [editorMode, notify, rootId]);
+
+  const pasteSelection = React.useCallback(() => {
+    if (!editorMode || !courseCanEdit) return false;
+    const buffer = copyBufferRef.current;
+    if (!buffer?.nodes?.length) return false;
+
+    pasteSequenceRef.current += 1;
+    const serial = pasteSequenceRef.current;
+    const stamp = Date.now().toString(36);
+    const offset = 34 * serial;
+    const idMap = new Map();
+    const rawClones = buffer.nodes.map((node, index) => {
+      const id = `copy:${stamp}:${serial}:${index}:${Math.random().toString(36).slice(2, 7)}`;
+      idMap.set(String(node.id), id);
+      return {
+        id,
+        type: node.type,
+        entityId: node.entityId,
+        position: { x: node.position.x + offset, y: node.position.y + offset },
+        settings: node.settings,
+        selected: true,
+      };
+    });
+
+    const currentEdges = edgesRef.current.map((edge) => ({ ...edge, selected: false }));
+    const pastedEdges = buffer.edges.map((edge, index) => ({
+      id: `edge:copy:${stamp}:${serial}:${index}:${Math.random().toString(36).slice(2, 7)}`,
+      source: idMap.get(String(edge.source)),
+      target: idMap.get(String(edge.target)),
+      sourceHandle: edge.sourceHandle || 'out',
+      targetHandle: edge.targetHandle || 'in',
+      ...edgeStyle(true),
+    })).filter((edge) => edge.source && edge.target);
+    const nextEdges = [...currentEdges, ...pastedEdges];
+    edgesRef.current = nextEdges;
+
+    const currentNodes = nodesRef.current.map((node) => ({ ...node, selected: false }));
+    const nextNodes = decorateNodes([...currentNodes, ...rawClones]);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    markDirty();
+    setGraphRevision((value) => value + 1);
+    persistSession(true);
+    notify.success(`Вставлено узлов: ${rawClones.length}`);
+    return true;
+  }, [courseCanEdit, decorateNodes, editorMode, markDirty, notify, persistSession, setEdges, setNodes]);
+
+  React.useEffect(() => {
+    if (!editorMode) return undefined;
+    const onKeyDown = (event) => {
+      if (isEditableShortcutTarget(event.target)) return;
+      const mod = event.ctrlKey || event.metaKey;
+      const key = String(event.key || '').toLowerCase();
+
+      if (mod && key === 's') {
+        event.preventDefault();
+        void save();
+        return;
+      }
+      if (mod && key === 'c') {
+        if (copySelection()) event.preventDefault();
+        return;
+      }
+      if (mod && key === 'v') {
+        if (pasteSelection()) event.preventDefault();
+        return;
+      }
+      if (!mod && (event.key === 'Delete' || event.key === 'Backspace')) {
+        const selectedEdgeIds = new Set(edgesRef.current.filter((edge) => edge.selected).map((edge) => String(edge.id)));
+        if (selectedEdgeIds.size && removeEdges(selectedEdgeIds)) event.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [copySelection, editorMode, pasteSelection, removeEdges, save]);
 
   const reloadServerVersion = React.useCallback(async () => {
     if (dirtyRef.current) {
@@ -614,10 +804,60 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   if (loading) return <div className="course-map-loading">Загрузка карты…</div>;
 
   return (
-    <div className={`course-map-shell${editorMode ? ' is-editor' : ' is-viewer'}${interacting || context.open ? ' is-interacting' : ''}`} ref={shellRef} data-taskforge-agent-role="course-map" data-taskforge-ready="true">
+    <div
+      className={`course-map-shell${editorMode ? ' is-editor' : ' is-viewer'}${interacting || context.open ? ' is-interacting' : ''}`}
+      ref={shellRef}
+      style={mapHeight ? { height: `${mapHeight}px` } : undefined}
+      data-taskforge-agent-role="course-map"
+      data-taskforge-ready="true"
+    >
       <div className="course-map-toolbar">
         <div className="course-map-toolbar-left">
-          <span className="course-map-toolbar-title">Карта курса</span>
+          <button
+            type="button"
+            className="course-map-toolbar-icon"
+            title={course?.parentCourseId ? 'Назад к родительскому курсу' : 'Назад к курсам'}
+            aria-label={course?.parentCourseId ? 'Назад к родительскому курсу' : 'Назад к курсам'}
+            onClick={() => { rememberBeforeNavigate(); nav(course?.parentCourseId ? `/course/${course.parentCourseId}` : '/courses'); }}
+          >
+            <ArrowLeft size={16} />
+          </button>
+
+          <div className={`course-map-search${searchOpen ? ' is-open' : ''}`}>
+            <button
+              type="button"
+              className="course-map-toolbar-icon course-map-search-trigger"
+              title="Поиск по карте"
+              aria-label="Поиск по карте"
+              onClick={() => setSearchOpen((value) => !value)}
+            >
+              <Search size={16} />
+            </button>
+            {searchOpen ? (
+              <div className="course-map-search-field">
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(event) => onQueryChange?.(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.stopPropagation();
+                      if (query) onQueryChange?.('');
+                      else setSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Найти узел…"
+                  aria-label="Поиск по карте курса"
+                />
+                {query ? (
+                  <button type="button" className="course-map-search-clear" title="Очистить поиск" aria-label="Очистить поиск" onClick={() => onQueryChange?.('')}>
+                    <X size={13} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           {editorMode ? <span className={`course-map-dirty-dot${dirty ? ' is-dirty' : ''}`} title={dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'} /> : null}
           {serverChanged ? <button type="button" className="course-map-server-changed" onClick={reloadServerVersion}><RotateCcw size={13} /> новая версия</button> : null}
         </div>
@@ -657,7 +897,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             </div>
           ) : null}
 
-          {editorMode ? <Button onClick={save} disabled={!dirty}><Save size={15} /> {dirty ? 'Сохранить карту' : 'Сохранено'}</Button> : null}
+          {editorMode && onShowGrid ? <button type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" onClick={onShowGrid}><LayoutGrid size={16} /></button> : null}
+          {editorMode && onExportJson ? <button type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} onClick={onExportJson}><Download size={16} /></button> : null}
+          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={onImportJson}><FileJson size={16} /></button> : null}
+          {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty}><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
         </div>
       </div>
 
@@ -674,6 +917,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onNodeDragStart={() => setInteracting(true)}
           onNodeDragStop={() => { setInteracting(false); if (!editorMode) persistSession(false); }}
           onEdgeDoubleClick={onEdgeDoubleClick}
+          onEdgeContextMenu={onEdgeContextMenu}
           onPaneContextMenu={onPaneContextMenu}
           onNodeContextMenu={onNodeContextMenu}
           onNodeDoubleClick={(event, node) => {
@@ -690,6 +934,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           minZoom={0.12}
           maxZoom={1.8}
           multiSelectionKeyCode="Shift"
+          selectionKeyCode="Shift"
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={18} size={1.15} className="course-map-background" />
@@ -699,7 +944,12 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       </div>
 
       <ContextMenu open={context.open} x={context.x} y={context.y} onClose={closeContext} ariaLabel="Действия карты курса">
-        {context.node ? (
+        {context.edge ? (
+          <>
+            <ContextMenuLabel>Связь</ContextMenuLabel>
+            <ContextMenuItem icon={Unlink2} danger onClick={() => { const edge = context.edge; closeContext(); removeEdges([String(edge.id)]); }}>Разорвать связь</ContextMenuItem>
+          </>
+        ) : context.node ? (
           <>
             <ContextMenuLabel>{context.node.type === 'course' ? 'Курс' : 'Задание'}</ContextMenuLabel>
             <ContextMenuItem icon={Eye} onClick={() => { const node = context.node; closeContext(); if (node.type === 'course') focusBranch(node.id); else openAssignment(node.entityId); }}>Открыть</ContextMenuItem>

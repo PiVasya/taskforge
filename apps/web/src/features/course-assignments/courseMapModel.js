@@ -219,7 +219,7 @@ export function computeCourseProgress(nodes, edges, assignments, rootCourseId) {
     const resolvedAssignments = [...assignmentIds].map((id) => assignmentsById.get(id)).filter(Boolean);
     const total = resolvedAssignments.length;
     const solved = resolvedAssignments.filter(isAssignmentSolved).length;
-    result.set(courseId, {
+    result.set(String(courseNode.id), {
       total,
       solved,
       percent: total > 0 ? Math.round((solved / total) * 100) : 0,
