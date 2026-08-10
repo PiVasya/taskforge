@@ -191,7 +191,7 @@ export default function CourseEditPage({ overlay = false }) {
     }
   };
 
-  const save = async ({ exitAfter = false } = {}) => {
+  const save = async () => {
     setBusy(true);
     setErr('');
     try {
@@ -205,9 +205,14 @@ export default function CourseEditPage({ overlay = false }) {
       };
 
       await updateCourse(courseId, payload);
-      await queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
-      notify.success('Курс обновлён');
-      if (exitAfter) returnFromEditor();
+      try {
+        queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
+      } catch {}
+      try {
+        notify.success('Курс обновлён');
+      } finally {
+        returnFromEditor();
+      }
     } catch (e) {
       if (e?.response?.status === 403) {
         notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
@@ -425,16 +430,8 @@ export default function CourseEditPage({ overlay = false }) {
         <div className="space-y-4">
           <Card>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => save()} disabled={busy} className="flex-1 min-w-[150px]">
+              <Button onClick={save} disabled={busy} className="flex-1 min-w-[150px]">
                 <Save size={16} /> {busy ? 'Сохраняю…' : 'Сохранить'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => save({ exitAfter: true })}
-                disabled={busy}
-                className="flex-1 min-w-[190px]"
-              >
-                <ArrowLeft size={16} /> {busy ? 'Сохраняю…' : 'Сохранить и выйти'}
               </Button>
               <Button
                 variant="outline"

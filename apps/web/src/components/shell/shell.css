@@ -359,7 +359,7 @@
 }
 
 .side-nav-link.is-rail {
-  @apply justify-center px-2;
+  @apply justify-center px-2 py-1;
 }
 
 .side-nav-link.is-rail .side-nav-icon {

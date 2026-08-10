@@ -443,7 +443,7 @@ export default function AssignmentEditPage() {
     });
   };
 
-  const save = async ({ exitAfter = false } = {}) => {
+  const save = async () => {
     setBusy(true);
     setErr("");
     setSaveIssues([]);
@@ -555,15 +555,20 @@ export default function AssignmentEditPage() {
           blocks: cleanedBlocks,
         });
       }
-      queryClient.setQueryData(editQueryKey, (previous = {}) => ({
-        ...previous,
-        assignment: { ...(previous.assignment || {}), ...payload, id: assignmentId, courseId },
-        testEdit: (type || '').trim() === 'test' ? { settings: testSettings, questions: testQuestions } : previous.testEdit,
-        mathEdit: (type || '').trim() === 'math' ? { settings: mathSettings, blocks: mathBlocks } : previous.mathEdit,
-      }));
-      if (courseId) queryClient.invalidateQueries({ queryKey: ['course-assignments', courseId] });
-      notify.success("Изменения сохранены");
-      if (exitAfter) returnFromEditor();
+      try {
+        queryClient.setQueryData(editQueryKey, (previous = {}) => ({
+          ...previous,
+          assignment: { ...(previous.assignment || {}), ...payload, id: assignmentId, courseId },
+          testEdit: (type || '').trim() === 'test' ? { settings: testSettings, questions: testQuestions } : previous.testEdit,
+          mathEdit: (type || '').trim() === 'math' ? { settings: mathSettings, blocks: mathBlocks } : previous.mathEdit,
+        }));
+        if (courseId) queryClient.invalidateQueries({ queryKey: ['course-assignments', courseId] });
+      } catch {}
+      try {
+        notify.success("Изменения сохранены");
+      } finally {
+        returnFromEditor();
+      }
     } catch (e) {
       
       if (e?.response?.status === 403) {
@@ -1291,11 +1296,8 @@ export default function AssignmentEditPage() {
       
       <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-neutral-200/60 dark:border-neutral-800/60 mt-6">
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button onClick={() => save()} disabled={busy}>
+          <Button onClick={save} disabled={busy}>
             <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
-          </Button>
-          <Button variant="outline" onClick={() => save({ exitAfter: true })} disabled={busy}>
-            <ArrowLeft size={16} /> {busy ? "Сохраняю…" : "Сохранить и выйти"}
           </Button>
           <Button
             variant="outline"

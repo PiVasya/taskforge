@@ -210,13 +210,34 @@ internal static class CourseMapProgressionService
 
             if (!outgoing.TryGetValue(state.NodeId, out var nextEdges)) continue;
 
-            // Full hiding is stronger than sequential reveal. While a hidden section is
-            // active, every next transition requires the entire path reaching the current
-            // node to be complete and no placeholder is emitted.
-            var hiddenSourceLocked = state.Hidden && !throughComplete.GetValueOrDefault(state.NodeId);
-            if (hiddenSourceLocked) continue;
+            var selfComplete = SelfComplete(state.NodeId);
 
-            var sequentialSourceLocked = state.Sequential && !SelfComplete(state.NodeId);
+            // Full hiding has two distinct phases and they must not be collapsed into one
+            // generic "locked" state:
+            //   1. prerequisites before the current hidden node are not complete -> leak
+            //      absolutely nothing about the continuation;
+            //   2. the current hidden node is already legitimately visible, but is not
+            //      solved yet -> keep the real target hidden, while an active sequential
+            //      mode may safely expose an opaque LOCK placeholder.
+            //
+            // Computing the prerequisite-only part from already memoized throughComplete
+            // values stays linear in the graph size (each incoming edge is inspected at
+            // most for the small, bounded set of traversal states of its target node).
+            var hiddenPrerequisitesComplete = !state.Hidden
+                || incoming[state.NodeId].All(source => throughComplete.GetValueOrDefault(source));
+            if (state.Hidden && !hiddenPrerequisitesComplete) continue;
+
+            var sequentialSourceLocked = state.Sequential && !selfComplete;
+            var hiddenCurrentNodeLocked = state.Hidden && !selfComplete;
+            if (hiddenCurrentNodeLocked)
+            {
+                if (sequentialSourceLocked)
+                {
+                    foreach (var edge in nextEdges)
+                        blockedSequentialEdges.Add(new BlockedSequentialEdge(edge, state.NodeId, edge.Target));
+                }
+                continue;
+            }
 
             foreach (var edge in nextEdges)
             {
@@ -231,8 +252,9 @@ internal static class CourseMapProgressionService
 
                 if (sequentialSourceLocked)
                 {
-                    // If this very edge starts full hiding, do not leak even a synthetic
-                    // continuation marker. Otherwise show the safe lock placeholder.
+                    // Starting a brand-new hidden section still reveals nothing before its
+                    // gate opens. When hiding is already active, the branch itself is no
+                    // longer secret; the opaque sequential placeholder is emitted above.
                     if (edge.HiddenEffect != EffectTransition.Start)
                         blockedSequentialEdges.Add(new BlockedSequentialEdge(edge, state.NodeId, edge.Target));
                     continue;

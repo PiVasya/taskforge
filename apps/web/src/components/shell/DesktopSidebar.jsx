@@ -42,7 +42,7 @@ function DesktopSidebar() {
     >
       <div className={`card side-nav-panel ${sidebarCollapsed ? 'p-2' : 'p-3'}`}>
         {!sidebarCollapsed && <div className="side-nav-section-title">Основное</div>}
-        <div className={sidebarCollapsed ? 'space-y-1.5' : 'mt-2 space-y-1.5'}>
+        <div className={sidebarCollapsed ? 'space-y-1' : 'mt-2 space-y-1.5'}>
           {primaryNav.map((item) => (
             <SideNavLink key={item.to} {...item} rail={sidebarCollapsed} />
           ))}
@@ -52,7 +52,7 @@ function DesktopSidebar() {
       {adminPrimaryNav.length > 0 && (
         <div className={`card side-nav-panel ${sidebarCollapsed ? 'p-2' : 'p-3'}`}>
           {!sidebarCollapsed && <div className="side-nav-section-title">Админка</div>}
-          <div className={sidebarCollapsed ? 'space-y-1.5' : 'mt-2 space-y-1.5'}>
+          <div className={sidebarCollapsed ? 'space-y-1' : 'mt-2 space-y-1.5'}>
             {adminPrimaryNav.map((item) => (
               <SideNavLink key={item.to} {...item} rail={sidebarCollapsed} />
             ))}
