@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { setAccessToken } from '../api/http';
 import { AuthApi } from '../api/auth';
 import { getProfile } from '../api/profile';
+import { clearAllCourseMapLocalCaches } from '../features/course-assignments/courseMapLocalCache';
+import { clearAllCourseMapSessionStates } from '../features/course-assignments/courseMapSessionState';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
@@ -41,6 +43,8 @@ export default function AuthProvider({ children }) {
 
   const doLogout = useCallback(async () => {
     try { await AuthApi.logout(); } catch { }
+    clearAllCourseMapLocalCaches();
+    clearAllCourseMapSessionStates();
     applyAccess(null);
     setUser(null);
   }, [applyAccess]);

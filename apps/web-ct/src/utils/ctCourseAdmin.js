@@ -45,10 +45,8 @@ export function makeCtRootPayload() {
     slug: CT_ROOT_SLUG,
     title: CT_ROOT_TITLE,
     shortTitle: "ЦТ/ЦЭ",
-    summary:
-      "Основа под подготовку к ЦТ/ЦЭ: разделы A и B создаются по мере необходимости.",
-    description:
-      "Служебный корень для второго фронта. Обычный пользователь его не видит как дерево.",
+    summary: "Подготовка к ЦТ/ЦЭ.",
+    description: "",
     subjectCode: SUBJECT_CODE,
     examCode: EXAM_CODE,
     sectionCode: null,
@@ -64,7 +62,7 @@ export function makeSectionCoursePayload(sectionCode, parentCourseId) {
     slug: normalized.toLowerCase(),
     title: normalized,
     shortTitle: normalized,
-    summary: `HTML-конспект и задания для ${normalized}.`,
+    summary: `Материалы и задания ${normalized}.`,
     description: "",
     subjectCode: SUBJECT_CODE,
     examCode: EXAM_CODE,

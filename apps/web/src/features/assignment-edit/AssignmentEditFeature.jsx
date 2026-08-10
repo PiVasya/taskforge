@@ -650,7 +650,6 @@ export default function AssignmentEditPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold">Компактный редактор</div>
-            <div className="text-xs text-neutral-500">Разделы можно раскрывать только когда они нужны.</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" type="button" onClick={expandAllSections}>Открыть всё</Button>
@@ -679,7 +678,6 @@ export default function AssignmentEditPage() {
           id="section-readiness"
           icon={ListChecks}
           title="Готовность задания"
-          description="Короткая проверка перед сохранением. Раздел можно держать открытым как чеклист."
           summary={validationIssues.length === 0 ? "готово" : `${validationIssues.length} проблем`}
           open={!!openSections.readiness}
           onToggle={() => toggleSection("readiness")}
@@ -715,7 +713,6 @@ export default function AssignmentEditPage() {
           id="section-main"
           icon={Settings2}
           title="Основное"
-          description="Название, тип, сложность, теги, видимость и разрешённые языки."
           summary={`${type || "code-test"} · ${isHidden ? "скрыто" : "опубликовано"}`}
           open={!!openSections.main}
           onToggle={() => toggleSection("main")}
@@ -847,7 +844,6 @@ export default function AssignmentEditPage() {
           id="section-statement"
           icon={FileText}
           title="Условие задания"
-          description="Большой HTML-редактор вынесен отдельно, чтобы не раздувать всю страницу."
           summary={String(description || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim() ? "заполнено" : "пусто"}
           open={!!openSections.statement}
           onToggle={() => toggleSection("statement")}
@@ -863,7 +859,6 @@ export default function AssignmentEditPage() {
           id="section-analytics"
           icon={ShieldCheck}
           title="Аналитика и контроль"
-          description="Подготовка будущего уровня сбора статистики для задания. Сейчас UI уже компактно встроен в редактор."
           summary={analyticsSummary}
           open={!!openSections.analytics}
           onToggle={() => toggleSection("analytics")}
@@ -959,15 +954,6 @@ export default function AssignmentEditPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgba(var(--muted)/0.35)] p-4 text-sm">
-              <div className="font-semibold">Что это даст дальше</div>
-              <div className="mt-2 text-neutral-600 dark:text-neutral-300">
-                Эти настройки сохраняются на backend и управляют сбором событий: статистика, история решений, proctoring, live-поток, snapshots, похожесть и risk score.
-              </div>
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-                Сбор работает через backend-controlled события: фронт отправляет общий поток, а backend решает, что реально хранить для конкретного задания.
-              </div>
-            </div>
           </div>
         </EditorSection>
 
@@ -976,7 +962,6 @@ export default function AssignmentEditPage() {
             id="section-codeRules"
             icon={Code2}
             title="Код и правила проверки"
-            description="Заготовка кода, запрещённые вызовы и обязательные элементы решения."
             summary={starterCode ? "есть заготовка" : "без заготовки"}
             open={!!openSections.codeRules}
             onToggle={() => toggleSection("codeRules")}
@@ -1057,7 +1042,6 @@ export default function AssignmentEditPage() {
             id="section-codeTests"
             icon={ClipboardList}
             title="Тест-кейсы"
-            description="Input / Expected Output и скрытые тесты для code-test."
             summary={`${testCases.length} шт.`}
             open={!!openSections.codeTests}
             onToggle={() => toggleSection("codeTests")}
@@ -1119,7 +1103,6 @@ export default function AssignmentEditPage() {
             id="section-imageTests"
             icon={ImageIcon}
             title="Image-test"
-            description="Проверка результата сравнением картинки. Эталоны хранятся приватно."
             summary={`${testCases.length} тестов · ${imageTestThreshold}%`}
             open={!!openSections.imageTests}
             onToggle={() => toggleSection("imageTests")}
@@ -1262,7 +1245,6 @@ export default function AssignmentEditPage() {
             id="section-testEditor"
             icon={ClipboardList}
             title="Тестовое задание"
-            description="Настройки теста, вопросы, варианты и допустимые текстовые ответы."
             summary={`${testQuestions.length} вопросов`}
             open={!!openSections.testEditor}
             onToggle={() => toggleSection("testEditor")}
@@ -1281,7 +1263,6 @@ export default function AssignmentEditPage() {
             id="section-mathEditor"
             icon={Calculator}
             title="Math / B-text задание"
-            description="Блоки, порядок, сопоставления, числовые и текстовые ответы."
             summary={`${mathBlocks.length} блоков`}
             open={!!openSections.mathEditor}
             onToggle={() => toggleSection("mathEditor")}

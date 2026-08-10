@@ -39,4 +39,59 @@ const app = fs.readFileSync(path.join(root, 'App.jsx'), 'utf8');
 if (!/lazy\(\(\) => import\(/.test(app)) fail('route-level lazy chunks are missing');
 if (!/<Route element={<AppShell \/>}>/.test(app)) fail('persistent AppShell route is missing');
 
+
+const forbiddenLearnerCopy = {
+  'pages/CoursesHomePage.jsx': [
+    'Сначала выбираем обычный курс',
+    'Логика входа',
+  ],
+  'pages/CtTrainerPage.jsx': [
+    'Backend недоступен',
+    'fallback-версия',
+    'Показана fallback',
+    'JSON-блоки',
+  ],
+  'pages/LearningHomePage.jsx': [
+    'Старые программные курсы',
+    'Логика',
+  ],
+  'pages/LearningCoursePage.jsx': [
+    'quiz-task-service',
+    'Задания появляются внутри конкретных разделов',
+  ],
+  'pages/MainCoursePage.jsx': [
+    'seed learning-content-service',
+    'Здесь будет ЦТ/ЦЭ',
+  ],
+  'pages/SimpleHomePage.jsx': [
+    'номер → HTML-конспект',
+  ],
+  'pages/SimpleSectionPage.jsx': [
+    'Сначала чаще выпадают новые',
+    'HTML-конспект',
+  ],
+  'components/RichConspectRenderer.jsx': [
+    'HTML-конспект',
+    'Конспект можно открыть на весь экран',
+  ],
+  'utils/ctCourseAdmin.js': [
+    'Служебный корень для второго фронта',
+    'HTML-конспект и задания',
+  ],
+  'components/CtStructureBootstrapPanel.jsx': [
+    'Служебный корень для второго фронта',
+    'HTML-конспект и задания',
+  ],
+};
+for (const [relativePath, phrases] of Object.entries(forbiddenLearnerCopy)) {
+  const fullPath = path.join(root, relativePath);
+  if (!fs.existsSync(fullPath)) fail(`missing src/${relativePath}`);
+  const text = fs.readFileSync(fullPath, 'utf8');
+  for (const phrase of phrases) {
+    if (text.includes(phrase)) {
+      fail(`developer commentary leaked into learner UI: src/${relativePath} contains "${phrase}"`);
+    }
+  }
+}
+
 console.log('CT frontend architecture invariants OK');

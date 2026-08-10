@@ -349,10 +349,6 @@ function SolutionsPanel({ sectionCode, refreshKey }) {
       <h3 className="text-2xl font-black tracking-tight">
         Решения {sectionCode}
       </h3>
-      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-        Здесь виден последний ответ по каждому заданию. Если ответить на то же
-        задание ещё раз, старый ответ заменится новым.
-      </p>
 
       {loading ? (
         <div className="mt-4 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
@@ -499,9 +495,6 @@ function RandomTasksBlock({ sectionCode }) {
           <h2 className="text-3xl font-black tracking-tight">
             Случайные задания
           </h2>
-          <p className="mt-1 text-neutral-600 dark:text-neutral-300">
-            Сначала чаще выпадают новые, потом неправильные, потом уже решённые.
-          </p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-neutral-600 dark:text-neutral-300">
             <span className="rounded-full bg-sky-100 px-3 py-1 dark:bg-sky-950/40">
               новые: {stats.new}
@@ -781,11 +774,9 @@ export default function SimpleSectionPage({ sectionCode }) {
             <h1 className="mt-2 text-5xl font-black tracking-tight">
               {normalizedSectionCode}
             </h1>
-            <p className="mt-3 max-w-2xl text-lg text-neutral-600 dark:text-neutral-300">
-              {sectionExists
-                ? "Сначала HTML-конспект, ниже случайные задания по этому же номеру."
-                : "Такой номер ещё не создан как полноценный раздел."}
-            </p>
+            {!sectionExists ? (
+              <p className="mt-3 max-w-2xl text-lg text-neutral-600 dark:text-neutral-300">Раздел ещё не создан.</p>
+            ) : null}
           </section>
 
           {courseError ? (
@@ -809,8 +800,7 @@ export default function SimpleSectionPage({ sectionCode }) {
 
           {!courseLoading && !sectionExists && !canCreateHere ? (
             <div className="mt-6 rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-              Номер {normalizedSectionCode} пока не создан. Он появится в списке
-              только после того, как редактор создаст полноценный раздел.
+              Номер {normalizedSectionCode} пока не создан.
             </div>
           ) : null}
 
@@ -836,8 +826,7 @@ export default function SimpleSectionPage({ sectionCode }) {
                   />
                 ) : (
                   <div className="rounded-[2rem] border border-neutral-200 bg-white p-8 text-neutral-600 shadow-soft dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-                    Для {normalizedSectionCode} пока нет опубликованного
-                    HTML-конспекта.
+                    Для {normalizedSectionCode} пока нет конспекта.
                   </div>
                 )}
               </div>

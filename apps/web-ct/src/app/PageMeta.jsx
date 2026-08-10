@@ -69,8 +69,6 @@ export default function PageMeta() {
     setMeta('meta[property="og:url"]', { property: 'og:url' }, canonical);
     setCanonical(canonical);
 
-    // PageContent marks the document ready only after the lazy route has
-    // resolved inside Suspense, so Chromium never treats the fallback as final.
   }, [location.pathname, meta.description, meta.indexable, meta.title]);
 
   return null;

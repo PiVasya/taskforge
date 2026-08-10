@@ -22,10 +22,8 @@ export default function LockedNode({ data }) {
         isConnectableEnd={false}
         className="course-map-handle course-map-handle--in"
       />
-      <NodeTopline icon={LockKeyhole} kicker="Закрытое продолжение" badge="LOCK" />
-      <div className="course-map-node-title">{title}</div>
+      <NodeTopline icon={LockKeyhole} title={title} />
       <div className="course-map-locked-requirement">{requirement}</div>
-      <div className="course-map-locked-hint">Содержимое откроется автоматически после выполнения условия.</div>
     </div>
   );
 }

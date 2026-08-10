@@ -442,7 +442,6 @@ function CompilerFeature() {
           <div className="compiler-page__mark"><Braces size={24} /></div>
           <div>
             <h1>Онлайн-компилятор</h1>
-            <p>Пишите код и общайтесь с программой через живую интерактивную консоль.</p>
           </div>
         </div>
         <div className={`compiler-status is-${statusTone}`}>
@@ -539,7 +538,6 @@ function CompilerFeature() {
         <section className={`compiler-pane compiler-pane--editor ${mobileTab === 'code' ? 'is-mobile-active' : ''}`}>
           <header className="compiler-pane__header">
             <div><FileCode2 size={16} /><span>{selectedLanguage.fileName}</span></div>
-            <span className="compiler-pane__hint">Черновик сохраняется автоматически</span>
           </header>
           <div className="compiler-editor-host">
             <CodeEditor
@@ -582,10 +580,6 @@ function CompilerFeature() {
         </section>
       </div>
 
-      <div className="compiler-note">
-        <Terminal size={16} />
-        <span>Это консоль выполняемой программы, а не доступ к оболочке сервера. JavaScript намеренно вынесен из списка — для него будет отдельная среда фронтенд-задач.</span>
-      </div>
     </div>
   );
 }

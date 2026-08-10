@@ -3,8 +3,8 @@ import ReactFlow, {
   ReactFlowProvider,
   Background,
   Controls,
-  MiniMap,
   MarkerType,
+  SelectionMode,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
-import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, GripVertical, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
@@ -35,13 +35,17 @@ import {
   computeCourseMapAccessEffects,
   computeCourseProgress,
   courseNodeId,
+  readCourseProgress,
+  writeCourseProgress,
   findUnplacedEntities,
   normalizeStoredMap,
   serializeCourseMap,
   wouldCreateCycle,
 } from '../courseMapModel';
 import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
+import { clearCourseMapLocalCache, readCourseMapLocalCache, writeCourseMapLocalCache } from '../courseMapLocalCache';
 import { navigateToCourseEditor } from '../courseMapNavigation';
+import { applyTaskGraphImport } from '../courseTaskGraphImport';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
 import TestNode from '../nodes/TestNode';
@@ -148,9 +152,6 @@ function edgeStyle(editorMode, edge = null) {
     className: classes.join(' '),
     type: 'courseMap',
     interactionWidth: editorMode ? 28 : 18,
-    // Explicitly clear legacy/default ReactFlow labels. Without this, spreading a
-    // previously decorated edge could leave the old text visible after an effect
-    // is reset to inherit. The custom edge renders compact HTML badges instead.
     label: undefined,
     labelShowBg: false,
     labelStyle: undefined,
@@ -169,7 +170,21 @@ function nodeAccessClassName(searchMatch, accessEffects, editorMode) {
   return classes.join(' ');
 }
 
-function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false }) {
+
+function findOpenMapPosition(basePosition, existingNodes, index = 0) {
+  const base = { x: Number(basePosition?.x) || 0, y: Number(basePosition?.y) || 0 };
+  const occupied = (existingNodes || []).map((node) => ({ x: Number(node?.position?.x) || 0, y: Number(node?.position?.y) || 0 }));
+  for (let step = index; step < index + 160; step += 1) {
+    const column = step % 5;
+    const row = Math.floor(step / 5);
+    const candidate = { x: base.x + column * 300, y: base.y + row * 170 };
+    const overlaps = occupied.some((item) => Math.abs(item.x - candidate.x) < 240 && Math.abs(item.y - candidate.y) < 125);
+    if (!overlaps) return candidate;
+  }
+  return { x: base.x + index * 34, y: base.y + index * 34 };
+}
+
+function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, onGraphImportComplete }) {
   const nav = useNavigate();
   const location = useLocation();
   const notify = useNotify();
@@ -190,6 +205,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [searchOpen, setSearchOpen] = React.useState(Boolean(query));
   const [graphRevision, setGraphRevision] = React.useState(0);
   const [mapHeight, setMapHeight] = React.useState(null);
+  const [courseProgressByNode, setCourseProgressByNode] = React.useState(() => new Map());
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
@@ -204,6 +220,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const copyBufferRef = React.useRef(null);
   const pasteSequenceRef = React.useRef(0);
   const searchInputRef = React.useRef(null);
+  const unplacedRef = React.useRef(null);
+  const appliedGraphImportRef = React.useRef('');
+  const courseProgressRef = React.useRef(new Map());
 
   const rootId = String(course?.id || '');
   const visibleCourses = React.useMemo(() => subtreeCourses(rootId, allCourses, course), [allCourses, course, rootId]);
@@ -227,6 +246,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [visibleCourses]);
   const entityIndex = React.useMemo(() => buildEntityIndex(visibleCourses, assignments), [assignments, visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
+  const cacheCourseIds = React.useMemo(() => visibleCourses.map((item) => String(item?.id || '')).filter(Boolean), [visibleCourses]);
+  const sessionOptions = React.useMemo(() => ({
+    scope: editorMode ? 'editor' : 'learner',
+    userId: currentUserId || 'anonymous',
+    rootCourseId: rootId,
+    aliases: cacheCourseIds,
+  }), [cacheCourseIds, currentUserId, editorMode, rootId]);
 
   React.useEffect(() => { recordRef.current = record; }, [record]);
   React.useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
@@ -238,6 +264,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [searchOpen]);
+
+  React.useEffect(() => {
+    if (!unplacedOpen) return undefined;
+    const close = (event) => {
+      if (unplacedRef.current?.contains(event.target)) return;
+      setUnplacedOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setUnplacedOpen(false);
+    };
+    document.addEventListener('pointerdown', close, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', close, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [unplacedOpen]);
 
   React.useLayoutEffect(() => {
     if (loading) return undefined;
@@ -260,23 +303,52 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [editorMode, loading, rootId]);
 
   const persistSession = React.useCallback((nextDirty = dirtyRef.current) => {
-    // Learner maps can contain synthetic lock nodes. Never place that sanitized
-    // document into the editor session cache, otherwise switching to editor mode
-    // could accidentally restore synthetic nodes into a map that may be saved.
-    if (!editorMode || !rootId || !nodesRef.current.length) return;
+    if (!rootId || !nodesRef.current.length) return;
+    const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
+    const cachedDocument = editorMode ? document : {
+      ...document,
+      courseProgressVersion: 1,
+      courseProgress: writeCourseProgress(courseProgressRef.current),
+    };
+    const dirtyValue = editorMode && Boolean(nextDirty);
+    const mapRecord = {
+      ...recordRef.current,
+      rootCourseId: recordRef.current.rootCourseId || rootId,
+      requestedCourseId: rootId,
+      document: cachedDocument,
+    };
     setCourseMapSessionState(rootId, {
       version: recordRef.current.version || 0,
-      dirty: Boolean(nextDirty),
-      document: serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current),
+      dirty: dirtyValue,
+      aliases: cacheCourseIds,
+      document,
+    }, sessionOptions);
+    writeCourseMapLocalCache({
+      courseId: rootId,
+      rootCourseId: mapRecord.rootCourseId,
+      editorMode,
+      userId: currentUserId,
+      aliases: cacheCourseIds,
+      mapRecord,
+      assignments,
+      dirty: dirtyValue,
     });
-  }, [editorMode, rootId]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, rootId, sessionOptions]);
 
   const rememberBeforeNavigate = React.useCallback(() => persistSession(dirtyRef.current), [persistSession]);
 
+  React.useEffect(() => {
+    if (!rootId || !nodes.length) return undefined;
+    const timer = window.setTimeout(() => persistSession(dirtyRef.current), 420);
+    return () => window.clearTimeout(timer);
+  }, [edges, nodes, persistSession, rootId]);
+
   const openAssignment = React.useCallback((assignmentId) => {
     rememberBeforeNavigate();
-    nav(`/assignment/${assignmentId}`);
-  }, [nav, rememberBeforeNavigate]);
+    nav(`/assignment/${assignmentId}`, {
+      state: { courseMapRootId: rootId, courseMapRequestedCourseId: rootId },
+    });
+  }, [nav, rememberBeforeNavigate, rootId]);
 
   const editAssignment = React.useCallback((assignmentId) => {
     rememberBeforeNavigate();
@@ -322,7 +394,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const decorateNodes = React.useCallback((rawNodes) => {
     const q = String(query || '').trim().toLowerCase();
-    const progressByCourse = computeCourseProgress(rawNodes, edgesRef.current, assignments, rootId);
+    const computedProgress = computeCourseProgress(rawNodes, edgesRef.current, assignments, rootId);
+    const progressByCourse = !editorMode && courseProgressByNode.size ? courseProgressByNode : computedProgress;
     const accessByNode = computeCourseMapAccessEffects(rawNodes, edgesRef.current);
     return rawNodes.map((node) => {
       if (node.type === 'locked') {
@@ -365,99 +438,172 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         },
       };
     });
-  }, [assignments, editAssignment, editCourse, editorMode, entityIndex, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
+  }, [assignments, courseProgressByNode, editAssignment, editCourse, editorMode, entityIndex, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
 
   const decorateEdges = React.useCallback((rawEdges) => rawEdges.map((edge) => ({ ...edge, ...edgeStyle(editorMode, edge) })), [editorMode]);
+
+  const applyMapPayload = React.useCallback((mapRecord, treeAssignments, {
+    preferSession = true,
+    fromCache = false,
+    cachedState = null,
+  } = {}) => {
+    const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
+    const nextCourses = subtreeCourses(rootId, allCourses, course);
+    const suppliedCourseProgress = editorMode ? new Map() : readCourseProgress(mapRecord?.document);
+    const session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
+    const persistedDraft = editorMode && cachedState?.dirty && cachedState?.mapRecord?.document
+      ? {
+          version: Number(cachedState.mapRecord.version || 0),
+          dirty: true,
+          aliases: cachedState.aliases || cacheCourseIds,
+          document: cachedState.mapRecord.document,
+        }
+      : null;
+    const localState = session?.document ? session : persistedDraft;
+    const serverVersion = Number(mapRecord?.version || 0);
+    const localVersion = Number(localState?.version || 0);
+    const localIsDirty = editorMode && Boolean(localState?.dirty);
+    const localMatchesServer = Boolean(localState?.document) && localVersion === serverVersion;
+    const keepDirtyAcrossConflict = Boolean(localState?.document) && localIsDirty && localVersion !== serverVersion;
+    let document = localMatchesServer || keepDirtyAcrossConflict ? localState.document : null;
+    let isDirty = document ? localIsDirty : false;
+    let expectedRecord = mapRecord || { version: 0, document: null };
+    let changedOnServer = false;
+
+    if (keepDirtyAcrossConflict) {
+      expectedRecord = { ...expectedRecord, version: localVersion };
+      changedOnServer = true;
+    }
+
+    if (!document) {
+      document = normalizeStoredMap(mapRecord?.document, nextCourses, nextAssignments);
+      if (!document) {
+        document = buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
+        isDirty = Boolean(editorMode && (document.nodes.length || document.edges.length));
+      }
+    } else {
+      document = normalizeStoredMap(document, nextCourses, nextAssignments)
+        || buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
+    }
+
+    setAssignments(nextAssignments);
+    setRecord(expectedRecord);
+    recordRef.current = expectedRecord;
+    setDirty(isDirty);
+    dirtyRef.current = isDirty;
+    setServerChanged(changedOnServer);
+    viewportRef.current = document.viewport || { x: 0, y: 0, zoom: 1 };
+
+    const idx = buildEntityIndex(nextCourses, nextAssignments);
+    const computedProgress = computeCourseProgress(document.nodes || [], document.edges || [], nextAssignments, rootId);
+    const resolvedProgress = !editorMode && suppliedCourseProgress.size ? suppliedCourseProgress : computedProgress;
+    courseProgressRef.current = new Map(resolvedProgress);
+    setCourseProgressByNode(new Map(resolvedProgress));
+    const accessByNode = computeCourseMapAccessEffects(document.nodes || [], document.edges || []);
+    const nextNodes = (document.nodes || []).map((node) => {
+      if (node.type === 'locked') {
+        return {
+          ...node,
+          type: 'locked',
+          className: '',
+          data: { settings: node.settings || {}, editorMode: false, searchMatch: true },
+        };
+      }
+      const isCourse = node.type === 'course';
+      const entity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
+      const accessEffects = accessByNode.get(String(node.id)) || null;
+      return {
+        ...node,
+        type: isCourse ? 'course' : assignmentNodeType(entity?.type || node.type),
+        className: nodeAccessClassName(true, accessEffects, editorMode),
+        data: {
+          entityId: node.entityId,
+          entity,
+          progress: isCourse ? (resolvedProgress.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null,
+          settings: node.settings,
+          editorMode,
+          accessEffects,
+          onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
+          onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
+          onEdit: isCourse ? () => editCourse(node.entityId) : () => editAssignment(node.entityId),
+        },
+      };
+    });
+    const nextEdges = decorateEdges(document.edges || []);
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    loadedRootRef.current = rootId;
+    setLoading(false);
+
+    setCourseMapSessionState(rootId, {
+      version: Number(expectedRecord.version || 0),
+      dirty: Boolean(isDirty),
+      aliases: cacheCourseIds,
+      document,
+    }, sessionOptions);
+
+    window.requestAnimationFrame(() => {
+      try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
+    });
+
+    if (!fromCache || isDirty) {
+      const mapRecordForCache = {
+        ...(mapRecord || expectedRecord),
+        version: Number(expectedRecord.version || 0),
+        rootCourseId: mapRecord?.rootCourseId || expectedRecord.rootCourseId || rootId,
+        requestedCourseId: mapRecord?.requestedCourseId || rootId,
+        document: editorMode ? document : {
+          ...document,
+          courseProgressVersion: 1,
+          courseProgress: writeCourseProgress(resolvedProgress),
+        },
+      };
+      writeCourseMapLocalCache({
+        courseId: rootId,
+        rootCourseId: mapRecordForCache.rootCourseId,
+        editorMode,
+        userId: currentUserId,
+        aliases: cacheCourseIds,
+        mapRecord: mapRecordForCache,
+        assignments: nextAssignments,
+        dirty: Boolean(isDirty),
+      });
+    }
+  }, [allCourses, cacheCourseIds, course, currentUserId, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, openAssignment, rootId, sessionOptions, setEdges, setNodes]);
 
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
     const requestId = ++loadRequestRef.current;
     const initialForRoot = loadedRootRef.current !== rootId;
-    if (!quiet && initialForRoot) setLoading(true);
-    try {
-      const [mapRecord, treeAssignments] = await Promise.all([editorMode ? getCourseMap(rootId) : getLearningCourseMap(rootId), getAssignmentsByCourseTree(rootId)]);
-      if (requestId !== loadRequestRef.current) return;
-      const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
-      const nextCourses = subtreeCourses(rootId, allCourses, course);
-      const session = editorMode && preferSession ? getCourseMapSessionState(rootId) : null;
-      const serverVersion = Number(mapRecord?.version || 0);
-      const sessionVersion = Number(session?.version || 0);
-      const sessionIsDirty = Boolean(session?.dirty);
-      const sessionMatchesServer = Boolean(session?.document) && sessionVersion === serverVersion;
-      const keepDirtySessionAcrossConflict = Boolean(session?.document) && sessionIsDirty && sessionVersion !== serverVersion;
-      let document = sessionMatchesServer || keepDirtySessionAcrossConflict ? session.document : null;
-      let isDirty = document ? sessionIsDirty : false;
-      let expectedRecord = mapRecord || { version: 0, document: null };
-      let changedOnServer = false;
-      if (keepDirtySessionAcrossConflict) {
-        expectedRecord = { ...expectedRecord, version: sessionVersion };
-        changedOnServer = true;
+    let restoredFromCache = false;
+    if (initialForRoot && preferSession) {
+      const cached = readCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
+      const cacheHasProgress = editorMode || Number(cached?.mapRecord?.document?.courseProgressVersion) === 1;
+      if (cached?.mapRecord && cacheHasProgress) {
+        applyMapPayload(cached.mapRecord, cached.assignments, { preferSession: true, fromCache: true, cachedState: cached });
+        restoredFromCache = true;
+      } else if (cached?.mapRecord && !editorMode) {
+        clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
       }
-      if (!document) {
-        document = normalizeStoredMap(mapRecord?.document, nextCourses, nextAssignments);
-        if (!document) {
-          document = buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
-          isDirty = Boolean(editorMode && (document.nodes.length || document.edges.length));
-        }
-      } else {
-        document = normalizeStoredMap(document, nextCourses, nextAssignments) || buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
-      }
-
-      setAssignments(nextAssignments);
-      setRecord(expectedRecord);
-      recordRef.current = expectedRecord;
-      setDirty(isDirty);
-      dirtyRef.current = isDirty;
-      setServerChanged(changedOnServer);
-      viewportRef.current = document.viewport || { x: 0, y: 0, zoom: 1 };
-
-      const idx = buildEntityIndex(nextCourses, nextAssignments);
-      const progress = computeCourseProgress(document.nodes || [], document.edges || [], nextAssignments, rootId);
-      const accessByNode = computeCourseMapAccessEffects(document.nodes || [], document.edges || []);
-      const nextNodes = (document.nodes || []).map((node) => {
-        if (node.type === 'locked') {
-          return {
-            ...node,
-            type: 'locked',
-            className: '',
-            data: { settings: node.settings || {}, editorMode: false, searchMatch: true },
-          };
-        }
-        const isCourse = node.type === 'course';
-        const entity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
-        const accessEffects = accessByNode.get(String(node.id)) || null;
-        return {
-          ...node,
-          type: isCourse ? 'course' : assignmentNodeType(entity?.type || node.type),
-          className: nodeAccessClassName(true, accessEffects, editorMode),
-          data: {
-            entityId: node.entityId,
-            entity,
-            progress: isCourse ? (progress.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null,
-            settings: node.settings,
-            editorMode,
-            accessEffects,
-            onOpen: isCourse ? () => focusBranch(node.id) : () => openAssignment(node.entityId),
-            onFocus: isCourse ? () => focusBranch(node.id) : () => focusNode(node.id),
-            onEdit: isCourse ? () => editCourse(node.entityId) : () => editAssignment(node.entityId),
-          },
-        };
-      });
-      const nextEdges = decorateEdges(document.edges || []);
-      nodesRef.current = nextNodes;
-      edgesRef.current = nextEdges;
-      setNodes(nextNodes);
-      setEdges(nextEdges);
-      loadedRootRef.current = rootId;
-      requestAnimationFrame(() => {
-        try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
-      });
-    } catch (error) {
-      if (requestId === loadRequestRef.current) notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
-    } finally {
-      if (requestId === loadRequestRef.current && initialForRoot) setLoading(false);
     }
-  }, [allCourses, course, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, notify, openAssignment, rootId, setEdges, setNodes]);
+    if (!quiet && initialForRoot && !restoredFromCache) setLoading(true);
+    try {
+      const [mapRecord, treeAssignments] = await Promise.all([
+        editorMode ? getCourseMap(rootId) : getLearningCourseMap(rootId),
+        getAssignmentsByCourseTree(rootId),
+      ]);
+      if (requestId !== loadRequestRef.current) return;
+      applyMapPayload(mapRecord, treeAssignments, { preferSession, fromCache: false });
+    } catch (error) {
+      if (requestId === loadRequestRef.current && !restoredFromCache) {
+        notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
+      }
+    } finally {
+      if (requestId === loadRequestRef.current && initialForRoot && !restoredFromCache) setLoading(false);
+    }
+  }, [applyMapPayload, currentUserId, editorMode, notify, rootId]);
 
   loadMapRef.current = loadMap;
   React.useEffect(() => {
@@ -475,9 +621,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     dataRevisionRef.current = dataRevision;
     if (!rootId) return;
     let disposed = false;
-    getAssignmentsByCourseTree(rootId).then((rows) => { if (!disposed) setAssignments(Array.isArray(rows) ? rows : []); }).catch(() => {});
+    getAssignmentsByCourseTree(rootId).then((rows) => {
+      if (disposed) return;
+      const nextAssignments = Array.isArray(rows) ? rows : [];
+      setAssignments(nextAssignments);
+      const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
+      const cachedDocument = editorMode ? document : {
+        ...document,
+        courseProgressVersion: 1,
+        courseProgress: writeCourseProgress(courseProgressRef.current),
+      };
+      writeCourseMapLocalCache({
+        courseId: rootId,
+        rootCourseId: recordRef.current.rootCourseId || rootId,
+        editorMode,
+        userId: currentUserId,
+        aliases: cacheCourseIds,
+        mapRecord: { ...recordRef.current, document: cachedDocument },
+        assignments: nextAssignments,
+        dirty: editorMode && dirtyRef.current,
+      });
+    }).catch(() => {});
     return () => { disposed = true; };
-  }, [dataRevision, rootId]);
+  }, [cacheCourseIds, currentUserId, dataRevision, editorMode, rootId]);
 
   React.useEffect(() => {
     if (!nodesRef.current.length) return;
@@ -693,17 +859,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const next = [...current, node];
       nodesRef.current = next;
       if (rootId) {
+        const document = serializeCourseMap(next, edgesRef.current, viewportRef.current);
         setCourseMapSessionState(rootId, {
           version: recordRef.current.version || 0,
           dirty: true,
-          document: serializeCourseMap(next, edgesRef.current, viewportRef.current),
-        });
+          aliases: cacheCourseIds,
+          document,
+        }, sessionOptions);
       }
       return next;
     });
     markDirty();
     setGraphRevision((value) => value + 1);
-  }, [markDirty, rootId, setNodes]);
+  }, [cacheCourseIds, markDirty, rootId, sessionOptions, setNodes]);
 
   const createMapNode = React.useCallback(async (kind, position) => {
     if (!editorMode || !courseCanEdit) return;
@@ -796,8 +964,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
   }, [notify, onRefreshCourseData, removeEntityFromMap, setAssignments]);
 
-  const save = React.useCallback(async () => {
-    if (!editorMode || !dirtyRef.current || !rootId) return;
+  const save = React.useCallback(async (options = {}) => {
+    if (!editorMode || !rootId) return false;
+    if (!dirtyRef.current) return true;
+    const quietSuccess = Boolean(options?.quietSuccess);
     try {
       const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
       const saved = await saveCourseMap(rootId, Number(recordRef.current.version || 0), document);
@@ -806,17 +976,84 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       setDirty(false);
       dirtyRef.current = false;
       setServerChanged(false);
-      setCourseMapSessionState(rootId, { version: saved.version || 0, dirty: false, document });
-      notify.success('Карта сохранена');
+      setCourseMapSessionState(rootId, {
+        version: saved.version || 0,
+        dirty: false,
+        aliases: cacheCourseIds,
+        document,
+      }, sessionOptions);
+      writeCourseMapLocalCache({
+        courseId: rootId,
+        rootCourseId: saved.rootCourseId || rootId,
+        editorMode: true,
+        userId: currentUserId,
+        aliases: cacheCourseIds,
+        mapRecord: { ...saved, document },
+        assignments,
+        dirty: false,
+      });
+      clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
+      if (!quietSuccess) notify.success('Карта сохранена');
+      return true;
     } catch (error) {
       if (error?.response?.status === 409) {
         setServerChanged(true);
         notify.warn('Карту уже изменил другой редактор. Ваши локальные изменения сохранены на экране.');
-        return;
+        return false;
       }
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
+      return false;
     }
-  }, [editorMode, notify, rootId]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions]);
+
+  React.useEffect(() => {
+    const requestKey = String(graphImportRequest?.key || '');
+    if (!editorMode || loading || !requestKey || appliedGraphImportRef.current === requestKey) return;
+
+    const result = applyTaskGraphImport({
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      taskGraph: graphImportRequest?.taskGraph,
+      taskMappings: graphImportRequest?.taskMappings,
+      assignments,
+      courseId: course?.id || rootId,
+    });
+    if (result.pending) return;
+
+    appliedGraphImportRef.current = requestKey;
+    if (result.error === 'cycle') {
+      notify.error('Импортированные связи создают цикл вместе с текущей картой.');
+      onGraphImportComplete?.(requestKey);
+      return;
+    }
+
+    const nextEdges = decorateEdges(result.edges);
+    edgesRef.current = nextEdges;
+    const nextNodes = decorateNodes(result.nodes);
+    nodesRef.current = nextNodes;
+    setEdges(nextEdges);
+    setNodes(nextNodes);
+    markDirty();
+    setGraphRevision((value) => value + 1);
+    persistSession(true);
+
+    window.requestAnimationFrame(() => {
+      const importedIds = new Set(result.importedNodeIds);
+      const imported = nextNodes.filter((node) => importedIds.has(String(node.id)));
+      if (!imported.length) return;
+      try { flow.fitView({ nodes: imported, padding: 0.55, duration: 380, maxZoom: 1.05 }); } catch {}
+    });
+
+    void (async () => {
+      const saved = await save({ quietSuccess: true });
+      if (saved) {
+        const unplacedCount = result.unplacedAssignmentIds.length;
+        const unplacedText = unplacedCount ? `, вне карты: ${unplacedCount}` : '';
+        notify.success(`Граф применён: ${result.connectionCount} связей${unplacedText}`);
+      }
+      onGraphImportComplete?.(requestKey);
+    })();
+  }, [assignments, course?.id, decorateEdges, decorateNodes, editorMode, flow, graphImportRequest, loading, markDirty, notify, onGraphImportComplete, persistSession, rootId, save, setEdges, setNodes]);
 
   const copySelection = React.useCallback(() => {
     if (!editorMode) return false;
@@ -903,8 +1140,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   React.useEffect(() => {
     if (!editorMode) return undefined;
     const onKeyDown = (event) => {
-      // The route-backed course editor intentionally keeps this map mounted in
-      // the background. Do not let global map shortcuts mutate a hidden graph.
       if (document.querySelector('.course-map-route-overlay')) return;
       if (isEditableShortcutTarget(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
@@ -932,24 +1167,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const ok = await notify.confirm({ title: 'Отбросить локальные изменения?', message: 'Будет загружена последняя сохранённая версия карты.', okText: 'Загрузить', cancelText: 'Оставить мои' });
       if (!ok) return;
     }
-    clearCourseMapSessionState(rootId);
+    clearCourseMapSessionState(rootId, sessionOptions);
+    clearCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
     await loadMap({ preferSession: false });
-  }, [loadMap, notify, rootId]);
+  }, [currentUserId, editorMode, loadMap, notify, rootId, sessionOptions]);
 
   const documentNow = React.useMemo(() => serializeCourseMap(nodes, edges, viewportRef.current), [edges, nodes]);
   const unplaced = React.useMemo(() => findUnplacedEntities(documentNow, visibleCourses, assignments), [assignments, documentNow, visibleCourses]);
 
-  const placeUnplaced = React.useCallback((entry) => {
-    const rect = shellRef.current?.getBoundingClientRect();
-    const screenPoint = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    const position = flow.screenToFlowPosition(screenPoint);
+  const buildPlacedNode = React.useCallback((entry, position) => {
     const entity = entry.entity;
     const id = entry.kind === 'course' ? courseNodeId(entity.id) : assignmentNodeId(entity.id);
-    appendNode({
+    return {
       id,
       type: entry.type,
       entityId: String(entity.id),
       position,
+      selected: true,
       data: {
         entityId: String(entity.id),
         entity,
@@ -959,9 +1193,41 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         onFocus: entry.kind === 'course' ? () => focusBranch(id) : () => focusNode(id),
         onEdit: entry.kind === 'course' ? () => editCourse(entity.id) : () => editAssignment(entity.id),
       },
-    });
-    setUnplacedOpen(false);
-  }, [appendNode, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, openAssignment]);
+    };
+  }, [editAssignment, editCourse, editorMode, focusBranch, focusNode, openAssignment]);
+
+  const dropUnplaced = React.useCallback((entry, requestedPosition) => {
+    if (!entry || !editorMode) return;
+    const current = nodesRef.current.map((node) => ({ ...node, selected: false }));
+    const position = findOpenMapPosition(requestedPosition, current);
+    const added = buildPlacedNode(entry, position);
+    const next = [...current, added];
+    nodesRef.current = next;
+    setNodes(next);
+    markDirty();
+    setGraphRevision((value) => value + 1);
+    persistSession(true);
+    if (unplaced.length <= 1) setUnplacedOpen(false);
+  }, [buildPlacedNode, editorMode, markDirty, persistSession, setNodes, unplaced.length]);
+
+  const onUnplacedDragStart = React.useCallback((event, entry) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-taskforge-unplaced', `${entry.kind}:${entry.entity.id}`);
+    event.dataTransfer.setData('text/plain', entry.entity.title || 'Узел');
+  }, []);
+
+  const onMapDrop = React.useCallback((event) => {
+    if (!editorMode) return;
+    const token = event.dataTransfer.getData('application/x-taskforge-unplaced');
+    if (!token) return;
+    event.preventDefault();
+    const separator = token.indexOf(':');
+    const kind = separator >= 0 ? token.slice(0, separator) : '';
+    const entityId = separator >= 0 ? token.slice(separator + 1) : '';
+    const entry = unplaced.find((item) => item.kind === kind && String(item.entity?.id) === entityId);
+    if (!entry) return;
+    dropUnplaced(entry, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+  }, [dropUnplaced, editorMode, flow, unplaced]);
 
   if (loading) return <div className="course-map-loading">Загрузка карты…</div>;
 
@@ -1025,17 +1291,35 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         </div>
         <div className="course-map-toolbar-right">
           {editorMode && unplaced.length > 0 ? (
-            <div className="course-map-unplaced" onMouseLeave={() => setUnplacedOpen(false)}>
-              <button type="button" className="course-map-unplaced-trigger" onMouseEnter={() => setUnplacedOpen(true)} onClick={() => setUnplacedOpen((v) => !v)}>Неразмещённые · {unplaced.length}</button>
+            <div className="course-map-unplaced" ref={unplacedRef}>
+              <button
+                type="button"
+                className={`course-map-unplaced-trigger${unplacedOpen ? ' is-open' : ''}`}
+                onClick={() => setUnplacedOpen((value) => !value)}
+                aria-expanded={unplacedOpen}
+              >
+                Не на карте · <strong>{unplaced.length}</strong>
+              </button>
               {unplacedOpen ? (
                 <div className="course-map-unplaced-popover">
-                  <div className="course-map-popover-title">Не размещены на карте</div>
-                  {unplaced.slice(0, 10).map((entry) => (
-                    <button key={`${entry.kind}:${entry.entity.id}`} type="button" onClick={() => placeUnplaced(entry)}>
-                      <span>{entry.kind === 'course' ? '◆' : '●'}</span><span>{entry.entity.title || 'Без названия'}</span>
-                    </button>
-                  ))}
-                  {unplaced.length > 10 ? <div className="course-map-popover-more">+ ещё {unplaced.length - 10}</div> : null}
+                  <div className="course-map-unplaced-head">
+                    <div className="course-map-popover-title">Перетащите на карту</div>
+                    <button type="button" className="course-map-unplaced-close" onClick={() => setUnplacedOpen(false)} aria-label="Закрыть"><X size={14} /></button>
+                  </div>
+                  <div className="course-map-unplaced-list">
+                    {unplaced.map((entry) => (
+                      <div
+                        key={`${entry.kind}:${entry.entity.id}`}
+                        className="course-map-unplaced-row"
+                        draggable
+                        onDragStart={(event) => onUnplacedDragStart(event, entry)}
+                      >
+                        <GripVertical size={14} className="course-map-unplaced-grip" />
+                        <span className="course-map-unplaced-kind">{entry.kind === 'course' ? 'Курс' : 'Задание'}</span>
+                        <span className="course-map-unplaced-title" title={entry.entity.title || 'Без названия'}>{entry.entity.title || 'Без названия'}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -1082,6 +1366,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onEdgeDoubleClick={onEdgeDoubleClick}
           onEdgeContextMenu={onEdgeContextMenu}
           onPaneContextMenu={onPaneContextMenu}
+          onPaneClick={() => setUnplacedOpen(false)}
+          onDragOver={(event) => { if (editorMode && Array.from(event.dataTransfer.types || []).includes('application/x-taskforge-unplaced')) event.preventDefault(); }}
+          onDrop={onMapDrop}
           onNodeContextMenu={onNodeContextMenu}
           onNodeDoubleClick={(event, node) => {
             event.preventDefault();
@@ -1097,13 +1384,16 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           fitView={false}
           minZoom={0.12}
           maxZoom={1.8}
-          multiSelectionKeyCode="Shift"
-          selectionKeyCode="Shift"
+          selectionOnDrag={editorMode}
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={editorMode ? [1, 2] : true}
+          panActivationKeyCode="Space"
+          multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+          selectionKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={18} size={1.15} className="course-map-background" />
           <Controls showInteractive={false} className="course-map-controls" />
-          <MiniMap pannable zoomable className="course-map-minimap" nodeStrokeWidth={2} />
         </ReactFlow>
       </div>
 
@@ -1111,32 +1401,17 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         {context.edge ? (
           <>
             <ContextMenuLabel>Эффекты стрелки</ContextMenuLabel>
-            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit', sequentialEffect: 'inherit' }); closeContext(); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'inherit' && edgeAccessSettings(context.edge).sequentialEffect === 'inherit' ? '✓ ' : ''}Обычная — наследовать режим</span><span className="text-[11px] text-neutral-500">Эта стрелка сама ничего не начинает и не заканчивает.</span></span>
-            </ContextMenuItem>
+            <ContextMenuItem icon={Eye} checked={edgeAccessSettings(context.edge).hiddenEffect === 'inherit' && edgeAccessSettings(context.edge).sequentialEffect === 'inherit'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit', sequentialEffect: 'inherit' }); closeContext(); }}>Обычная</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuLabel>Полностью скрытый участок</ContextMenuLabel>
-            <ContextMenuItem icon={LockKeyhole} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'start' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'start' ? '✓ ' : ''}Начать полное скрытие</span><span className="text-[11px] text-neutral-500">Следующая часть не существует, пока не решены все задания на пути до этой точки. Внутри участка правило продолжается.</span></span>
-            </ContextMenuItem>
-            <ContextMenuItem icon={RotateCcw} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'stop' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'stop' ? '✓ ' : ''}Закончить полное скрытие</span><span className="text-[11px] text-neutral-500">После этой стрелки скрытый режим больше не действует. Последняя скрытая точка должна быть пройдена.</span></span>
-            </ContextMenuItem>
-            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).hiddenEffect === 'inherit' ? '✓ ' : ''}Не менять полное скрытие</span><span className="text-[11px] text-neutral-500">Продолжить состояние, пришедшее по предыдущим стрелкам.</span></span>
-            </ContextMenuItem>
+            <ContextMenuLabel>Скрытие</ContextMenuLabel>
+            <ContextMenuItem icon={LockKeyhole} checked={edgeAccessSettings(context.edge).hiddenEffect === 'start'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'start' }); }}>Начать скрытие</ContextMenuItem>
+            <ContextMenuItem icon={RotateCcw} checked={edgeAccessSettings(context.edge).hiddenEffect === 'stop'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'stop' }); }}>Закончить скрытие</ContextMenuItem>
+            <ContextMenuItem icon={Eye} checked={edgeAccessSettings(context.edge).hiddenEffect === 'inherit'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { hiddenEffect: 'inherit' }); }}>Наследовать скрытие</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuLabel>Открытие по одному заданию</ContextMenuLabel>
-            <ContextMenuItem icon={ListOrdered} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'start' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'start' ? '✓ ' : ''}Начать открывать по одному</span><span className="text-[11px] text-neutral-500">Следующая нода видна; после неё показывается закрытое продолжение с условием открытия.</span></span>
-            </ContextMenuItem>
-            <ContextMenuItem icon={RotateCcw} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'stop' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'stop' ? '✓ ' : ''}Закончить открытие по одному</span><span className="text-[11px] text-neutral-500">После решения текущей точки продолжение снова отображается без пошагового ограничения.</span></span>
-            </ContextMenuItem>
-            <ContextMenuItem icon={Eye} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'inherit' }); }}>
-              <span className="flex flex-col"><span>{edgeAccessSettings(context.edge).sequentialEffect === 'inherit' ? '✓ ' : ''}Не менять пошаговый режим</span><span className="text-[11px] text-neutral-500">Продолжить состояние, пришедшее по предыдущим стрелкам.</span></span>
-            </ContextMenuItem>
-            <div className="px-3 pb-2 text-[10px] leading-4 text-neutral-500">Эффекты независимы и могут пересекаться. Полное скрытие сильнее: пока оно активно, закрытый хвост вообще не выдаётся ученику.</div>
+            <ContextMenuLabel>По одному</ContextMenuLabel>
+            <ContextMenuItem icon={ListOrdered} checked={edgeAccessSettings(context.edge).sequentialEffect === 'start'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'start' }); }}>Начать</ContextMenuItem>
+            <ContextMenuItem icon={RotateCcw} checked={edgeAccessSettings(context.edge).sequentialEffect === 'stop'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'stop' }); }}>Закончить</ContextMenuItem>
+            <ContextMenuItem icon={Eye} checked={edgeAccessSettings(context.edge).sequentialEffect === 'inherit'} onClick={() => { const edge = context.edge; updateEdgeAccessSettings(edge.id, { sequentialEffect: 'inherit' }); }}>Наследовать</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem icon={Unlink2} danger onClick={() => { const edge = context.edge; closeContext(); removeEdges([String(edge.id)]); }}>Разорвать связь</ContextMenuItem>
           </>

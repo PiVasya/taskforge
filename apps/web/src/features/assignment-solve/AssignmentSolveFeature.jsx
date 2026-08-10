@@ -6,18 +6,22 @@ import TaskTestSolve from '../../pages/TaskTestSolve';
 import MathTaskSolve from '../../pages/MathTaskSolve';
 
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../../api/assignments';
+import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse, getAssignmentsByCourseTree } from '../../api/assignments';
 import { submitSolution } from '../../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
+import { getLearningCourseMap } from '../../api/courseMaps';
 
 import { Play, CheckCircle2, XCircle } from 'lucide-react';
 import { useRoleFlags } from '../../contexts/EditorModeContext';
+import { useAuth } from '../../auth/AuthContext';
 import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
+import { readCourseMapLocalCache, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
+import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
 import {
   ALL_LANGS,
   normalizeLang,
@@ -51,6 +55,7 @@ import {
   SolveSkeletonLines,
   SolvePart,
   AssignmentSolveHeader,
+  NextAssignmentDock,
   SolveDraftActionDock,
   AssignmentFirstLoadSkeleton,
 } from './components/AssignmentSolvePresentation';
@@ -71,6 +76,7 @@ export default function AssignmentSolvePage() {
 
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
+  const { user } = useAuth();
   const { codeSolveLayout } = useEditorUiSettings();
 
   const [a, setA] = useState(null);
@@ -80,7 +86,9 @@ export default function AssignmentSolvePage() {
   const [revealFlow, setRevealFlow] = useState({ key: '', titleDone: false, statementDone: false });
 
   
-  const [nextA, setNextA] = useState(null); 
+  const [nextOptions, setNextOptions] = useState([]);
+  const [nextNavigationLoading, setNextNavigationLoading] = useState(false);
+  const [progressionRevision, setProgressionRevision] = useState(0);
 
   const draftStore = useMemo(() => getSolveDraftStore(assignmentId), [assignmentId]);
   const readDraft = React.useCallback(() => getSolveDraftSnapshot(assignmentId), [assignmentId]);
@@ -528,34 +536,68 @@ export default function AssignmentSolvePage() {
   
   useEffect(() => {
     let alive = true;
-    (async () => {
-      if (!a?.courseId || !a?.id) {
-        if (alive) setNextA(null);
+    if (!a?.courseId || !a?.id) {
+      setNextOptions([]);
+      setNextNavigationLoading(false);
+      return () => { alive = false; };
+    }
+
+    const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
+    const applyNavigation = (mapRecord, rows) => {
+      if (!alive) return;
+      const assignments = Array.isArray(rows) ? rows : [];
+      if (mapRecord?.document) {
+        setNextOptions(courseMapContainsAssignment(mapRecord.document, a.id)
+          ? buildNextNodeOptions(mapRecord.document, a.id, assignments)
+          : []);
         return;
       }
+      setNextOptions(buildSortedFallbackNext(assignments, a.id));
+    };
+
+    const cached = readCourseMapLocalCache({ courseId: a.courseId, editorMode: false, userId: currentUserId });
+    if (cached?.mapRecord) applyNavigation(cached.mapRecord, cached.assignments);
+    setNextNavigationLoading(Boolean(progressionRevision) || !cached?.mapRecord);
+
+    (async () => {
       try {
-        const list = await getAssignmentsByCourse(a.courseId);
+        const [mapRecord, rows] = await Promise.all([
+          getLearningCourseMap(a.courseId),
+          getAssignmentsByCourseTree(a.courseId),
+        ]);
         if (!alive) return;
-
-        const ordered = (Array.isArray(list) ? list : [])
-          .slice()
-          .sort((x, y) => {
-            const sx = Number(x?.sort ?? 0);
-            const sy = Number(y?.sort ?? 0);
-            if (sx !== sy) return sx - sy;
-            return String(x?.title ?? '').localeCompare(String(y?.title ?? ''));
-          });
-
-        const idx = ordered.findIndex(x => String(x?.id) === String(a.id));
-        const n = (idx >= 0) ? ordered[idx + 1] : null;
-        if (n?.id) setNextA({ id: n.id, title: n.title || 'Следующее задание' });
-        else setNextA(null);
+        const assignments = Array.isArray(rows) ? rows : [];
+        writeCourseMapLocalCache({
+          courseId: a.courseId,
+          rootCourseId: mapRecord?.rootCourseId || a.courseId,
+          aliases: [a.courseId, ...assignments.map((item) => item?.courseId)],
+          editorMode: false,
+          userId: currentUserId,
+          mapRecord,
+          assignments,
+        });
+        applyNavigation(mapRecord, assignments);
       } catch {
-        if (alive) setNextA(null);
+        if (!cached?.mapRecord) {
+          try {
+            const rows = await getAssignmentsByCourse(a.courseId);
+            applyNavigation(null, rows);
+          } catch {
+            if (alive) setNextOptions([]);
+          }
+        }
+      } finally {
+        if (alive) setNextNavigationLoading(false);
       }
     })();
+
     return () => { alive = false; };
-  }, [a?.courseId, a?.id]);
+  }, [a?.courseId, a?.id, progressionRevision, user?.id, user?.userId, user?.uuid]);
+
+  const refreshProgression = React.useCallback(() => {
+    setProgressionRevision((value) => value + 1);
+  }, []);
+
 
   const resetSolveUi = React.useCallback(() => {
     setResult(null);
@@ -567,10 +609,11 @@ export default function AssignmentSolvePage() {
   }, []);
 
 
-  const goNextAssignment = React.useCallback(() => {
-    if (!nextA?.id) return;
-    nav(`/assignment/${nextA.id}`);
-  }, [nextA?.id, nav]);
+  const goNextAssignment = React.useCallback((option = null) => {
+    const target = option?.id ? option : nextOptions.find((item) => item?.id && !item.disabled);
+    if (!target?.id) return;
+    nav(`/assignment/${target.id}`);
+  }, [nav, nextOptions]);
 
   
   
@@ -661,6 +704,7 @@ export default function AssignmentSolvePage() {
       if (timedOut || isPendingSolution(r)) {
         notify.info('Проверка ещё выполняется. Код остался на странице, результат обновится здесь и в «Моих решениях».');
       } else if (allOk) {
+        refreshProgression();
         notify.success('Все тесты пройдены!');
       } else {
         const policyInfo = getSolutionPolicyUi(nextResult);
@@ -909,11 +953,7 @@ export default function AssignmentSolvePage() {
               <div className="rounded-2xl border border-white/10 p-4 text-sm text-neutral-400">
                 Жду результат проверки…
               </div>
-            ) : (
-              <div className="rounded-2xl border border-white/10 p-4 text-sm text-neutral-400">
-                Детальных тест-кейсов в ответе нет. Итоговый статус показан выше.
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       </Card>
@@ -984,8 +1024,9 @@ export default function AssignmentSolvePage() {
             <SolveSkeletonLines lines={8} />
           </Card>
         ) : (
-          <div className="user-flow-reveal"><TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} /></div>
+          <div className="user-flow-reveal"><TaskTestSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} onCompleted={refreshProgression} /></div>
         )}
+        <NextAssignmentDock nextOptions={nextOptions} nextLoading={nextNavigationLoading} nextDisabled={assignmentSwitching} onNext={goNextAssignment} />
       </>
     );
   }
@@ -1007,8 +1048,9 @@ export default function AssignmentSolvePage() {
             <SolveSkeletonLines lines={8} />
           </Card>
         ) : (
-          <div className="user-flow-reveal"><MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} /></div>
+          <div className="user-flow-reveal"><MathTaskSolve assignment={a} assignmentId={a.id} onActivity={queueActivity} onCompleted={refreshProgression} /></div>
         )}
+        <NextAssignmentDock nextOptions={nextOptions} nextLoading={nextNavigationLoading} nextDisabled={assignmentSwitching} onNext={goNextAssignment} />
       </>
     );
   }
@@ -1121,6 +1163,7 @@ export default function AssignmentSolvePage() {
           }, 0);
 
           if (normalized.passed) {
+            refreshProgression();
             notify.success(`Задание выполнено! Схожесть: ${Math.round(normalized.similarityPercent ?? 0)}%`);
           } else if (normalized.similarityPercent !== null && normalized.thresholdPercent !== null) {
             notify.warn(`Схожесть ${Math.round(normalized.similarityPercent)}% < ${Math.round(normalized.thresholdPercent)}%`);
@@ -1177,31 +1220,27 @@ export default function AssignmentSolvePage() {
               </SolvePart>
             </Card>
 
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <div className="font-medium">Эталон</div>
-              </div>
+            {(expectedUrl || isAdmin || a?.canEdit === true) ? (
+              <Card>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-medium">Эталон</div>
+                </div>
 
-              {testsContentLoading ? (
-                <SolveSkeletonLines lines={4} />
-              ) : expectedUrl ? (
-                <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
-                  <img
-                    src={expectedUrl}
-                    alt="Эталон"
-                    className="w-full max-h-[70vh] object-contain"
-                  />
-                </div>
-              ) : hasConfiguredImageCases ? (
-                <div className="text-neutral-500">
-                  Эталонная картинка настроена, но скрыта от ученика. Проверка всё равно выполнит сравнение по картинке.
-                </div>
-              ) : (
-                <div className="text-neutral-500">
-                  Эталонная картинка не настроена. Открой «Редактировать» и нажми «Загрузить эталон».
-                </div>
-              )}
-            </Card>
+                {testsContentLoading ? (
+                  <SolveSkeletonLines lines={4} />
+                ) : expectedUrl ? (
+                  <div className="rounded border overflow-hidden bg-white dark:bg-neutral-950">
+                    <img
+                      src={expectedUrl}
+                      alt="Эталон"
+                      className="w-full max-h-[70vh] object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-neutral-500">Эталон недоступен.</div>
+                )}
+              </Card>
+            ) : null}
 
             {renderSolutionResultCard()}
           </div>
@@ -1215,10 +1254,6 @@ export default function AssignmentSolvePage() {
                   languages={imageLangs}
                   allowedLangs={allowedLangs}
                 />
-                <div className="text-xs text-neutral-500 -mt-2">
-                  Для image-test доступны Python Turtle/matplotlib, Pascal GraphABC, C++ GLUT и C++ Turtle. Runner принимает stdin и сравнивает stdout + картинку.
-                </div>
-
                 <SolveDraftEditor
                   assignmentId={a.id}
                   starterCode={a.starterCode}
@@ -1236,10 +1271,9 @@ export default function AssignmentSolvePage() {
                     value={imageInput}
                     onChange={(e) => setImageInput(e.target.value)}
                     rows={4}
-                    placeholder="Если программа читает stdin, введи данные сюда. Поле можно оставить пустым."
+                    placeholder="Введите входные данные"
                     className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
                   />
-                  <div className="text-xs text-neutral-500 mt-1">Эти данные передаются в stdin при пробном запуске. При отправке используются input-ы из тестов задания, если они настроены.</div>
                 </div>
 
                 {imgError ? (
@@ -1311,9 +1345,6 @@ export default function AssignmentSolvePage() {
                   Открыть последние результаты
                 </Button>
 
-                <div className="text-xs text-neutral-500">
-                  Пробник возвращает картинку без сравнения. Отправка выполняет сравнение с эталоном.
-                </div>
               </div>
             </Card>
           </div>
@@ -1323,8 +1354,9 @@ export default function AssignmentSolvePage() {
         <SolveDraftActionDock
           assignmentId={a.id}
           disableSecondaryWhenEmpty
-          nextTitle={nextA?.title || 'Следующее задание'}
-          nextDisabled={assignmentSwitching || !nextA?.id}
+          nextOptions={nextOptions}
+          nextLoading={nextNavigationLoading}
+          nextDisabled={assignmentSwitching}
           onNext={goNextAssignment}
           statusText={assignmentSwitching ? 'Загружаю следующее задание' : imgBusy ? 'Идёт обработка изображения' : ''}
           primaryLabel="Отправить решение"
@@ -1348,7 +1380,6 @@ export default function AssignmentSolvePage() {
   const visibleTests = canViewHiddenTests ? allAssignmentTests : allAssignmentTests.filter((t) => !isHiddenTestCase(t));
   const assignmentTestsTitle = canViewHiddenTests ? 'Тесты задания' : 'Публичные тесты';
   const emptyAssignmentTestsText = canViewHiddenTests ? 'У задания нет тестов.' : 'У задания нет публичных тестов.';
-  const hasNextAssignmentSlot = Boolean(nextA?.id);
 
   const renderCodeTestCase = (t, i) => {
     const expectedText = t.expected ?? t.expectedOutput ?? t.ExpectedOutput ?? '';
@@ -1554,8 +1585,9 @@ export default function AssignmentSolvePage() {
       
       <SolveDraftActionDock
         assignmentId={a.id}
-        nextTitle={nextA?.title || 'Следующее задание'}
-        nextDisabled={assignmentSwitching || !hasNextAssignmentSlot}
+        nextOptions={nextOptions}
+        nextLoading={nextNavigationLoading}
+        nextDisabled={assignmentSwitching}
         onNext={goNextAssignment}
         statusText={assignmentSwitching ? 'Загружаю следующее задание' : submitStatusText}
         primaryLabel="Отправить решение"

@@ -47,7 +47,6 @@ internal static class AssignmentApiSerializationService
         var codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson);
         var codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson);
         var allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language);
-        var analyticsSettings = ParseJsonNode(x.AnalyticsSettingsJson);
 
         var obj = new JsonObject
         {
@@ -60,7 +59,6 @@ internal static class AssignmentApiSerializationService
             ["tags"] = x.Tags ?? string.Empty,
             ["difficulty"] = x.Difficulty,
             ["rating"] = x.Rating,
-            ["sort"] = x.Sort,
             ["starterCode"] = x.StarterCode ?? string.Empty,
             ["isVisible"] = x.IsVisible
         };
@@ -91,8 +89,6 @@ internal static class AssignmentApiSerializationService
             if (!string.IsNullOrWhiteSpace(referenceKey)) obj["imageTestReferenceKey"] = referenceKey;
             obj["imageTestSimilarityThreshold"] = JsonInt(testsJson, "imageTestSimilarityThreshold", 90);
         }
-
-        if (analyticsSettings != null) obj["analyticsSettings"] = analyticsSettings;
 
         return obj;
     }

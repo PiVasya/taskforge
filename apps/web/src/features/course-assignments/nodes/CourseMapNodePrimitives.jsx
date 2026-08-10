@@ -26,7 +26,6 @@ export function CourseMapHandles() {
   );
 }
 
-
 export function NodeAccessBadges({ effects, editorMode }) {
   if (!editorMode || !effects || (!effects.hidden && !effects.sequential)) return null;
   const hiddenHint = effects.hiddenMixed
@@ -62,11 +61,12 @@ export function NodeAccessBadges({ effects, editorMode }) {
   );
 }
 
-export function NodeTopline({ icon: Icon, kicker, badge }) {
+export function NodeTopline({ icon: Icon, title, badge }) {
   return (
     <div className="course-map-node-topline">
       <span className="course-map-node-icon">{Icon ? <Icon size={17} /> : null}</span>
-      <span className="course-map-node-kicker">{kicker}{badge ? <b>{badge}</b> : null}</span>
+      <span className="course-map-node-heading">{title || 'Без названия'}</span>
+      {badge ? <span className="course-map-node-badge">{badge}</span> : null}
     </div>
   );
 }
@@ -76,7 +76,7 @@ export function AssignmentFooter({ assignment, fallback }) {
   const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '') || fallback || '';
   return (
     <div className="course-map-node-footer">
-      <span>{language || fallback || 'Задание'}</span>
+      <span>{language || 'Задание'}</span>
       <span className={`course-map-node-status${solved ? ' is-solved' : ''}`}>
         {solved ? <CheckCircle2 size={12} /> : <Circle size={11} />}
         {solved ? 'решено' : 'не решено'}

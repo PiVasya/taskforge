@@ -12,7 +12,7 @@ function buildSectionPayload(sectionCode, parentId, sameSlug = null) {
     slug: sameSlug?.slug || sectionCode.toLowerCase(),
     title: sameSlug?.title || sectionCode,
     shortTitle: sameSlug?.shortTitle || sectionCode,
-    summary: sameSlug?.summary || `HTML-конспект и задания для ${sectionCode}.`,
+    summary: sameSlug?.summary || `Материалы и задания ${sectionCode}.`,
     description: sameSlug?.description || '',
     subjectCode: sameSlug?.subjectCode || SUBJECT_CODE,
     examCode: sameSlug?.examCode || EXAM_CODE,
@@ -42,8 +42,8 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
       slug: ROOT_SLUG,
       title: ROOT_TITLE,
       shortTitle: 'ЦТ/ЦЭ',
-      summary: 'Основа под подготовку к ЦТ/ЦЭ. Стартовая сетка создаёт A1-A30 и B1-B10, но редактор может вручную добавлять A/B дальше.',
-      description: 'Служебный корень для второго фронта. Обычный пользователь его не видит как дерево.',
+      summary: 'Подготовка к ЦТ/ЦЭ.',
+      description: '',
       subjectCode: SUBJECT_CODE,
       examCode: EXAM_CODE,
       sectionCode: null,
@@ -112,9 +112,6 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
       <div className="mb-2 flex items-center gap-2 font-semibold text-brand-900 dark:text-brand-100">
         <Layers3 size={18} /> Основа ЦТ
       </div>
-      <p className="text-sm leading-6 text-brand-900/80 dark:text-brand-100/80">
-        Создание стартовой структуры и ручное добавление новых номеров.
-      </p>
       <div className="mt-3 text-xs font-semibold text-brand-900/70 dark:text-brand-100/70">
         Не хватает стартовых разделов: {missingSections.length}
       </div>
@@ -140,9 +137,6 @@ export default function CtStructureBootstrapPanel({ allCourses, onDone }) {
             Создать номер
           </button>
         </div>
-        <p className="mt-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-          После создания открой адрес вида /a31 или /b11. Заданий в каждом номере может быть сколько угодно.
-        </p>
       </div>
     </section>
   );

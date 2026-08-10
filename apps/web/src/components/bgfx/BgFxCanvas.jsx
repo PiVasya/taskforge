@@ -485,7 +485,6 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
       }
 
       
-      // Preset 2 is rendered by BgFxNeuralWebgl. Keep the 2D canvas effect for the other presets only.
 
       if (preset === 3) {
         ctx.save();

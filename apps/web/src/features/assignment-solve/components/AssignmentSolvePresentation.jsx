@@ -5,7 +5,7 @@ import QuotaPill from '../../../components/QuotaPill';
 import { Card, Button } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import StatementViewer from '../../../components/tiptap/StatementViewer';
-import { ArrowLeft, BarChart3 } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown, GitBranch, LockKeyhole } from 'lucide-react';
 import { useSolveDraft } from '../solveDraftStore';
 
 function displayText(value) {
@@ -260,8 +260,118 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
   );
 });
 
+const NextAssignmentControl = React.memo(function NextAssignmentControl({ options = [], loading = false, disabled = false, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = React.useRef(null);
+  const rows = Array.isArray(options) ? options : [];
+  const only = rows.length === 1 ? rows[0] : null;
+  const isDisabled = Boolean(disabled || loading || rows.length === 0 || (only && only.disabled));
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (rows.length <= 1) setOpen(false);
+  }, [rows.length]);
+
+  const title = loading
+    ? 'Загружаю продолжение'
+    : only?.subtitle || only?.title || (rows.length ? 'Выбрать следующую ветку' : 'Продолжения нет');
+  const buttonLabel = loading
+    ? 'Загружаю продолжение…'
+    : only?.disabled
+      ? 'Продолжение закрыто'
+      : rows.length === 0
+        ? 'Продолжения нет'
+        : 'Следующее задание';
+
+  const activate = () => {
+    if (isDisabled) return;
+    if (rows.length === 1) {
+      onSelect?.(only);
+      return;
+    }
+    setOpen((value) => !value);
+  };
+
+  return (
+    <div className="solve-next-control" ref={rootRef} title={title}>
+      {open && rows.length > 1 ? (
+        <div className="solve-next-menu" role="menu" aria-label="Следующие задания">
+          <div className="solve-next-menu-title"><GitBranch size={14} /> Выберите ветку</div>
+          <div className="solve-next-menu-list">
+            {rows.map((option) => (
+              <button
+                key={option.key || option.id || option.title}
+                type="button"
+                role="menuitem"
+                className="solve-next-option"
+                disabled={option.disabled}
+                onClick={() => {
+                  if (option.disabled) return;
+                  setOpen(false);
+                  onSelect?.(option);
+                }}
+              >
+                <span className={`solve-next-option-icon${option.disabled ? ' is-locked' : ''}`}>
+                  {option.disabled ? <LockKeyhole size={14} /> : <GitBranch size={14} />}
+                </span>
+                <span className="solve-next-option-copy">
+                  <strong>{option.title || 'Следующее задание'}</strong>
+                  {option.subtitle ? <small>{option.subtitle}</small> : null}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <Button
+        className="solve-action-button solve-next-button"
+        variant="outline"
+        onClick={activate}
+        data-taskforge-automation-id="next-assignment"
+        data-taskforge-agent-role="navigation-action"
+        data-taskforge-agent-action="next-assignment"
+        disabled={isDisabled}
+        title={title}
+        aria-label={`${buttonLabel}${title && title !== buttonLabel ? `. ${title}` : ''}`}
+        aria-expanded={rows.length > 1 ? open : undefined}
+        aria-haspopup={rows.length > 1 ? 'menu' : undefined}
+      >
+        {only?.disabled ? <LockKeyhole size={15} /> : null}
+        <span>{buttonLabel}</span>
+        {rows.length > 1 ? <ChevronDown size={15} className={open ? 'is-open' : ''} /> : null}
+      </Button>
+    </div>
+  );
+});
+
+const NextAssignmentDock = React.memo(function NextAssignmentDock({ nextOptions = [], nextLoading = false, nextDisabled = false, onNext }) {
+  return (
+    <div className="solve-action-dock solve-action-dock--navigation-only">
+      <div className="solve-action-dock-panel">
+        <NextAssignmentControl options={nextOptions} loading={nextLoading} disabled={nextDisabled} onSelect={onNext} />
+      </div>
+    </div>
+  );
+});
+
 const SolveActionDock = React.memo(function SolveActionDock({
-  nextTitle = 'Следующее задание',
+  nextOptions = [],
+  nextLoading = false,
   nextDisabled = false,
   onNext,
   statusText = '',
@@ -280,18 +390,12 @@ const SolveActionDock = React.memo(function SolveActionDock({
         </div>
       )}
       <div className="solve-action-dock-panel">
-        <Button
-          className="solve-action-button"
-          variant="outline"
-          onClick={onNext}
-          data-taskforge-automation-id="next-assignment"
-          data-taskforge-agent-role="navigation-action"
-          data-taskforge-agent-action="next-assignment"
+        <NextAssignmentControl
+          options={nextOptions}
+          loading={nextLoading}
           disabled={nextDisabled}
-          title={nextTitle || 'Следующее задание'}
-        >
-          Следующее задание
-        </Button>
+          onSelect={onNext}
+        />
         {secondaryActions.map((action, index) => (
           <Button
             key={action.key || index}
@@ -396,6 +500,7 @@ export {
   SolvePart,
   AssignmentSolveHeader,
   SolveActionDock,
+  NextAssignmentDock,
   SolveDraftActionDock,
   AssignmentFirstLoadSkeleton,
   SolveActionDockSkeleton,

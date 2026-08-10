@@ -20,7 +20,7 @@ function MathTaskBlock({ storeKey, block, index }) {
 
   let body;
   if (kind === 'info') {
-    body = <div className="text-sm text-neutral-500">Это информационный блок. Он не оценивается, но помогает провести решение по шагам.</div>;
+    body = null;
   } else if (kind === 'single-choice' || kind === 'multi-choice') {
     const selected = Array.isArray(answer.selectedOptionKeys) ? answer.selectedOptionKeys : [];
     const multiple = kind === 'multi-choice';

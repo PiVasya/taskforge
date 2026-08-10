@@ -96,10 +96,6 @@ function applyMapEffect(current, transition) {
   return current;
 }
 
-// Structural preview for the editor. This deliberately ignores the learner's solved
-// state and only answers: "which access modes can be active at this node?".  The
-// backend remains the source of truth for actual visibility.  Tracking four boolean
-// states per node also mirrors the bounded O(V + E) traversal used by the API.
 export function computeCourseMapAccessEffects(nodes, edges) {
   const mapNodes = Array.isArray(nodes) ? nodes : [];
   const mapEdges = Array.isArray(edges) ? edges : [];
@@ -272,6 +268,38 @@ export function buildEntityIndex(courses, assignments) {
   const courseById = new Map((Array.isArray(courses) ? courses : []).filter(Boolean).map((item) => [String(item.id), item]));
   const assignmentById = new Map((Array.isArray(assignments) ? assignments : []).filter(Boolean).map((item) => [String(item.id), item]));
   return { courseById, assignmentById };
+}
+
+export function readCourseProgress(document) {
+  if (!document || Number(document.courseProgressVersion) !== 1) return new Map();
+  const source = document.courseProgress;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return new Map();
+  const result = new Map();
+  for (const [nodeId, raw] of Object.entries(source)) {
+    if (!nodeId || !raw || typeof raw !== 'object') continue;
+    const total = Math.max(0, Number(raw.total) || 0);
+    const solved = Math.max(0, Math.min(total, Number(raw.solved) || 0));
+    const percent = total > 0
+      ? Math.max(0, Math.min(100, Number.isFinite(Number(raw.percent)) ? Math.round(Number(raw.percent)) : Math.round((solved / total) * 100)))
+      : 0;
+    result.set(String(nodeId), { total, solved, percent });
+  }
+  return result;
+}
+
+export function writeCourseProgress(progressByNode) {
+  const result = {};
+  for (const [nodeId, raw] of progressByNode instanceof Map ? progressByNode.entries() : []) {
+    if (!nodeId || !raw) continue;
+    const total = Math.max(0, Number(raw.total) || 0);
+    const solved = Math.max(0, Math.min(total, Number(raw.solved) || 0));
+    result[String(nodeId)] = {
+      total,
+      solved,
+      percent: total > 0 ? Math.round((solved / total) * 100) : 0,
+    };
+  }
+  return result;
 }
 
 export function computeCourseProgress(nodes, edges, assignments, rootCourseId) {

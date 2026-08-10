@@ -101,7 +101,7 @@ function getError(error) {
 function defaultHtml(sectionCode) {
   return `<section class="tf-conspect">
   <h1>${sectionCode}. Конспект</h1>
-  <p>Здесь будет HTML-конспект для номера ${sectionCode}.</p>
+  <p>Здесь будет Конспект для номера ${sectionCode}.</p>
 
   <h2>Теория</h2>
   <p>Кратко объясни правило и главный алгоритм решения.</p>
@@ -380,7 +380,7 @@ export default function LearningEditorPage() {
         sectionCode: savedConspect.sectionCode || sectionCode,
       }));
       const message = conspectForm.id
-        ? 'Конспект сохранён. Это именно тот HTML, который откроется на странице ученика по этому номеру.'
+        ? 'Конспект сохранён.'
         : 'Конспект создан и сохранён для этого номера.';
       setContentWarning('');
       await loadSection();
@@ -444,19 +444,19 @@ export default function LearningEditorPage() {
             <CtStructureBootstrapPanel allCourses={allCourses} onDone={() => loadSection()} />
 
             <section className="rounded-[2rem] border border-neutral-200 bg-white p-4 text-sm shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
-              <div className="mb-2 font-semibold">Служебная привязка</div>
+              <div className="mb-2 font-semibold">Привязка</div>
               {sectionCourse ? (
                 <div className="space-y-1 text-neutral-600 dark:text-neutral-300">
                   <div>Курс найден: <span className="font-semibold">{sectionCourse.title}</span></div>
                   <div className="text-xs text-neutral-500">/{sectionCourse.slug}</div>
-                  <div className="text-xs text-neutral-500">courseId: {sectionCourse.id}</div>
+                  
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                  В дереве нет раздела {normalizedSectionCode}. Существующий конспект можно обновить, но новый создать нельзя, пока не будет LearningCourse.
+                  Раздел {normalizedSectionCode} ещё не создан.
                 </div>
               )}
-              {rootCourse ? <div className="mt-3 text-xs text-neutral-500">Корень экзамена: /{rootCourse.slug}</div> : null}
+              
             </section>
           </aside>
 
@@ -465,7 +465,7 @@ export default function LearningEditorPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-                    <FileText size={16} /> {normalizedSectionCode} · HTML-конспект
+                    <FileText size={16} /> {normalizedSectionCode} · Конспект
                   </div>
                   <h2 className="mt-1 text-2xl font-bold tracking-tight">Конспект номера</h2>
 

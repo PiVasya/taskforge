@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, GraduationCap, Loader2, Search, Sparkles } from 'lucide-react';
+import { BookOpen, GraduationCap, Loader2, Search } from 'lucide-react';
 import { getMainCourses } from '../api/courses';
 
 export default function CoursesHomePage() {
@@ -43,13 +43,6 @@ export default function CoursesHomePage() {
               TaskForge CT
             </div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-5xl">Курсы</h1>
-            <p className="mt-3 max-w-2xl text-base leading-7 text-neutral-600 dark:text-neutral-300">
-              Сначала выбираем обычный курс из TaskForge. Внутри курса открывается отдельная учебная часть: ЦТ/ЦЭ, разделы, конспекты и задания.
-            </p>
-          </div>
-          <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4 text-sm leading-6 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300">
-            <div className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-neutral-100"><Sparkles size={17} /> Логика входа</div>
-            <div className="mt-1">Курс → ЦТ/ЦЭ → A1/A2/... → конспекты и задания.</div>
           </div>
         </div>
       </section>

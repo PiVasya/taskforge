@@ -16,17 +16,26 @@ Open this file before changing the project.
 
 ## JSON import/export shape
 
-Canonical assignment export/import:
+Canonical TaskForge task-graph import/export:
 
 ```json
 {
-  "schemaVersion": 2,
-  "format": "taskforge-course-assignment-import",
-  "courseId": "...",
-  "exportedAt": "...",
-  "assignments": []
+  "schemaVersion": 3,
+  "format": "taskforge-task-graph",
+  "tasks": [],
+  "connections": []
 }
 ```
+
+- `tasks[].key` is the stable reference used inside one JSON document. It is not a database ID and never controls layout.
+- Omit `tasks[].id` to create a task. Use an existing task ID from the currently open course only when updating that task.
+- `connections[].from` and `connections[].to` define order, branches and merges. `"$course"` is the reserved source for the currently open course.
+- Edge progression is stored only in `connections[].access.hidden` and `connections[].access.sequential`, with `start`, `stop` or `inherit`.
+- A task that is not referenced by any connection is imported but remains unplaced on the map.
+- Fresh exports and examples must not contain `courseId`, `exportedAt`, `sort`, `nodes`, `edges`, `viewport`, `position`, coordinates or other layout fields. Order is defined only by `connections`; TaskForge owns map layout.
+- Importing a canonical graph replaces connections between the listed tasks and connections from the current course to those tasks. Connections to unrelated map entities are preserved. Existing node positions are kept; newly connected tasks are laid out by TaskForge.
+- Fresh exports must not contain `analyticsSettings`.
+- Legacy assignment-array aliases may remain accepted internally for compatibility, but the UI, documentation, examples and fresh exports must use only schema version 3.
 
 Type-specific fields:
 

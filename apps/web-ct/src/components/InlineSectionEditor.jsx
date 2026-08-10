@@ -142,7 +142,7 @@ function getError(error) {
 function defaultHtml(sectionCode) {
   return `<section class="tf-conspect">
   <h1>${sectionCode}. Конспект</h1>
-  <p>Здесь будет HTML-конспект для номера ${sectionCode}.</p>
+  <p>Здесь будет Конспект для номера ${sectionCode}.</p>
 
   <h2>Теория</h2>
   <p>Кратко объясни правило и главный алгоритм решения.</p>
@@ -527,16 +527,11 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="inline-flex rounded-full bg-brand-600 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
-            Режим редактора включён
+            Редактор
           </div>
           <h2 className="mt-3 text-2xl font-black tracking-tight md:text-3xl">
             Редактирование {normalizedSectionCode}
           </h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-            Страница не перестраивается: сверху остаётся тот же номер, ниже тот
-            же конспект и задания. Здесь меняется только содержимое текущего
-            номера.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -637,7 +632,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-              <FileText size={16} /> HTML-конспект
+              <FileText size={16} /> Конспект
             </div>
 
           </div>
@@ -718,7 +713,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
         <details className="mt-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
           <summary className="cursor-pointer list-none text-sm font-bold">
             <Settings2 size={16} className="mr-2 inline" />
-            Служебные поля
+            Дополнительно
           </summary>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Slug" required>
@@ -801,10 +796,7 @@ export default function InlineSectionEditor({ sectionCode, onConspectSaved }) {
       {sectionCourse?.id ? (
         <SectionTaskAdminPanel selectedCourse={taskCourse} />
       ) : (
-        <Alert type="warning">
-          Сначала создай полноценный раздел {normalizedSectionCode}. После этого
-          здесь появится редактор заданий для этого номера.
-        </Alert>
+        <Alert type="warning">Раздел {normalizedSectionCode} ещё не создан.</Alert>
       )}
 
     </section>

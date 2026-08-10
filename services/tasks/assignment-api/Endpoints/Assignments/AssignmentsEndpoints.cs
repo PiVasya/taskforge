@@ -17,6 +17,7 @@ using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
 using static TaskForge.Tasks.Api.Services.Math.AssignmentApiMathService;
 using static TaskForge.Tasks.Api.Services.Results.AssignmentApiResultsService;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentApiSerializationService;
+using static TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService;
 using static TaskForge.Tasks.Api.Services.Testing.AssignmentApiTestingService;
 
 namespace TaskForge.Tasks.Api.Endpoints;
@@ -236,71 +237,24 @@ internal static partial class AssignmentApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            var tree = await GetInternalAsync<CourseTreeResponse>(
+            var rows = await db.Assignments.AsNoTracking()
+                .Where(x => x.CourseId == courseId)
+                .OrderBy(x => x.Sort)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+            var map = await GetInternalAsync<CourseMapInternalResponse>(
                 clients,
                 cfg,
                 ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
-                $"/api/internal/courses/{courseId:D}/tree",
+                $"/api/internal/courses/{courseId:D}/map",
                 ct);
-
-            if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != courseId))
+            if (map == null)
             {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Не удалось получить дерево курса для экспорта.", code = "COURSE_TREE_UNAVAILABLE" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new { message = "Не удалось получить карту курса для экспорта.", code = "COURSE_MAP_UNAVAILABLE" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
-
-            var courseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
-            var rows = await db.Assignments.AsNoTracking()
-                .Where(x => courseIds.Contains(x.CourseId))
-                .OrderBy(x => x.CourseId)
-                .ThenBy(x => x.Sort)
-                .ThenBy(x => x.CreatedAt)
-                .ToListAsync(ct);
-
-            var assignmentsByCourse = rows
-                .GroupBy(x => x.CourseId)
-                .ToDictionary(g => g.Key, g => g.Select(ToImportDto).Cast<object>().ToList());
-            var coursesById = tree.Courses.ToDictionary(x => x.Id);
-            var childrenByParent = tree.Courses
-                .Where(x => x.ParentCourseId.HasValue && coursesById.ContainsKey(x.ParentCourseId.Value))
-                .GroupBy(x => x.ParentCourseId!.Value)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderBy(x => x.Sort).ThenBy(x => x.Title).Select(x => x.Id).ToList());
-
-            CourseAssignmentExportNode BuildCourseNode(Guid id)
-            {
-                var source = coursesById[id];
-                var node = new CourseAssignmentExportNode
-                {
-                    Id = source.Id,
-                    ParentCourseId = id == courseId ? null : source.ParentCourseId,
-                    Title = source.Title,
-                    Description = source.Description,
-                    IsPublic = source.IsPublic,
-                    Sort = source.Sort,
-                    Assignments = assignmentsByCourse.TryGetValue(id, out var assignments) ? assignments : new List<object>()
-                };
-
-                if (childrenByParent.TryGetValue(id, out var childIds))
-                {
-                    node.Courses = childIds.Select(BuildCourseNode).ToList();
-                }
-
-                return node;
-            }
-
-            var rootAssignments = assignmentsByCourse.TryGetValue(courseId, out var rootItems) ? rootItems : new List<object>();
-            return Microsoft.AspNetCore.Http.Results.Json(new
-            {
-                schemaVersion = 2,
-                format = "taskforge-course-assignment-import",
-                courseId,
-                exportedAt = DateTimeOffset.UtcNow,
-                assignments = rootAssignments,
-                courseCount = courseIds.Length,
-                assignmentCount = rows.Count,
-                courseTree = BuildCourseNode(courseId)
-            }, JsonOptions());
+            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, map), JsonOptions());
         });
 
         app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -319,14 +273,35 @@ internal static partial class AssignmentApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            var sourceItems = ExtractAssignmentImportItems(payload).ToList();
+            ParsedGraph? taskGraph = null;
+            List<JsonElement> sourceItems;
+            if (LooksLikeCanonicalGraph(payload))
+            {
+                var parsed = ParseAndValidate(payload);
+                if (parsed.Issues.Count > 0 || parsed.Graph == null)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "Импорт остановлен: граф заданий содержит ошибки.",
+                        code = "TASK_GRAPH_VALIDATION_FAILED",
+                        issues = parsed.Issues.Select(x => new { path = x.Path, message = x.Message }).ToList()
+                    }, statusCode: StatusCodes.Status400BadRequest);
+                }
+                taskGraph = parsed.Graph;
+                sourceItems = taskGraph.Tasks.Select(x => x.Source).ToList();
+            }
+            else
+            {
+                sourceItems = ExtractAssignmentImportItems(payload).ToList();
+            }
+
             if (sourceItems.Count == 0)
             {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "JSON не содержит заданий. Передай объект задания, массив заданий или объект с полем assignments/items/tasks.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "JSON не содержит заданий.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
             }
-            if (sourceItems.Count > 200)
+            if (sourceItems.Count > MaxTasks)
             {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "За один импорт можно обработать не больше 200 заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = $"За один импорт можно обработать не больше {MaxTasks} заданий.", code = "IMPORT_TOO_LARGE", count = sourceItems.Count }, statusCode: StatusCodes.Status400BadRequest);
             }
 
             var requests = new List<AssignmentRequest>();
@@ -339,13 +314,20 @@ internal static partial class AssignmentApiEndpoints
                     var itemIssues = ValidateImportedAssignment(req, i + 1).ToList();
                     if (itemIssues.Count > 0)
                     {
-                        issues.Add(new { index = i + 1, id = req.Id, title = req.Title, issues = itemIssues });
+                        issues.Add(new
+                        {
+                            index = i + 1,
+                            key = taskGraph?.Tasks[i].Key,
+                            id = req.Id,
+                            title = req.Title,
+                            issues = itemIssues
+                        });
                     }
                     requests.Add(req);
                 }
                 catch (Exception ex)
                 {
-                    issues.Add(new { index = i + 1, issues = new[] { $"Не удалось прочитать объект задания: {ex.Message}" } });
+                    issues.Add(new { index = i + 1, key = taskGraph?.Tasks[i].Key, issues = new[] { $"Не удалось прочитать объект задания: {ex.Message}" } });
                 }
             }
 
@@ -355,21 +337,56 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var ids = requests.Select(x => x.Id).Where(x => x.HasValue && x.Value != Guid.Empty).Select(x => x!.Value).Distinct().ToList();
-            var existingById = ids.Count == 0
-                ? new Dictionary<Guid, Assignment>()
-                : await db.Assignments.Where(x => x.CourseId == courseId && ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
-            var usedIds = ids.Count == 0
-                ? new HashSet<Guid>()
-                : await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToHashSetAsync(ct);
+            var existingRows = ids.Count == 0
+                ? new List<Assignment>()
+                : await db.Assignments.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            var existingById = existingRows
+                .Where(x => x.CourseId == courseId)
+                .ToDictionary(x => x.Id);
+            var usedIds = existingRows.Select(x => x.Id).ToHashSet();
+
+            if (taskGraph != null)
+            {
+                var wrongCourseIds = existingRows.Where(x => x.CourseId != courseId).Select(x => x.Id).ToHashSet();
+                var missingIds = ids.Where(id => !usedIds.Contains(id)).ToHashSet();
+                if (wrongCourseIds.Count > 0 || missingIds.Count > 0)
+                {
+                    var idIssues = taskGraph.Tasks
+                        .Select((task, index) => new
+                        {
+                            task,
+                            index,
+                            id = requests[index].Id
+                        })
+                        .Where(x => x.id.HasValue && (wrongCourseIds.Contains(x.id.Value) || missingIds.Contains(x.id.Value)))
+                        .Select(x => new
+                        {
+                            path = $"$.tasks[{x.index}].id",
+                            message = wrongCourseIds.Contains(x.id!.Value)
+                                ? "Задание с таким id находится в другом курсе."
+                                : "Задание с таким id не найдено. Для создания уберите id."
+                        })
+                        .ToList();
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "Импорт остановлен: некоторые id нельзя использовать в этом курсе.",
+                        code = "TASK_GRAPH_ASSIGNMENT_ID_INVALID",
+                        issues = idIssues
+                    }, statusCode: StatusCodes.Status400BadRequest);
+                }
+            }
 
             var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
             var created = new List<Assignment>();
             var updated = new List<Assignment>();
+            var processed = new List<(string? Key, Assignment Assignment, string Action)>();
             var ratingAffectedAssignmentIds = new HashSet<Guid>();
             var nextSort = maxSort + 1;
 
-            foreach (var request in requests)
+            for (var i = 0; i < requests.Count; i++)
             {
+                var request = requests[i];
+                var key = taskGraph?.Tasks[i].Key;
                 if (request.Id.HasValue && existingById.TryGetValue(request.Id.Value, out var existing))
                 {
                     var oldRating = existing.Rating;
@@ -377,6 +394,7 @@ internal static partial class AssignmentApiEndpoints
                     await ApplyAssignmentRequestAsync(existing, request, clients, cfg, ct);
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
+                    processed.Add((key, existing, "updated"));
                     continue;
                 }
 
@@ -388,6 +406,7 @@ internal static partial class AssignmentApiEndpoints
 
                 var assignment = await BuildAssignmentEntityAsync(courseId, createRequest, nextSort++, clients, cfg, ct);
                 created.Add(assignment);
+                processed.Add((key, assignment, "created"));
             }
 
             if (created.Count > 0) db.Assignments.AddRange(created);
@@ -403,12 +422,40 @@ internal static partial class AssignmentApiEndpoints
                 await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, affectedId, users, "assignment-import-updated", ct);
             }
 
+            JsonObject? importedTaskGraph = null;
+            if (taskGraph != null)
+            {
+                var mappedTasks = new JsonArray();
+                foreach (var item in processed)
+                {
+                    mappedTasks.Add(new JsonObject
+                    {
+                        ["key"] = item.Key,
+                        ["assignmentId"] = item.Assignment.Id.ToString(),
+                        ["action"] = item.Action
+                    });
+                }
+
+                var mappedConnections = new JsonArray();
+                foreach (var connection in taskGraph.Connections)
+                    mappedConnections.Add(connection.ToJson());
+
+                importedTaskGraph = new JsonObject
+                {
+                    ["schemaVersion"] = SchemaVersion,
+                    ["format"] = Format,
+                    ["tasks"] = mappedTasks,
+                    ["connections"] = mappedConnections
+                };
+            }
+
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 createdCount = created.Count,
                 updatedCount = updated.Count,
-                totalCount = created.Count + updated.Count,
-                assignments = created.Concat(updated).Select(x => ToDto(x, includeSensitive: true)).ToList()
+                totalCount = processed.Count,
+                assignments = processed.Select(x => ToDto(x.Assignment, includeSensitive: true)).ToList(),
+                taskGraph = importedTaskGraph
             });
         });
 

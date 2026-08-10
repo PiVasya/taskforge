@@ -65,7 +65,6 @@ function HtmlConspectFrame({ html, title, conspect }) {
             <div className="text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
               {conspect.sectionCode || 'Раздел'} · чтение
             </div>
-            <div className="text-sm text-neutral-500 dark:text-neutral-400">Конспект можно открыть на весь экран</div>
           </div>
           <button
             type="button"
@@ -312,7 +311,7 @@ export default function RichConspectRenderer({ details, tasksBasePath = '/tasks'
         <section className="relative overflow-hidden rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-6 md:p-8">
           <div className="absolute inset-0 bg-gradient-to-br from-brand-100/70 via-transparent to-transparent dark:from-brand-900/30 pointer-events-none" />
           <div className="relative">
-            <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">{conspect.sectionCode || 'Раздел'} · HTML-конспект</div>
+            <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">{conspect.sectionCode || 'Раздел'} · Конспект</div>
             <h1 className="max-w-4xl text-3xl md:text-5xl font-bold tracking-tight">{conspect.title}</h1>
             {conspect.lead && <p className="mt-4 max-w-3xl text-lg leading-8 text-neutral-700 dark:text-neutral-200">{conspect.lead}</p>}
             <div className="mt-6 flex flex-wrap gap-3">

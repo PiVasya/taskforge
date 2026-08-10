@@ -58,7 +58,7 @@ export default function MainCoursePage() {
           </section>
 
           <section className="mt-6">
-            <div className="mb-3"><h2 className="text-2xl font-bold tracking-tight">Учебные направления</h2><p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Здесь будет ЦТ/ЦЭ и другие большие ветки обучения внутри выбранного курса.</p></div>
+            <div className="mb-3"><h2 className="text-2xl font-bold tracking-tight">Учебные направления</h2></div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {directModules.map((item) => (
                 <Link key={item.id} to={`/learning/${item.slug}`} className="group rounded-[2rem] border border-neutral-200 bg-white p-5 shadow-soft transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
@@ -69,7 +69,7 @@ export default function MainCoursePage() {
                 </Link>
               ))}
             </div>
-            {directModules.length === 0 && <div className="rounded-[2rem] border border-neutral-200 bg-white p-10 text-center text-neutral-500 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">Учебные направления пока не созданы. Проверь seed learning-content-service.</div>}
+            {directModules.length === 0 && <div className="rounded-[2rem] border border-neutral-200 bg-white p-10 text-center text-neutral-500 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">Учебных направлений пока нет.</div>}
           </section>
         </>
       )}

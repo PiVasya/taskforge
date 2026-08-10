@@ -535,9 +535,6 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2"><Plus className="text-brand-600" /><h2 className="text-2xl font-bold tracking-tight">Задания для {sectionCode}</h2></div>
-          <p className="mt-1 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-            Тут редактируются задания выбранного номера. Количество заданий не ограничено: можно создавать сколько угодно карточек для A или B. Обычные пользователи эту панель и черновики не получают.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={exportTasks} disabled={busy !== '' || tasks.length === 0} className="btn-outline inline-flex items-center gap-2 disabled:opacity-60">
@@ -643,19 +640,17 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
       <details className="mt-6 rounded-[1.5rem] border border-dashed border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/20">
         <summary className="cursor-pointer list-none">
           <span className="inline-flex items-center gap-2 text-base font-black"><Upload size={18} /> JSON: экспорт / импорт всех заданий раздела</span>
-          <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">доступно только через admin API</span>
+          
         </summary>
         <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
           <div className="rounded-3xl bg-white p-4 text-sm leading-6 shadow-sm dark:bg-neutral-950">
-            <div className="font-bold">Как пользоваться</div>
-            <p className="mt-2 text-neutral-600 dark:text-neutral-300">Экспорт берёт все задания текущего номера вместе с вариантами, правильными ответами и объяснениями. Импорт всегда привязывает задания к текущему номеру {sectionCode}. Для B-части варианты не нужны: ответ хранится как текст в correctAnswer.value.</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={exportTasks} disabled={tasks.length === 0 || busy !== ''} className="btn-outline inline-flex items-center gap-2 bg-white disabled:opacity-60 dark:bg-neutral-950"><Download size={16} /> Экспортировать</button>
               <button type="button" onClick={copyJson} className="btn-outline inline-flex items-center gap-2 bg-white dark:bg-neutral-950"><Copy size={16} /> Скопировать</button>
             </div>
             <label className="mt-4 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
               <input type="checkbox" checked={replaceOnImport} onChange={(e) => setReplaceOnImport(e.target.checked)} className="mt-1" />
-              <span><b>Заменить все задания раздела при импорте.</b><br />Без галочки импорт добавляет новые задания. С галочкой старые задания и их попытки будут удалены после подтверждения.</span>
+              <span><b>Заменить все задания раздела при импорте.</b><br />При замене старые задания и их попытки будут удалены после подтверждения.</span>
             </label>
           </div>
           <div>

@@ -57,9 +57,6 @@ export default function AdminSupportPage() {
       <div className="max-w-5xl mx-auto">
         <div className="mb-5">
           <h1 className="text-2xl font-semibold">Чаты поддержки</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Один пользователь — один постоянный чат. Темы и технические ID пользователям не показываются.
-          </p>
         </div>
 
         {error ? <div className="mb-4"><AppErrorPanel error={error} title="Не удалось загрузить чаты поддержки" /></div> : null}

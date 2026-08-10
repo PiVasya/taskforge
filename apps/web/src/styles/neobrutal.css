@@ -301,15 +301,16 @@ html.neo-brutal .side-nav-link {
 
 html.neo-brutal .side-nav-link:hover {
   border-color: rgb(var(--neo-ink));
-  background: rgb(var(--brand-100));
+  background: rgb(var(--card));
+  color: rgb(var(--text));
   box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
 }
 
 html.neo-brutal .side-nav-link.is-active {
   border-color: rgb(var(--neo-ink));
-  background: rgb(var(--brand-200));
-  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
-  color: rgb(20 20 22);
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  box-shadow: inset 6px 0 0 rgb(var(--brand-300)), 4px 4px 0 0 rgb(var(--neo-ink));
 }
 
 html.neo-brutal .side-nav-icon {
@@ -319,8 +320,13 @@ html.neo-brutal .side-nav-icon {
   color: rgb(var(--text));
 }
 
+html.neo-brutal .side-nav-link:hover .side-nav-icon {
+  background: rgb(var(--brand-100));
+  color: rgb(20 20 22);
+}
+
 html.neo-brutal .side-nav-link.is-active .side-nav-icon {
-  background: rgb(var(--brand-300));
+  background: rgb(var(--brand-200));
   color: rgb(20 20 22);
 }
 
@@ -882,7 +888,8 @@ html.neo-brutal .side-nav-link:not(.is-rail) {
 }
 
 html.neo-brutal .side-nav-link:not(.is-rail):hover {
-  background: rgb(var(--brand-100));
+  background: rgb(var(--card));
+  color: rgb(var(--text));
 }
 
 html.neo-brutal .side-nav-link.is-rail,
@@ -901,6 +908,7 @@ html.neo-brutal .side-nav-link.is-rail .side-nav-icon {
 
 html.neo-brutal .side-nav-link.is-rail:hover .side-nav-icon {
   background: rgb(var(--brand-100));
+  color: rgb(20 20 22);
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
 }
@@ -913,7 +921,7 @@ html.neo-brutal .side-nav-link.is-rail.is-active .side-nav-icon {
 
 html.neo-brutal .side-nav-link:not(.is-rail).is-active {
   border-color: rgb(var(--neo-ink));
-  background: rgb(var(--brand-200));
-  color: rgb(20 20 22);
-  box-shadow: var(--neo-shadow-xs);
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  box-shadow: inset 6px 0 0 rgb(var(--brand-300)), var(--neo-shadow-xs);
 }

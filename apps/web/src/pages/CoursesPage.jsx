@@ -144,7 +144,6 @@ function CourseCard({
               <div className="min-w-0 flex-1 text-lg font-semibold leading-7 truncate">{course.title}</div>
               {hiddenFromStudents ? <Badge intent="outline"><EyeOff size={13} className="mr-1 inline" />Скрыт от учеников</Badge> : null}
             </div>
-            {hiddenFromStudents ? <div className="mt-2 text-xs font-medium text-[rgb(var(--accent))]">Ученики не получают этот курс и его поддерево даже по прямой ссылке.</div> : null}
 
             {course.description ? (
               <p className="text-sm text-neutral-500 mt-2 line-clamp-3">{course.description}</p>
@@ -419,9 +418,6 @@ export default function CoursesPage() {
           <div className="max-w-3xl">
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-400">Каталог</div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Курсы</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500">
-              В каталоге показываются курсы верхнего уровня. В редакторе край карточки меняет порядок, а центр другой карточки вкладывает курс внутрь.
-            </p>
           </div>
 
           {editorTools && (

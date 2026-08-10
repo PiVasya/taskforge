@@ -540,9 +540,7 @@ export default function AssignmentResultsPage() {
                   )}
                 </div>
               );
-            }) : !pending ? (
-              <div className="rounded border p-3 text-sm text-neutral-500">Детальных тест-кейсов в ответе нет. Итоговый статус показан выше.</div>
-            ) : (
+            }) : !pending ? null : (
               <div className="rounded border p-3 text-sm text-neutral-500">Жду результат проверки…</div>
             )}
           </div>

@@ -49,18 +49,6 @@ public sealed class CourseMapInternalResponse
     public Guid? UpdatedBy { get; set; }
 }
 
-public sealed class CourseAssignmentExportNode
-{
-    public Guid Id { get; set; }
-    public Guid? ParentCourseId { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public bool IsPublic { get; set; }
-    public int Sort { get; set; }
-    public List<object> Assignments { get; set; } = new();
-    public List<CourseAssignmentExportNode> Courses { get; set; } = new();
-}
-
 public sealed class CourseSummaryDto
 {
     public Guid Id { get; set; }

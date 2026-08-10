@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { Card, Button, Input, Textarea, Badge } from "../../components/ui";
+import { Card, Button, Input } from "../../components/ui";
 
 import { getCourse, getCourses, createCourse, updateCourseSort, moveCoursePosition } from "../../api/courses";
 import { getApiErrorMessage } from "../../api/http";
@@ -14,7 +14,7 @@ import {
   exportAssignmentsToJson,
   updateAssignmentSort,
 } from "../../api/assignments";
-import { Plus, Layers, FileJson, Upload, X, Copy, Sparkles, Download, GitCompare, AlertTriangle, ExternalLink, Pencil, FilePlus2, FolderPlus } from "lucide-react";
+import { Plus, Layers, FileJson, Download, ExternalLink, Pencil, FilePlus2, FolderPlus } from "lucide-react";
 import IfEditor from "../../components/IfEditor";
 import { useNotify } from "../../components/notify/NotifyProvider";
 import { handleApiError } from "../../utils/handleApiError";
@@ -40,16 +40,19 @@ import {
   makeCourseContentItem,
   makeAssignmentContentItem,
   CREATE_OPTIONS,
-  JSON_IMPORT_EXAMPLES,
-  JSON_IMPORT_DOC_FIELDS,
   buildDefaultAssignmentPayload,
-  summarizeImportPayload,
-  shortImportValue,
-  buildJsonImportDiff,
 } from './courseAssignmentsModel';
 import CourseContentGrid from './components/CourseContentGrid';
 import CourseFlowEditor from './components/CourseFlowEditor';
 import CourseLayoutToggle from './components/CourseLayoutToggle';
+import JsonTaskGraphDialog from './components/JsonTaskGraphDialog';
+import JsonTaskGraphDiffModal from './components/JsonTaskGraphDiffModal';
+import {
+  TASK_GRAPH_AI_PROMPT,
+  buildTaskGraphImportDiff,
+  summarizeTaskGraphPayload,
+  taskGraphExampleToText,
+} from './courseTaskGraphJson';
 import { resolveRootCourseId } from './courseMapModel';
 import { navigateToCourseEditor } from './courseMapNavigation';
 const EMPTY_LIST = Object.freeze([]);
@@ -153,7 +156,6 @@ export default function CourseAssignmentsPage() {
   });
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createMode, setCreateMode] = useState('choice');
   const [jsonDocsOpen, setJsonDocsOpen] = useState(false);
   const [createBusyType, setCreateBusyType] = useState('');
   const [jsonImportText, setJsonImportText] = useState('');
@@ -163,6 +165,7 @@ export default function CourseAssignmentsPage() {
   const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
+  const [graphImportRequest, setGraphImportRequest] = useState(null);
   const [draggedContentKey, setDraggedContentKey] = useState(null);
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const [dragOverContentMode, setDragOverContentMode] = useState('before');
@@ -217,10 +220,9 @@ export default function CourseAssignmentsPage() {
     });
   }, [courseCanEdit, isEditorMode]);
 
-  const openCreateDialog = React.useCallback((mode = 'json') => {
+  const openCreateDialog = React.useCallback(() => {
     closeContextMenu();
     closeCreateMenu();
-    setCreateMode(mode);
     setJsonDocsOpen(false);
     setCreateDialogOpen(true);
   }, [closeContextMenu, closeCreateMenu]);
@@ -675,7 +677,6 @@ export default function CourseAssignmentsPage() {
       const res = await createAssignment(courseId, payload);
       const id = res && res.id;
       setCreateDialogOpen(false);
-      setCreateMode("choice");
       notify.success("Задание создано");
       if (id) nav(`/assignment/${id}/edit`);
     } catch (e) {
@@ -706,7 +707,6 @@ export default function CourseAssignmentsPage() {
       });
       const id = res && res.id;
       setCreateDialogOpen(false);
-      setCreateMode("choice");
       notify.success("Вложенный курс создан");
       if (id) navigateToCourseEditor(nav, location, courseId, id);
     } catch (e) {
@@ -724,23 +724,30 @@ export default function CourseAssignmentsPage() {
     }
     try {
       const parsed = JSON.parse(value);
-      setJsonImportPreview(summarizeImportPayload(parsed));
+      setJsonImportPreview(summarizeTaskGraphPayload(parsed));
     } catch {
       setJsonImportPreview("JSON не читается");
     }
   };
 
-  const exampleToText = (example) => JSON.stringify(example.payload, null, 2);
-
   const handleUseJsonExample = (example) => {
-    handleJsonImportTextChange(exampleToText(example));
+    handleJsonImportTextChange(taskGraphExampleToText(example));
     notify.info(`В редактор вставлен пример: ${example.title}`);
   };
 
   const handleCopyJsonExample = async (example) => {
     try {
-      await navigator.clipboard.writeText(exampleToText(example));
+      await navigator.clipboard.writeText(taskGraphExampleToText(example));
       notify.success(`Скопирован пример: ${example.title}`);
+    } catch {
+      notify.warn("Браузер не дал скопировать автоматически");
+    }
+  };
+
+  const handleCopyJsonAiPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(TASK_GRAPH_AI_PROMPT);
+      notify.success("Промпт для генерации JSON скопирован");
     } catch {
       notify.warn("Браузер не дал скопировать автоматически");
     }
@@ -761,19 +768,29 @@ export default function CourseAssignmentsPage() {
     setJsonImportBusy(true);
     try {
       const res = await importAssignmentsFromJson(courseId, parsed);
-      const changed = Array.isArray(res?.assignments) ? res.assignments : [];
       await reloadAssignments(true);
       setJsonImportDiffOpen(false);
       setJsonImportDiff(null);
       setJsonImportParsed(null);
       setCreateDialogOpen(false);
-      setCreateMode("choice");
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
-      notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
-      if ((created + updated) === 1 && changed[0]?.id) {
-        const returnTo = showFlowLayout ? `/course/${courseId}` : '';
-        nav(`/assignment/${changed[0].id}/edit${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`);
+      const taskGraph = res?.taskGraph || res?.graph;
+      const taskMappings = Array.isArray(res?.taskMappings) ? res.taskMappings : [];
+      const hasGraph = Boolean(Array.isArray(taskGraph?.tasks) && Array.isArray(taskGraph?.connections));
+      if (hasGraph) {
+        const mappedIds = taskGraph.tasks
+          .map((item) => item?.assignmentId)
+          .filter(Boolean);
+        setContentLayout('flow');
+        setGraphImportRequest({
+          key: `${Date.now()}:${[...mappedIds, ...taskMappings.map((item) => item?.assignmentId)].filter(Boolean).join(',')}`,
+          taskGraph,
+          taskMappings,
+        });
+        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}. Карта обновляется.`);
+      } else {
+        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
       }
     } catch (e) {
       handleApiError(e, notify, "Не удалось импортировать JSON");
@@ -800,7 +817,7 @@ export default function CourseAssignmentsPage() {
     setJsonImportBusy(true);
     try {
       const currentExport = await exportAssignmentsToJson(courseId);
-      const diff = buildJsonImportDiff(parsed, currentExport);
+      const diff = buildTaskGraphImportDiff(parsed, currentExport);
       setJsonImportParsed(parsed);
       setJsonImportDiff(diff);
       setJsonImportDiffOpen(true);
@@ -835,20 +852,19 @@ export default function CourseAssignmentsPage() {
         .toLowerCase()
         .replace(/[^a-zа-яё0-9]+/gi, "-")
         .replace(/^-+|-+$/g, "") || "course";
-      const includesNestedCourses = Number(data?.courseCount || 0) > 1;
       const blob = new Blob([text], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `taskforge-${safeTitle}-${includesNestedCourses ? "course-tree" : "assignments"}.json`;
+      a.download = `taskforge-${safeTitle}-task-graph.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      if (!includesNestedCourses) handleJsonImportTextChange(text);
-      notify.success(includesNestedCourses
-        ? `JSON скачан: ${data.courseCount} курсов и ${data.assignmentCount || 0} заданий`
-        : "JSON экспортирован и загружен в редактор импорта");
+      handleJsonImportTextChange(text);
+      const count = Array.isArray(data?.tasks) ? data.tasks.length : 0;
+      const links = Array.isArray(data?.connections) ? data.connections.length : 0;
+      notify.success(`Граф экспортирован: ${count} заданий, ${links} связей`);
     } catch (e) {
       handleApiError(e, notify, "Не удалось экспортировать JSON");
     } finally {
@@ -929,7 +945,7 @@ export default function CourseAssignmentsPage() {
                 <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
                   <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openCreateDialog("json") : openCreateMenu(event)}>
+                <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openCreateDialog() : openCreateMenu(event)}>
                   {showFlowLayout ? <FileJson size={16} /> : <Plus size={16} />} {showFlowLayout ? 'Импорт JSON' : 'Создать'}
                 </Button>
               </>
@@ -965,268 +981,46 @@ export default function CourseAssignmentsPage() {
         ) : null}
       </IfEditor>
 
-      {jsonImportDiffOpen && jsonImportDiff && (
-        <div
-          className="fixed inset-0 z-[9999] flex h-[100dvh] items-center justify-center overflow-hidden bg-black/65 p-3 sm:p-5"
-          onMouseDown={(e) => { if (e.target === e.currentTarget && !jsonImportBusy) setJsonImportDiffOpen(false); }}
-        >
-          <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
-            <div className="shrink-0 border-b border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))] px-4 py-4 sm:px-6">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xl font-semibold">
-                    <GitCompare size={20} /> Дифф JSON-импорта
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setJsonImportDiffOpen(false)} disabled={jsonImportBusy}>
-                    <X size={16} /> Назад
-                  </Button>
-                  <Button onClick={handleApplyPreparedJsonImport} disabled={jsonImportBusy || jsonImportDiff.total === 0 || jsonImportDiff.validationErrorCount > 0}>
-                    <FileJson size={16} /> {jsonImportBusy ? "Импортирую…" : "Применить изменения"}
-                  </Button>
-                </div>
-              </div>
-            </div>
+      <JsonTaskGraphDiffModal
+        open={jsonImportDiffOpen}
+        diff={jsonImportDiff}
+        busy={jsonImportBusy}
+        onClose={() => setJsonImportDiffOpen(false)}
+        onApply={handleApplyPreparedJsonImport}
+      />
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-              <div className="grid gap-3 sm:grid-cols-5">
-                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                  <div className="text-xs text-neutral-500">Всего</div>
-                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.total}</div>
-                </div>
-                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                  <div className="text-xs text-neutral-500">Создать</div>
-                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.createCount}</div>
-                </div>
-                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                  <div className="text-xs text-neutral-500">Обновить</div>
-                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.updateCount}</div>
-                </div>
-                <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                  <div className="text-xs text-neutral-500">Без изменений</div>
-                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.unchangedCount}</div>
-                </div>
-                <div className={`rounded-2xl border p-3 ${jsonImportDiff.validationErrorCount > 0 ? "border-red-400/70 bg-red-500/10" : "border-[rgba(var(--border)/0.65)]"}`}>
-                  <div className="text-xs text-neutral-500">Ошибки</div>
-                  <div className="mt-1 text-2xl font-semibold">{jsonImportDiff.validationErrorCount}</div>
-                </div>
-              </div>
-
-              {jsonImportDiff.validationErrorCount > 0 && (
-                <div className="mt-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-900 dark:text-red-100">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                    <div>Исправь ошибки ниже. Импорт не будет применён, пока JSON не совпадает со схемой проекта.</div>
-                  </div>
-                </div>
-              )}
-
-              {jsonImportDiff.duplicateTitleCount > 0 && (
-                <div className="mt-4 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                    <div>Возможные дубли по названию: {jsonImportDiff.duplicateTitleCount}</div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-4 space-y-3 pb-2">
-                {jsonImportDiff.rows.map((row) => (
-                  <div key={`${row.index}-${row.id || row.title}`} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={row.action === "create" ? "success" : row.action === "update" ? "outline" : "secondary"}>
-                            {row.action === "create" ? "Создать" : row.action === "update" ? "Обновить" : "Без изменений"}
-                          </Badge>
-                          <Badge variant="outline">{row.type}</Badge>
-                          {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
-                        </div>
-                        <div className="mt-2 break-words font-semibold">{row.title}</div>
-                        <div className="mt-1 break-all text-xs text-neutral-500">{row.id ? `id: ${row.id}` : "Будет создано как новое задание"}</div>
-                      </div>
-                      <div className="text-xs text-neutral-500">#{row.index + 1}</div>
-                    </div>
-
-                    {row.issues.length > 0 ? (
-                      <div className="mt-3 rounded-xl border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-100">
-                        <div className="font-semibold">Ошибки JSON</div>
-                        <ul className="mt-1 list-disc space-y-1 pl-5">
-                          {row.issues.map((issue) => <li key={issue}>{issue}</li>)}
-                        </ul>
-                      </div>
-                    ) : row.action === "create" ? (
-                      <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                        Будет создано.
-                      </div>
-                    ) : row.changes.length ? (
-                      <div className="mt-3 space-y-2">
-                        {row.changes.map((change) => (
-                          <div key={change.key} className="rounded-xl border border-[rgba(var(--border)/0.65)] p-3">
-                            <div className="mb-2 text-sm font-semibold">{change.label}</div>
-                            <div className="grid gap-2 lg:grid-cols-2">
-                              <div>
-                                <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Было</div>
-                                <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.before)}</pre>
-                              </div>
-                              <div>
-                                <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Станет</div>
-                                <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-[rgb(var(--card))] p-2 text-xs leading-5">{shortImportValue(change.after)}</pre>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.75)] px-3 py-2 text-sm text-neutral-500">
-                        Изменений нет.
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {createDialogOpen && (
-        <div
-          className="tf-modal-backdrop fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-3 py-6 sm:px-6"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !jsonImportBusy && !createBusyType) setCreateDialogOpen(false);
-          }}
-        >
-          <Card className="tf-modal-panel w-full max-w-5xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
-            <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 text-xl font-semibold">
-                  <Sparkles size={20} />
-                  JSON-импорт
-                </div>
-              </div>
-              <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={jsonImportBusy || !!createBusyType} title="Закрыть">
-                <X size={16} /> Закрыть
-              </Button>
-            </div>
-
-            {createMode === "json" ? (
-              <div className="mt-5">
-                <div className="flex flex-col gap-3 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <FileJson size={18} />
-                    <span className="font-semibold">JSON</span>
-                    <Badge variant="outline">{jsonImportPreview}</Badge>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={handleExportJson} disabled={jsonExportBusy || jsonImportBusy}>
-                      <Download size={16} /> {jsonExportBusy ? "Экспорт…" : "Экспорт"}
-                    </Button>
-                    <label className="btn-outline cursor-pointer">
-                      <Upload size={16} /> Файл
-                      <input
-                        type="file"
-                        accept="application/json,.json"
-                        className="hidden"
-                        onChange={(e) => handleJsonFile(e.target.files?.[0])}
-                      />
-                    </label>
-                    <Button
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(jsonImportText);
-                          notify.success("JSON скопирован");
-                        } catch {
-                          notify.warn("Браузер не дал скопировать автоматически");
-                        }
-                      }}
-                    >
-                      <Copy size={16} /> Копировать
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        try {
-                          handleJsonImportTextChange(JSON.stringify(JSON.parse(jsonImportText), null, 2));
-                        } catch (e) {
-                          notify.error(`Нельзя форматировать: ${e.message}`);
-                        }
-                      }}
-                    >
-                      Форматировать
-                    </Button>
-                    <Button variant="outline" onClick={() => setJsonDocsOpen((v) => !v)}>
-                      <FileJson size={16} /> Справка
-                    </Button>
-                  </div>
-                </div>
-
-                <Textarea
-                  rows={28}
-                  value={jsonImportText}
-                  onChange={(e) => handleJsonImportTextChange(e.target.value)}
-                  spellCheck={false}
-                  placeholder="Вставь JSON сюда"
-                  className="mt-4 min-h-[560px] font-mono text-xs leading-5"
-                />
-
-                {jsonDocsOpen ? (
-                  <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/20 p-4">
-                    <div className="grid gap-4 lg:grid-cols-[0.95fr_1.25fr]">
-                      <div>
-                        <div className="mb-3 flex items-center gap-2 font-semibold">
-                          <FileJson size={16} /> Поля
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {JSON_IMPORT_DOC_FIELDS.map((field) => (
-                            <code key={field} className="rounded-lg border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))]/70 px-2 py-1 text-xs">
-                              {field}
-                            </code>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-3 flex items-center gap-2 font-semibold">
-                          <FileJson size={16} /> Примеры
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {JSON_IMPORT_EXAMPLES.map((example) => (
-                            <div key={example.key} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))]/60 p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="font-semibold">{example.title}</div>
-                                <Badge variant="outline">{example.type}</Badge>
-                              </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <Button variant="outline" onClick={() => handleCopyJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
-                                  <Copy size={14} /> Копировать
-                                </Button>
-                                <Button variant="outline" onClick={() => handleUseJsonExample(example)} disabled={jsonImportBusy || !!createBusyType}>
-                                  В поле
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="text-xs text-neutral-500">
-                    Импорт создаёт новые задания или обновляет существующие по <code>id</code>.
-                  </div>
-                  <Button onClick={handlePrepareJsonImportDiff} disabled={jsonImportBusy || !!createBusyType}>
-                    <GitCompare size={16} /> {jsonImportBusy ? "Дифф…" : "Показать дифф"}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </Card>
-        </div>
-      )}
+      <JsonTaskGraphDialog
+        open={createDialogOpen}
+        busy={jsonImportBusy || Boolean(createBusyType)}
+        exportBusy={jsonExportBusy}
+        preview={jsonImportPreview}
+        text={jsonImportText}
+        docsOpen={jsonDocsOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        onExport={handleExportJson}
+        onFile={handleJsonFile}
+        onCopy={async () => {
+          try {
+            await navigator.clipboard.writeText(jsonImportText);
+            notify.success('JSON скопирован');
+          } catch {
+            notify.warn('Браузер не дал скопировать автоматически');
+          }
+        }}
+        onFormat={() => {
+          try {
+            handleJsonImportTextChange(JSON.stringify(JSON.parse(jsonImportText), null, 2));
+          } catch (error) {
+            notify.error(`Нельзя форматировать: ${error.message}`);
+          }
+        }}
+        onToggleDocs={() => setJsonDocsOpen((value) => !value)}
+        onTextChange={handleJsonImportTextChange}
+        onCopyAiPrompt={handleCopyJsonAiPrompt}
+        onCopyExample={handleCopyJsonExample}
+        onUseExample={handleUseJsonExample}
+        onPrepareDiff={handlePrepareJsonImportDiff}
+      />
 
       {!showFlowLayout ? (
       <Card className="page-search-card mb-6 rounded-[24px] p-3 sm:p-4">
@@ -1254,10 +1048,12 @@ export default function CourseAssignmentsPage() {
           onQueryChange={setQ}
           onShowGrid={isEditorMode && courseCanEdit ? () => setContentLayout('grid') : null}
           onExportJson={isEditorMode && courseCanEdit ? handleExportJson : null}
-          onImportJson={isEditorMode && courseCanEdit ? () => openCreateDialog('json') : null}
+          onImportJson={isEditorMode && courseCanEdit ? openCreateDialog : null}
           exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}
           dataRevision={assignmentsQuery.updatedAt || 0}
+          graphImportRequest={graphImportRequest}
+          onGraphImportComplete={(key) => setGraphImportRequest((current) => current?.key === key ? null : current)}
           onRefreshCourseData={async () => {
             await Promise.all([reloadCourseData(), reloadAssignments()]);
           }}
@@ -1317,7 +1113,7 @@ export default function CourseAssignmentsPage() {
           </ContextMenuItem>
         ))}
         <ContextMenuSeparator />
-        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>Импорт из JSON</ContextMenuItem>
+        <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>Импорт из JSON</ContextMenuItem>
       </ContextMenu>
 
       <ContextMenu
@@ -1381,7 +1177,7 @@ export default function CourseAssignmentsPage() {
           </ContextMenuItem>
         ))}
         <ContextMenuSeparator />
-        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>
+        <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>
           Импорт из JSON
         </ContextMenuItem>
       </ContextMenu>

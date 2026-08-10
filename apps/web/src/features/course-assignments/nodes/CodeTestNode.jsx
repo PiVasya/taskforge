@@ -5,6 +5,7 @@ import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTo
 export default function CodeTestNode({ data, selected }) {
   const assignment = data?.entity || {};
   const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
+  const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '');
   return (
     <div
       className={`course-map-node course-map-node--code${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
@@ -14,15 +15,14 @@ export default function CodeTestNode({ data, selected }) {
       data-taskforge-assignment-type="code-test"
       data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-action="open-assignment"
-      aria-label={`Code test: ${assignment.title || 'Без названия'}`}
+      aria-label={`Задание с кодом: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
-      <NodeTopline icon={Code2} kicker="Code test" />
-      <div className="course-map-node-title">{assignment.title || 'Без названия'}</div>
-      <AssignmentFooter assignment={assignment} fallback="код" />
+      <NodeTopline icon={Code2} title={assignment.title} />
+      <AssignmentFooter assignment={assignment} fallback="Код" />
       <div className="course-map-code-watermark">{'{ }  ;'}</div>
-      <NodeHover entity={assignment} meta={`Code test${assignment.language ? ` · ${assignment.language}` : ''}`} onAction={data?.onOpen} />
+      <NodeHover entity={assignment} meta={language || null} onAction={data?.onOpen} />
     </div>
   );
 }

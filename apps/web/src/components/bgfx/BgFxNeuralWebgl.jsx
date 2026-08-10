@@ -100,8 +100,6 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
       has: false,
     };
 
-    // Keep the same random offset as the old all-in-one canvas file. Preset 2 used to be
-    // initialized after honey/grain data, so this preserves the familiar node spread.
     rand(0, 9999);
     rand(0, 9999);
     rand(-0.00008, 0.00008);

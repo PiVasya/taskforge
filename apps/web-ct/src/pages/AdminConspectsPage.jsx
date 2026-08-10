@@ -265,7 +265,6 @@ export default function AdminConspectsPage() {
                 Назад к учебным курсам
               </Link>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">Редактор конспектов</h1>
-              <p className="mt-1 text-neutral-600 dark:text-neutral-300">Здесь создаётся именно конспект: вкладки, блоки, таблицы, словари и кнопки к заданиям.</p>
             </div>
             <button type="button" onClick={startNew} className="btn-primary inline-flex items-center gap-2">
               <Plus size={18} />

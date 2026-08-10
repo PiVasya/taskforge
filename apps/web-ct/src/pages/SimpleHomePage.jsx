@@ -60,10 +60,6 @@ function AddSectionBox({
               className="mt-1 w-full rounded-3xl border border-brand-200 bg-white px-5 py-4 text-3xl font-black tracking-tight outline-none focus:border-brand-500 dark:border-brand-900 dark:bg-neutral-950"
             />
           </label>
-          <p className="mt-2 text-sm leading-6 text-brand-900/75 dark:text-brand-100/75">
-            Создаётся полноценный раздел. Только после этого он появится в списке
-            номеров у учеников.
-          </p>
           {invalid ? (
             <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
               Для {part.title} нужен формат {part.code}1, {part.code}31, {" "}
@@ -184,10 +180,6 @@ export default function SimpleHomePage() {
             <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">
               Выбери номер задания
             </h1>
-            <p className="mx-auto mt-4 max-w-2xl text-lg text-neutral-600 dark:text-neutral-300">
-              В списке только реально созданные номера: номер → HTML-конспект →
-              случайные задания по этому же номеру.
-            </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <button
                 type="button"
@@ -211,8 +203,7 @@ export default function SimpleHomePage() {
           {canEdit && isEditorMode ? (
             <div className="mb-6 rounded-[1.5rem] border border-brand-200 bg-brand-50 p-4 text-sm font-semibold text-brand-900 shadow-soft dark:border-brand-900 dark:bg-brand-950/30 dark:text-brand-100">
               <PencilLine size={18} className="mr-2 inline" />
-              Режим редактора включён. Номера появляются в списке только после
-              создания раздела через плюс в части A или B.
+              Редактор
               <button
                 type="button"
                 onClick={loadCourseTree}

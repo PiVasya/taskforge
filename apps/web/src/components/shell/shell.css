@@ -59,12 +59,16 @@
 }
 
 .side-nav-link:hover {
-  background: rgba(var(--border) / 0.16);
+  border-color: rgba(var(--accent) / 0.22);
+  background: color-mix(in srgb, rgb(var(--card)) 88%, rgb(var(--accent)) 12%);
+  color: rgb(var(--text));
 }
 
 .side-nav-link.is-active {
-  background: linear-gradient(180deg, rgba(var(--accent) / 0.13), rgba(var(--accent) / 0.08));
-  border-color: rgba(var(--accent) / 0.28);
+  border-color: rgba(var(--accent) / 0.42);
+  background: color-mix(in srgb, rgb(var(--card)) 82%, rgb(var(--accent)) 18%);
+  color: rgb(var(--text));
+  box-shadow: inset 3px 0 0 rgb(var(--accent));
 }
 
 .side-nav-icon {
@@ -72,9 +76,14 @@
   background: rgba(var(--border) / 0.12);
 }
 
+.side-nav-link:hover .side-nav-icon,
 .side-nav-link.is-active .side-nav-icon {
   background: rgba(var(--accent) / 0.14);
-  color: rgb(var(--accent));
+  color: color-mix(in srgb, rgb(var(--accent)) 72%, rgb(var(--text)) 28%);
+}
+
+.side-nav-link.is-active .side-nav-icon {
+  background: rgba(var(--accent) / 0.2);
 }
 
 .side-nav-label {
@@ -90,9 +99,10 @@
   flex-shrink: 0;
 }
 
+.side-nav-link:hover .side-nav-chevron,
 .side-nav-link.is-active .side-nav-chevron {
-  opacity: 0.8;
-  color: rgb(var(--accent));
+  opacity: 0.82;
+  color: color-mix(in srgb, rgb(var(--accent)) 68%, rgb(var(--text)) 32%);
 }
 
 

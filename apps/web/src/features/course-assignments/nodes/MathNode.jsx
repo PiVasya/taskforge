@@ -14,15 +14,14 @@ export default function MathNode({ data, selected }) {
       data-taskforge-assignment-type="math"
       data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-action="open-assignment"
-      aria-label={`Математика: ${assignment.title || 'Без названия'}`}
+      aria-label={`Математическое задание: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
-      <NodeTopline icon={Sigma} kicker="Математика" badge="β" />
-      <div className="course-map-node-title">{assignment.title || 'Без названия'}</div>
-      <AssignmentFooter assignment={assignment} fallback="в разработке" />
+      <NodeTopline icon={Sigma} title={assignment.title} />
+      <AssignmentFooter assignment={assignment} fallback="Задание" />
       <div className="course-map-math-watermark">Σ x² √</div>
-      <NodeHover entity={assignment} meta="Математика · β" onAction={data?.onOpen} />
+      <NodeHover entity={assignment} onAction={data?.onOpen} />
     </div>
   );
 }

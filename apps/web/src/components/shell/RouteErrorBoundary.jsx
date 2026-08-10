@@ -27,7 +27,7 @@ class RouteErrorBoundary extends React.Component {
       <div className="rounded-3xl border border-rose-300/60 bg-rose-50/85 p-6 text-rose-950 shadow-soft backdrop-blur dark:border-rose-800/70 dark:bg-rose-950/45 dark:text-rose-100">
         <div className="text-lg font-semibold">Не удалось открыть этот раздел</div>
         <div className="mt-2 text-sm opacity-80">
-          Остальная оболочка TaskForge продолжает работать. Перезагрузи только страницу, чтобы повторить загрузку раздела.
+          Обновите страницу и повторите попытку.
         </div>
         <button
           type="button"

@@ -549,8 +549,7 @@
   filter: grayscale(.35);
 }
 
-.course-map-controls.react-flow__controls,
-.course-map-minimap.react-flow__minimap {
+.course-map-controls.react-flow__controls {
   overflow: hidden;
   border: 1px solid rgba(var(--border) / .72);
   border-radius: 14px;
@@ -571,14 +570,6 @@
   color: rgb(var(--fg));
 }
 
-.course-map-minimap.react-flow__minimap {
-  right: 12px;
-  bottom: 12px;
-  width: 128px;
-  height: 82px;
-  max-width: calc(100% - 24px);
-  opacity: .76;
-}
 
 .course-map-presence,
 .course-map-unplaced {
@@ -670,32 +661,6 @@
   font-size: 9px;
 }
 
-.course-map-unplaced-popover button {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 10px;
-  padding: 7px 8px;
-  background: transparent;
-  color: rgb(var(--fg));
-  cursor: pointer;
-  text-align: left;
-  font-size: 11px;
-}
-
-.course-map-unplaced-popover button:hover {
-  background: rgba(var(--accent) / .08);
-}
-
-.course-map-unplaced-popover button span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .course-map-popover-more {
   padding: 6px 8px 2px;
   color: rgba(var(--fg) / .45);
@@ -720,9 +685,6 @@
     display: none;
   }
 
-  .course-map-minimap.react-flow__minimap {
-    display: none;
-  }
 
   .course-map-node-hover--right {
     top: calc(100% + 8px);
@@ -876,7 +838,6 @@ html.neo-brutal .course-map-shell {
 
 html.neo-brutal .course-map-toolbar-left,
 html.neo-brutal .course-map-controls.react-flow__controls,
-html.neo-brutal .course-map-minimap.react-flow__minimap,
 html.neo-brutal .course-map-server-changed,
 html.neo-brutal .course-map-unplaced-trigger,
 html.neo-brutal .course-map-presence-trigger,
@@ -1506,4 +1467,440 @@ html.neo-brutal:not(.dark) .react-flow__edge.course-map-edge.is-sequential-stop 
 
 html.neo-brutal .react-flow__edge.course-map-edge.is-sequential-start .react-flow__edge-path {
   stroke: color-mix(in srgb, rgb(var(--brand-500)) 68%, rgb(var(--fg)) 32%);
+}
+
+.course-map-unplaced-trigger.is-open {
+  border-color: rgba(var(--accent) / .5);
+  background: rgba(var(--accent) / .12);
+}
+
+.course-map-unplaced-trigger strong {
+  display: inline-flex;
+  min-width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(var(--accent) / .17);
+  color: rgb(var(--accent));
+  font-size: 10px;
+}
+
+.course-map-unplaced-popover {
+  width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+}
+
+.course-map-unplaced-head {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.course-map-unplaced-head .course-map-popover-title {
+  margin: 0;
+}
+
+.course-map-unplaced-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(var(--fg) / .62);
+  cursor: pointer;
+}
+
+.course-map-unplaced-close:hover {
+  background: rgba(var(--fg) / .08);
+  color: rgb(var(--fg));
+}
+
+.course-map-unplaced-list {
+  display: grid;
+  max-height: min(430px, 55vh);
+  gap: 5px;
+  margin-top: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.course-map-unplaced-row {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 6px 8px;
+  background: rgba(var(--fg) / .025);
+  cursor: grab;
+  user-select: none;
+}
+
+.course-map-unplaced-row:hover {
+  border-color: rgba(var(--accent) / .34);
+  background: rgba(var(--accent) / .085);
+}
+
+.course-map-unplaced-row:active {
+  cursor: grabbing;
+}
+
+.course-map-unplaced-grip {
+  color: rgba(var(--fg) / .38);
+}
+
+.course-map-unplaced-kind {
+  border-radius: 999px;
+  padding: 3px 6px;
+  background: rgba(var(--fg) / .07);
+  color: rgba(var(--fg) / .58);
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.course-map-unplaced-title {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--fg));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .course-map-unplaced-row {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .course-map-unplaced-kind {
+    display: none;
+  }
+}
+
+.course-map-shell.is-editor .react-flow__selection,
+.course-map-shell.is-editor .react-flow__nodesselection-rect {
+  border: 1px solid rgba(var(--accent) / .9);
+  background: rgba(var(--accent) / .1);
+}
+
+.course-map-shell.is-editor .react-flow__node.selected .course-map-node {
+  outline: 2px solid rgba(var(--accent) / .82);
+  outline-offset: 3px;
+}
+
+.course-map-controls.react-flow__controls {
+  right: 14px;
+  bottom: 14px;
+  left: auto;
+}
+
+.course-map-controls .react-flow__controls-button {
+  color: rgb(var(--text));
+}
+
+.course-map-node {
+  --node-line: rgb(var(--accent));
+  min-width: 252px;
+  max-width: 372px;
+  min-height: 96px;
+  padding: 14px 16px 13px;
+  border: 1px solid rgba(var(--border) / .82);
+  border-top: 1px solid rgba(var(--border) / .82);
+  border-left: 4px solid var(--node-line);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .94));
+  color: rgb(var(--text));
+  box-shadow: 0 10px 26px rgba(10, 14, 24, .11);
+}
+
+.course-map-node:hover,
+.course-map-node.is-selected {
+  border-color: rgba(var(--accent) / .64);
+  border-left-color: rgb(var(--accent));
+  box-shadow: 0 16px 36px rgba(10, 14, 24, .17), 0 0 0 1px rgba(var(--accent) / .13);
+}
+
+.course-map-node--course {
+  min-width: 286px;
+  max-width: 414px;
+  min-height: 112px;
+  border-left-width: 6px;
+  border-radius: 20px;
+  background:
+    linear-gradient(90deg, rgba(var(--accent) / .055), transparent 28%),
+    linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .94));
+}
+
+.course-map-node--code {
+  border-left-style: solid;
+  background:
+    linear-gradient(90deg, rgba(var(--accent) / .045), transparent 34%),
+    linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .94));
+}
+
+.course-map-node--test {
+  border-left: 6px double var(--node-line);
+  border-radius: 14px 21px 21px 14px;
+  background:
+    radial-gradient(circle at 94% 15%, rgba(var(--accent) / .12) 0 2px, transparent 2.5px) 0 0 / 11px 11px,
+    linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .95));
+}
+
+.course-map-node--image {
+  min-width: 258px;
+  max-width: 390px;
+  min-height: 100px;
+  border-left-width: 5px;
+  border-radius: 12px 24px 12px 24px;
+  background:
+    linear-gradient(135deg, rgba(var(--accent) / .065), transparent 35%),
+    linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .94));
+}
+
+.course-map-node--math {
+  border-left: 5px dashed var(--node-line);
+  border-bottom: 1px dashed rgba(var(--accent) / .34);
+  border-radius: 20px 12px 20px 12px;
+  background:
+    linear-gradient(160deg, rgba(var(--accent) / .04), transparent 42%),
+    linear-gradient(145deg, rgba(var(--card) / .99), rgba(var(--card) / .95));
+}
+
+.course-map-node-topline {
+  gap: 10px;
+  min-height: 34px;
+}
+
+.course-map-node-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-color: rgba(var(--accent) / .28);
+  background: rgba(var(--accent) / .105);
+  color: color-mix(in srgb, rgb(var(--accent)) 82%, rgb(var(--text)) 18%);
+}
+
+.course-map-node--course .course-map-node-icon {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border-radius: 11px;
+}
+
+.course-map-node--test .course-map-node-icon {
+  border-radius: 999px;
+}
+
+.course-map-node--image .course-map-node-icon {
+  border-radius: 7px 12px 7px 12px;
+}
+
+.course-map-node--math .course-map-node-icon {
+  border-radius: 8px;
+  transform: rotate(45deg);
+}
+
+.course-map-node--math .course-map-node-icon svg {
+  transform: rotate(-45deg);
+}
+
+.course-map-node-heading {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  color: rgb(var(--text));
+  font-size: 15px;
+  font-weight: 740;
+  line-height: 1.28;
+}
+
+.course-map-node--course .course-map-node-heading {
+  font-size: 17px;
+  font-weight: 780;
+}
+
+.course-map-node-badge {
+  display: inline-flex;
+  min-height: 20px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--accent) / .4);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: rgba(var(--accent) / .11);
+  color: color-mix(in srgb, rgb(var(--accent)) 72%, rgb(var(--text)) 28%);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .045em;
+}
+
+.course-map-node-kicker,
+.course-map-node-title {
+  display: none;
+}
+
+.course-map-node-footer,
+.course-map-course-progress-row {
+  color: color-mix(in srgb, rgb(var(--text)) 66%, rgb(var(--card)) 34%);
+}
+
+.course-map-node-status.is-solved,
+.course-map-hover-solved {
+  color: color-mix(in srgb, rgb(var(--accent)) 76%, rgb(var(--text)) 24%);
+}
+
+.course-map-course-progress-row {
+  margin-top: 13px;
+  color: rgb(var(--text));
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.course-map-course-progress {
+  height: 7px;
+  background: color-mix(in srgb, rgb(var(--text)) 11%, transparent);
+}
+
+.course-map-hover-description {
+  color: color-mix(in srgb, rgb(var(--text)) 76%, rgb(var(--card)) 24%);
+}
+
+.course-map-hover-meta,
+.course-map-hover-course-stat {
+  color: color-mix(in srgb, rgb(var(--text)) 62%, rgb(var(--card)) 38%);
+}
+
+.course-map-node-hover {
+  width: 270px;
+  border-color: rgba(var(--border) / .88);
+  background: color-mix(in srgb, rgb(var(--card)) 97%, transparent);
+  color: rgb(var(--text));
+}
+
+.course-map-node-hover-action {
+  color: color-mix(in srgb, rgb(var(--accent)) 72%, rgb(var(--text)) 28%);
+}
+
+.course-map-node--locked {
+  min-width: 276px;
+  min-height: 104px;
+  border: 1px dashed color-mix(in srgb, rgb(var(--text)) 38%, transparent);
+  border-left: 5px dashed color-mix(in srgb, rgb(var(--text)) 58%, transparent);
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, rgb(var(--text)) 3%, transparent) 0 10px, transparent 10px 20px),
+    rgb(var(--card));
+  color: rgb(var(--text));
+}
+
+.course-map-node--locked .course-map-node-icon {
+  border-color: color-mix(in srgb, rgb(var(--text)) 24%, transparent);
+  background: color-mix(in srgb, rgb(var(--text)) 7%, transparent);
+  color: color-mix(in srgb, rgb(var(--text)) 78%, rgb(var(--card)) 22%);
+}
+
+.course-map-locked-requirement {
+  margin-top: 11px;
+  color: color-mix(in srgb, rgb(var(--text)) 76%, rgb(var(--card)) 24%);
+}
+
+.course-map-locked-hint {
+  display: none;
+}
+
+.course-map-code-watermark,
+.course-map-math-watermark {
+  color: rgba(var(--accent) / .09);
+}
+
+.course-map-test-dots {
+  top: auto;
+  right: 13px;
+  bottom: 12px;
+  opacity: .55;
+}
+
+.course-map-image-grid {
+  opacity: .34;
+}
+
+html.neo-brutal .course-map-node,
+html.neo-brutal .course-map-node--course,
+html.neo-brutal .course-map-node--code,
+html.neo-brutal .course-map-node--test,
+html.neo-brutal .course-map-node--image,
+html.neo-brutal .course-map-node--math {
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .course-map-node {
+  border: 2px solid rgb(var(--neo-ink));
+  border-left: 5px solid rgb(var(--neo-ink));
+  border-radius: .75rem;
+}
+
+html.neo-brutal .course-map-node--course {
+  border-left-width: 8px;
+  border-radius: .9rem;
+}
+
+html.neo-brutal .course-map-node--test {
+  border-left: 8px double rgb(var(--neo-ink));
+  border-radius: .55rem .9rem .9rem .55rem;
+}
+
+html.neo-brutal .course-map-node--image {
+  border-left-width: 6px;
+  border-radius: .4rem .95rem .4rem .95rem;
+}
+
+html.neo-brutal .course-map-node--math {
+  border: 2px dashed rgb(var(--neo-ink));
+  border-left-width: 6px;
+  border-radius: .9rem .45rem .9rem .45rem;
+}
+
+html.neo-brutal .course-map-node-heading,
+html.neo-brutal .course-map-course-progress-row,
+html.neo-brutal .course-map-node-footer,
+html.neo-brutal .course-map-hover-description,
+html.neo-brutal .course-map-hover-meta,
+html.neo-brutal .course-map-hover-course-stat {
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .course-map-node-badge {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--brand-200));
+  color: rgb(20 20 22);
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-node--locked {
+  border: 2px dashed rgb(var(--neo-ink));
+  border-left-width: 6px;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+}
+
+@media (max-width: 760px) {
+  .course-map-controls.react-flow__controls {
+    right: 10px;
+    bottom: 10px;
+    left: auto;
+  }
 }

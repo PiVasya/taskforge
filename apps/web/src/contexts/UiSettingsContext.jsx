@@ -132,9 +132,6 @@ function persistSettingsSnapshot(settings) {
       settings.sidebarCollapsed ? '1' : '0',
     );
 
-    // sidebarCollapsed is intentionally local to this device. The backend payload
-    // controls account-wide UI preferences; local navigation state survives on
-    // this browser without being uploaded to other devices.
     const remoteCompatibleSettings = {
       colorTheme: settings.colorTheme,
       mode: settings.mode,
@@ -192,8 +189,6 @@ export function UiSettingsProvider({ children }) {
         setSettings((previous) => (equalSettings(previous, next) ? previous : next));
       })
       .catch(() => {
-        // Keep the local snapshot and avoid a request storm on every token refresh.
-        // The flag is reset after logout, so a later authenticated session retries.
       });
 
     return () => {
@@ -367,8 +362,6 @@ export function useUiSettingsActions() {
   };
 }
 
-// Compatibility hook for code outside the refactored shell. New components should
-// subscribe to the smallest domain-specific hook above.
 export function useUiAppearance() {
   const theme = useUiTheme();
   const background = useUiBackgroundSettings();

@@ -188,4 +188,59 @@ if (/getMyUiSettings|tf-ui-settings-changed|UI_SETTINGS_KEY/.test(authContext)) 
   fail('AuthContext owns UI appearance side effects instead of authentication only');
 }
 
+
+const courseFlowEditor = read('features/course-assignments/components/CourseFlowEditor.jsx');
+if (/\bMiniMap\b|course-map-minimap/.test(courseFlowEditor)) {
+  fail('course map minimap returned');
+}
+if (!/courseProgressVersion/.test(courseFlowEditor) || !/readCourseProgress/.test(courseFlowEditor)) {
+  fail('learner course nodes no longer use full server-side progress');
+}
+
+const courseMapNodes = [
+  'features/course-assignments/nodes/CourseNode.jsx',
+  'features/course-assignments/nodes/CodeTestNode.jsx',
+  'features/course-assignments/nodes/TestNode.jsx',
+  'features/course-assignments/nodes/ImageCodeNode.jsx',
+  'features/course-assignments/nodes/MathNode.jsx',
+  'features/course-assignments/nodes/LockedNode.jsx',
+].map(read).join('\n');
+for (const label of ['Курс · развилка', 'Code test', 'Картинки · код', 'Закрытое продолжение', 'LOCK']) {
+  if (courseMapNodes.includes(label)) fail(`technical course-map label returned: ${label}`);
+}
+
+const forbiddenLearnerCopy = {
+  'components/shell/RouteErrorBoundary.jsx': [
+    'Остальная оболочка TaskForge продолжает работать',
+  ],
+  'features/assignment-solve/AssignmentSolveFeature.jsx': [
+    'Runner принимает',
+    'скрыта от ученика',
+    'Открой «Редактировать»',
+    'Для image-test доступны',
+  ],
+  'features/compiler/CompilerFeature.jsx': [
+    'оболочке сервера',
+    'отдельная среда фронтенд-задач',
+    'Черновик сохраняется автоматически',
+  ],
+  'pages/MathTaskSolve.jsx': [
+    'Здесь можно строить решения',
+  ],
+  'pages/TaskTestSolve.jsx': [
+    'Чтобы начать попытку',
+  ],
+  'pages/minecraft/MinecraftChatPage.jsx': [
+    'Компактная лента в стиле',
+  ],
+};
+for (const [relativePath, phrases] of Object.entries(forbiddenLearnerCopy)) {
+  const text = read(relativePath);
+  for (const phrase of phrases) {
+    if (text.includes(phrase)) {
+      fail(`developer commentary leaked into learner UI: src/${relativePath} contains "${phrase}"`);
+    }
+  }
+}
+
 console.log('Frontend architecture invariants OK');

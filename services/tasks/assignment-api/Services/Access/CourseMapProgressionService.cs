@@ -189,6 +189,18 @@ internal static class CourseMapProgressionService
                 updatedBy);
         }
 
+        var reachableNodeIds = new HashSet<string>(StringComparer.Ordinal);
+        var reachable = new Stack<string>();
+        reachable.Push(start.Id);
+        while (reachable.Count > 0)
+        {
+            var nodeId = reachable.Pop();
+            if (!reachableNodeIds.Add(nodeId)) continue;
+            if (!outgoing.TryGetValue(nodeId, out var reachableEdges)) continue;
+            foreach (var edge in reachableEdges)
+                reachable.Push(edge.Target);
+        }
+
         var visibleNodeIds = new HashSet<string>(StringComparer.Ordinal);
         var visibleEdgeIds = new HashSet<string>(StringComparer.Ordinal);
         var blockedSequentialEdges = new List<BlockedSequentialEdge>();
@@ -330,12 +342,22 @@ internal static class CourseMapProgressionService
             outputNodes,
             outputEdges);
 
+        var courseProgress = BuildCourseProgress(
+            nodes,
+            reachableNodeIds,
+            visibleNodeIds,
+            assignmentById,
+            courseById,
+            accessibleCourseIds,
+            solvedIds);
         var viewport = document.TryGetProperty("viewport", out var viewportElement) && viewportElement.ValueKind == JsonValueKind.Object
             ? viewportElement.Clone()
             : JsonSerializer.SerializeToElement(new { x = 0, y = 0, zoom = 1 });
         var learningDocument = JsonSerializer.SerializeToElement(new
         {
             schemaVersion = 1,
+            courseProgressVersion = 1,
+            courseProgress,
             viewport,
             nodes = outputNodes,
             edges = outputEdges
@@ -352,6 +374,93 @@ internal static class CourseMapProgressionService
             learningDocument,
             updatedAt,
             updatedBy);
+    }
+
+    private static Dictionary<string, object> BuildCourseProgress(
+        IReadOnlyCollection<MapNode> nodes,
+        HashSet<string> reachableNodeIds,
+        HashSet<string> visibleNodeIds,
+        Dictionary<Guid, AssignmentProgressionRow> assignments,
+        Dictionary<Guid, CourseTreeCourseDto> courses,
+        HashSet<Guid> accessibleCourseIds,
+        HashSet<Guid> solvedIds)
+    {
+        var directTotals = accessibleCourseIds.ToDictionary(id => id, _ => 0);
+        var directSolved = accessibleCourseIds.ToDictionary(id => id, _ => 0);
+        var placedAssignmentIds = nodes
+            .Where(node => reachableNodeIds.Contains(node.Id))
+            .Where(node => !string.Equals(node.Type, "course", StringComparison.OrdinalIgnoreCase))
+            .Where(node => node.EntityId.HasValue && assignments.ContainsKey(node.EntityId.Value))
+            .Select(node => node.EntityId!.Value)
+            .Distinct()
+            .ToArray();
+
+        foreach (var assignmentId in placedAssignmentIds)
+        {
+            var assignment = assignments[assignmentId];
+            if (!accessibleCourseIds.Contains(assignment.CourseId)) continue;
+            directTotals[assignment.CourseId] = directTotals.GetValueOrDefault(assignment.CourseId) + 1;
+            if (solvedIds.Contains(assignmentId))
+                directSolved[assignment.CourseId] = directSolved.GetValueOrDefault(assignment.CourseId) + 1;
+        }
+
+        var remainingChildren = accessibleCourseIds.ToDictionary(id => id, _ => 0);
+        foreach (var courseId in accessibleCourseIds)
+        {
+            if (!courses.TryGetValue(courseId, out var course)
+                || !course.ParentCourseId.HasValue
+                || !accessibleCourseIds.Contains(course.ParentCourseId.Value))
+            {
+                continue;
+            }
+
+            remainingChildren[course.ParentCourseId.Value]++;
+        }
+
+        var totals = directTotals.ToDictionary(x => x.Key, x => x.Value);
+        var solved = directSolved.ToDictionary(x => x.Key, x => x.Value);
+        var leaves = new Queue<Guid>(remainingChildren.Where(x => x.Value == 0).Select(x => x.Key));
+        var processed = new HashSet<Guid>();
+        while (leaves.Count > 0)
+        {
+            var courseId = leaves.Dequeue();
+            if (!processed.Add(courseId)) continue;
+            if (!courses.TryGetValue(courseId, out var course)
+                || !course.ParentCourseId.HasValue
+                || !accessibleCourseIds.Contains(course.ParentCourseId.Value))
+            {
+                continue;
+            }
+
+            var parentId = course.ParentCourseId.Value;
+            totals[parentId] = totals.GetValueOrDefault(parentId) + totals.GetValueOrDefault(courseId);
+            solved[parentId] = solved.GetValueOrDefault(parentId) + solved.GetValueOrDefault(courseId);
+            remainingChildren[parentId]--;
+            if (remainingChildren[parentId] == 0) leaves.Enqueue(parentId);
+        }
+
+        var result = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var node in nodes)
+        {
+            if (!visibleNodeIds.Contains(node.Id)
+                || !string.Equals(node.Type, "course", StringComparison.OrdinalIgnoreCase)
+                || !node.EntityId.HasValue
+                || !accessibleCourseIds.Contains(node.EntityId.Value))
+            {
+                continue;
+            }
+
+            var total = Math.Max(0, totals.GetValueOrDefault(node.EntityId.Value));
+            var completed = Math.Clamp(solved.GetValueOrDefault(node.EntityId.Value), 0, total);
+            result[node.Id] = new
+            {
+                total,
+                solved = completed,
+                percent = total > 0 ? (int)Math.Round(completed * 100d / total) : 0
+            };
+        }
+
+        return result;
     }
 
     private static void AppendSequentialLocks(

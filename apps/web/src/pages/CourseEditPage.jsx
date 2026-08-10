@@ -305,10 +305,7 @@ export default function CourseEditPage({ overlay = false }) {
                   />
                   <span className="min-w-0">
                     <span className="block text-sm font-semibold">Полностью скрыть курс от учеников</span>
-                    <span className="mt-1 block text-xs leading-5 text-neutral-500">
-                      Курс и всё его поддерево не появятся в списках, на карте и по прямым ссылкам.
-                      Admin/Editor продолжат видеть его в редакторе, где скрытые ноды специально выделены.
-                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-neutral-500">Скрывает курс и всё его поддерево от учеников.</span>
                   </span>
                 </label>
               </div>
@@ -316,9 +313,7 @@ export default function CourseEditPage({ overlay = false }) {
               {!isPublic && (
                 <div className="sm:col-span-2">
                   <div className="text-sm font-medium mb-2">Группы видимости</div>
-                  <div className="text-xs text-neutral-500 mb-3">
-                    Если группы не выбраны — курс виден только Admin и Editor.
-                  </div>
+                  <div className="text-xs text-neutral-500 mb-3">Без выбранных групп курс доступен только администрации и редакторам.</div>
 
                   {groups.length === 0 ? (
                     <div className="text-sm text-neutral-500">Группы не загружены.</div>
@@ -348,10 +343,7 @@ export default function CourseEditPage({ overlay = false }) {
 
           <Card>
             <div className="flex items-center justify-between gap-3 mb-2">
-              <div>
-                <div className="text-sm font-medium">Владельцы курса (owners)</div>
-                <div className="text-xs text-neutral-500">Editor может редактировать курс только если он в owners.</div>
-              </div>
+              <div className="text-sm font-medium">Владельцы курса</div>
             </div>
 
             <div className="flex flex-wrap gap-2 mb-3">
@@ -405,14 +397,11 @@ export default function CourseEditPage({ overlay = false }) {
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="text-xs text-neutral-500">
-                  Добавление владельцев доступно через ввод GUID пользователя.
-                </div>
                 <div className="flex gap-2">
                   <Input
                     value={manualOwnerId}
                     onChange={(e) => setManualOwnerId(e.target.value)}
-                    placeholder="GUID пользователя"
+                    placeholder="ID пользователя"
                   />
                   <Button
                     variant="outline"

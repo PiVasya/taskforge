@@ -165,7 +165,6 @@ export default function MinecraftChatPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2"><MessageSquare size={22} /> Minecraft чат</h1>
-            <p className="text-xs sm:text-sm text-neutral-500 mt-1 sm:mt-2">Компактная лента в стиле игрового чата. Входы, выходы и ачивки тоже прилетают сюда.</p>
           </div>
           <Button variant="outline" className="self-start sm:self-auto" onClick={() => load()}><RefreshCw size={16} /><span className="ml-1">Обновить</span></Button>
         </div>

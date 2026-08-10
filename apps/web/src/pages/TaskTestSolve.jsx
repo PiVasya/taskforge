@@ -42,7 +42,7 @@ function summarizeAnswerDraft(answers) {
   };
 }
 
-function TaskTestSolve({ assignmentId, assignment, onActivity }) {
+function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
   const notify = useNotify();
   const [loading, setLoading] = useState(false);
   const [startData, setStartData] = useState(null);
@@ -114,6 +114,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity }) {
       ) {
         setLimitReached(true);
       }
+      if (response.passed) onCompleted?.();
       notify.success(response.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
     } catch (error) {
       onActivity?.('submit_failed', {
@@ -124,7 +125,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity }) {
     } finally {
       setSubmitLoading(false);
     }
-  }, [assignmentId, notify, onActivity, result, startData, storeKey, submitLoading]);
+  }, [assignmentId, notify, onActivity, onCompleted, result, startData, storeKey, submitLoading]);
 
   useEffect(() => {
     if (!storeKey || result) return undefined;
@@ -186,9 +187,6 @@ function TaskTestSolve({ assignmentId, assignment, onActivity }) {
       {!startData ? (
         <Card>
           <div className="space-y-3">
-            <div className="text-sm text-neutral-600 dark:text-neutral-400">
-              Чтобы начать, нажми кнопку. Вопросы и варианты могут быть в случайном порядке.
-            </div>
             <div className="flex gap-3">
               <Button onClick={begin} disabled={loading || limitReached}>
                 {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать тест')}

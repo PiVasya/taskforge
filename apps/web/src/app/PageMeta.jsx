@@ -299,9 +299,6 @@ export default function PageMeta() {
     setMeta('meta[name="twitter:description"]', { name: 'twitter:description' }, meta.description);
     setLink('link[rel="canonical"]', 'canonical', canonicalUrl);
 
-    // The resolved route content marks the document ready from inside the
-    // Suspense boundary. Keeping this component at "loading" prevents a
-    // crawler from capturing the route skeleton as the final page.
   }, [location.pathname, meta.description, meta.title]);
 
   return null;

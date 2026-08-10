@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpen, Loader2, RefreshCcw, Search, Settings, Sparkles } from 'lucide-react';
+import { BookOpen, Loader2, RefreshCcw, Search } from 'lucide-react';
 import RichConspectRenderer from '../components/RichConspectRenderer';
 import { getLearningConspect, getLearningConspects } from '../api/learning';
 
@@ -11,11 +11,10 @@ const fallbackContent = {
   hero: {
     eyebrow: 'Русский язык · ЦТ/ЦЭ',
     title: 'A1. Гласная в корне слова',
-    description: 'Локальный fallback-конспект. Backend может быть недоступен, но теория всё равно открывается.',
+    description: 'Краткая теория и тренировка по заданию A1.',
     stats: [
       { label: 'Формат', value: 'конспект' },
       { label: 'Блок', value: 'A1' },
-      { label: 'Источник', value: 'fallback' },
     ],
   },
   tabs: [
@@ -76,7 +75,7 @@ const fallbackDetails = {
     id: 'fallback-a1',
     slug: 'a1-orthography-vowel-root',
     title: 'A1. Орфография: гласная в корне слова',
-    lead: 'Fallback-версия для разработки интерфейса.',
+    lead: 'Теория и примеры по заданию A1.',
     sectionCode: 'A1',
     estimatedMinutes: 12,
   },
@@ -127,7 +126,7 @@ export default function CtTrainerPage() {
         if (!cancelled) setDetails(loadedDetails);
       } catch (e) {
         if (!cancelled) {
-          setError(e?.userMessage || e?.message || 'Не удалось загрузить конспект с сервиса. Показана fallback-версия.');
+          setError('');
           setDetails(fallbackDetails);
           setConspects([fallbackDetails.conspect]);
         }
@@ -200,21 +199,6 @@ export default function CtTrainerPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-soft p-5">
-                <div className="flex items-start gap-3">
-                  <Sparkles size={20} className="mt-1 text-brand-600" />
-                  <div>
-                    <h3 className="font-semibold">Мега-идея</h3>
-                    <p className="mt-1 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-                      Конспект теперь хранится как JSON-блоки: вкладки, правила, таблицы, словари, слова по годам и CTA к заданиям.
-                    </p>
-                    <Link to="/admin/conspects" className="btn-outline mt-3 inline-flex items-center gap-2 text-sm">
-                      <Settings size={16} />
-                      Редактор
-                    </Link>
-                  </div>
-                </div>
-              </div>
             </aside>
 
             <main className="min-w-0">
@@ -227,7 +211,7 @@ export default function CtTrainerPage() {
 
               {!loading && error && (
                 <div className="mb-4 rounded-3xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm leading-6 text-amber-900 dark:text-amber-100">
-                  <div className="flex items-center gap-2 font-semibold"><RefreshCcw size={16} /> Backend недоступен или ещё без миграции</div>
+                  <div className="flex items-center gap-2 font-semibold"><RefreshCcw size={16} /> Не удалось загрузить конспект</div>
                   <div className="mt-1">{error}</div>
                 </div>
               )}

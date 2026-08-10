@@ -7,8 +7,7 @@ function IntegrationsSettingsSection({ telegram, minecraft }) {
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <div><div className="font-semibold">Telegram</div><div className="text-sm text-neutral-500 dark:text-neutral-400">Привязка для уведомлений и бота.</div></div>
-          {telegram.status ? <div className="text-xs text-neutral-500 dark:text-neutral-400">Защита: одноразовый временный код</div> : null}
+          <div className="font-semibold">Telegram</div>
         </div>
         <InlineError value={telegram.error} />
         {telegram.status?.linked ? (
@@ -40,7 +39,7 @@ function IntegrationsSettingsSection({ telegram, minecraft }) {
 
       <Card className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <div><div className="font-semibold">Minecraft</div><div className="text-sm text-neutral-500 dark:text-neutral-400">Привязка Minecraft для игровых возможностей. Можно добавить любое количество ников.</div></div>
+          <div className="font-semibold">Minecraft</div>
           {minecraft.status ? <div className="text-xs text-neutral-500 dark:text-neutral-400">Привязок: {minecraft.status.linkCount ?? 0}</div> : null}
         </div>
         <InlineError value={minecraft.error} />
