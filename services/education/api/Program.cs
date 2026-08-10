@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Education.Api.Data;
 using TaskForge.Education.Api.Domain;
+using TaskForge.Education.Api.Services.CourseMaps;
 
 using TaskForge.Education.Api.Endpoints;
 using static TaskForge.Education.Api.Services.Access.EducationApiAccessService;
@@ -18,6 +19,8 @@ builder.Services.AddTaskForgeRedisCache(builder.Configuration, "education-api");
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<CourseMapPresenceStore>();
 builder.Services.AddDbContext<EducationDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));

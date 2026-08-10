@@ -119,3 +119,8 @@ export async function setCourseOwners(courseId, ownerIds) {
   const res = await api.post(`/api/courses/${courseId}/owners`, { ownerIds });
   return res.data;
 }
+
+export async function getAssignmentsByCourseTree(courseId) {
+  const res = await api.get(`/api/courses/${courseId}/assignments/tree`);
+  return res.data;
+}

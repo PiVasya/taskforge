@@ -45,6 +45,43 @@ internal static partial class AssignmentApiEndpoints
         });
 
 
+        app.MapGet("/api/courses/{courseId:guid}/assignments/tree", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var tree = await GetInternalAsync<CourseTreeResponse>(
+                clients,
+                cfg,
+                ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                $"/api/internal/courses/{courseId:D}/tree",
+                ct);
+
+            if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != courseId))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Не удалось получить дерево курса.", code = "COURSE_TREE_UNAVAILABLE" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            var requestedIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
+            var includeHidden = IsEditor(http, cfg);
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            var allowedIds = requestedIds;
+            if (!includeHidden)
+            {
+                if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+                var allowed = await LoadAccessibleCourseIdsAsync(requestedIds, userId.Value, clients, cfg, ct);
+                if (!allowed.Contains(courseId)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+                allowedIds = requestedIds.Where(allowed.Contains).ToArray();
+            }
+
+            var query = db.Assignments.AsNoTracking().Where(x => allowedIds.Contains(x.CourseId));
+            if (!includeHidden) query = query.Where(x => x.IsVisible);
+            var rows = await query.OrderBy(x => x.CourseId).ThenBy(x => x.Sort).ThenBy(x => x.CreatedAt).ToListAsync(ct);
+            var solvedIds = userId.HasValue
+                ? await LoadSolvedAssignmentIdsAsync(userId.Value, rows.Select(x => x.Id), db, clients, cfg, ct)
+                : new HashSet<Guid>();
+
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHidden, solvedIds.Contains(x.Id))).ToList());
+        });
+
+
         app.MapPost("/api/assignments/course-progress", async (CourseIdsRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var requestedIds = (request.CourseIds ?? Array.Empty<Guid>())

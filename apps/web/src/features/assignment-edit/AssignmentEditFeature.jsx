@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useNotify } from "../../components/notify/NotifyProvider";
 import { extractApiErrorMessages, handleApiError } from "../../utils/handleApiError";
@@ -24,6 +24,7 @@ import { useQueryClient } from '../../data/QueryClientProvider';
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const notify = useNotify();
   const queryClient = useQueryClient();
   const editQueryKey = useMemo(() => ['assignment-edit', assignmentId], [assignmentId]);
@@ -95,6 +96,17 @@ export default function AssignmentEditPage() {
   const [courseId, setCourseId] = useState(null);
 
   const [analyticsSettings, setAnalyticsSettings] = useState(DEFAULT_ANALYTICS_SETTINGS);
+
+  const returnTo = useMemo(() => {
+    const raw = String(searchParams.get('returnTo') || '').trim();
+    return raw.startsWith('/') && !raw.startsWith('//') ? raw : '';
+  }, [searchParams]);
+
+  const returnFromEditor = React.useCallback(() => {
+    if (returnTo) nav(returnTo);
+    else if (courseId) nav(`/course/${courseId}`);
+    else nav(`/assignment/${assignmentId}`);
+  }, [assignmentId, courseId, nav, returnTo]);
 
   const editorStorageKey = `assignment-editor-sections:${assignmentId}`;
   const [openSections, setOpenSections] = useState(() => {
@@ -431,7 +443,7 @@ export default function AssignmentEditPage() {
     });
   };
 
-  const save = async () => {
+  const save = async ({ exitAfter = false } = {}) => {
     setBusy(true);
     setErr("");
     setSaveIssues([]);
@@ -551,14 +563,14 @@ export default function AssignmentEditPage() {
       }));
       if (courseId) queryClient.invalidateQueries({ queryKey: ['course-assignments', courseId] });
       notify.success("Изменения сохранены");
-      nav(`/assignment/${assignmentId}`);
+      if (exitAfter) returnFromEditor();
     } catch (e) {
       
       if (e?.response?.status === 403) {
         notifyOnce("no-edit-assignment", () =>
           notify.error(getApiErrorMessage(e, "Нельзя редактировать данное задание"))
         );
-        nav(`/assignment/${assignmentId}`, { replace: true });
+        nav(returnTo || `/assignment/${assignmentId}`, { replace: true });
         return;
       }
       const parsed = extractApiErrorMessages(e, "Не удалось сохранить задание");
@@ -585,14 +597,15 @@ export default function AssignmentEditPage() {
       queryClient.removeQueries({ queryKey: editQueryKey });
       if (courseId) queryClient.invalidateQueries({ queryKey: ['course-assignments', courseId] });
       notify.success("Задание удалено");
-      if (courseId) nav(`/course/${courseId}`);
+      if (returnTo) nav(returnTo);
+      else if (courseId) nav(`/course/${courseId}`);
       else nav(-1);
     } catch (e) {
       if (e?.response?.status === 403) {
         notifyOnce("no-edit-assignment", () =>
           notify.error("Нельзя удалять чужие задания")
         );
-        nav(`/assignment/${assignmentId}`, { replace: true });
+        nav(returnTo || `/assignment/${assignmentId}`, { replace: true });
         return;
       }
       handleApiError(e, notify, "Не удалось удалить задание");
@@ -610,13 +623,13 @@ export default function AssignmentEditPage() {
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        {courseId && (
+        {(courseId || returnTo) && (
           <Button
             variant="ghost"
             className="inline-flex items-center gap-2"
-            onClick={() => nav(`/course/${courseId}`)}
+            onClick={returnFromEditor}
           >
-            <ArrowLeft size={16} /> к заданиям курса
+            <ArrowLeft size={16} /> {returnTo ? 'к карте курса' : 'к заданиям курса'}
           </Button>
         )}
       </div>
@@ -1277,9 +1290,12 @@ export default function AssignmentEditPage() {
 
       
       <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-neutral-200/60 dark:border-neutral-800/60 mt-6">
-        <div className="flex items-center justify-end gap-2">
-          <Button onClick={save} disabled={busy}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button onClick={() => save()} disabled={busy}>
             <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
+          </Button>
+          <Button variant="outline" onClick={() => save({ exitAfter: true })} disabled={busy}>
+            <ArrowLeft size={16} /> {busy ? "Сохраняю…" : "Сохранить и выйти"}
           </Button>
           <Button
             variant="outline"

@@ -19,4 +19,8 @@ public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string T
 
 public sealed record CourseTreeResponse(Guid CourseId, Guid[] CourseIds, List<CourseTreeCourseDto> Courses);
 
+public sealed record CourseMapResponse(Guid RootCourseId, Guid RequestedCourseId, int Version, JsonElement? Document, DateTimeOffset? UpdatedAt, Guid? UpdatedBy);
+
+public sealed record CourseMapPresenceDto(Guid UserId, string DisplayName, string? AvatarUrl, bool IsDirty, DateTimeOffset LastSeenAt);
+
 public sealed record PagedResult<T>(List<T> Items, int Page, int PageSize, int Total, bool HasMore);

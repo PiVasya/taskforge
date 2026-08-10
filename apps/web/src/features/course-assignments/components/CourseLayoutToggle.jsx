@@ -9,9 +9,9 @@ export default function CourseLayoutToggle({ value, onChange }) {
         variant={value === 'flow' ? 'primary' : 'ghost'}
         className="min-w-0 flex-1 px-3 py-2 text-xs sm:flex-none"
         onClick={() => onChange('flow')}
-        title="Нодовая схема: порядок, связи и вложение курсов"
+        title="Интерактивная карта курса"
       >
-        <Workflow size={15} /> Схема
+        <Workflow size={15} /> Карта
       </Button>
       <Button
         variant={value === 'grid' ? 'primary' : 'ghost'}

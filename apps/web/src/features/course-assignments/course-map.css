@@ -1,0 +1,692 @@
+.course-map-shell {
+  position: relative;
+  width: 100%;
+  min-height: 650px;
+  height: min(76vh, 980px);
+  overflow: hidden;
+  border: 1px solid rgba(var(--border) / 0.72);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(var(--card) / 0.86), rgba(var(--bg) / 0.78)),
+    radial-gradient(circle at 18% 0%, rgba(var(--accent) / 0.08), transparent 34%);
+  box-shadow: 0 18px 55px rgba(16, 18, 24, 0.09);
+}
+
+.course-map-shell.is-editor {
+  min-height: 720px;
+  height: min(82vh, 1120px);
+}
+
+.course-map-loading {
+  display: grid;
+  min-height: 520px;
+  place-items: center;
+  border: 1px solid rgba(var(--border) / 0.65);
+  border-radius: 26px;
+  color: rgba(var(--fg) / 0.56);
+  background: rgba(var(--card) / 0.62);
+}
+
+.course-map-toolbar {
+  position: absolute;
+  z-index: 25;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.course-map-toolbar-left,
+.course-map-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.course-map-toolbar-left {
+  padding: 8px 11px;
+  border: 1px solid rgba(var(--border) / 0.68);
+  border-radius: 16px;
+  background: rgba(var(--card) / 0.88);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 10px 28px rgba(16, 18, 24, 0.07);
+}
+
+.course-map-toolbar-title {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.course-map-dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(var(--fg) / 0.22);
+  transition: transform .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+
+.course-map-dirty-dot.is-dirty {
+  background: rgb(var(--accent));
+  box-shadow: 0 0 0 5px rgba(var(--accent) / 0.1);
+  transform: scale(1.05);
+}
+
+.course-map-server-changed,
+.course-map-unplaced-trigger,
+.course-map-presence-trigger {
+  border: 1px solid rgba(var(--border) / 0.7);
+  background: rgba(var(--card) / 0.9);
+  color: rgb(var(--fg));
+  box-shadow: 0 9px 26px rgba(16, 18, 24, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.course-map-server-changed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: rgb(var(--accent));
+}
+
+.course-map-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.course-map-background circle,
+.course-map-background path {
+  opacity: .6;
+}
+
+.course-map-shell .react-flow__pane {
+  cursor: grab;
+}
+
+.course-map-shell.is-editor .react-flow__pane {
+  cursor: crosshair;
+}
+
+.course-map-shell .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.course-map-shell .react-flow__node {
+  z-index: 3 !important;
+}
+
+.course-map-shell .react-flow__node:hover,
+.course-map-shell .react-flow__node.selected {
+  z-index: 20 !important;
+}
+
+.course-map-node {
+  --node-line: rgba(var(--accent) / 0.72);
+  --node-soft: rgba(var(--accent) / 0.095);
+  position: relative;
+  width: 246px;
+  min-height: 108px;
+  padding: 15px 16px 14px;
+  overflow: visible;
+  border: 1px solid rgba(var(--border) / 0.76);
+  border-top: 3px solid var(--node-line);
+  border-radius: 21px;
+  background:
+    linear-gradient(135deg, rgba(var(--card) / 0.97), rgba(var(--card) / 0.88)),
+    var(--node-soft);
+  box-shadow: 0 10px 28px rgba(18, 20, 28, 0.11);
+  color: rgb(var(--fg));
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), border-color .2s ease, box-shadow .2s ease, opacity .18s ease;
+}
+
+.course-map-node:hover,
+.course-map-node.is-selected {
+  transform: translateY(-3px);
+  border-color: rgba(var(--accent) / 0.62);
+  box-shadow: 0 18px 38px rgba(18, 20, 28, 0.16), 0 0 0 1px rgba(var(--accent) / 0.12);
+}
+
+.course-map-node--course {
+  width: 284px;
+  min-height: 128px;
+  border-top-width: 4px;
+  border-radius: 25px;
+  background:
+    radial-gradient(circle at 88% 16%, rgba(var(--accent) / 0.15), transparent 28%),
+    linear-gradient(135deg, rgba(var(--card) / 0.98), rgba(var(--card) / 0.88));
+}
+
+.course-map-node--test {
+  border-top-style: double;
+}
+
+.course-map-node--image {
+  width: 264px;
+  min-height: 116px;
+  border-radius: 18px 26px 18px 26px;
+}
+
+.course-map-node--math {
+  border-top-style: dashed;
+  border-bottom: 1px dashed rgba(var(--accent) / 0.32);
+}
+
+.course-map-node-topline {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.course-map-node-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 1px solid rgba(var(--accent) / 0.23);
+  border-radius: 10px;
+  background: rgba(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+}
+
+.course-map-node--course .course-map-node-icon {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-radius: 12px;
+}
+
+.course-map-node-kicker {
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: .105em;
+  text-transform: uppercase;
+  color: rgba(var(--fg) / 0.48);
+}
+
+.course-map-node-kicker b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(var(--accent) / 0.1);
+  color: rgb(var(--accent));
+  font-size: 10px;
+}
+
+.course-map-node-title {
+  position: relative;
+  z-index: 2;
+  margin-top: 10px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-map-node--course .course-map-node-title {
+  margin-top: 11px;
+  font-size: 17px;
+}
+
+.course-map-node-footer,
+.course-map-course-progress-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 11px;
+  font-size: 10px;
+  color: rgba(var(--fg) / 0.5);
+}
+
+.course-map-node-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.course-map-node-status.is-solved,
+.course-map-hover-solved {
+  color: rgb(var(--accent));
+}
+
+.course-map-course-progress-row {
+  margin-top: 12px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.course-map-course-progress {
+  position: relative;
+  z-index: 2;
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(var(--fg) / 0.08);
+}
+
+.course-map-course-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--accent));
+  transition: width .35s ease;
+}
+
+.course-map-code-watermark,
+.course-map-math-watermark {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  z-index: 0;
+  user-select: none;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 19px;
+  letter-spacing: .08em;
+  color: rgba(var(--accent) / 0.075);
+}
+
+.course-map-math-watermark {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  transform: rotate(-4deg);
+}
+
+.course-map-test-dots {
+  position: absolute;
+  top: 15px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+}
+
+.course-map-test-dots i {
+  width: 6px;
+  height: 6px;
+  border: 1px solid rgba(var(--accent) / 0.5);
+  border-radius: 999px;
+}
+
+.course-map-test-dots i:nth-child(2) {
+  background: rgba(var(--accent) / 0.4);
+}
+
+.course-map-image-grid {
+  position: absolute;
+  right: 13px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 5px);
+  gap: 3px;
+  opacity: .23;
+}
+
+.course-map-image-grid i {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: rgb(var(--accent));
+}
+
+.course-map-image-grid i:nth-child(2),
+.course-map-image-grid i:nth-child(4),
+.course-map-image-grid i:nth-child(8) {
+  opacity: .3;
+}
+
+.course-map-handle.react-flow__handle {
+  width: 13px;
+  height: 13px;
+  border: 3px solid rgb(var(--card));
+  background: rgb(var(--accent));
+  box-shadow: 0 0 0 1px rgba(var(--accent) / 0.52), 0 3px 8px rgba(16, 18, 24, .14);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.course-map-shell.is-editor .course-map-handle.react-flow__handle:hover {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 5px rgba(var(--accent) / .12), 0 4px 10px rgba(16, 18, 24, .16);
+}
+
+.course-map-shell.is-viewer .course-map-handle.react-flow__handle {
+  pointer-events: none;
+  opacity: .72;
+}
+
+.course-map-node-hover {
+  position: absolute;
+  z-index: 50;
+  width: 285px;
+  padding: 12px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  border: 1px solid rgba(var(--border) / .75);
+  border-radius: 18px;
+  background: rgba(var(--card) / .97);
+  box-shadow: 0 18px 46px rgba(16, 18, 24, .17);
+  backdrop-filter: blur(18px);
+  transform: translateY(-8px) scale(.985);
+  transition: opacity .18s ease, transform .2s cubic-bezier(.2,.8,.2,1), visibility .18s ease;
+}
+
+.course-map-node-hover--bottom {
+  top: calc(100% + 8px);
+  left: 0;
+}
+
+.course-map-node-hover--right {
+  top: 2px;
+  left: calc(100% + 9px);
+  transform: translateX(-8px) scale(.985);
+}
+
+.course-map-node:hover .course-map-node-hover,
+.course-map-node:focus-within .course-map-node-hover {
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.course-map-node:hover .course-map-node-hover--right,
+.course-map-node:focus-within .course-map-node-hover--right {
+  transform: translateX(0) scale(1);
+}
+
+.course-map-shell.is-editor .course-map-node-hover {
+  transition-delay: .18s;
+}
+
+.course-map-shell.is-interacting .course-map-node-hover {
+  pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition-delay: 0s !important;
+}
+
+.course-map-node-hover-body {
+  min-width: 0;
+}
+
+.course-map-hover-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(var(--fg) / .73);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.course-map-hover-meta,
+.course-map-hover-course-stat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 9px;
+  color: rgba(var(--fg) / .49);
+  font-size: 10px;
+}
+
+.course-map-node-hover-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border: 0;
+  border-top: 1px solid rgba(var(--border) / .55);
+  background: transparent;
+  color: rgb(var(--accent));
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.course-map-node-hover-action svg {
+  transition: transform .16s ease;
+}
+
+.course-map-node-hover-action:hover svg {
+  transform: translateX(3px);
+}
+
+.course-map-edge .react-flow__edge-path,
+.react-flow__edge.course-map-edge .react-flow__edge-path {
+  stroke: rgba(var(--accent) / .46);
+  stroke-width: 1.8;
+  transition: stroke .15s ease, stroke-width .15s ease;
+}
+
+.react-flow__edge.course-map-edge:hover .react-flow__edge-path,
+.react-flow__edge.course-map-edge.selected .react-flow__edge-path {
+  stroke: rgb(var(--accent));
+  stroke-width: 2.8;
+}
+
+.course-map-edge.is-editable {
+  cursor: pointer;
+}
+
+.course-map-search-dimmed {
+  opacity: .25;
+  filter: grayscale(.35);
+}
+
+.course-map-controls.react-flow__controls,
+.course-map-minimap.react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid rgba(var(--border) / .72);
+  border-radius: 14px;
+  background: rgba(var(--card) / .91);
+  box-shadow: 0 10px 30px rgba(16, 18, 24, .1);
+  backdrop-filter: blur(18px);
+}
+
+.course-map-controls.react-flow__controls {
+  left: 14px;
+  bottom: 14px;
+}
+
+.course-map-controls .react-flow__controls-button {
+  border: 0;
+  border-bottom: 1px solid rgba(var(--border) / .55);
+  background: transparent;
+  color: rgb(var(--fg));
+}
+
+.course-map-minimap.react-flow__minimap {
+  right: 14px;
+  bottom: 14px;
+  width: 148px;
+  height: 96px;
+  opacity: .84;
+}
+
+.course-map-presence,
+.course-map-unplaced {
+  position: relative;
+}
+
+.course-map-presence-trigger,
+.course-map-unplaced-trigger {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.course-map-presence-trigger {
+  min-width: 34px;
+  padding: 0 9px;
+}
+
+.course-map-presence-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: #35b66f;
+  box-shadow: 0 0 0 4px rgba(53, 182, 111, .11);
+}
+
+.course-map-presence-popover,
+.course-map-unplaced-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  padding: 10px;
+  opacity: 0;
+  visibility: hidden;
+  border: 1px solid rgba(var(--border) / .72);
+  border-radius: 17px;
+  background: rgba(var(--card) / .97);
+  box-shadow: 0 18px 44px rgba(16, 18, 24, .15);
+  backdrop-filter: blur(18px);
+  transform: translateY(-6px) scale(.985);
+  transition: opacity .16s ease, transform .18s ease, visibility .16s ease;
+}
+
+.course-map-presence:hover .course-map-presence-popover,
+.course-map-unplaced-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.course-map-popover-title {
+  margin-bottom: 8px;
+  color: rgba(var(--fg) / .5);
+  font-size: 10px;
+  font-weight: 740;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.course-map-presence-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 4px;
+  font-size: 11px;
+}
+
+.course-map-presence-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-map-presence-dirty {
+  color: rgb(var(--accent));
+  font-size: 9px;
+}
+
+.course-map-unplaced-popover button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: transparent;
+  color: rgb(var(--fg));
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+}
+
+.course-map-unplaced-popover button:hover {
+  background: rgba(var(--accent) / .08);
+}
+
+.course-map-unplaced-popover button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-map-popover-more {
+  padding: 6px 8px 2px;
+  color: rgba(var(--fg) / .45);
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .course-map-shell,
+  .course-map-shell.is-editor {
+    min-height: 610px;
+    height: 74vh;
+    border-radius: 22px;
+  }
+
+  .course-map-toolbar {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .course-map-toolbar-title {
+    display: none;
+  }
+
+  .course-map-minimap.react-flow__minimap {
+    display: none;
+  }
+
+  .course-map-node-hover--right {
+    top: calc(100% + 8px);
+    left: 0;
+    transform: translateY(-8px) scale(.985);
+  }
+
+  .course-map-node:hover .course-map-node-hover--right,
+  .course-map-node:focus-within .course-map-node-hover--right {
+    transform: translateY(0) scale(1);
+  }
+}

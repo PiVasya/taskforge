@@ -312,14 +312,6 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
         </div>
       </div>
 
-      {access && (
-        <div className="xl:hidden border-t border-neutral-200/55 dark:border-neutral-800/55">
-          <div className="container-app py-2">
-            <QuotaStatusBar mobile />
-          </div>
-        </div>
-      )}
-
       <AdminNavigation />
     </header>
   );

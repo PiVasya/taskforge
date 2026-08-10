@@ -50,6 +50,7 @@ import {
 import CourseContentGrid from './components/CourseContentGrid';
 import CourseFlowEditor from './components/CourseFlowEditor';
 import CourseLayoutToggle from './components/CourseLayoutToggle';
+import { resolveRootCourseId } from './courseMapModel';
 
 const EMPTY_LIST = Object.freeze([]);
 const EMPTY_COURSE_BUNDLE = Object.freeze({
@@ -170,7 +171,7 @@ export default function CourseAssignmentsPage() {
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
-  const showFlowLayout = isEditorMode && courseCanEdit && contentLayout === 'flow' && sortMode === 'default';
+  const showFlowLayout = isEditorMode ? (courseCanEdit && contentLayout === 'flow') : true;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -178,6 +179,15 @@ export default function CourseAssignmentsPage() {
       window.localStorage.setItem('taskforge-course-editor-layout', contentLayout);
     } catch {}
   }, [contentLayout]);
+
+  useEffect(() => {
+    if (!showFlowLayout || !course?.id || !course?.parentCourseId) return;
+    const root = resolveRootCourseId(course.id, [...(allCourses || []), course]);
+    if (!root || String(root) === String(course.id)) return;
+    const next = new URLSearchParams();
+    next.set('focusCourse', String(course.id));
+    nav(`/course/${root}?${next.toString()}`, { replace: true });
+  }, [allCourses, course, nav, showFlowLayout]);
 
   const closeContextMenu = React.useCallback(() => {
     setContextMenu((current) => current.open ? { ...current, open: false } : current);
@@ -399,7 +409,6 @@ export default function CourseAssignmentsPage() {
   }, [courseProgressByCourseId, courseId, directCourseProgress]);
 
   const setSortMode = (mode) => {
-    if (mode !== 'default' && contentLayout === 'flow') setContentLayout('grid');
     const next = new URLSearchParams(params);
     next.set("sort", mode);
     setParams(next, { replace: true });
@@ -751,7 +760,8 @@ export default function CourseAssignmentsPage() {
       const updated = res?.updatedCount ?? 0;
       notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
       if ((created + updated) === 1 && changed[0]?.id) {
-        nav(`/assignment/${changed[0].id}/edit`);
+        const returnTo = showFlowLayout ? `/course/${courseId}` : '';
+        nav(`/assignment/${changed[0].id}/edit${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`);
       }
     } catch (e) {
       handleApiError(e, notify, "Не удалось импортировать JSON");
@@ -888,15 +898,17 @@ export default function CourseAssignmentsPage() {
             ) : null}
           </IfEditor>
 
-          <div className="min-w-0 xl:min-w-[190px]">
-            <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.v} value={o.v}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!showFlowLayout ? (
+            <div className="min-w-0 xl:min-w-[190px]">
+              <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="input w-full" title="Сортировка">
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.v} value={o.v}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <IfEditor>
             {courseCanEdit ? (
@@ -904,8 +916,8 @@ export default function CourseAssignmentsPage() {
                 <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
                   <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={() => openCreateDialog("choice")}>
-                  <Plus size={16} /> Создать
+                <Button className="w-full sm:w-auto" onClick={() => openCreateDialog(showFlowLayout ? "json" : "choice")}>
+                  {showFlowLayout ? <FileJson size={16} /> : <Plus size={16} />} {showFlowLayout ? 'Импорт JSON' : 'Создать'}
                 </Button>
               </>
             ) : null}
@@ -1280,22 +1292,15 @@ export default function CourseAssignmentsPage() {
       {showFlowLayout ? (
         <CourseFlowEditor
           course={course}
-          entries={filtered}
-          positionByKey={positionByKey}
-          childProgressByCourseId={childProgressByCourseId}
-          canReorderContentItem={canReorderContentItem}
+          allCourses={allCourses}
           courseCanEdit={courseCanEdit}
-          draggedContentKey={draggedContentKey}
-          dragOverContentKey={dragOverContentKey}
-          dragOverContentMode={dragOverContentMode}
-          dragApi={dragApi}
-          onContextMenu={openContextMenu}
-          onCreate={() => openCreateDialog('choice')}
-          onDropContent={handleDropOnContentItem}
-          extractDropActive={extractDropActive}
-          onExtractDragOver={handleExtractZoneDragOver}
-          onExtractDragLeave={handleExtractZoneDragLeave}
-          onExtractDrop={handleDropCourseOneLevelUp}
+          editorMode={Boolean(isEditorMode && courseCanEdit)}
+          query={q}
+          focusCourseId={params.get('focusCourse') || ''}
+          dataRevision={assignmentsQuery.updatedAt || 0}
+          onRefreshCourseData={async () => {
+            await Promise.all([reloadCourseData(), reloadAssignments()]);
+          }}
         />
       ) : (
         <CourseContentGrid

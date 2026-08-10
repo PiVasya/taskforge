@@ -7,6 +7,7 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
 {
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Course> Courses => Set<Course>();
+    public DbSet<CourseMap> CourseMaps => Set<CourseMap>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
@@ -27,6 +28,19 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
             entity.Property(x => x.Title).HasMaxLength(300).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(4000);
             entity.HasIndex(x => new { x.ParentCourseId, x.Sort });
+        });
+
+        modelBuilder.Entity<CourseMap>(entity =>
+        {
+            entity.ToTable("CourseMaps");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.RootCourseId).IsUnique();
+            entity.HasOne<Course>()
+                .WithOne()
+                .HasForeignKey<CourseMap>(x => x.RootCourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.DocumentJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.Version).IsRequired();
         });
 
         modelBuilder.Entity<Group>(entity =>

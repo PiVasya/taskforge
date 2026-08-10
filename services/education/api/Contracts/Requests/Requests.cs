@@ -21,6 +21,8 @@ public sealed record CourseSortRequest(int Sort);
 
 public sealed record CoursePositionRequest(Guid? ParentCourseId, int? Position);
 
+public sealed record CourseMapSaveRequest(int ExpectedVersion, JsonElement Document);
+
 public sealed record GroupRequest(string? Name, string? Code, bool? IsActive);
 
 public sealed record GroupMemberRequest(Guid UserId);

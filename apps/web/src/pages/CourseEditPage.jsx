@@ -6,13 +6,14 @@ import { getCourse, updateCourse, deleteCourse } from '../api/courses';
 import { getGroups } from '../api/groups';
 import { searchUsersOnce } from '../api/admin';
 import { getAdminUsers } from '../api/adminUsers';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Save, Trash2, ArrowLeft, Layers, UserPlus, X } from 'lucide-react';
 
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
 import { useEditorMode } from '../contexts/EditorModeContext';
+import { useQueryClient } from '../data/QueryClientProvider';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
@@ -20,8 +21,19 @@ const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9
 export default function CourseEditPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const notify = useNotify();
   const { isAdmin } = useEditorMode();
+  const queryClient = useQueryClient();
+
+  const returnTo = useMemo(() => {
+    const value = String(searchParams.get('returnTo') || '').trim();
+    return value.startsWith('/') && !value.startsWith('//') ? value : '';
+  }, [searchParams]);
+
+  const returnFromEditor = React.useCallback(() => {
+    nav(returnTo || `/course/${courseId}`);
+  }, [nav, returnTo, courseId]);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -157,7 +169,7 @@ export default function CourseEditPage() {
     }
   };
 
-  const save = async () => {
+  const save = async ({ exitAfter = false } = {}) => {
     setBusy(true);
     setErr('');
     try {
@@ -170,12 +182,13 @@ export default function CourseEditPage() {
       };
 
       await updateCourse(courseId, payload);
+      await queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
       notify.success('Курс обновлён');
-      nav(`/course/${courseId}`);
+      if (exitAfter) returnFromEditor();
     } catch (e) {
       if (e?.response?.status === 403) {
         notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
-        nav(`/course/${courseId}`, { replace: true });
+        nav(returnTo || `/course/${courseId}`, { replace: true });
         return;
       }
       handleApiError(e, notify, 'Не удалось сохранить');
@@ -189,12 +202,13 @@ export default function CourseEditPage() {
     if (!window.confirm('Удалить курс?')) return;
     try {
       await deleteCourse(courseId);
+      await queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
       notify.success('Курс удалён');
-      nav('/courses');
+      nav(returnTo || '/courses');
     } catch (e) {
       if (e?.response?.status === 403) {
         notify.error(getApiErrorMessage(e, 'Недостаточно прав')); 
-        nav(`/course/${courseId}`, { replace: true });
+        nav(returnTo || `/course/${courseId}`, { replace: true });
         return;
       }
       handleApiError(e, notify, 'Не удалось удалить');
@@ -209,8 +223,8 @@ export default function CourseEditPage() {
           <Layers size={20} />
           <h1 className="text-2xl font-semibold">Редактирование курса</h1>
         </div>
-        <Button variant="ghost" className="inline-flex items-center gap-2" onClick={() => nav(`/course/${courseId}`)}>
-          <ArrowLeft className="inline" size={16} /> к заданиям
+        <Button variant="ghost" className="inline-flex items-center gap-2" onClick={returnFromEditor}>
+          <ArrowLeft className="inline" size={16} /> {returnTo ? 'к карте курса' : 'к заданиям'}
         </Button>
       </div>
 
@@ -369,14 +383,22 @@ export default function CourseEditPage() {
 
         <div className="space-y-4">
           <Card>
-            <div className="flex gap-2">
-              <Button onClick={save} disabled={busy} className="flex-1">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => save()} disabled={busy} className="flex-1 min-w-[150px]">
                 <Save size={16} /> {busy ? 'Сохраняю…' : 'Сохранить'}
               </Button>
               <Button
                 variant="outline"
+                onClick={() => save({ exitAfter: true })}
+                disabled={busy}
+                className="flex-1 min-w-[190px]"
+              >
+                <ArrowLeft size={16} /> {busy ? 'Сохраняю…' : 'Сохранить и выйти'}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={remove}
-                className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                className="flex-1 min-w-[140px] text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
               >
                 <Trash2 size={16} /> Удалить
               </Button>
