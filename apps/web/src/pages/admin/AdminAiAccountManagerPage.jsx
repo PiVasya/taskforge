@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
 import {
@@ -186,11 +187,15 @@ function AccountBadges({ account, data, blocked }) {
 }
 
 function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, onBlock, onUnblock, onDelete, busy }) {
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0 });
   const groupText = (account.groups || []).map((x) => x.name || x.code).filter(Boolean).join(', ');
   const minecraftText = (account.minecraft || []).map((x) => x.playerName).filter(Boolean).join(', ');
   const view = { ...account, verified: account.verified || verified, blocked: account.blocked || blocked };
   return (
-    <div className="min-w-0 rounded-2xl border border-[rgb(var(--border))] bg-[rgba(var(--card)/0.72)] p-4">
+    <div
+      className="min-w-0 rounded-2xl border border-[rgb(var(--border))] bg-[rgba(var(--card)/0.72)] p-4"
+      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="truncate text-lg font-semibold">{accountTitle(view)}</div>
@@ -226,6 +231,24 @@ function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, 
         )}
         <Button variant="ghost" disabled={busy} onClick={() => onDelete(view)}><Trash2 size={16} /><span className="ml-1">Удалить</span></Button>
       </div>
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu((current) => ({ ...current, open: false }))} ariaLabel="Действия AI-аккаунта">
+        <ContextMenuLabel>Аккаунт</ContextMenuLabel>
+        <ContextMenuItem icon={ExternalLink} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); window.location.assign(`/admin/users/${view.userId}`); }}>Открыть пользователя</ContextMenuItem>
+        <ContextMenuSeparator />
+        {view.verified ? (
+          <ContextMenuItem icon={ShieldOff} disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); void onUnverify(view.userId); }}>Снять «проверен»</ContextMenuItem>
+        ) : (
+          <ContextMenuItem icon={UserCheck} disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); void onVerify(view.userId); }}>Пометить проверенным</ContextMenuItem>
+        )}
+        {view.blocked ? (
+          <ContextMenuItem icon={Unlock} disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); void onUnblock(view); }}>Разблокировать</ContextMenuItem>
+        ) : (
+          <ContextMenuItem icon={Ban} disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); onBlock(view); }}>Заблокировать</ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem icon={Trash2} danger disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); onDelete(view); }}>Удалить аккаунт</ContextMenuItem>
+      </ContextMenu>
     </div>
   );
 }

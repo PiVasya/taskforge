@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { Field, Textarea, Button, Card } from '../components/ui';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
+import { Copy, Reply } from 'lucide-react';
 import { getSupportChat, getSupportTicket, sendSupportChatMessage, sendSupportMessage } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
 import AppErrorPanel from '../components/AppErrorPanel';
@@ -50,12 +52,12 @@ function sourceLabel(source) {
   return null;
 }
 
-function MessageBubble({ message, isAdminView, onReply }) {
+function MessageBubble({ message, isAdminView, onReply, onContextMenu }) {
   const mine = message.isFromAdmin;
   const author = mine ? 'Поддержка' : (message.authorName || 'Пользователь');
   const meta = [message.createdAt ? new Date(message.createdAt).toLocaleString() : null, sourceLabel(message.source)].filter(Boolean).join(' · ');
   return (
-    <div className={mine ? 'flex justify-end' : 'flex justify-start'}>
+    <div className={mine ? 'flex justify-end' : 'flex justify-start'} onContextMenu={(event) => onContextMenu?.(event, message)}>
       <div className={mine ? 'max-w-[85%] text-right' : 'max-w-[85%] text-left'}>
         <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="font-medium text-neutral-700 dark:text-neutral-200">{isAdminView ? author : (mine ? 'Поддержка' : 'Вы')}</span>
@@ -96,6 +98,22 @@ export default function SupportChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [messageMenu, setMessageMenu] = useState({ open: false, x: 0, y: 0, message: null });
+
+  const closeMessageMenu = () => setMessageMenu((current) => current.open ? { ...current, open: false } : current);
+  const openMessageMenu = (event, message) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMessageMenu({ open: true, x: event.clientX, y: event.clientY, message });
+  };
+  const copyMessage = async (message) => {
+    try {
+      await navigator.clipboard.writeText(String(message?.text || ''));
+      notify.success('Сообщение скопировано');
+    } catch {
+      notify.warn('Не удалось скопировать сообщение');
+    }
+  };
 
   const lastMessageIdRef = useRef(null);
   const isMountedRef = useRef(true);
@@ -209,8 +227,8 @@ export default function SupportChatPage() {
     };
   }, [chatId, access, isAdminView, notify]);
 
-  const send = async (e) => {
-    e.preventDefault();
+  const send = async (e = null) => {
+    e?.preventDefault?.();
     const txt = newMessage.trim();
     if (!txt || sending) return;
 
@@ -270,7 +288,7 @@ export default function SupportChatPage() {
                 </div>
               ) : (
                 messages.map((m) => (
-                  <MessageBubble key={m.id || `${m.createdAt}-${m.text}`} message={m} isAdminView={isAdminView} onReply={setReplyTo} />
+                  <MessageBubble key={m.id || `${m.createdAt}-${m.text}`} message={m} isAdminView={isAdminView} onReply={setReplyTo} onContextMenu={openMessageMenu} />
                 ))
               )}
               <div ref={bottomRef} />
@@ -292,15 +310,37 @@ export default function SupportChatPage() {
                   onChange={(e) => setNewMessage(e.target.value)}
                   rows={4}
                   placeholder={isAdminView ? 'Напишите ответ пользователю…' : 'Напишите сообщение в поддержку…'}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && newMessage.trim() && !sending) {
+                      event.preventDefault();
+                      void send();
+                    }
+                  }}
                 />
               </Field>
               <div className="flex justify-end">
-                <Button type="submit" disabled={sending || !newMessage.trim()}>{sending ? 'Отправка…' : 'Отправить'}</Button>
+                <Button type="submit" disabled={sending || !newMessage.trim()} title="Ctrl+Enter">{sending ? 'Отправка…' : 'Отправить'}</Button>
               </div>
             </form>
           </Card>
         )}
       </div>
+
+      <ContextMenu open={messageMenu.open} x={messageMenu.x} y={messageMenu.y} onClose={closeMessageMenu} ariaLabel="Действия сообщения">
+        {messageMenu.message ? (
+          <>
+            <ContextMenuLabel>Сообщение</ContextMenuLabel>
+            <ContextMenuItem icon={Reply} onClick={() => { const message = messageMenu.message; closeMessageMenu(); setReplyTo(message); }}>Ответить</ContextMenuItem>
+            <ContextMenuItem icon={Copy} onClick={() => { const message = messageMenu.message; closeMessageMenu(); void copyMessage(message); }}>Скопировать текст</ContextMenuItem>
+            {isAdminView && messageMenu.message.id ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem icon={Copy} onClick={() => { const message = messageMenu.message; closeMessageMenu(); navigator.clipboard.writeText(String(message.id)).then(() => notify.success('ID сообщения скопирован')).catch(() => notify.warn('Не удалось скопировать ID')); }}>Скопировать ID</ContextMenuItem>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </ContextMenu>
     </>
   );
 }

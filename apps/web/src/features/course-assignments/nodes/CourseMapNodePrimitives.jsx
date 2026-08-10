@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import { ArrowRight, CheckCircle2, Circle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Circle, ListOrdered, LockKeyhole } from 'lucide-react';
 import { previewAssignmentDescription } from '../courseAssignmentsModel';
 
 export function CourseMapHandles() {
@@ -29,16 +29,33 @@ export function CourseMapHandles() {
 
 export function NodeAccessBadges({ effects, editorMode }) {
   if (!editorMode || !effects || (!effects.hidden && !effects.sequential)) return null;
+  const hiddenHint = effects.hiddenMixed
+    ? 'Скрытие действует только для части входящих путей'
+    : 'Участок полностью скрыт до выполнения условий';
+  const sequentialHint = effects.sequentialMixed
+    ? 'Пошаговое открытие действует только для части входящих путей'
+    : 'Задания на участке открываются по одному';
+
   return (
-    <div className="course-map-node-access-badges" aria-hidden="true">
+    <div className="course-map-node-access-badges nodrag nopan" aria-label="Ограничения участка">
       {effects.hidden ? (
-        <span className={`course-map-node-access-badge is-hidden${effects.hiddenMixed ? ' is-mixed' : ''}`}>
-          {effects.hiddenMixed ? 'скрытие · частично' : 'скрытие'}
+        <span
+          className={`course-map-node-access-badge is-hidden${effects.hiddenMixed ? ' is-mixed' : ''}`}
+          data-hint={hiddenHint}
+          aria-label={hiddenHint}
+          role="img"
+        >
+          <LockKeyhole size={13} strokeWidth={2.2} />
         </span>
       ) : null}
       {effects.sequential ? (
-        <span className={`course-map-node-access-badge is-sequential${effects.sequentialMixed ? ' is-mixed' : ''}`}>
-          {effects.sequentialMixed ? 'по одному · частично' : 'по одному'}
+        <span
+          className={`course-map-node-access-badge is-sequential${effects.sequentialMixed ? ' is-mixed' : ''}`}
+          data-hint={sequentialHint}
+          aria-label={sequentialHint}
+          role="img"
+        >
+          <ListOrdered size={13} strokeWidth={2.2} />
         </span>
       ) : null}
     </div>

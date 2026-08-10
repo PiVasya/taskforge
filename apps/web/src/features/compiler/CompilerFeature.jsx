@@ -18,6 +18,8 @@ import CodeEditor from '../../components/CodeEditor';
 import { createInteractiveCompilerSession } from '../../api/compiler';
 import InteractiveTerminal from './InteractiveTerminal';
 import './compiler.css';
+import { useNotify } from '../../components/notify/NotifyProvider';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
 
 const STORAGE_LANGUAGE = 'taskforge.compiler.language.v1';
 const STORAGE_DRAFT_PREFIX = 'taskforge.compiler.draft.v1.';
@@ -124,6 +126,7 @@ function statusText(status, exitInfo) {
 }
 
 function CompilerFeature() {
+  const notify = useNotify();
   const [language, setLanguage] = useState(readStoredLanguage);
   const [code, setCode] = useState(() => readDraft(readStoredLanguage()));
   const [status, setStatus] = useState('idle');
@@ -151,6 +154,13 @@ function CompilerFeature() {
     const timer = window.setTimeout(() => saveDraft(language, code), 250);
     return () => window.clearTimeout(timer);
   }, [code, language]);
+
+  const saveCurrentDraft = useCallback(() => {
+    saveDraft(language, code);
+    notify.success('Черновик кода сохранён локально');
+  }, [code, language, notify]);
+
+  useSaveShortcut(saveCurrentDraft);
 
   useEffect(() => {
     const handleFullscreen = () => setIsFullscreen(document.fullscreenElement === pageRef.current);

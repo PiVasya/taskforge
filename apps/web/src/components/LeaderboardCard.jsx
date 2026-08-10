@@ -3,10 +3,14 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, MapPin, BookOpen, Clock, AtSign } from 'lucide-react';
+import { Trophy, MapPin, BookOpen, Clock, AtSign, Copy, ExternalLink } from 'lucide-react';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from './ui/ContextMenu';
+import { useNotify } from './notify/NotifyProvider';
 
 export default function LeaderboardCard({ entry }) {
   const nav = useNavigate();
+  const notify = useNotify();
+  const [contextMenu, setContextMenu] = React.useState({ open: false, x: 0, y: 0 });
   const solved = entry.solvedAssignments ?? entry.solvedCount ?? entry.solved ?? 0;
   const login = String(entry.login || entry.userLogin || entry.username || '').trim();
   const name = entry.displayName || entry.userName || entry.fullName || login || entry.maskedEmail || entry.email || 'Пользователь';
@@ -27,9 +31,11 @@ export default function LeaderboardCard({ entry }) {
   const hasBadges = Array.isArray(entry.badges) && entry.badges.length > 0;
 
   return (
+    <>
     <button
       type="button"
       onClick={handleOpenProfile}
+      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
       className="group relative w-full text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
     >
       
@@ -145,5 +151,13 @@ export default function LeaderboardCard({ entry }) {
         </div>
       </div>
     </button>
+    <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu((current) => ({ ...current, open: false }))} ariaLabel="Действия участника рейтинга">
+      <ContextMenuLabel>Участник</ContextMenuLabel>
+      <ContextMenuItem icon={ExternalLink} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); handleOpenProfile(); }}>Открыть профиль</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem icon={Copy} disabled={!login} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); navigator.clipboard.writeText(login).then(() => notify.success('Логин скопирован')).catch(() => notify.warn('Не удалось скопировать логин')); }}>Скопировать логин</ContextMenuItem>
+      <ContextMenuItem icon={Copy} disabled={!entry.userId} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); navigator.clipboard.writeText(String(entry.userId)).then(() => notify.success('ID скопирован')).catch(() => notify.warn('Не удалось скопировать ID')); }}>Скопировать ID</ContextMenuItem>
+    </ContextMenu>
+    </>
   );
 }

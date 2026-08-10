@@ -20,6 +20,7 @@ import { EditorSection, SmallCheck } from './components/EditorSection';
 import { normalizeCodeTestCases, LANGS_BY_TYPE, DEFAULT_ANALYTICS_SETTINGS, ANALYTICS_MODE_LABELS } from './assignmentEditModel';
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -586,6 +587,8 @@ export default function AssignmentEditPage() {
       setBusy(false);
     }
   };
+
+  useSaveShortcut(save, { enabled: !editQuery.isLoading, busy });
 
   const remove = async () => {
     const ok = await notify.confirm({
@@ -1296,7 +1299,7 @@ export default function AssignmentEditPage() {
       
       <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-[rgb(var(--bg))]/80 backdrop-blur border-t border-neutral-200/60 dark:border-neutral-800/60 mt-6">
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button onClick={save} disabled={busy}>
+          <Button onClick={save} disabled={busy} title="Сохранить (Ctrl+S)">
             <Save size={16} /> {busy ? "Сохраняю…" : "Сохранить"}
           </Button>
           <Button

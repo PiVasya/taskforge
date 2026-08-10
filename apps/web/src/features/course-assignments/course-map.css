@@ -1308,67 +1308,122 @@ html:not(.dark) .course-map-shell {
 
 .course-map-node-access-badges {
   position: absolute;
-  z-index: 8;
-  top: -12px;
-  left: 15px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-width: calc(100% - 30px);
-  pointer-events: none;
+  z-index: 9;
+  top: 9px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.course-map-node-access-badges + .course-map-node-topline {
+  padding-right: 54px;
 }
 
 .course-map-node-access-badge {
+  position: relative;
   display: inline-flex;
+  width: 22px;
+  height: 22px;
   align-items: center;
-  min-height: 21px;
-  border: 1px solid rgba(var(--border) / .9);
-  border-radius: 999px;
-  padding: 3px 7px;
-  background: rgba(var(--card) / .97);
-  box-shadow: 0 4px 12px rgba(10, 12, 18, .12);
-  color: rgba(var(--fg) / .78);
-  font-size: 8px;
-  font-weight: 850;
-  line-height: 1;
-  letter-spacing: .05em;
-  text-transform: uppercase;
+  justify-content: center;
+  border: 1px solid rgba(var(--border) / .72);
+  border-radius: 7px;
+  background: color-mix(in srgb, rgb(var(--card)) 88%, transparent);
+  color: rgba(var(--fg) / .62);
+  box-shadow: 0 3px 9px rgba(10, 12, 18, .10);
+  backdrop-filter: blur(8px);
+  transition: transform 120ms ease, border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.course-map-node-access-badge:hover {
+  z-index: 3;
+  transform: translateY(-1px);
+  color: rgba(var(--fg) / .92);
+  border-color: rgba(var(--fg) / .32);
+  background: rgb(var(--card));
+}
+
+.course-map-node-access-badge::after {
+  content: attr(data-hint);
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 7px);
+  right: 0;
+  width: max-content;
+  max-width: 245px;
+  padding: 6px 8px;
+  border: 1px solid rgba(var(--border) / .82);
+  border-radius: 8px;
+  background: rgba(var(--card) / .98);
+  color: rgba(var(--fg) / .88);
+  box-shadow: 0 8px 24px rgba(8, 10, 16, .2);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.course-map-node-access-badge:hover::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .course-map-node-access-badge.is-hidden {
-  border-color: rgba(var(--accent) / .46);
-  color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--fg)) 30%);
+  border-color: rgba(var(--accent) / .34);
+  background: color-mix(in srgb, rgb(var(--accent)) 8%, rgb(var(--card)) 92%);
+  color: color-mix(in srgb, rgb(var(--accent)) 62%, rgb(var(--fg)) 38%);
 }
 
 .course-map-node-access-badge.is-sequential {
   border-style: dashed;
-  border-color: rgba(var(--fg) / .38);
+  border-color: rgba(var(--fg) / .28);
 }
 
 .course-map-node-access-badge.is-mixed {
+  border-style: dotted;
   opacity: .72;
 }
 
+/* Progression is intentionally a secondary admin hint. Do not turn task cards
+   into giant status banners: the edge remains the primary start/stop marker. */
 .react-flow__node.course-map-access-hidden .course-map-node {
-  outline: 2px dashed rgba(var(--accent) / .48);
-  outline-offset: 4px;
+  outline: 1px dashed color-mix(in srgb, rgb(var(--accent)) 34%, transparent);
+  outline-offset: 3px;
 }
 
 .react-flow__node.course-map-access-sequential .course-map-node {
   box-shadow:
-    0 10px 28px rgba(18, 20, 28, .11),
-    inset 0 -3px 0 rgba(var(--fg) / .14);
+    0 10px 28px rgba(18, 20, 28, .10),
+    inset 0 -2px 0 rgba(var(--fg) / .10);
 }
 
 .react-flow__node.course-map-access-hidden.course-map-access-sequential .course-map-node {
   box-shadow:
-    0 10px 28px rgba(18, 20, 28, .11),
-    inset 0 -3px 0 color-mix(in srgb, rgb(var(--accent)) 48%, transparent);
+    0 10px 28px rgba(18, 20, 28, .10),
+    inset 0 -2px 0 color-mix(in srgb, rgb(var(--accent)) 32%, transparent);
 }
 
 .react-flow__node.course-map-access-hidden-mixed .course-map-node,
 .react-flow__node.course-map-access-sequential-mixed .course-map-node {
   outline-style: dotted;
+}
+
+html.neo-brutal .course-map-node-access-badge {
+  border: 1px solid rgb(var(--neo-ink));
+  border-radius: 6px;
+  background: rgb(var(--card));
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .react-flow__node.course-map-access-hidden .course-map-node {
+  outline-width: 1px;
+  outline-offset: 3px;
 }
 
 /* Route-backed course editor. The course map stays mounted underneath this

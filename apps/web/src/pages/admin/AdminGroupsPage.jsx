@@ -3,7 +3,9 @@ import { Card, Button, Field, Input, Textarea, Badge } from '../../components/ui
 import { createGroup, deleteGroup, getAdminGroups, updateGroup } from '../../api/groups';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
+import { Copy, Plus, Save, Trash2 } from 'lucide-react';
 
 const empty = {
   name: '',
@@ -26,6 +28,8 @@ export default function AdminGroupsPage() {
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ ...empty });
+  const [activeGroupId, setActiveGroupId] = useState('');
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, group: null });
 
   const load = async () => {
     try {
@@ -46,6 +50,20 @@ export default function AdminGroupsPage() {
     
   }, []);
 
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openContextMenu = (event, group) => {
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveGroupId(String(group?.id || ''));
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, group });
+  };
+  const copyValue = async (value, label) => {
+    if (!value) return;
+    try { await navigator.clipboard.writeText(String(value)); notify.success(`${label} скопирован`); }
+    catch { notify.warn('Не удалось скопировать'); }
+  };
+
   const filtered = useMemo(() => {
     const qq = q.toLowerCase();
     return (items || []).filter((g) =>
@@ -55,11 +73,13 @@ export default function AdminGroupsPage() {
 
   const startCreate = () => {
     setCreating(true);
+    setActiveGroupId('__new__');
     setForm({ ...empty });
   };
 
   const cancelCreate = () => {
     setCreating(false);
+    setActiveGroupId('');
     setForm({ ...empty });
   };
 
@@ -82,6 +102,7 @@ export default function AdminGroupsPage() {
       notify.success('Группа создана');
       setErr('');
       setCreating(false);
+      setActiveGroupId('');
       setForm({ ...empty });
       await load();
       
@@ -142,6 +163,13 @@ export default function AdminGroupsPage() {
     setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   };
 
+  useSaveShortcut(() => {
+    if (creating && activeGroupId === '__new__') return doCreate();
+    const current = items.find((item) => String(item.id) === String(activeGroupId));
+    if (current) return doUpdate(current);
+    return undefined;
+  }, { enabled: (creating && activeGroupId === '__new__') || Boolean(activeGroupId) });
+
   return (
     <>
       <div className="flex items-center justify-between mb-6">
@@ -152,7 +180,7 @@ export default function AdminGroupsPage() {
           </Button>
         ) : (
           <div className="flex gap-2">
-            <Button onClick={doCreate}>
+            <Button onClick={doCreate} title="Сохранить (Ctrl+S)">
               <Save size={16} /> <span className="ml-1">Сохранить</span>
             </Button>
             <Button variant="outline" onClick={cancelCreate}>
@@ -170,7 +198,7 @@ export default function AdminGroupsPage() {
       </Card>
 
       {creating && (
-        <Card className="mb-6">
+        <Card className="mb-6" onFocusCapture={() => setActiveGroupId('__new__')} onPointerDownCapture={() => setActiveGroupId('__new__')}>
           <div className="grid md:grid-cols-2 gap-4">
             <Field label="Название">
               <Input value={form.name} onChange={(e) => onChange('name', e.target.value)} />
@@ -214,7 +242,7 @@ export default function AdminGroupsPage() {
 
       <div className="space-y-4">
         {filtered.map((g) => (
-          <Card key={g.id} id={'group-' + g.id}>
+          <Card key={g.id} id={'group-' + g.id} onContextMenu={(event) => openContextMenu(event, g)} onFocusCapture={() => setActiveGroupId(String(g.id))} onPointerDownCapture={() => setActiveGroupId(String(g.id))}>
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div className="flex-1 grid md:grid-cols-2 gap-4">
                 <Field label="Название">
@@ -261,7 +289,7 @@ export default function AdminGroupsPage() {
               </div>
 
               <div className="shrink-0 flex lg:flex-col gap-2">
-                <Button onClick={() => doUpdate(g)} title="Сохранить">
+                <Button onClick={() => doUpdate(g)} title="Сохранить (Ctrl+S)">
                   <Save size={16} /> <span className="ml-1">Сохранить</span>
                 </Button>
                 <Button
@@ -281,6 +309,20 @@ export default function AdminGroupsPage() {
       {!loading && filtered.length === 0 && (
         <div className="card-muted p-8 mt-6 text-center text-neutral-500">Пока групп нет.</div>
       )}
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} ariaLabel="Действия группы">
+        {contextMenu.group ? (
+          <>
+            <ContextMenuLabel>Группа</ContextMenuLabel>
+            <ContextMenuItem icon={Save} shortcut="Ctrl+S" onClick={() => { const group = contextMenu.group; closeContextMenu(); void doUpdate(group); }}>Сохранить изменения</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Copy} disabled={!contextMenu.group.code} onClick={() => { const group = contextMenu.group; closeContextMenu(); void copyValue(group.code, 'Код'); }}>Скопировать код</ContextMenuItem>
+            <ContextMenuItem icon={Copy} onClick={() => { const group = contextMenu.group; closeContextMenu(); void copyValue(group.id, 'ID'); }}>Скопировать ID</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Trash2} danger onClick={() => { const group = contextMenu.group; closeContextMenu(); void doDelete(group); }}>Удалить группу</ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenu>
     </>
   );
 }

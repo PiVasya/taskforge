@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui';
 import { listSupportTickets } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
 import AppErrorPanel from '../components/AppErrorPanel';
 import { handleApiError } from '../utils/handleApiError';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
+import { Copy, ExternalLink, UserCog } from 'lucide-react';
 
 function userLabel(user) {
   if (!user) return 'Пользователь';
@@ -13,9 +15,11 @@ function userLabel(user) {
 
 export default function AdminSupportPage() {
   const notify = useNotify();
+  const navigate = useNavigate();
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, chat: null });
 
   useEffect(() => {
     (async () => {
@@ -35,6 +39,18 @@ export default function AdminSupportPage() {
     chats: chats.length,
     messages: chats.reduce((sum, chat) => sum + Number(chat.messagesCount || 0), 0),
   }), [chats]);
+
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openContextMenu = (event, chat) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, chat });
+  };
+  const copyValue = async (value, label) => {
+    if (!value) return;
+    try { await navigator.clipboard.writeText(String(value)); notify.success(`${label} скопирован`); }
+    catch { notify.warn('Не удалось скопировать'); }
+  };
 
   return (
     <>
@@ -71,7 +87,7 @@ export default function AdminSupportPage() {
                 const name = userLabel(user);
                 const chatId = chat.chatId || chat.ticketId || chat.id;
                 return (
-                  <li key={chatId} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <li key={chatId} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" onContextMenu={(event) => openContextMenu(event, chat)}>
                     <div className="min-w-0">
                       <div className="font-semibold text-neutral-900 dark:text-neutral-100">{name}</div>
                       <div className="text-sm text-neutral-500 dark:text-neutral-400">
@@ -98,6 +114,24 @@ export default function AdminSupportPage() {
           )}
         </Card>
       </div>
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} ariaLabel="Действия чата поддержки">
+        {contextMenu.chat ? (() => {
+          const chat = contextMenu.chat;
+          const user = chat.user || {};
+          const chatId = chat.chatId || chat.ticketId || chat.id;
+          return (
+            <>
+              <ContextMenuLabel>Чат поддержки</ContextMenuLabel>
+              <ContextMenuItem icon={ExternalLink} onClick={() => { closeContextMenu(); navigate(`/admin/support/${chatId}`); }}>Открыть чат</ContextMenuItem>
+              {user.id ? <ContextMenuItem icon={UserCog} onClick={() => { closeContextMenu(); navigate(`/admin/users/${user.id}`); }}>Открыть пользователя</ContextMenuItem> : null}
+              <ContextMenuSeparator />
+              <ContextMenuItem icon={Copy} disabled={!user.login} onClick={() => { closeContextMenu(); void copyValue(user.login, 'Логин'); }}>Скопировать логин</ContextMenuItem>
+              <ContextMenuItem icon={Copy} disabled={!(user.email || user.maskedEmail)} onClick={() => { closeContextMenu(); void copyValue(user.email || user.maskedEmail, 'Email'); }}>Скопировать email</ContextMenuItem>
+            </>
+          );
+        })() : null}
+      </ContextMenu>
     </>
   );
 }

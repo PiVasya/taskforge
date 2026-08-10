@@ -169,6 +169,7 @@ export default function CourseAssignmentsPage() {
   const [dragOverContentEdge, setDragOverContentEdge] = useState('top');
   const [extractDropActive, setExtractDropActive] = useState(false);
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, entry: null, canEdit: false });
+  const [createMenu, setCreateMenu] = useState({ open: false, x: 0, y: 0 });
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
@@ -194,6 +195,15 @@ export default function CourseAssignmentsPage() {
     setContextMenu((current) => current.open ? { ...current, open: false } : current);
   }, []);
 
+  const closeCreateMenu = React.useCallback(() => {
+    setCreateMenu((current) => current.open ? { ...current, open: false } : current);
+  }, []);
+
+  const openCreateMenu = React.useCallback((event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setCreateMenu({ open: true, x: rect.left, y: rect.bottom + 7 });
+  }, []);
+
   const openContextMenu = React.useCallback((event, entry = null, canEditEntry = false) => {
     if (!isEditorMode || !courseCanEdit) return;
     event.preventDefault();
@@ -207,12 +217,13 @@ export default function CourseAssignmentsPage() {
     });
   }, [courseCanEdit, isEditorMode]);
 
-  const openCreateDialog = React.useCallback((mode = 'choice') => {
+  const openCreateDialog = React.useCallback((mode = 'json') => {
     closeContextMenu();
+    closeCreateMenu();
     setCreateMode(mode);
     setJsonDocsOpen(false);
     setCreateDialogOpen(true);
-  }, [closeContextMenu]);
+  }, [closeContextMenu, closeCreateMenu]);
 
   useEffect(() => {
     if (!jsonImportDiffOpen) return undefined;
@@ -918,7 +929,7 @@ export default function CourseAssignmentsPage() {
                 <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
                   <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={() => openCreateDialog(showFlowLayout ? "json" : "choice")}>
+                <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openCreateDialog("json") : openCreateMenu(event)}>
                   {showFlowLayout ? <FileJson size={16} /> : <Plus size={16} />} {showFlowLayout ? 'Импорт JSON' : 'Создать'}
                 </Button>
               </>
@@ -1090,76 +1101,15 @@ export default function CourseAssignmentsPage() {
           <Card className="tf-modal-panel w-full max-w-5xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
             <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
-                {createMode !== "choice" ? (
-                  <Button variant="outline" onClick={() => setCreateMode("choice")} disabled={jsonImportBusy || !!createBusyType}>
-                    ← Назад
-                  </Button>
-                ) : null}
                 <div className="flex items-center gap-2 text-xl font-semibold">
                   <Sparkles size={20} />
-                  {createMode === "json" ? "JSON-импорт" : createMode === "manual" ? "Новое задание" : "Создать"}
+                  JSON-импорт
                 </div>
               </div>
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={jsonImportBusy || !!createBusyType} title="Закрыть">
                 <X size={16} /> Закрыть
               </Button>
             </div>
-
-            {createMode === "choice" ? (
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <button
-                  type="button"
-                  disabled={!!createBusyType || jsonImportBusy}
-                  onClick={() => { setCreateMode("json"); setJsonDocsOpen(false); }}
-                  className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <FileJson size={22} />
-                  <div className="mt-4 text-lg font-semibold">JSON</div>
-                  <Badge variant="outline" className="mt-3">import</Badge>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={!!createBusyType || jsonImportBusy}
-                  onClick={() => setCreateMode("manual")}
-                  className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Plus size={22} />
-                  <div className="mt-4 text-lg font-semibold">Вручную</div>
-                  <Badge variant="outline" className="mt-3">draft</Badge>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={!!createBusyType || jsonImportBusy}
-                  onClick={handleCreateChildCourse}
-                  className="tf-choice-card rounded-2xl border border-[rgba(var(--accent)/0.45)] bg-[rgb(var(--accent))]/10 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Layers size={22} />
-                  <div className="mt-4 text-lg font-semibold">Вложенный курс</div>
-                  <Badge variant="outline" className="mt-3">{createBusyType === "course" ? "создаю" : "course"}</Badge>
-                </button>
-              </div>
-            ) : null}
-
-            {createMode === "manual" ? (
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {CREATE_OPTIONS.map((o) => (
-                  <button
-                    key={o.type}
-                    type="button"
-                    disabled={!!createBusyType || jsonImportBusy}
-                    onClick={() => handleCreateType(o.type)}
-                    className="tf-choice-card rounded-2xl border border-[rgba(var(--border)/0.75)] bg-[rgb(var(--muted))]/30 p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-lg font-semibold">{o.title}</div>
-                      <Badge variant="outline">{createBusyType === o.type ? "создаю" : o.type}</Badge>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : null}
 
             {createMode === "json" ? (
               <div className="mt-5">
@@ -1340,6 +1290,37 @@ export default function CourseAssignmentsPage() {
       )}
 
       <ContextMenu
+        open={createMenu.open}
+        x={createMenu.x}
+        y={createMenu.y}
+        onClose={closeCreateMenu}
+        ariaLabel="Создать в курсе"
+      >
+        <ContextMenuLabel>Создать</ContextMenuLabel>
+        <ContextMenuItem
+          icon={FolderPlus}
+          disabled={Boolean(createBusyType || jsonImportBusy)}
+          onClick={() => { closeCreateMenu(); void handleCreateChildCourse(); }}
+        >
+          Вложенный курс
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuLabel>Задание</ContextMenuLabel>
+        {CREATE_OPTIONS.map((option) => (
+          <ContextMenuItem
+            key={option.type}
+            icon={FilePlus2}
+            disabled={Boolean(createBusyType || jsonImportBusy)}
+            onClick={() => { closeCreateMenu(); void handleCreateType(option.type); }}
+          >
+            {option.title}
+          </ContextMenuItem>
+        ))}
+        <ContextMenuSeparator />
+        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>Импорт из JSON</ContextMenuItem>
+      </ContextMenu>
+
+      <ContextMenu
         open={contextMenu.open}
         x={contextMenu.x}
         y={contextMenu.y}
@@ -1377,12 +1358,6 @@ export default function CourseAssignmentsPage() {
         ) : null}
 
         <ContextMenuLabel>Создать</ContextMenuLabel>
-        <ContextMenuItem icon={FilePlus2} onClick={() => openCreateDialog('manual')}>
-          Новое задание
-        </ContextMenuItem>
-        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>
-          Импорт из JSON
-        </ContextMenuItem>
         <ContextMenuItem
           icon={FolderPlus}
           disabled={Boolean(createBusyType || jsonImportBusy)}
@@ -1392,6 +1367,22 @@ export default function CourseAssignmentsPage() {
           }}
         >
           Вложенный курс
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuLabel>Задание</ContextMenuLabel>
+        {CREATE_OPTIONS.map((option) => (
+          <ContextMenuItem
+            key={option.type}
+            icon={FilePlus2}
+            disabled={Boolean(createBusyType || jsonImportBusy)}
+            onClick={() => { closeContextMenu(); void handleCreateType(option.type); }}
+          >
+            {option.title}
+          </ContextMenuItem>
+        ))}
+        <ContextMenuSeparator />
+        <ContextMenuItem icon={FileJson} onClick={() => openCreateDialog('json')}>
+          Импорт из JSON
         </ContextMenuItem>
       </ContextMenu>
     </>

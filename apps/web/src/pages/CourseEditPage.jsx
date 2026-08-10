@@ -14,6 +14,7 @@ import { handleApiError } from '../utils/handleApiError';
 import { getApiErrorMessage } from '../api/http';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import { useQueryClient } from '../data/QueryClientProvider';
+import useSaveShortcut from '../hooks/useSaveShortcut';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
@@ -226,6 +227,8 @@ export default function CourseEditPage({ overlay = false }) {
     }
   };
 
+  useSaveShortcut(save, { enabled: !loading, busy });
+
   const remove = async () => {
     if (!window.confirm('Удалить курс?')) return;
     try {
@@ -430,7 +433,7 @@ export default function CourseEditPage({ overlay = false }) {
         <div className="space-y-4">
           <Card>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={save} disabled={busy} className="flex-1 min-w-[150px]">
+              <Button onClick={save} disabled={busy} title="Сохранить (Ctrl+S)" className="flex-1 min-w-[150px]">
                 <Save size={16} /> {busy ? 'Сохраняю…' : 'Сохранить'}
               </Button>
               <Button

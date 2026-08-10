@@ -23,6 +23,7 @@ import { getUserTaskTestAttempts } from '../../api/taskTestAttempts';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { useAuth } from '../../auth/AuthContext';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
 import {
   ArrowLeft,
   Ban,
@@ -189,6 +190,8 @@ export default function AdminUserManagementPage() {
     finally { setSaving(false); }
   };
 
+  useSaveShortcut(saveUser, { enabled: Boolean(form) && isActive, busy: saving });
+
   const toggleGroup = async (group) => {
     const id = String(group.id).toLowerCase();
     const enabled = groupIds.has(id);
@@ -270,7 +273,7 @@ export default function AdminUserManagementPage() {
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold sm:text-2xl"><UserCog size={22} /> {userTitle(user)} {(user?.accountType === 'ai' || user?.isAi) ? <Badge intent="outline"><Bot size={13} className="mr-1 inline" />AI-аккаунт</Badge> : null}</h1>
           <p className="mt-2 break-all text-sm text-neutral-500">Профиль, роли, группы, реальные Telegram/Minecraft-привязки и жизненный цикл аккаунта. ID: {userId}</p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button><Button onClick={saveUser} disabled={!form || saving || !isActive}><Save size={16} /><span className="ml-1">Сохранить</span></Button></div>
+        <div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button><Button onClick={saveUser} disabled={!form || saving || !isActive} title="Сохранить (Ctrl+S)"><Save size={16} /><span className="ml-1">Сохранить</span></Button></div>
       </div>
 
       {pageError ? <AppErrorPanel error={pageError} title="Не удалось выполнить действие" /> : null}
@@ -299,7 +302,7 @@ export default function AdminUserManagementPage() {
             <div className="md:col-span-2"><Field label="Аватар / URL картинки"><Input disabled={!isActive} value={form.profilePictureUrl || ''} onChange={(e) => updateForm({ profilePictureUrl: e.target.value })} /></Field></div>
             <div className="md:col-span-2"><Field label="Описание профиля"><Textarea disabled={!isActive} rows={5} maxLength={4000} value={form.bio || ''} onChange={(e) => updateForm({ bio: e.target.value })} placeholder="Описание пользователя в публичном профиле" /></Field><div className="mt-1 text-xs text-neutral-500">Администратор может изменить это описание независимо от того, включил ли пользователь его отображение в публичных настройках.</div></div>
           </div> : <div className="text-sm text-neutral-500">Нет данных профиля.</div>}
-          <div className="mt-5 flex flex-wrap gap-2"><Button onClick={saveUser} disabled={!form || saving || !isActive}><Save size={16} /><span className="ml-1">Сохранить профиль</span></Button><Link to={`/users/${userId}`}><Button variant="outline"><ExternalLink size={16} /><span className="ml-1">Публичный профиль</span></Button></Link></div>
+          <div className="mt-5 flex flex-wrap gap-2"><Button onClick={saveUser} disabled={!form || saving || !isActive} title="Сохранить (Ctrl+S)"><Save size={16} /><span className="ml-1">Сохранить профиль</span></Button><Link to={`/users/${userId}`}><Button variant="outline"><ExternalLink size={16} /><span className="ml-1">Публичный профиль</span></Button></Link></div>
         </Card>
 
         <Card>

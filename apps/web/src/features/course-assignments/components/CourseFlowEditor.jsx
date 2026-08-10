@@ -49,6 +49,7 @@ import ImageCodeNode from '../nodes/ImageCodeNode';
 import MathNode from '../nodes/MathNode';
 import LockedNode from '../nodes/LockedNode';
 import CourseMapEdge from './CourseMapEdge';
+import useSaveShortcut from '../../../hooks/useSaveShortcut';
 
 const NODE_TYPES = {
   course: CourseNode,
@@ -896,6 +897,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return true;
   }, [courseCanEdit, decorateNodes, editorMode, markDirty, notify, persistSession, setEdges, setNodes]);
 
+  const shouldHandleMapSaveShortcut = React.useCallback(() => !document.querySelector('.course-map-route-overlay, .tf-modal-backdrop'), []);
+  useSaveShortcut(save, { enabled: editorMode, shouldHandle: shouldHandleMapSaveShortcut });
+
   React.useEffect(() => {
     if (!editorMode) return undefined;
     const onKeyDown = (event) => {
@@ -906,11 +910,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const mod = event.ctrlKey || event.metaKey;
       const key = String(event.key || '').toLowerCase();
 
-      if (mod && key === 's') {
-        event.preventDefault();
-        void save();
-        return;
-      }
       if (mod && key === 'c') {
         if (copySelection()) event.preventDefault();
         return;
@@ -1063,7 +1062,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           {editorMode && onShowGrid ? <button type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" onClick={onShowGrid}><LayoutGrid size={16} /></button> : null}
           {editorMode && onExportJson ? <button type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} onClick={onExportJson}><Download size={16} /></button> : null}
           {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={onImportJson}><FileJson size={16} /></button> : null}
-          {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty}><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
+          {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty} title="Сохранить карту (Ctrl+S)"><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
         </div>
       </div>
 

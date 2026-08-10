@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button, Input, Select } from '../../components/ui';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Award, Copy, Trash2, UserX } from 'lucide-react';
 import { searchUsersOnce } from '../../api/admin';
 import {
   getAllBadges,
@@ -12,6 +12,8 @@ import {
 } from '../../api/badges';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
 
 
 export default function AdminBadgesPage() {
@@ -38,6 +40,7 @@ export default function AdminBadgesPage() {
 
   
   const [pageError, setPageError] = useState('');
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, badge: null, assigned: false });
 
   useEffect(() => {
     
@@ -185,6 +188,19 @@ export default function AdminBadgesPage() {
     }
   };
 
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openBadgeContextMenu = (event, badge, assigned = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, badge, assigned });
+  };
+  const copyBadgeId = async (badge) => {
+    try { await navigator.clipboard.writeText(String(badge.id)); notify.success('ID бейджа скопирован'); }
+    catch { notify.warn('Не удалось скопировать ID'); }
+  };
+
+  useSaveShortcut(handleCreateBadge, { enabled: Boolean(newName && newFile), busy: uploading });
+
   const selectedUser = users.find((u) => u.id === userId) || null;
 
   return (
@@ -285,6 +301,7 @@ export default function AdminBadgesPage() {
             <Button
               onClick={handleCreateBadge}
               disabled={uploading || !newName || !newFile}
+              title="Создать бейдж (Ctrl+S)"
             >
               {uploading ? 'Сохранение…' : 'Создать'}
             </Button>
@@ -304,6 +321,7 @@ export default function AdminBadgesPage() {
                 <div
                   key={b.id}
                   className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
+                  onContextMenu={(event) => openBadgeContextMenu(event, b, false)}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {b.imageUrl && (
@@ -366,6 +384,7 @@ export default function AdminBadgesPage() {
                   <div
                     key={b.id}
                     className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
+                    onContextMenu={(event) => openBadgeContextMenu(event, b, true)}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {b.imageUrl && (
@@ -398,6 +417,26 @@ export default function AdminBadgesPage() {
           </Card>
         )}
       </div>
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} ariaLabel="Действия бейджа">
+        {contextMenu.badge ? (
+          <>
+            <ContextMenuLabel>Бейдж</ContextMenuLabel>
+            {contextMenu.assigned ? (
+              <ContextMenuItem icon={UserX} danger onClick={() => { const badge = contextMenu.badge; closeContextMenu(); void handleRevoke(badge.id); }}>Снять у пользователя</ContextMenuItem>
+            ) : (
+              <ContextMenuItem icon={Award} disabled={!userId} onClick={() => { const badge = contextMenu.badge; closeContextMenu(); void handleAward(badge.id); }}>Назначить выбранному</ContextMenuItem>
+            )}
+            <ContextMenuItem icon={Copy} onClick={() => { const badge = contextMenu.badge; closeContextMenu(); void copyBadgeId(badge); }}>Скопировать ID</ContextMenuItem>
+            {!contextMenu.assigned ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem icon={Trash2} danger onClick={() => { const badge = contextMenu.badge; closeContextMenu(); void handleDelete(badge.id); }}>Удалить бейдж</ContextMenuItem>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </ContextMenu>
     </>
   );
 }

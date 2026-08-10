@@ -7,7 +7,8 @@ import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { Ban, Bot, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { Ban, Bot, Copy, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -84,6 +85,23 @@ export default function AdminUsersPage() {
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
   const [pageError, setPageError] = useState(null);
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, user: null });
+
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openContextMenu = (event, selectedUser) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, user: selectedUser });
+  };
+  const copyUserValue = async (value, label) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(String(value));
+      notify.success(`${label} скопирован`);
+    } catch {
+      notify.warn('Не удалось скопировать');
+    }
+  };
 
   const load = async () => {
     try {
@@ -235,7 +253,7 @@ export default function AdminUsersPage() {
           const telegram = formatTelegramHandle(user.telegramUsername);
           const minecraftLinks = user.minecraftLinks || [];
           return (
-            <Card key={user.id} className="p-4 sm:p-5">
+            <Card key={user.id} className="p-4 sm:p-5" onContextMenu={(event) => openContextMenu(event, user)}>
               <div className="grid gap-4 xl:grid-cols-[1.1fr,1fr,0.9fr,auto] xl:items-center">
                 <div className="min-w-0">
                   <button type="button" className="text-left group min-w-0" onClick={() => navigate(`/admin/users/${user.id}`)}>
@@ -285,6 +303,20 @@ export default function AdminUsersPage() {
           );
         })}
       </div>
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} ariaLabel="Действия пользователя">
+        {contextMenu.user ? (
+          <>
+            <ContextMenuLabel>Пользователь</ContextMenuLabel>
+            <ContextMenuItem icon={UserCog} onClick={() => { const selected = contextMenu.user; closeContextMenu(); navigate(`/admin/users/${selected.id}`); }}>Управление пользователем</ContextMenuItem>
+            <ContextMenuItem icon={ExternalLink} onClick={() => { const selected = contextMenu.user; closeContextMenu(); navigate(`/users/${selected.id}`); }}>Публичный профиль</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Copy} disabled={!contextMenu.user.login} onClick={() => { const selected = contextMenu.user; closeContextMenu(); void copyUserValue(selected.login, 'Логин'); }}>Скопировать логин</ContextMenuItem>
+            <ContextMenuItem icon={Copy} disabled={!contextMenu.user.email} onClick={() => { const selected = contextMenu.user; closeContextMenu(); void copyUserValue(selected.email, 'Email'); }}>Скопировать email</ContextMenuItem>
+            <ContextMenuItem icon={Copy} onClick={() => { const selected = contextMenu.user; closeContextMenu(); void copyUserValue(selected.id, 'ID'); }}>Скопировать ID</ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenu>
     </div>
   );
 }

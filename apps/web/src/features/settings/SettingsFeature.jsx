@@ -11,6 +11,7 @@ import { getMyUiSettings, saveMyUiSettings } from '../../api/uiSettings';
 import { handleApiError } from '../../utils/handleApiError';
 import { parseProfileExtra, buildProfileExtra } from '../../utils/profileExtra';
 import useQuery from '../../hooks/useQuery';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import {
   defaultUiSettings,
@@ -289,6 +290,8 @@ export default function SettingsFeature() {
     }
   }, [auth, extra, form, hasChanges, notify, profile, profileDirty, profileLogin, profileLoginLooksOk, queryClient, saving, uiDirty]);
 
+  useSaveShortcut(save, { enabled: canSave, busy: saving });
+
   const refreshTelegram = useCallback(async () => {
     setTgError(null);
     try { return await refetchTelegramStatus(); } catch (error) { setTgError(handleApiError(error, notify, 'Не удалось обновить Telegram')); return null; }
@@ -442,7 +445,7 @@ export default function SettingsFeature() {
           {profileQuery.error && !profile ? <Card className="mb-4 p-4 text-sm text-red-500">Не удалось загрузить профиль. <Button variant="outline" onClick={profileQuery.refetch}>Повторить</Button></Card> : null}
           {activeContent}
           <div className="fixed bottom-4 right-4 z-40 flex justify-end pointer-events-none">
-            <Button onClick={save} disabled={saving || !canSave} className="settings-save-button pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
+            <Button onClick={save} disabled={saving || !canSave} title="Сохранить (Ctrl+S)" className="settings-save-button pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
               {saving ? 'Сохранение…' : hasChanges ? 'Сохранить' : 'Сохранено'}
             </Button>
           </div>

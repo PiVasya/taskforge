@@ -3,11 +3,12 @@ import { Badge, Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
 import { getCourseProgressByCourses } from "../api/assignments";
 import { useNavigate } from "react-router-dom";
-import { EyeOff, Plus } from "lucide-react";
+import { Copy, ExternalLink, EyeOff, FolderPlus, Pencil, Plus } from "lucide-react";
 import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { resolveCardDropIntent, resolveGridGapDropIntent, isPointerInsideDndItem } from "../utils/gridDragDrop";
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
 
 const COURSE_PAGE_SIZE = 50;
 
@@ -88,6 +89,7 @@ function CourseCard({
   dropMode,
   dropEdge,
   onNavigate,
+  onContextMenu,
   onDragStart,
   onDragEnter,
   onDragOver,
@@ -119,6 +121,7 @@ function CourseCard({
       <Card
         className={cardClass}
         onClick={onNavigate}
+        onContextMenu={onContextMenu}
         role="button"
         tabIndex={0}
         draggable={canDrag}
@@ -181,6 +184,7 @@ export default function CoursesPage() {
   const [dragOverCourseId, setDragOverCourseId] = useState(null);
   const [dragOverMode, setDragOverMode] = useState("before");
   const [dragOverEdge, setDragOverEdge] = useState("top");
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, course: null });
   const dragStartedRef = useRef(false);
 
   const nav = useNavigate();
@@ -188,6 +192,13 @@ export default function CoursesPage() {
   const { canEdit, isEditorMode } = useEditorMode();
 
   const editorTools = canEdit && isEditorMode;
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openContextMenu = (event, selectedCourse = null) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, course: selectedCourse });
+  };
+
   const orderedRootCourses = useMemo(
     () => (items || []).filter((course) => !course?.parentCourseId).sort(compareCourses),
     [items],
@@ -295,6 +306,34 @@ export default function CoursesPage() {
       nav(`/courses/${id}/edit`);
     } catch (e) {
       handleApiError(e, notify, "Не удалось создать курс");
+    }
+  };
+
+  const handleCreateNested = async (parentCourse) => {
+    if (!editorTools || !parentCourse || parentCourse.canEdit === false) return;
+    try {
+      const { id } = await createCourse({
+        title: "Новый вложенный курс",
+        description: "Описание курса",
+        isPublic: false,
+        visibleGroupIds: [],
+        ownerIds: [],
+        parentCourseId: parentCourse.id,
+        sort: 0,
+      });
+      notify.success("Вложенный курс создан");
+      if (id) nav(`/courses/${id}/edit?returnTo=${encodeURIComponent(`/course/${parentCourse.id}`)}`);
+    } catch (e) {
+      handleApiError(e, notify, "Не удалось создать вложенный курс");
+    }
+  };
+
+  const copyCourseLink = async (selectedCourse) => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/course/${selectedCourse.id}`);
+      notify.success("Ссылка на курс скопирована");
+    } catch {
+      notify.warn("Не удалось скопировать ссылку");
     }
   };
 
@@ -423,6 +462,7 @@ export default function CoursesPage() {
       {!loading && (
         <div
           className="auto-fill-grid"
+          onContextMenu={(event) => { if (event.target === event.currentTarget) openContextMenu(event, null); }}
           onDragOver={(event) => {
             if (!draggedCourseId || !editorTools) return;
             if (isPointerInsideDndItem(event, '[data-dnd-course-id]')) return;
@@ -470,6 +510,7 @@ export default function CoursesPage() {
               dropMode={String(dragOverCourseId || "") === String(course.id) ? dragOverMode : ""}
               dropEdge={String(dragOverCourseId || "") === String(course.id) && dragOverMode !== "inside" ? dragOverEdge : ""}
               onNavigate={() => navigateCourse(course)}
+              onContextMenu={(event) => openContextMenu(event, course)}
               onDragStart={(e) => {
                 if (!editorTools || course.canEdit === false) {
                   e.preventDefault();
@@ -531,6 +572,36 @@ export default function CoursesPage() {
           )}
         </div>
       )}
+
+      <ContextMenu
+        open={contextMenu.open}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        onClose={closeContextMenu}
+        ariaLabel="Действия курса"
+      >
+        {contextMenu.course ? (
+          <>
+            <ContextMenuLabel>Курс</ContextMenuLabel>
+            <ContextMenuItem icon={ExternalLink} onClick={() => { const selected = contextMenu.course; closeContextMenu(); nav(`/course/${selected.id}`); }}>Открыть курс</ContextMenuItem>
+            {editorTools && contextMenu.course.canEdit !== false ? (
+              <ContextMenuItem icon={Pencil} onClick={() => { const selected = contextMenu.course; closeContextMenu(); nav(`/courses/${selected.id}/edit`); }}>Редактировать</ContextMenuItem>
+            ) : null}
+            <ContextMenuItem icon={Copy} onClick={() => { const selected = contextMenu.course; closeContextMenu(); void copyCourseLink(selected); }}>Скопировать ссылку</ContextMenuItem>
+            {editorTools && contextMenu.course.canEdit !== false ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem icon={FolderPlus} onClick={() => { const selected = contextMenu.course; closeContextMenu(); void handleCreateNested(selected); }}>Создать вложенный курс</ContextMenuItem>
+              </>
+            ) : null}
+          </>
+        ) : editorTools ? (
+          <>
+            <ContextMenuLabel>Каталог</ContextMenuLabel>
+            <ContextMenuItem icon={Plus} onClick={() => { closeContextMenu(); void handleCreate(); }}>Создать курс</ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenu>
     </>
   );
 }

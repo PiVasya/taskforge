@@ -3,7 +3,9 @@ import { Badge, Button, Card, Field, Input, Textarea } from '../../components/ui
 import { assignFeatureRole, createFeatureRole, deleteFeatureRole, getFeatureRoles, removeFeatureRole, searchFeatureRoleUsers, updateFeatureRole } from '../../api/featureRoles';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
-import { AlertTriangle, Plus, Save, Shield, Trash2, UserPlus, UserX } from 'lucide-react';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import useSaveShortcut from '../../hooks/useSaveShortcut';
+import { AlertTriangle, Copy, Plus, Save, Shield, Trash2, UserPlus, UserX } from 'lucide-react';
 
 const empty = { code: '', name: '', description: '', isActive: true };
 
@@ -17,6 +19,8 @@ export default function AdminFeatureRolesPage() {
   const [creating, setCreating] = useState(false);
   const [pageError, setPageError] = useState('');
   const [form, setForm] = useState({ ...empty });
+  const [activeRoleId, setActiveRoleId] = useState('');
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, kind: '', role: null, user: null });
 
   const loadRoles = async () => {
     const list = await getFeatureRoles();
@@ -43,6 +47,25 @@ export default function AdminFeatureRolesPage() {
     })();
   }, []); 
 
+  const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
+  const openRoleContextMenu = (event, role) => {
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveRoleId(String(role?.id || ''));
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, kind: 'role', role, user: null });
+  };
+  const openUserContextMenu = (event, user) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ open: true, x: event.clientX, y: event.clientY, kind: 'user', role: null, user });
+  };
+  const copyRoleValue = async (value, label) => {
+    if (!value) return;
+    try { await navigator.clipboard.writeText(String(value)); notify.success(`${label} скопирован`); }
+    catch { notify.warn('Не удалось скопировать'); }
+  };
+
   const filteredRoles = useMemo(() => {
     const qq = (q || '').trim().toLowerCase();
     if (!qq) return roles;
@@ -62,6 +85,7 @@ export default function AdminFeatureRolesPage() {
       notify.success('Роль создана');
       setPageError('');
       setCreating(false);
+      setActiveRoleId('');
       setForm({ ...empty });
       await loadRoles();
     } catch (e) {
@@ -125,6 +149,13 @@ export default function AdminFeatureRolesPage() {
     }
   };
 
+  useSaveShortcut(() => {
+    if (creating && activeRoleId === '__new__') return saveNew();
+    const role = roles.find((item) => String(item.id) === String(activeRoleId));
+    if (role) return saveExisting(role);
+    return undefined;
+  }, { enabled: (creating && activeRoleId === '__new__') || Boolean(activeRoleId) });
+
   return (
     <>
       <div className="space-y-6">
@@ -135,11 +166,11 @@ export default function AdminFeatureRolesPage() {
           </div>
           <div className="flex gap-2">
             {!creating ? (
-              <Button onClick={() => setCreating(true)}><Plus size={16} /> <span className="ml-1">Создать роль</span></Button>
+              <Button onClick={() => { setCreating(true); setActiveRoleId('__new__'); }}><Plus size={16} /> <span className="ml-1">Создать роль</span></Button>
             ) : (
               <>
-                <Button onClick={saveNew}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
-                <Button variant="outline" onClick={() => { setCreating(false); setForm({ ...empty }); }}>Отмена</Button>
+                <Button onClick={saveNew} title="Сохранить (Ctrl+S)"><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
+                <Button variant="outline" onClick={() => { setCreating(false); setActiveRoleId(''); setForm({ ...empty }); }}>Отмена</Button>
               </>
             )}
           </div>
@@ -166,7 +197,7 @@ export default function AdminFeatureRolesPage() {
             </Card>
 
             {creating && (
-              <Card>
+              <Card onFocusCapture={() => setActiveRoleId('__new__')} onPointerDownCapture={() => setActiveRoleId('__new__')}>
                 <div className="grid md:grid-cols-2 gap-4">
                   <Field label="Code"><Input value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} placeholder="Minecraft" /></Field>
                   <Field label="Name"><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="Minecraft" /></Field>
@@ -177,7 +208,7 @@ export default function AdminFeatureRolesPage() {
             )}
 
             {filteredRoles.map((role) => (
-              <Card key={role.id}>
+              <Card key={role.id} onContextMenu={(event) => openRoleContextMenu(event, role)} onFocusCapture={() => setActiveRoleId(String(role.id))} onPointerDownCapture={() => setActiveRoleId(String(role.id))}>
                 <div className="grid md:grid-cols-2 gap-4">
                   <Field label="Code"><Input value={role.code || ''} onChange={(e) => updateLocalRole(role.id, { code: e.target.value })} /></Field>
                   <Field label="Name"><Input value={role.name || ''} onChange={(e) => updateLocalRole(role.id, { name: e.target.value })} /></Field>
@@ -186,7 +217,7 @@ export default function AdminFeatureRolesPage() {
                   <Field label="Назначений"><div className="mt-2"><Badge intent="secondary">{role.membersCount ?? 0}</Badge></div></Field>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-4">
-                  <Button onClick={() => saveExisting(role)}><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
+                  <Button onClick={() => saveExisting(role)} title="Сохранить (Ctrl+S)"><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
                   <Button variant="outline" onClick={() => removeRoleDef(role)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
                 </div>
               </Card>
@@ -202,7 +233,7 @@ export default function AdminFeatureRolesPage() {
             </Card>
 
             {users.map((user) => (
-              <Card key={user.id}>
+              <Card key={user.id} onContextMenu={(event) => openUserContextMenu(event, user)}>
                 <div className="flex flex-col gap-3">
                   <div>
                     <div className="font-medium">{user.fullName || user.email}</div>
@@ -233,6 +264,37 @@ export default function AdminFeatureRolesPage() {
           </div>
         </div>
       </div>
+
+      <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} ariaLabel="Действия дополнительных ролей">
+        {contextMenu.kind === 'role' && contextMenu.role ? (
+          <>
+            <ContextMenuLabel>Роль</ContextMenuLabel>
+            <ContextMenuItem icon={Save} shortcut="Ctrl+S" onClick={() => { const role = contextMenu.role; closeContextMenu(); void saveExisting(role); }}>Сохранить роль</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Copy} onClick={() => { const role = contextMenu.role; closeContextMenu(); void copyRoleValue(role.code, 'Код'); }}>Скопировать code</ContextMenuItem>
+            <ContextMenuItem icon={Copy} onClick={() => { const role = contextMenu.role; closeContextMenu(); void copyRoleValue(role.id, 'ID'); }}>Скопировать ID</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Trash2} danger onClick={() => { const role = contextMenu.role; closeContextMenu(); void removeRoleDef(role); }}>Удалить роль</ContextMenuItem>
+          </>
+        ) : null}
+        {contextMenu.kind === 'user' && contextMenu.user ? (
+          <>
+            <ContextMenuLabel>Роли пользователя</ContextMenuLabel>
+            {roles.map((role) => {
+              const enabled = (contextMenu.user.featureRoles || []).includes(role.code);
+              return (
+                <ContextMenuItem
+                  key={role.id || role.code}
+                  checked={enabled}
+                  onClick={() => { const user = contextMenu.user; closeContextMenu(); void toggleRole(user, role.code, enabled); }}
+                >
+                  {role.code}
+                </ContextMenuItem>
+              );
+            })}
+          </>
+        ) : null}
+      </ContextMenu>
     </>
   );
 }
