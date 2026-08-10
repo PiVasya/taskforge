@@ -12,7 +12,7 @@ import {
 } from '../../api/badges';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import useSaveShortcut from '../../hooks/useSaveShortcut';
 
 
@@ -190,8 +190,7 @@ export default function AdminBadgesPage() {
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openBadgeContextMenu = (event, badge, assigned = false) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, badge, assigned });
   };
   const copyBadgeId = async (badge) => {
@@ -321,7 +320,7 @@ export default function AdminBadgesPage() {
                 <div
                   key={b.id}
                   className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
-                  onContextMenu={(event) => openBadgeContextMenu(event, b, false)}
+                  onContextMenuCapture={(event) => openBadgeContextMenu(event, b, false)}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {b.imageUrl && (
@@ -384,7 +383,7 @@ export default function AdminBadgesPage() {
                   <div
                     key={b.id}
                     className="flex items-center justify-between border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-3 bg-[rgb(var(--card))]"
-                    onContextMenu={(event) => openBadgeContextMenu(event, b, true)}
+                    onContextMenuCapture={(event) => openBadgeContextMenu(event, b, true)}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {b.imageUrl && (

@@ -4,7 +4,7 @@ import { Badge, Card } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import { isAssignmentSolved, previewAssignmentDescription, previewAssignmentTitle } from '../courseAssignmentsModel';
 
-function StaticLink({ to, children, agentId, agentRole, agentAction, agentState, agentKind }) {
+function StaticLink({ to, children, agentId, agentRole, agentAction, agentState, agentKind, onContextMenu }) {
   return (
     <Link
       to={to}
@@ -14,6 +14,7 @@ function StaticLink({ to, children, agentId, agentRole, agentAction, agentState,
       data-taskforge-agent-action={agentAction}
       data-taskforge-agent-state={agentState}
       data-taskforge-agent-kind={agentKind}
+      onContextMenuCapture={onContextMenu}
     >
       {children}
     </Link>
@@ -94,7 +95,7 @@ function CourseContentCard({
         tabIndex={0}
         data-dnd-content-key={entry.key}
         {...sharedDragProps}
-        onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
+        onContextMenuCapture={(event) => onContextMenu?.(event, entry, canEdit)}
         onClick={() => dragApi.openAfterDrag(editorHref)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -110,8 +111,8 @@ function CourseContentCard({
       </Card>
     );
     return (
-      <IfEditor otherwise={<StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"}>{staticCard}</StaticLink>}>
-        {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"}>{staticCard}</StaticLink>}
+      <IfEditor otherwise={<StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}>
+        {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}
       </IfEditor>
     );
   }
@@ -156,7 +157,7 @@ function CourseContentCard({
       tabIndex={0}
       data-dnd-content-key={entry.key}
       {...sharedDragProps}
-      onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}
+      onContextMenuCapture={(event) => onContextMenu?.(event, entry, canEdit)}
       onClick={() => dragApi.openAfterDrag(editorHref)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -171,8 +172,8 @@ function CourseContentCard({
     </Card>
   );
   return (
-    <IfEditor otherwise={<StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"}>{staticCard}</StaticLink>}>
-      {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"}>{staticCard}</StaticLink>}
+    <IfEditor otherwise={<StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}>
+      {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`assignment-${assignment.id}`} agentRole="assignment-card" agentAction="open-assignment" agentState={solved ? "solved" : "unsolved"} agentKind={assignment.type || assignment.kind || assignment.assignmentType || "code-test"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}
     </IfEditor>
   );
 }

@@ -189,6 +189,15 @@ if (/getMyUiSettings|tf-ui-settings-changed|UI_SETTINGS_KEY/.test(authContext)) 
 }
 
 
+const contextMenuCore = read('components/ui/ContextMenu.jsx');
+if (!/claimContextMenuEvent/.test(contextMenuCore) || !/isNativeContextMenuTarget/.test(contextMenuCore)) {
+  fail('shared context-menu event arbitration is missing');
+}
+const courseContentCard = read('features/course-assignments/components/CourseContentCard.jsx');
+if (!/onContextMenuCapture/.test(courseContentCard)) {
+  fail('course content cards lost capture-phase context menus');
+}
+
 const courseFlowEditor = read('features/course-assignments/components/CourseFlowEditor.jsx');
 if (/\bMiniMap\b|course-map-minimap/.test(courseFlowEditor)) {
   fail('course map minimap returned');

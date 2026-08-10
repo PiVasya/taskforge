@@ -488,10 +488,11 @@ function StatementEditor({ value, onChange }) {
 
       <div
         className="mt-3"
-        onContextMenu={(e) => {
+        onContextMenuCapture={(e) => {
           const inside = e.target.closest(".tiptap");
           if (!inside) return;
           e.preventDefault();
+          e.stopPropagation();
 
           const menuW = 260;
           const menuH = 160;

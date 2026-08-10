@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { Field, Textarea, Button, Card } from '../components/ui';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
 import { Copy, Reply } from 'lucide-react';
 import { getSupportChat, getSupportTicket, sendSupportChatMessage, sendSupportMessage } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
@@ -57,7 +57,7 @@ function MessageBubble({ message, isAdminView, onReply, onContextMenu }) {
   const author = mine ? 'Поддержка' : (message.authorName || 'Пользователь');
   const meta = [message.createdAt ? new Date(message.createdAt).toLocaleString() : null, sourceLabel(message.source)].filter(Boolean).join(' · ');
   return (
-    <div className={mine ? 'flex justify-end' : 'flex justify-start'} onContextMenu={(event) => onContextMenu?.(event, message)}>
+    <div className={mine ? 'flex justify-end' : 'flex justify-start'} onContextMenuCapture={(event) => onContextMenu?.(event, message)}>
       <div className={mine ? 'max-w-[85%] text-right' : 'max-w-[85%] text-left'}>
         <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="font-medium text-neutral-700 dark:text-neutral-200">{isAdminView ? author : (mine ? 'Поддержка' : 'Вы')}</span>
@@ -102,8 +102,7 @@ export default function SupportChatPage() {
 
   const closeMessageMenu = () => setMessageMenu((current) => current.open ? { ...current, open: false } : current);
   const openMessageMenu = (event, message) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setMessageMenu({ open: true, x: event.clientX, y: event.clientY, message });
   };
   const copyMessage = async (message) => {

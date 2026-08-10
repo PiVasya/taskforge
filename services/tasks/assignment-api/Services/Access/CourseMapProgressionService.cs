@@ -450,13 +450,13 @@ internal static class CourseMapProgressionService
                 continue;
             }
 
-            var total = Math.Max(0, totals.GetValueOrDefault(node.EntityId.Value));
-            var completed = Math.Clamp(solved.GetValueOrDefault(node.EntityId.Value), 0, total);
+            var total = System.Math.Max(0, totals.GetValueOrDefault(node.EntityId.Value));
+            var completed = System.Math.Clamp(solved.GetValueOrDefault(node.EntityId.Value), 0, total);
             result[node.Id] = new
             {
                 total,
                 solved = completed,
-                percent = total > 0 ? (int)Math.Round(completed * 100d / total) : 0
+                percent = total > 0 ? (int)System.Math.Round(completed * 100d / total) : 0
             };
         }
 

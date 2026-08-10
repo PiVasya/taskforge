@@ -7,7 +7,7 @@ import { searchUsersOnce } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import { Ban, Bot, Copy, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
@@ -89,8 +89,7 @@ export default function AdminUsersPage() {
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, selectedUser) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, user: selectedUser });
   };
   const copyUserValue = async (value, label) => {
@@ -253,7 +252,7 @@ export default function AdminUsersPage() {
           const telegram = formatTelegramHandle(user.telegramUsername);
           const minecraftLinks = user.minecraftLinks || [];
           return (
-            <Card key={user.id} className="p-4 sm:p-5" onContextMenu={(event) => openContextMenu(event, user)}>
+            <Card key={user.id} className="p-4 sm:p-5" onContextMenuCapture={(event) => openContextMenu(event, user)}>
               <div className="grid gap-4 xl:grid-cols-[1.1fr,1fr,0.9fr,auto] xl:items-center">
                 <div className="min-w-0">
                   <button type="button" className="text-left group min-w-0" onClick={() => navigate(`/admin/users/${user.id}`)}>

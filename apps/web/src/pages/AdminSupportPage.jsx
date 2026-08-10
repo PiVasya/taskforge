@@ -5,7 +5,7 @@ import { listSupportTickets } from '../api/support';
 import { useNotify } from '../components/notify/NotifyProvider';
 import AppErrorPanel from '../components/AppErrorPanel';
 import { handleApiError } from '../utils/handleApiError';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
 import { Copy, ExternalLink, UserCog } from 'lucide-react';
 
 function userLabel(user) {
@@ -42,8 +42,7 @@ export default function AdminSupportPage() {
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, chat) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, chat });
   };
   const copyValue = async (value, label) => {
@@ -84,7 +83,7 @@ export default function AdminSupportPage() {
                 const name = userLabel(user);
                 const chatId = chat.chatId || chat.ticketId || chat.id;
                 return (
-                  <li key={chatId} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" onContextMenu={(event) => openContextMenu(event, chat)}>
+                  <li key={chatId} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" onContextMenuCapture={(event) => openContextMenu(event, chat)}>
                     <div className="min-w-0">
                       <div className="font-semibold text-neutral-900 dark:text-neutral-100">{name}</div>
                       <div className="text-sm text-neutral-500 dark:text-neutral-400">

@@ -2,6 +2,25 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
+
+export function isNativeContextMenuTarget(target) {
+  const element = target?.closest ? target : target?.parentElement;
+  if (!element?.closest) return false;
+  if (element.closest('textarea, select, option, [contenteditable="true"], [data-native-context-menu="true"]')) return true;
+  const input = element.closest('input');
+  if (!input) return false;
+  const type = String(input.getAttribute('type') || 'text').toLowerCase();
+  return !['button', 'checkbox', 'radio', 'range', 'color', 'submit', 'reset'].includes(type);
+}
+
+export function claimContextMenuEvent(event, { allowNativeText = true } = {}) {
+  if (!event) return false;
+  if (allowNativeText && isNativeContextMenuTarget(event.target)) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
 function getEnabledItems(menu) {
   if (!menu) return [];
   return Array.from(menu.querySelectorAll('[role="menuitem"]')).filter((item) => !item.disabled && item.getAttribute('aria-disabled') !== 'true');
@@ -9,7 +28,12 @@ function getEnabledItems(menu) {
 
 export function ContextMenu({ open, x = 0, y = 0, onClose, children, ariaLabel = 'Контекстное меню', minWidth = 240 }) {
   const menuRef = useRef(null);
+  const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -25,35 +49,48 @@ export function ContextMenu({ open, x = 0, y = 0, onClose, children, ariaLabel =
       y: Math.min(Math.max(margin, y), maxY),
     });
 
-    const frame = window.requestAnimationFrame(() => {
-      getEnabledItems(menu)[0]?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
   }, [open, x, y]);
 
   useEffect(() => {
     if (!open) return undefined;
 
     const closeOutside = (event) => {
-      if (!menuRef.current?.contains(event.target)) onClose?.();
+      if (!menuRef.current?.contains(event.target)) onCloseRef.current?.();
     };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') onClose?.();
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onCloseRef.current?.();
+        return;
+      }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const items = getEnabledItems(menuRef.current);
+      if (!items.length) return;
+      event.preventDefault();
+      const currentIndex = items.indexOf(document.activeElement);
+      if (event.key === 'Home' || event.key === 'End') {
+        items[event.key === 'Home' ? 0 : items.length - 1]?.focus({ preventScroll: true });
+        return;
+      }
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      const nextIndex = currentIndex < 0
+        ? (delta > 0 ? 0 : items.length - 1)
+        : (currentIndex + delta + items.length) % items.length;
+      items[nextIndex]?.focus({ preventScroll: true });
     };
-    const close = () => onClose?.();
+    const close = () => onCloseRef.current?.();
 
     document.addEventListener('pointerdown', closeOutside, true);
-    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('resize', close);
     window.addEventListener('scroll', close, true);
 
     return () => {
       document.removeEventListener('pointerdown', closeOutside, true);
-      document.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -62,25 +99,11 @@ export function ContextMenu({ open, x = 0, y = 0, onClose, children, ariaLabel =
       ref={menuRef}
       role="menu"
       aria-label={ariaLabel}
-      className="tf-context-menu fixed z-[12000] max-w-[min(360px,calc(100vw-16px))] overflow-hidden rounded-xl border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-1.5 shadow-2xl"
-      style={{ left: position.x, top: position.y, minWidth }}
-      onContextMenu={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        const items = getEnabledItems(menuRef.current);
-        if (!items.length) return;
-        const currentIndex = items.indexOf(document.activeElement);
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          const delta = event.key === 'ArrowDown' ? 1 : -1;
-          const nextIndex = currentIndex < 0
-            ? (delta > 0 ? 0 : items.length - 1)
-            : (currentIndex + delta + items.length) % items.length;
-          items[nextIndex]?.focus();
-        } else if (event.key === 'Home' || event.key === 'End') {
-          event.preventDefault();
-          items[event.key === 'Home' ? 0 : items.length - 1]?.focus();
-        }
-      }}
+      className="tf-context-menu fixed z-[12000] max-h-[calc(100vh-16px)] max-w-[min(360px,calc(100vw-16px))] overflow-x-hidden overflow-y-auto rounded-xl border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-1.5 shadow-2xl"
+      style={{ left: position.x, top: position.y, minWidth: Math.min(minWidth, Math.max(0, window.innerWidth - 16)) }}
+      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
     >
       {children}
     </div>,

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
 import {
@@ -194,7 +194,7 @@ function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, 
   return (
     <div
       className="min-w-0 rounded-2xl border border-[rgb(var(--border))] bg-[rgba(var(--card)/0.72)] p-4"
-      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
+      onContextMenuCapture={(event) => { if (!claimContextMenuEvent(event)) return; setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">

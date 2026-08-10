@@ -3,7 +3,7 @@ import { Badge, Button, Card, Field, Input, Textarea } from '../../components/ui
 import { assignFeatureRole, createFeatureRole, deleteFeatureRole, getFeatureRoles, removeFeatureRole, searchFeatureRoleUsers, updateFeatureRole } from '../../api/featureRoles';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import useSaveShortcut from '../../hooks/useSaveShortcut';
 import { AlertTriangle, Copy, Plus, Save, Shield, Trash2, UserPlus, UserX } from 'lucide-react';
 
@@ -49,15 +49,12 @@ export default function AdminFeatureRolesPage() {
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openRoleContextMenu = (event, role) => {
-    if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setActiveRoleId(String(role?.id || ''));
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, kind: 'role', role, user: null });
   };
   const openUserContextMenu = (event, user) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, kind: 'user', role: null, user });
   };
   const copyRoleValue = async (value, label) => {
@@ -208,7 +205,7 @@ export default function AdminFeatureRolesPage() {
             )}
 
             {filteredRoles.map((role) => (
-              <Card key={role.id} onContextMenu={(event) => openRoleContextMenu(event, role)} onFocusCapture={() => setActiveRoleId(String(role.id))} onPointerDownCapture={() => setActiveRoleId(String(role.id))}>
+              <Card key={role.id} onContextMenuCapture={(event) => openRoleContextMenu(event, role)} onFocusCapture={() => setActiveRoleId(String(role.id))} onPointerDownCapture={() => setActiveRoleId(String(role.id))}>
                 <div className="grid md:grid-cols-2 gap-4">
                   <Field label="Code"><Input value={role.code || ''} onChange={(e) => updateLocalRole(role.id, { code: e.target.value })} /></Field>
                   <Field label="Name"><Input value={role.name || ''} onChange={(e) => updateLocalRole(role.id, { name: e.target.value })} /></Field>
@@ -233,7 +230,7 @@ export default function AdminFeatureRolesPage() {
             </Card>
 
             {users.map((user) => (
-              <Card key={user.id} onContextMenu={(event) => openUserContextMenu(event, user)}>
+              <Card key={user.id} onContextMenuCapture={(event) => openUserContextMenu(event, user)}>
                 <div className="flex flex-col gap-3">
                   <div>
                     <div className="font-medium">{user.fullName || user.email}</div>

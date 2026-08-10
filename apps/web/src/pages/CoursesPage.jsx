@@ -8,7 +8,7 @@ import { useEditorMode } from "../contexts/EditorModeContext";
 import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { resolveCardDropIntent, resolveGridGapDropIntent, isPointerInsideDndItem } from "../utils/gridDragDrop";
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
 
 const COURSE_PAGE_SIZE = 50;
 
@@ -121,7 +121,7 @@ function CourseCard({
       <Card
         className={cardClass}
         onClick={onNavigate}
-        onContextMenu={onContextMenu}
+        onContextMenuCapture={onContextMenu}
         role="button"
         tabIndex={0}
         draggable={canDrag}
@@ -193,8 +193,7 @@ export default function CoursesPage() {
   const editorTools = canEdit && isEditorMode;
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, selectedCourse = null) => {
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, course: selectedCourse });
   };
 
@@ -458,7 +457,7 @@ export default function CoursesPage() {
       {!loading && (
         <div
           className="auto-fill-grid"
-          onContextMenu={(event) => { if (event.target === event.currentTarget) openContextMenu(event, null); }}
+          onContextMenuCapture={(event) => { if (event.target === event.currentTarget) openContextMenu(event, null); }}
           onDragOver={(event) => {
             if (!draggedCourseId || !editorTools) return;
             if (isPointerInsideDndItem(event, '[data-dnd-course-id]')) return;

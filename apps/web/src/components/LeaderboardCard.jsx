@@ -4,7 +4,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, MapPin, BookOpen, Clock, AtSign, Copy, ExternalLink } from 'lucide-react';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from './ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from './ui/ContextMenu';
 import { useNotify } from './notify/NotifyProvider';
 
 export default function LeaderboardCard({ entry }) {
@@ -35,7 +35,7 @@ export default function LeaderboardCard({ entry }) {
     <button
       type="button"
       onClick={handleOpenProfile}
-      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
+      onContextMenuCapture={(event) => { if (!claimContextMenuEvent(event)) return; setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
       className="group relative w-full text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
     >
       

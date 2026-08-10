@@ -235,6 +235,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Check Docker workflow integrity
         run: python3 scripts/ci/check-workflow-integrity.py
+      - name: Check C# source invariants
+        run: python3 scripts/ci/check-csharp-source-invariants.py
 
   minecraft-link-invariants:
     runs-on: ubuntu-latest

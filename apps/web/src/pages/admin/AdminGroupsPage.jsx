@@ -3,7 +3,7 @@ import { Card, Button, Field, Input, Textarea, Badge } from '../../components/ui
 import { createGroup, deleteGroup, getAdminGroups, updateGroup } from '../../api/groups';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import useSaveShortcut from '../../hooks/useSaveShortcut';
 import { Copy, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -52,9 +52,7 @@ export default function AdminGroupsPage() {
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, group) => {
-    if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (!claimContextMenuEvent(event)) return;
     setActiveGroupId(String(group?.id || ''));
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, group });
   };
@@ -242,7 +240,7 @@ export default function AdminGroupsPage() {
 
       <div className="space-y-4">
         {filtered.map((g) => (
-          <Card key={g.id} id={'group-' + g.id} onContextMenu={(event) => openContextMenu(event, g)} onFocusCapture={() => setActiveGroupId(String(g.id))} onPointerDownCapture={() => setActiveGroupId(String(g.id))}>
+          <Card key={g.id} id={'group-' + g.id} onContextMenuCapture={(event) => openContextMenu(event, g)} onFocusCapture={() => setActiveGroupId(String(g.id))} onPointerDownCapture={() => setActiveGroupId(String(g.id))}>
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div className="flex-1 grid md:grid-cols-2 gap-4">
                 <Field label="Название">

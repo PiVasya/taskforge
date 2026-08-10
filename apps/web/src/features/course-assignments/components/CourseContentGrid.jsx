@@ -32,7 +32,7 @@ export default function CourseContentGrid({
   return (
     <div
       className="auto-fill-grid auto-fill-grid--dense"
-      onContextMenu={(event) => {
+      onContextMenuCapture={(event) => {
         if (event.target === event.currentTarget) onContextMenu(event);
       }}
       onDragOver={(event) => {

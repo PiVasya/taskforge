@@ -23,7 +23,7 @@ import { resolveCardDropIntent, resolveFlowNodeDropIntent } from "../../utils/gr
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorMode } from '../../contexts/EditorModeContext';
-import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../components/ui/ContextMenu';
+import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 
 import {
   isAssignmentSolved,
@@ -208,9 +208,9 @@ export default function CourseAssignmentsPage() {
   }, []);
 
   const openContextMenu = React.useCallback((event, entry = null, canEditEntry = false) => {
-    if (!isEditorMode || !courseCanEdit) return;
-    event.preventDefault();
-    event.stopPropagation();
+    const canCreate = isEditorMode && courseCanEdit;
+    if (!entry && !canCreate) return;
+    if (!claimContextMenuEvent(event)) return;
     setContextMenu({
       open: true,
       x: event.clientX,
@@ -1153,33 +1153,35 @@ export default function CourseAssignmentsPage() {
           </>
         ) : null}
 
-        <ContextMenuLabel>Создать</ContextMenuLabel>
-        <ContextMenuItem
-          icon={FolderPlus}
-          disabled={Boolean(createBusyType || jsonImportBusy)}
-          onClick={() => {
-            closeContextMenu();
-            void handleCreateChildCourse();
-          }}
-        >
-          Вложенный курс
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuLabel>Задание</ContextMenuLabel>
-        {CREATE_OPTIONS.map((option) => (
-          <ContextMenuItem
-            key={option.type}
-            icon={FilePlus2}
-            disabled={Boolean(createBusyType || jsonImportBusy)}
-            onClick={() => { closeContextMenu(); void handleCreateType(option.type); }}
-          >
-            {option.title}
-          </ContextMenuItem>
-        ))}
-        <ContextMenuSeparator />
-        <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>
-          Импорт из JSON
-        </ContextMenuItem>
+        {isEditorMode && courseCanEdit ? (
+          <>
+            <ContextMenuLabel>Создать</ContextMenuLabel>
+            <ContextMenuItem
+              icon={FolderPlus}
+              disabled={Boolean(createBusyType || jsonImportBusy)}
+              onClick={() => {
+                closeContextMenu();
+                void handleCreateChildCourse();
+              }}
+            >
+              Вложенный курс
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuLabel>Задание</ContextMenuLabel>
+            {CREATE_OPTIONS.map((option) => (
+              <ContextMenuItem
+                key={option.type}
+                icon={FilePlus2}
+                disabled={Boolean(createBusyType || jsonImportBusy)}
+                onClick={() => { closeContextMenu(); void handleCreateType(option.type); }}
+              >
+                {option.title}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>Импорт из JSON</ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenu>
     </>
   );
