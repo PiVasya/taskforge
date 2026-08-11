@@ -21,7 +21,7 @@ internal static class EducationApiMappingService
             c.Id,
             c.Title,
             c.Description,
-            c.IsPublic,
+            c.IsPublic && !c.IsHiddenFromStudents,
             c.IsHiddenFromStudents,
             visibleGroupIds,
             ownerIds,

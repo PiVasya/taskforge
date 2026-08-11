@@ -101,6 +101,7 @@ function CourseCard({
   const unavailable = course.canAccess === false || course.isAccessible === false || course.isAvailable === false;
   const foreignInEditor = editorTools && course.canEdit === false;
   const hiddenFromStudents = editorTools && Boolean(course.isHiddenFromStudents);
+  const groupRestricted = editorTools && !hiddenFromStudents && course.isPublic === false;
   const canDrag = editorTools && course.canEdit !== false;
   const cardClass =
     "transition hover:shadow-lg cursor-pointer p-5 min-h-[190px] " +
@@ -142,7 +143,8 @@ function CourseCard({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <div className="min-w-0 flex-1 text-lg font-semibold leading-7 truncate">{course.title}</div>
-              {hiddenFromStudents ? <Badge intent="outline"><EyeOff size={13} className="mr-1 inline" />Скрыт от учеников</Badge> : null}
+              {hiddenFromStudents ? <Badge intent="outline"><EyeOff size={13} className="mr-1 inline" />Скрыт</Badge> : null}
+              {groupRestricted ? <Badge intent="outline">По группам</Badge> : null}
             </div>
 
             {course.description ? (

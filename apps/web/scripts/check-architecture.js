@@ -228,6 +228,16 @@ if (!/EDITOR_TREE_JOIN/.test(courseFlowEditor) || !/editorTreeFetchRef/.test(cou
 if (!/\[TFDBG MAP\]/.test(read('features/course-assignments/courseMapDebug.js'))) {
   fail('course-map console diagnostics prefix is missing');
 }
+if (!/useNodesInitialized/.test(courseFlowEditor) || !/course-map-node-layout-pending/.test(courseFlowEditor) || !/LAYOUT_INCREMENT_READY/.test(courseFlowEditor)) {
+  fail('course map can render nodes before React Flow has applied their saved positions');
+}
+const courseMapCss = read('features/course-assignments/course-map.css');
+if (!/course-map-node-layout-pending/.test(courseMapCss) || !/is-layout-pending/.test(courseMapCss)) {
+  fail('course-map pending-layout visibility guard is missing');
+}
+if (/\.react-flow__node\.course-map-node-revealed\s*\{/.test(courseMapCss) || !/course-map-node-revealed > \.course-map-node/.test(courseMapCss)) {
+  fail('course-map reveal animation must not overwrite the React Flow node wrapper transform');
+}
 
 if (!/streamLearningCourseMap/.test(courseFlowEditor) || !/getLearningCourseMapDelta/.test(courseFlowEditor)) {
   fail('learner course map lost streamed initial projection or incremental delta refresh');
@@ -260,6 +270,23 @@ if (!/API_TELEMETRY_SLOW_MS/.test(httpSource) || /action:\s*isError\s*\?\s*['"]a
 const coursesPage = read('pages/CoursesPage.jsx');
 if (!/!selectedCourse && !editorTools/.test(coursesPage)) {
   fail('courses catalog can open an empty context menu on blank space for viewers');
+}
+const courseEditPage = read('pages/CourseEditPage.jsx');
+if (!/visibilityMode/.test(courseEditPage) || !/value: 'public'/.test(courseEditPage) || !/value: 'groups'/.test(courseEditPage) || !/value: 'hidden'/.test(courseEditPage)) {
+  fail('course audience regressed from the single public/groups/hidden selector');
+}
+const taskGraphJson = read('features/course-assignments/courseTaskGraphJson.js');
+const taskGraphImport = read('features/course-assignments/courseTaskGraphImport.js');
+const taskGraphDialog = read('features/course-assignments/components/JsonTaskGraphDialog.jsx');
+const taskGraphDiff = read('features/course-assignments/components/JsonTaskGraphDiffModal.jsx');
+if (!/TASK_GRAPH_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/['"]courses['"]/.test(taskGraphJson) || !/['"]course['"]/.test(taskGraphJson)) {
+  fail('canonical JSON graph v4 lost nested-course references');
+}
+if (!/includeLayout/.test(taskGraphDialog) || !/includeIds/.test(taskGraphDialog) || !/updateLayout/.test(taskGraphDiff) || !/updateConnections/.test(taskGraphDiff)) {
+  fail('selective JSON import/export controls are missing');
+}
+if (!/descriptor\.kind === 'course'/.test(taskGraphImport) || !/layoutPosition\(taskGraph, ref\)/.test(taskGraphImport)) {
+  fail('task-graph import no longer applies layout/topology to nested course nodes');
 }
 
 const courseMapNodes = [

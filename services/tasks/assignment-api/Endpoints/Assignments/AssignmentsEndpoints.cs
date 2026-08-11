@@ -24,6 +24,66 @@ namespace TaskForge.Tasks.Api.Endpoints;
 
 internal static partial class AssignmentApiEndpoints
 {
+    private static GraphImportOptions ReadGraphImportOptions(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("options", out var options)
+            || options.ValueKind != JsonValueKind.Object) return new GraphImportOptions();
+        return new GraphImportOptions(
+            ReadOption(options, "updateContent", true),
+            ReadOption(options, "updateChecks", true),
+            ReadOption(options, "updateVisibility", true),
+            ReadOption(options, "updateConnections", true),
+            ReadOption(options, "updateConnectionAccess", true),
+            ReadOption(options, "updateLayout", true));
+    }
+
+    private static JsonElement ReadGraphImportPayload(JsonElement payload)
+    {
+        if (payload.ValueKind == JsonValueKind.Object
+            && payload.TryGetProperty("graph", out var graph)
+            && graph.ValueKind is JsonValueKind.Object or JsonValueKind.Array) return graph.Clone();
+        return payload;
+    }
+
+    private static bool ReadOption(JsonElement owner, string name, bool fallback)
+    {
+        if (!owner.TryGetProperty(name, out var value)) return fallback;
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => fallback
+        };
+    }
+
+    private static AssignmentRequest FilterExistingImportRequest(AssignmentRequest request, GraphImportOptions options)
+    {
+        return request with
+        {
+            Title = options.UpdateContent ? request.Title : null,
+            Description = options.UpdateContent ? request.Description : null,
+            Type = options.UpdateContent ? request.Type : null,
+            Language = options.UpdateContent ? request.Language : null,
+            AllowedLanguages = options.UpdateContent ? request.AllowedLanguages : null,
+            Tags = options.UpdateContent ? request.Tags : null,
+            Difficulty = options.UpdateContent ? request.Difficulty : null,
+            Rating = options.UpdateContent ? request.Rating : null,
+            StarterCode = options.UpdateContent ? request.StarterCode : null,
+            TestsJson = options.UpdateChecks ? request.TestsJson : null,
+            Tests = options.UpdateChecks ? request.Tests : null,
+            TestCases = options.UpdateChecks ? request.TestCases : null,
+            CodeForbiddenCalls = options.UpdateChecks ? request.CodeForbiddenCalls : null,
+            CodeRequiredCalls = options.UpdateChecks ? request.CodeRequiredCalls : null,
+            ImageTestReferenceKey = options.UpdateChecks ? request.ImageTestReferenceKey : null,
+            ImageTestSimilarityThreshold = options.UpdateChecks ? request.ImageTestSimilarityThreshold : null,
+            IsVisible = options.UpdateVisibility ? request.IsVisible : null,
+            IsHidden = options.UpdateVisibility ? request.IsHidden : null,
+            Sort = null,
+            AnalyticsSettings = null
+        };
+    }
+
     private static WebApplication MapAssignmentsEndpoints(WebApplication app)
     {
         app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
@@ -333,22 +393,46 @@ internal static partial class AssignmentApiEndpoints
         });
 
 
-        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (
+            Guid courseId,
+            bool? includeIds,
+            bool? includeContent,
+            bool? includeChecks,
+            bool? includeVisibility,
+            bool? includeConnections,
+            bool? includeConnectionAccess,
+            bool? includeLayout,
+            HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
+            var educationBaseUrl = ServiceUrl(cfg, "EducationApi", "http://education-api:8080");
+            var tree = await GetInternalAsync<CourseTreeResponse>(
+                clients,
+                cfg,
+                educationBaseUrl,
+                $"/api/internal/courses/{courseId:D}/tree",
+                ct);
+            if (tree == null || tree.CourseIds.Length == 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new { message = "Не удалось получить структуру курса для экспорта.", code = "COURSE_TREE_UNAVAILABLE" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            var exportCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
             var rows = await db.Assignments.AsNoTracking()
-                .Where(x => x.CourseId == courseId)
-                .OrderBy(x => x.Sort)
+                .Where(x => exportCourseIds.Contains(x.CourseId))
+                .OrderBy(x => x.CourseId)
+                .ThenBy(x => x.Sort)
                 .ThenBy(x => x.CreatedAt)
                 .ToListAsync(ct);
             var map = await GetInternalAsync<CourseMapInternalResponse>(
                 clients,
                 cfg,
-                ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                educationBaseUrl,
                 $"/api/internal/courses/{courseId:D}/map",
                 ct);
             if (map == null)
@@ -357,7 +441,15 @@ internal static partial class AssignmentApiEndpoints
                     new { message = "Не удалось получить карту курса для экспорта.", code = "COURSE_MAP_UNAVAILABLE" },
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
-            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, map), JsonOptions());
+            var exportOptions = new GraphExportOptions(
+                includeIds ?? true,
+                includeContent ?? true,
+                includeChecks ?? true,
+                includeVisibility ?? true,
+                includeConnections ?? true,
+                includeConnectionAccess ?? true,
+                includeLayout ?? true);
+            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions), JsonOptions());
         });
 
         app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -376,11 +468,15 @@ internal static partial class AssignmentApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
+            var importOptions = ReadGraphImportOptions(payload);
+            var graphPayload = ReadGraphImportPayload(payload);
             ParsedGraph? taskGraph = null;
+            Dictionary<string, Guid>? graphCourseIds = null;
+            HashSet<Guid>? graphSubtreeCourseIds = null;
             List<JsonElement> sourceItems;
-            if (LooksLikeCanonicalGraph(payload))
+            if (LooksLikeCanonicalGraph(graphPayload))
             {
-                var parsed = ParseAndValidate(payload);
+                var parsed = ParseAndValidate(graphPayload);
                 if (parsed.Issues.Count > 0 || parsed.Graph == null)
                 {
                     return Microsoft.AspNetCore.Http.Results.Json(new
@@ -391,16 +487,63 @@ internal static partial class AssignmentApiEndpoints
                     }, statusCode: StatusCodes.Status400BadRequest);
                 }
                 taskGraph = parsed.Graph;
+                importOptions = importOptions with
+                {
+                    UpdateContent = importOptions.UpdateContent && taskGraph.Scopes.Contains("content"),
+                    UpdateChecks = importOptions.UpdateChecks && taskGraph.Scopes.Contains("checks"),
+                    UpdateVisibility = importOptions.UpdateVisibility && taskGraph.Scopes.Contains("visibility"),
+                    UpdateConnections = importOptions.UpdateConnections && taskGraph.Scopes.Contains("connections"),
+                    UpdateConnectionAccess = importOptions.UpdateConnectionAccess && taskGraph.Scopes.Contains("connectionAccess"),
+                    UpdateLayout = importOptions.UpdateLayout && taskGraph.Scopes.Contains("layout") && taskGraph.Layout.HasValue
+                };
+
+                var importTree = await GetInternalAsync<CourseTreeResponse>(
+                    clients,
+                    cfg,
+                    ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                    $"/api/internal/courses/{courseId:D}/tree",
+                    ct);
+                if (importTree == null || importTree.CourseIds.Length == 0)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(
+                        new { message = "Не удалось получить структуру курса для импорта.", code = "COURSE_TREE_UNAVAILABLE" },
+                        statusCode: StatusCodes.Status503ServiceUnavailable);
+                }
+                graphSubtreeCourseIds = importTree.CourseIds.Where(x => x != Guid.Empty).ToHashSet();
+                graphSubtreeCourseIds.Add(courseId);
+                graphCourseIds = new Dictionary<string, Guid>(StringComparer.Ordinal) { [CourseReference] = courseId };
+                var invalidCourseRefs = taskGraph.Courses
+                    .Select((item, index) => new { item, index })
+                    .Where(x => x.item.Id == Guid.Empty || !graphSubtreeCourseIds.Contains(x.item.Id))
+                    .Select(x => new { path = $"$.courses[{x.index}].id", message = "Вложенный курс не принадлежит импортируемому поддереву." })
+                    .ToList();
+                if (invalidCourseRefs.Count > 0)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "Импорт остановлен: JSON ссылается на чужой курс.",
+                        code = "TASK_GRAPH_COURSE_INVALID",
+                        issues = invalidCourseRefs
+                    }, statusCode: StatusCodes.Status400BadRequest);
+                }
+                foreach (var graphCourse in taskGraph.Courses) graphCourseIds[graphCourse.Key] = graphCourse.Id;
                 sourceItems = taskGraph.Tasks.Select(x => x.Source).ToList();
             }
             else
             {
-                sourceItems = ExtractAssignmentImportItems(payload).ToList();
+                sourceItems = ExtractAssignmentImportItems(graphPayload).ToList();
             }
 
-            if (sourceItems.Count == 0)
+            if (sourceItems.Count == 0 && taskGraph == null)
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "JSON не содержит заданий.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (sourceItems.Count == 0 && taskGraph != null
+                && !importOptions.UpdateConnections
+                && !importOptions.UpdateConnectionAccess
+                && !importOptions.UpdateLayout)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "В выбранных разделах JSON нечего импортировать.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
             }
             if (sourceItems.Count > MaxTasks)
             {
@@ -414,7 +557,12 @@ internal static partial class AssignmentApiEndpoints
                 try
                 {
                     var req = AssignmentRequestFromJson(sourceItems[i]);
-                    var itemIssues = ValidateImportedAssignment(req, i + 1).ToList();
+                    var validationRequest = taskGraph != null && req.Id.HasValue
+                        ? FilterExistingImportRequest(req, importOptions)
+                        : req;
+                    var itemIssues = ValidateImportedAssignment(validationRequest, i + 1).ToList();
+                    if (taskGraph != null && !req.Id.HasValue && !taskGraph.Scopes.Contains("content"))
+                        itemIssues.Add("Для создания нового задания JSON должен содержать scope content и полноценное описание задания.");
                     if (itemIssues.Count > 0)
                     {
                         issues.Add(new
@@ -443,61 +591,82 @@ internal static partial class AssignmentApiEndpoints
             var existingRows = ids.Count == 0
                 ? new List<Assignment>()
                 : await db.Assignments.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            var allowedImportCourseIds = taskGraph != null && graphSubtreeCourseIds != null
+                ? graphSubtreeCourseIds
+                : new HashSet<Guid> { courseId };
             var existingById = existingRows
-                .Where(x => x.CourseId == courseId)
+                .Where(x => allowedImportCourseIds.Contains(x.CourseId))
                 .ToDictionary(x => x.Id);
             var usedIds = existingRows.Select(x => x.Id).ToHashSet();
 
-            if (taskGraph != null)
+            if (taskGraph != null && graphCourseIds != null)
             {
-                var wrongCourseIds = existingRows.Where(x => x.CourseId != courseId).Select(x => x.Id).ToHashSet();
-                var missingIds = ids.Where(id => !usedIds.Contains(id)).ToHashSet();
-                if (wrongCourseIds.Count > 0 || missingIds.Count > 0)
+                var existingRowById = existingRows.ToDictionary(x => x.Id);
+                var idIssues = new List<object>();
+                for (var index = 0; index < taskGraph.Tasks.Count; index++)
                 {
-                    var idIssues = taskGraph.Tasks
-                        .Select((task, index) => new
-                        {
-                            task,
-                            index,
-                            id = requests[index].Id
-                        })
-                        .Where(x => x.id.HasValue && (wrongCourseIds.Contains(x.id.Value) || missingIds.Contains(x.id.Value)))
-                        .Select(x => new
-                        {
-                            path = $"$.tasks[{x.index}].id",
-                            message = wrongCourseIds.Contains(x.id!.Value)
-                                ? "Задание с таким id находится в другом курсе."
-                                : "Задание с таким id не найдено. Для создания уберите id."
-                        })
-                        .ToList();
+                    var id = requests[index].Id;
+                    if (!id.HasValue) continue;
+                    if (!existingRowById.TryGetValue(id.Value, out var existingRow))
+                    {
+                        idIssues.Add(new { path = $"$.tasks[{index}].id", message = "Задание с таким id не найдено. Для создания уберите id." });
+                        continue;
+                    }
+                    if (!allowedImportCourseIds.Contains(existingRow.CourseId))
+                    {
+                        idIssues.Add(new { path = $"$.tasks[{index}].id", message = "Задание с таким id находится вне импортируемого поддерева." });
+                        continue;
+                    }
+                    var expectedCourseId = graphCourseIds.GetValueOrDefault(taskGraph.Tasks[index].CourseRef, courseId);
+                    if (existingRow.CourseId != expectedCourseId)
+                    {
+                        idIssues.Add(new { path = $"$.tasks[{index}].course", message = "Поле course не совпадает с курсом существующего задания. JSON-импорт не переносит задания между курсами." });
+                    }
+                }
+                if (idIssues.Count > 0)
+                {
                     return Microsoft.AspNetCore.Http.Results.Json(new
                     {
-                        message = "Импорт остановлен: некоторые id нельзя использовать в этом курсе.",
+                        message = "Импорт остановлен: некоторые id или course нельзя использовать в этом поддереве.",
                         code = "TASK_GRAPH_ASSIGNMENT_ID_INVALID",
                         issues = idIssues
                     }, statusCode: StatusCodes.Status400BadRequest);
                 }
             }
 
-            var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
+            var targetCourseIds = taskGraph != null && graphCourseIds != null
+                ? taskGraph.Tasks.Select(x => graphCourseIds.GetValueOrDefault(x.CourseRef, courseId)).Append(courseId).Distinct().ToArray()
+                : new[] { courseId };
+            var maxSortRows = await db.Assignments.AsNoTracking()
+                .Where(x => targetCourseIds.Contains(x.CourseId))
+                .GroupBy(x => x.CourseId)
+                .Select(g => new { CourseId = g.Key, MaxSort = g.Max(x => x.Sort) })
+                .ToListAsync(ct);
+            var nextSortByCourse = targetCourseIds.ToDictionary(
+                id => id,
+                id => (maxSortRows.FirstOrDefault(x => x.CourseId == id)?.MaxSort ?? -1) + 1);
             var created = new List<Assignment>();
             var updated = new List<Assignment>();
-            var processed = new List<(string? Key, Assignment Assignment, string Action)>();
+            var processed = new List<(string? Key, string CourseRef, Assignment Assignment, string Action)>();
             var ratingAffectedAssignmentIds = new HashSet<Guid>();
-            var nextSort = maxSort + 1;
 
             for (var i = 0; i < requests.Count; i++)
             {
                 var request = requests[i];
                 var key = taskGraph?.Tasks[i].Key;
+                var taskCourseRef = taskGraph?.Tasks[i].CourseRef ?? CourseReference;
+                var targetCourseId = taskGraph != null && graphCourseIds != null
+                    ? graphCourseIds.GetValueOrDefault(taskCourseRef, courseId)
+                    : courseId;
                 if (request.Id.HasValue && existingById.TryGetValue(request.Id.Value, out var existing))
                 {
                     var oldRating = existing.Rating;
                     var oldVisible = existing.IsVisible;
-                    await ApplyAssignmentRequestAsync(existing, request, clients, cfg, ct);
+                    var filteredRequest = FilterExistingImportRequest(request, importOptions);
+                    await ApplyAssignmentRequestAsync(existing, filteredRequest, clients, cfg, ct);
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
-                    processed.Add((key, existing, "updated"));
+                    processed.Add((key, taskCourseRef, existing, "updated"));
                     continue;
                 }
 
@@ -507,9 +676,11 @@ internal static partial class AssignmentApiEndpoints
                     createRequest = createRequest with { Id = null };
                 }
 
-                var assignment = await BuildAssignmentEntityAsync(courseId, createRequest, nextSort++, clients, cfg, ct);
+                var nextSort = nextSortByCourse.GetValueOrDefault(targetCourseId, 0);
+                nextSortByCourse[targetCourseId] = nextSort + 1;
+                var assignment = await BuildAssignmentEntityAsync(targetCourseId, createRequest, nextSort, clients, cfg, ct);
                 created.Add(assignment);
-                processed.Add((key, assignment, "created"));
+                processed.Add((key, taskCourseRef, assignment, "created"));
             }
 
             if (created.Count > 0) db.Assignments.AddRange(created);
@@ -534,6 +705,7 @@ internal static partial class AssignmentApiEndpoints
                     mappedTasks.Add(new JsonObject
                     {
                         ["key"] = item.Key,
+                        ["course"] = item.CourseRef,
                         ["assignmentId"] = item.Assignment.Id.ToString(),
                         ["action"] = item.Action
                     });
@@ -543,12 +715,35 @@ internal static partial class AssignmentApiEndpoints
                 foreach (var connection in taskGraph.Connections)
                     mappedConnections.Add(connection.ToJson());
 
+                var mappedCourses = new JsonArray();
+                foreach (var graphCourse in taskGraph.Courses)
+                {
+                    mappedCourses.Add(new JsonObject
+                    {
+                        ["key"] = graphCourse.Key,
+                        ["id"] = graphCourse.Id.ToString("D"),
+                        ["title"] = graphCourse.Title
+                    });
+                }
+
                 importedTaskGraph = new JsonObject
                 {
                     ["schemaVersion"] = SchemaVersion,
                     ["format"] = Format,
+                    ["scopes"] = BuildScopesJson(taskGraph.Scopes),
+                    ["courses"] = mappedCourses,
                     ["tasks"] = mappedTasks,
-                    ["connections"] = mappedConnections
+                    ["connections"] = mappedConnections,
+                    ["layout"] = taskGraph.Layout.HasValue ? JsonNode.Parse(taskGraph.Layout.Value.GetRawText()) : null,
+                    ["apply"] = new JsonObject
+                    {
+                        ["content"] = importOptions.UpdateContent,
+                        ["checks"] = importOptions.UpdateChecks,
+                        ["visibility"] = importOptions.UpdateVisibility,
+                        ["connections"] = importOptions.UpdateConnections,
+                        ["connectionAccess"] = importOptions.UpdateConnectionAccess,
+                        ["layout"] = importOptions.UpdateLayout
+                    }
                 };
             }
 

@@ -28,6 +28,8 @@ def main() -> int:
     assignment_access_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "AssignmentApiAccessService.cs"
     education_internal_path = ROOT / "services" / "education" / "api" / "Endpoints" / "Internal" / "InternalEndpoints.cs"
     education_map_path = ROOT / "services" / "education" / "api" / "Endpoints" / "CourseMaps" / "CourseMapEndpoints.cs"
+    task_graph_json_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Serialization" / "AssignmentTaskGraphJsonService.cs"
+    assignment_endpoints_path = ROOT / "services" / "tasks" / "assignment-api" / "Endpoints" / "Assignments" / "AssignmentsEndpoints.cs"
 
     if projection_path.exists():
         projection = projection_path.read_text(encoding="utf-8")
@@ -89,6 +91,22 @@ def main() -> int:
         education_map_source = education_map_path.read_text(encoding="utf-8")
         if "COURSE_MAP_SYNTHETIC_FORBIDDEN" not in education_map_source or 'TryGetProperty("synthetic"' not in education_map_source:
             errors.append("education course-map save must reject learner synthetic nodes/edges")
+
+    if task_graph_json_path.exists():
+        task_graph_source = task_graph_json_path.read_text(encoding="utf-8")
+        if "internal const int SchemaVersion = 4" not in task_graph_source or '"courses"' not in task_graph_source or '"course"' not in task_graph_source:
+            errors.append("canonical task-graph JSON v4 must retain nested course references")
+        if "internal const int MaxTasks = 5000" not in task_graph_source or "GraphExportOptions" not in task_graph_source or "GraphImportOptions" not in task_graph_source:
+            errors.append("task-graph JSON lost the expanded export limit or selective import/export scopes")
+        if "IReadOnlyList<CourseTreeCourseDto>" not in task_graph_source or "BuildCourseKeys" not in task_graph_source:
+            errors.append("task-graph export must include the whole course subtree, not only direct assignments")
+
+    if assignment_endpoints_path.exists():
+        assignment_endpoints_source = assignment_endpoints_path.read_text(encoding="utf-8")
+        if "/assignments/export-json" not in assignment_endpoints_source or "ReadGraphImportOptions" not in assignment_endpoints_source:
+            errors.append("selective task-graph export/import endpoints are missing")
+        if "/api/internal/courses/{courseId:D}/tree" not in assignment_endpoints_source:
+            errors.append("task-graph export/import must resolve nested course ownership from education tree")
 
     if errors:
         print("C# source invariants failed:\n" + "\n".join(errors), file=sys.stderr)

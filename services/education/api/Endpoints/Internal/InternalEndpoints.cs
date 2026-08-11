@@ -26,7 +26,7 @@ internal static partial class EducationApiEndpoints
             var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
             {
                 var courses = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
-                return courses.Select(x => new CourseMetadataDto(x.Id, x.Id, x.Title, x.Title, x.Description, x.IsPublic)).ToList();
+                return courses.Select(x => new CourseMetadataDto(x.Id, x.Id, x.Title, x.Title, x.Description, x.IsPublic && !x.IsHiddenFromStudents)).ToList();
             }, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
@@ -59,9 +59,9 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseAccessDto(
                 course.Id,
                 userId,
-                CanViewCourse(access, course, IsHiddenByHierarchy(course, allById)),
+                CanViewCourseWithAncestors(access, course, allById),
                 CanEditCourse(access, course),
-                course.IsPublic,
+                course.IsPublic && !course.IsHiddenFromStudents,
                 rootCourseId,
                 ContainsProgressionRules(mapJson)));
         });
@@ -110,9 +110,9 @@ internal static partial class EducationApiEndpoints
                     return new CourseAccessDto(
                         course.Id,
                         request.UserId,
-                        CanViewCourse(access, course, IsHiddenByHierarchy(course, allById)),
+                        CanViewCourseWithAncestors(access, course, allById),
                         CanEditCourse(access, course),
-                        course.IsPublic,
+                        course.IsPublic && !course.IsHiddenFromStudents,
                         rootCourseId,
                         progressionByRootId.GetValueOrDefault(rootCourseId));
                 })

@@ -13,51 +13,37 @@ namespace TaskForge.Education.Api.Services.Common;
 
 internal static class EducationApiCommonService
 {
-    internal static bool CanViewCourse(EducationAccessContext access, Course course, bool hiddenByHierarchy = false)
+    internal static bool CanViewCourse(EducationAccessContext access, Course course, bool blockedByHierarchy = false)
     {
         if (access.IsEditorOrAdmin) return true;
-        if (hiddenByHierarchy || course.IsHiddenFromStudents) return false;
-        if (course.IsPublic) return true;
-        if (access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value)) return true;
-        var visibleGroups = DeserializeIds(course.VisibleGroupIdsJson);
-        return visibleGroups.Length > 0 && visibleGroups.Any(access.GroupIds.Contains);
+        if (blockedByHierarchy) return false;
+        return CanViewCourseDirect(access, course);
     }
 
-    internal static bool IsHiddenByHierarchy(Course course, IReadOnlyDictionary<Guid, Course> byId)
+    internal static bool CanViewCourseWithAncestors(EducationAccessContext access, Course course, IReadOnlyDictionary<Guid, Course> byId)
     {
+        if (access.IsEditorOrAdmin) return true;
         var current = course;
         var seen = new HashSet<Guid>();
         while (seen.Add(current.Id))
         {
-            if (current.IsHiddenFromStudents) return true;
-            if (!current.ParentCourseId.HasValue || !byId.TryGetValue(current.ParentCourseId.Value, out var parent)) return false;
+            if (!CanViewCourseDirect(access, current)) return false;
+            if (!current.ParentCourseId.HasValue) return true;
+            if (!byId.TryGetValue(current.ParentCourseId.Value, out var parent)) return false;
             current = parent;
         }
-        return true;
+        return false;
     }
 
-    internal static HashSet<Guid> BuildHiddenCourseIds(IEnumerable<Course> courses)
+    internal static HashSet<Guid> BuildUnavailableCourseIds(EducationAccessContext access, IEnumerable<Course> courses)
     {
+        if (access.IsEditorOrAdmin) return new HashSet<Guid>();
         var rows = courses.ToList();
         var byId = rows.ToDictionary(x => x.Id);
-        var hidden = new HashSet<Guid>();
-        foreach (var course in rows)
-        {
-            var current = course;
-            var seen = new HashSet<Guid>();
-            while (true)
-            {
-                if (!seen.Add(current.Id)) break;
-                if (current.IsHiddenFromStudents)
-                {
-                    hidden.Add(course.Id);
-                    break;
-                }
-                if (!current.ParentCourseId.HasValue || !byId.TryGetValue(current.ParentCourseId.Value, out var parent)) break;
-                current = parent;
-            }
-        }
-        return hidden;
+        return rows
+            .Where(course => !CanViewCourseWithAncestors(access, course, byId))
+            .Select(course => course.Id)
+            .ToHashSet();
     }
 
     internal static bool CanEditCourse(EducationAccessContext access, Course course)
@@ -66,4 +52,22 @@ internal static class EducationApiCommonService
         return access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value);
     }
 
+    internal static void NormalizeCourseAudience(Course course)
+    {
+        if (course.IsHiddenFromStudents)
+        {
+            course.IsPublic = false;
+            return;
+        }
+        if (course.IsPublic) course.IsHiddenFromStudents = false;
+    }
+
+    private static bool CanViewCourseDirect(EducationAccessContext access, Course course)
+    {
+        if (course.IsHiddenFromStudents) return false;
+        if (course.IsPublic) return true;
+        if (access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value)) return true;
+        var visibleGroups = DeserializeIds(course.VisibleGroupIdsJson);
+        return visibleGroups.Length > 0 && visibleGroups.Any(access.GroupIds.Contains);
+    }
 }

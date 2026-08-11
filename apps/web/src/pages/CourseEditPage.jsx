@@ -45,8 +45,7 @@ export default function CourseEditPage({ overlay = false }) {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
-  const [isHiddenFromStudents, setIsHiddenFromStudents] = useState(false);
+  const [visibilityMode, setVisibilityMode] = useState('groups');
   const [visibleGroupIds, setVisibleGroupIds] = useState([]);
   const [ownerIds, setOwnerIds] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -115,8 +114,7 @@ export default function CourseEditPage({ overlay = false }) {
 
         setTitle(c.title || '');
         setDescription(c.description || '');
-        setIsPublic(!!c.isPublic);
-        setIsHiddenFromStudents(!!c.isHiddenFromStudents);
+        setVisibilityMode(c.isHiddenFromStudents ? 'hidden' : (c.isPublic ? 'public' : 'groups'));
         setVisibleGroupIds(Array.isArray(c.visibleGroupIds) ? c.visibleGroupIds : []);
         const loadedOwnerIds = Array.isArray(c.ownerIds) && c.ownerIds.length ? c.ownerIds : (c.ownerId ? [c.ownerId] : []);
         setOwnerIds(loadedOwnerIds);
@@ -199,9 +197,9 @@ export default function CourseEditPage({ overlay = false }) {
       const payload = {
         title,
         description,
-        isPublic,
-        isHiddenFromStudents,
-        visibleGroupIds: isPublic ? [] : (visibleGroupIds || []),
+        isPublic: visibilityMode === 'public',
+        isHiddenFromStudents: visibilityMode === 'hidden',
+        visibleGroupIds: visibleGroupIds || [],
         ownerIds: ownerIds || [],
       };
 
@@ -282,39 +280,33 @@ export default function CourseEditPage({ overlay = false }) {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="flex items-center gap-3 select-none">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-neutral-300"
-                    checked={isPublic}
-                    onChange={(e) => setIsPublic(e.target.checked)}
-                  />
-                  <span className="text-sm">
-                    Публичный курс <span className="text-neutral-500">(виден всем)</span>
-                  </span>
-                </label>
+                <div className="text-sm font-medium mb-2">Доступ ученикам</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {[
+                    { value: 'public', label: 'Всем' },
+                    { value: 'groups', label: 'По группам' },
+                    { value: 'hidden', label: 'Скрыт' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${visibilityMode === option.value ? 'border-[rgb(var(--accent))] bg-[rgba(var(--accent)/0.12)] text-[rgb(var(--fg))]' : 'border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] text-neutral-500 hover:text-[rgb(var(--fg))]'}`}
+                      onClick={() => setVisibilityMode(option.value)}
+                      aria-pressed={visibilityMode === option.value}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="sm:col-span-2 rounded-2xl border border-[rgba(var(--accent)/0.28)] bg-[rgba(var(--accent)/0.05)] p-4">
-                <label className="flex cursor-pointer items-start gap-3 select-none">
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-neutral-300"
-                    checked={isHiddenFromStudents}
-                    onChange={(e) => setIsHiddenFromStudents(e.target.checked)}
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">Полностью скрыть курс от учеников</span>
-                    <span className="mt-1 block text-xs leading-5 text-neutral-500">Скрывает курс и всё его поддерево от учеников.</span>
-                  </span>
-                </label>
-              </div>
+              {visibilityMode === 'hidden' ? (
+                <div className="sm:col-span-2 text-xs text-neutral-500">Вложенные курсы тоже скрываются от учеников.</div>
+              ) : null}
 
-              {!isPublic && (
+              {visibilityMode === 'groups' && (
                 <div className="sm:col-span-2">
-                  <div className="text-sm font-medium mb-2">Группы видимости</div>
-                  <div className="text-xs text-neutral-500 mb-3">Без выбранных групп курс доступен только администрации и редакторам.</div>
-
+                  <div className="text-sm font-medium mb-2">Группы</div>
                   {groups.length === 0 ? (
                     <div className="text-sm text-neutral-500">Группы не загружены.</div>
                   ) : (

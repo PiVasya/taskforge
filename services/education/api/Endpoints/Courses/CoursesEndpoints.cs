@@ -32,8 +32,8 @@ internal static partial class EducationApiEndpoints
                 .ThenBy(x => x.Sort)
                 .ThenBy(x => x.Title)
                 .ToListAsync(ct);
-            var hiddenCourseIds = BuildHiddenCourseIds(rows);
-            var visibleRows = rows.Where(x => CanViewCourse(access, x, hiddenCourseIds.Contains(x.Id)));
+            var unavailableCourseIds = BuildUnavailableCourseIds(access, rows);
+            var visibleRows = rows.Where(x => !unavailableCourseIds.Contains(x.Id));
             if (!string.IsNullOrWhiteSpace(normalizedQuery))
             {
                 visibleRows = visibleRows.Where(x =>
@@ -79,6 +79,7 @@ internal static partial class EducationApiEndpoints
                 OwnerIdsJson = Serialize(ownerIds),
                 VisibleGroupIdsJson = Serialize(request.VisibleGroupIds)
             };
+            NormalizeCourseAudience(course);
             db.Courses.Add(course);
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
@@ -91,8 +92,8 @@ internal static partial class EducationApiEndpoints
 
             var rows = await db.Courses.AsNoTracking().ToListAsync(ct);
             var course = rows.FirstOrDefault(x => x.Id == id);
-            var hiddenCourseIds = BuildHiddenCourseIds(rows);
-            if (course == null || !CanViewCourse(access, course, hiddenCourseIds.Contains(course.Id))) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var unavailableCourseIds = BuildUnavailableCourseIds(access, rows);
+            if (course == null || unavailableCourseIds.Contains(course.Id)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
@@ -108,6 +109,7 @@ internal static partial class EducationApiEndpoints
             if (request.Sort.HasValue) course.Sort = System.Math.Max(0, request.Sort.Value);
             if (request.OwnerIds != null) course.OwnerIdsJson = Serialize(request.OwnerIds);
             if (request.VisibleGroupIds != null) course.VisibleGroupIdsJson = Serialize(request.VisibleGroupIds);
+            NormalizeCourseAudience(course);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));

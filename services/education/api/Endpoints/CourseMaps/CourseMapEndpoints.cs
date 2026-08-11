@@ -207,7 +207,7 @@ internal static partial class EducationApiEndpoints
     {
         var root = await db.Courses.AsNoTracking()
             .Where(x => x.Id == rootCourseId)
-            .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.IsHiddenFromStudents, x.Sort))
+            .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic && !x.IsHiddenFromStudents, x.IsHiddenFromStudents, x.Sort))
             .FirstOrDefaultAsync(ct);
         if (root is null) return new List<CourseTreeCourseDto>();
 
@@ -220,7 +220,7 @@ internal static partial class EducationApiEndpoints
             var parentOrder = frontier.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
             var children = await db.Courses.AsNoTracking()
                 .Where(x => x.ParentCourseId.HasValue && frontier.Contains(x.ParentCourseId.Value))
-                .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic, x.IsHiddenFromStudents, x.Sort))
+                .Select(x => new CourseTreeCourseDto(x.Id, x.ParentCourseId, x.Title, x.Description, x.IsPublic && !x.IsHiddenFromStudents, x.IsHiddenFromStudents, x.Sort))
                 .ToListAsync(ct);
 
             var ordered = children
