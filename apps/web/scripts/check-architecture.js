@@ -285,6 +285,12 @@ if (!/TASK_GRAPH_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/['"]courses['"]/.t
 if (!/includeLayout/.test(taskGraphDialog) || !/includeIds/.test(taskGraphDialog) || !/updateLayout/.test(taskGraphDiff) || !/updateConnections/.test(taskGraphDiff)) {
   fail('selective JSON import/export controls are missing');
 }
+if (!/createPortal/.test(taskGraphDialog) || !/100dvh/.test(taskGraphDialog) || !/min-h-0 flex-1 overflow-y-auto/.test(taskGraphDialog)) {
+  fail('JSON graph editor must stay inside the viewport and scroll internally');
+}
+if (!/createPortal/.test(taskGraphDiff) || !/100dvh/.test(taskGraphDiff) || !/min-h-0 flex-1 overflow-y-auto/.test(taskGraphDiff)) {
+  fail('JSON import preview must stay inside the viewport and scroll internally');
+}
 if (!/descriptor\.kind === 'course'/.test(taskGraphImport) || !/layoutPosition\(taskGraph, ref\)/.test(taskGraphImport)) {
   fail('task-graph import no longer applies layout/topology to nested course nodes');
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowRight, FileJson, GitCompare, X } from 'lucide-react';
 
 import { Badge, Button, Card } from '../../../components/ui';
@@ -67,17 +68,26 @@ function ImportOption({ checked, disabled = false, onChange, label, hint }) {
 }
 
 export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClose, onApply, importOptions = {}, onImportOptionChange }) {
-  if (!open || !diff) return null;
+  React.useEffect(() => {
+    if (!(open && diff) || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, diff]);
 
-  return (
+  if (!open || !diff || typeof document === 'undefined') return null;
+
+  return createPortal((
     <div
-      className="tf-modal-backdrop fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 px-3 py-6 sm:px-6"
+      className="tf-modal-backdrop fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-black/60 p-2 sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose?.();
       }}
     >
-      <Card className="tf-modal-panel w-full max-w-6xl rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-4 shadow-2xl sm:p-6">
-        <div className="flex flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="tf-modal-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
+        <div className="flex shrink-0 flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xl font-semibold"><GitCompare size={20} /> Проверка импорта</div>
             <div className="mt-1 text-sm text-neutral-500">Задания и связи будут применены одним импортом.</div>
@@ -90,7 +100,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+          <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
           <div className="mb-2 text-sm font-semibold">Что разрешено заменить</div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <ImportOption checked={Boolean(importOptions.updateContent && diff.scopes?.includes('content'))} disabled={!diff.scopes?.includes('content')} onChange={(value) => onImportOptionChange?.('updateContent', value)} label="Условия и настройки" />
@@ -153,8 +164,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           </div>
         ) : null}
 
-        <div className="mt-4 space-y-3 pb-2">
-          {diff.rows.map((row) => (
+          <div className="mt-4 space-y-3 pb-2">
+            {diff.rows.map((row) => (
             <div key={`${row.index}:${row.id || row.key}`} className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -199,9 +210,10 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
                 </div>
               ) : null}
             </div>
-          ))}
+            ))}
+          </div>
         </div>
       </Card>
     </div>
-  );
+  ), document.body);
 }
