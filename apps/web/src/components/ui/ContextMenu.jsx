@@ -92,7 +92,8 @@ export function ContextMenu({ open, x = 0, y = 0, onClose, children, ariaLabel =
     };
   }, [open]);
 
-  if (!open || typeof document === 'undefined') return null;
+  const menuChildren = React.Children.toArray(children).filter(Boolean);
+  if (!open || typeof document === 'undefined' || menuChildren.length === 0) return null;
 
   return createPortal(
     <div
@@ -105,7 +106,7 @@ export function ContextMenu({ open, x = 0, y = 0, onClose, children, ariaLabel =
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      {children}
+      {menuChildren}
     </div>,
     document.body,
   );

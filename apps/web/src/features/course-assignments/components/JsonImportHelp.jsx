@@ -46,7 +46,7 @@ export default function JsonImportHelp({ busy = false, onCopyAiPrompt, onCopyExa
         <div className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))]/60 p-4">
           <div className="flex items-center gap-2 font-semibold"><Unplug size={16} /> Задание вне карты</div>
           <div className="mt-3 text-sm text-neutral-500">
-            Задание без единой связи импортируется, но не размещается. После импорта оно появится в списке «Не на карте» и его можно перетащить на поле.
+            Задание без единой связи импортируется, но не размещается. После импорта оно появится в списке «Не на карте». Добавьте его на поле кнопкой рядом с названием.
           </div>
         </div>
       </div>

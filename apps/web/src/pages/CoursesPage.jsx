@@ -193,6 +193,11 @@ export default function CoursesPage() {
   const editorTools = canEdit && isEditorMode;
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, selectedCourse = null) => {
+    if (!selectedCourse && !editorTools) {
+      claimContextMenuEvent(event);
+      closeContextMenu();
+      return;
+    }
     if (!claimContextMenuEvent(event)) return;
     setContextMenu({ open: true, x: event.clientX, y: event.clientY, course: selectedCourse });
   };

@@ -205,6 +205,17 @@ if (/\bMiniMap\b|course-map-minimap/.test(courseFlowEditor)) {
 if (!/courseProgressVersion/.test(courseFlowEditor) || !/readCourseProgress/.test(courseFlowEditor)) {
   fail('learner course nodes no longer use full server-side progress');
 }
+if (/panOnDrag=\{editorMode \? \[1,\s*2\]/.test(courseFlowEditor)) {
+  fail('course map reserves the right mouse button for panning and breaks pane context menus');
+}
+if (/application\/x-taskforge-unplaced|onUnplacedDragStart|onMapDrop/.test(courseFlowEditor)) {
+  fail('unplaced course-map entities returned to drag-and-drop placement');
+}
+
+const coursesPage = read('pages/CoursesPage.jsx');
+if (!/!selectedCourse && !editorTools/.test(coursesPage)) {
+  fail('courses catalog can open an empty context menu on blank space for viewers');
+}
 
 const courseMapNodes = [
   'features/course-assignments/nodes/CourseNode.jsx',

@@ -1533,16 +1533,14 @@ html.neo-brutal .react-flow__edge.course-map-edge.is-sequential-start .react-flo
 
 .course-map-unplaced-row {
   display: grid;
-  grid-template-columns: 16px auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) 30px;
   min-height: 42px;
   align-items: center;
   gap: 8px;
   border: 1px solid transparent;
   border-radius: 12px;
-  padding: 6px 8px;
+  padding: 6px 7px 6px 8px;
   background: rgba(var(--fg) / .025);
-  cursor: grab;
-  user-select: none;
 }
 
 .course-map-unplaced-row:hover {
@@ -1550,12 +1548,25 @@ html.neo-brutal .react-flow__edge.course-map-edge.is-sequential-start .react-flo
   background: rgba(var(--accent) / .085);
 }
 
-.course-map-unplaced-row:active {
-  cursor: grabbing;
+.course-map-unplaced-add {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--border) / .72);
+  border-radius: 9px;
+  background: rgba(var(--card) / .78);
+  color: rgba(var(--fg) / .78);
+  cursor: pointer;
 }
 
-.course-map-unplaced-grip {
-  color: rgba(var(--fg) / .38);
+.course-map-unplaced-add:hover,
+.course-map-unplaced-add:focus-visible {
+  border-color: rgba(var(--accent) / .55);
+  background: rgba(var(--accent) / .14);
+  color: rgb(var(--accent));
+  outline: none;
 }
 
 .course-map-unplaced-kind {
@@ -1580,7 +1591,7 @@ html.neo-brutal .react-flow__edge.course-map-edge.is-sequential-start .react-flo
 
 @media (max-width: 600px) {
   .course-map-unplaced-row {
-    grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 30px;
   }
 
   .course-map-unplaced-kind {

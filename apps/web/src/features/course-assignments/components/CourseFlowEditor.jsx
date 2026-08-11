@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
-import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, GripVertical, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Plus, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
@@ -221,6 +221,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const pasteSequenceRef = React.useRef(0);
   const searchInputRef = React.useRef(null);
   const unplacedRef = React.useRef(null);
+  const canvasRef = React.useRef(null);
+  const lastMapPointerRef = React.useRef(null);
   const appliedGraphImportRef = React.useRef('');
   const courseProgressRef = React.useRef(new Map());
 
@@ -1210,24 +1212,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (unplaced.length <= 1) setUnplacedOpen(false);
   }, [buildPlacedNode, editorMode, markDirty, persistSession, setNodes, unplaced.length]);
 
-  const onUnplacedDragStart = React.useCallback((event, entry) => {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('application/x-taskforge-unplaced', `${entry.kind}:${entry.entity.id}`);
-    event.dataTransfer.setData('text/plain', entry.entity.title || 'Узел');
-  }, []);
-
-  const onMapDrop = React.useCallback((event) => {
-    if (!editorMode) return;
-    const token = event.dataTransfer.getData('application/x-taskforge-unplaced');
-    if (!token) return;
-    event.preventDefault();
-    const separator = token.indexOf(':');
-    const kind = separator >= 0 ? token.slice(0, separator) : '';
-    const entityId = separator >= 0 ? token.slice(separator + 1) : '';
-    const entry = unplaced.find((item) => item.kind === kind && String(item.entity?.id) === entityId);
-    if (!entry) return;
-    dropUnplaced(entry, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
-  }, [dropUnplaced, editorMode, flow, unplaced]);
+  const addUnplacedNearCursor = React.useCallback((entry) => {
+    if (!entry || !editorMode) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const remembered = lastMapPointerRef.current;
+    const screenPoint = remembered && rect
+      && remembered.x >= rect.left && remembered.x <= rect.right
+      && remembered.y >= rect.top && remembered.y <= rect.bottom
+      ? { x: remembered.x + 24, y: remembered.y + 24 }
+      : rect
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    dropUnplaced(entry, flow.screenToFlowPosition(screenPoint));
+  }, [dropUnplaced, editorMode, flow]);
 
   if (loading) return <div className="course-map-loading">Загрузка карты…</div>;
 
@@ -1303,7 +1300,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
               {unplacedOpen ? (
                 <div className="course-map-unplaced-popover">
                   <div className="course-map-unplaced-head">
-                    <div className="course-map-popover-title">Перетащите на карту</div>
+                    <div className="course-map-popover-title">Не на карте</div>
                     <button type="button" className="course-map-unplaced-close" onClick={() => setUnplacedOpen(false)} aria-label="Закрыть"><X size={14} /></button>
                   </div>
                   <div className="course-map-unplaced-list">
@@ -1311,12 +1308,18 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
                       <div
                         key={`${entry.kind}:${entry.entity.id}`}
                         className="course-map-unplaced-row"
-                        draggable
-                        onDragStart={(event) => onUnplacedDragStart(event, entry)}
                       >
-                        <GripVertical size={14} className="course-map-unplaced-grip" />
                         <span className="course-map-unplaced-kind">{entry.kind === 'course' ? 'Курс' : 'Задание'}</span>
                         <span className="course-map-unplaced-title" title={entry.entity.title || 'Без названия'}>{entry.entity.title || 'Без названия'}</span>
+                        <button
+                          type="button"
+                          className="course-map-unplaced-add"
+                          title="Добавить рядом с курсором"
+                          aria-label={`Добавить «${entry.entity.title || 'Без названия'}» на карту`}
+                          onClick={() => addUnplacedNearCursor(entry)}
+                        >
+                          <Plus size={14} />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1350,7 +1353,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         </div>
       </div>
 
-      <div className="course-map-canvas">
+      <div
+        className="course-map-canvas"
+        ref={canvasRef}
+        onPointerMoveCapture={(event) => {
+          lastMapPointerRef.current = { x: event.clientX, y: event.clientY };
+        }}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1367,8 +1376,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onEdgeContextMenu={onEdgeContextMenu}
           onPaneContextMenu={onPaneContextMenu}
           onPaneClick={() => setUnplacedOpen(false)}
-          onDragOver={(event) => { if (editorMode && Array.from(event.dataTransfer.types || []).includes('application/x-taskforge-unplaced')) event.preventDefault(); }}
-          onDrop={onMapDrop}
           onNodeContextMenu={onNodeContextMenu}
           onNodeDoubleClick={(event, node) => {
             event.preventDefault();
@@ -1386,7 +1393,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           maxZoom={1.8}
           selectionOnDrag={editorMode}
           selectionMode={SelectionMode.Partial}
-          panOnDrag={editorMode ? [1, 2] : true}
+          panOnDrag={editorMode ? [1] : true}
           panActivationKeyCode="Space"
           multiSelectionKeyCode={["Shift", "Meta", "Control"]}
           selectionKeyCode={null}
