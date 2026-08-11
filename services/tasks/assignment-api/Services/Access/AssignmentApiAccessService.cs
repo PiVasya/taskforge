@@ -27,6 +27,27 @@ internal static class AssignmentApiAccessService
         if (!assignment.IsVisible) return false;
         var userId = TaskForgeRequestSecurity.UserId(http, cfg);
         if (!userId.HasValue) return false;
+
+        var courseAccess = await LoadCourseAccessRowsAsync(
+            new[] { assignment.CourseId },
+            userId.Value,
+            clients,
+            cfg,
+            ct);
+        if (courseAccess.Count == 0 || !courseAccess[0].CanView) return false;
+
+        var projection = http.RequestServices.GetService<CourseMapProjectionService>();
+        if (projection is not null)
+        {
+            var cached = await projection.TryGetCachedAssignmentAccessAsync(
+                assignment.CourseId,
+                assignment.Id,
+                userId.Value,
+                bypassStudentVisibility: false,
+                ct);
+            if (cached.HasValue) return cached.Value;
+        }
+
         var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId.Value, db, clients, cfg, ct);
         return evaluation?.VisibleAssignmentIds.Contains(assignment.Id) == true;
     }
@@ -46,7 +67,7 @@ internal static class AssignmentApiAccessService
     }
 
 
-    internal static async Task<List<CourseAccessDto>> LoadCourseAccessRowsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static async Task<List<CourseAccessDto>> LoadCourseAccessRowsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct, bool bypassStudentVisibility = false)
     {
         var ids = courseIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
         if (ids.Length == 0 || userId == Guid.Empty) return new List<CourseAccessDto>();
@@ -56,18 +77,18 @@ internal static class AssignmentApiAccessService
             cfg,
             ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
             "/api/internal/courses/access",
-            new { userId, courseIds = ids },
+            new { userId, courseIds = ids, bypassStudentVisibility, includeProgressionRules = false },
             ct)
             ?? new List<CourseAccessDto>();
     }
 
-    internal static async Task<HashSet<Guid>> LoadAccessibleCourseIdsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static async Task<HashSet<Guid>> LoadAccessibleCourseIdsAsync(IEnumerable<Guid> courseIds, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct, bool bypassStudentVisibility = false)
     {
         var ids = courseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         var result = new HashSet<Guid>();
         foreach (var batch in ids.Chunk(2000))
         {
-            var rows = await LoadCourseAccessRowsAsync(batch, userId, clients, cfg, ct);
+            var rows = await LoadCourseAccessRowsAsync(batch, userId, clients, cfg, ct, bypassStudentVisibility);
             foreach (var row in rows)
             {
                 if (row.CanView) result.Add(row.CourseId);

@@ -39,7 +39,16 @@ internal static class CourseMapProgressionService
     private sealed record MapEdge(string Id, string Source, string Target, EffectTransition HiddenEffect, EffectTransition SequentialEffect, JsonElement? Settings);
     private sealed record TraversalState(string NodeId, bool Hidden, bool Sequential);
     private sealed record BlockedSequentialEdge(MapEdge Edge, string SourceNodeId, string TargetNodeId);
-    private sealed record AssignmentProgressionRow(Guid Id, Guid CourseId, string Title);
+    internal sealed record AssignmentProgressionRow(
+        Guid Id,
+        Guid CourseId,
+        string Title,
+        string Type,
+        string Language,
+        string? Tags,
+        string? Description,
+        bool IsVisible,
+        int Sort);
 
     internal static async Task<Evaluation?> LoadEvaluationAsync(
         Guid requestedCourseId,
@@ -47,7 +56,8 @@ internal static class CourseMapProgressionService
         TasksDbContext db,
         IHttpClientFactory clients,
         IConfiguration cfg,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool bypassStudentVisibility = false)
     {
         if (requestedCourseId == Guid.Empty || userId == Guid.Empty) return null;
 
@@ -74,15 +84,26 @@ internal static class CourseMapProgressionService
         if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != requestedCourseId)) return null;
 
         var allTreeCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
-        var accessibleCourseIds = await LoadAccessibleCourseIdsAsync(allTreeCourseIds, userId, clients, cfg, ct);
+        var accessibleCourseIds = bypassStudentVisibility
+            ? allTreeCourseIds.ToHashSet()
+            : await LoadAccessibleCourseIdsAsync(allTreeCourseIds, userId, clients, cfg, ct);
         if (!accessibleCourseIds.Contains(requestedCourseId)) return null;
 
         var requestedSubtreeCourseIds = BuildSubtreeCourseIds(requestedCourseId, tree.Courses);
         requestedSubtreeCourseIds.IntersectWith(accessibleCourseIds);
 
         var assignmentRows = await db.Assignments.AsNoTracking()
-            .Where(x => accessibleCourseIds.Contains(x.CourseId) && x.IsVisible)
-            .Select(x => new AssignmentProgressionRow(x.Id, x.CourseId, x.Title))
+            .Where(x => accessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
+            .Select(x => new AssignmentProgressionRow(
+                x.Id,
+                x.CourseId,
+                x.Title,
+                x.Type,
+                x.Language,
+                x.Tags,
+                x.Description,
+                x.IsVisible,
+                x.Sort))
             .ToListAsync(ct);
 
         var solvedIds = await LoadSolvedAssignmentIdsAsync(userId, assignmentRows.Select(x => x.Id), db, clients, cfg, ct);
@@ -119,6 +140,34 @@ internal static class CourseMapProgressionService
         // absent for a learner. This also prevents direct child-course URLs from being
         // used to jump over an upstream after-prerequisites gate.
         return evaluation.VisibleCourseIds.Contains(requestedCourseId) ? evaluation : null;
+    }
+
+    internal static Evaluation EvaluatePrepared(
+        Guid rootCourseId,
+        Guid requestedCourseId,
+        int version,
+        JsonElement document,
+        CourseTreeResponse tree,
+        HashSet<Guid> accessibleCourseIds,
+        List<AssignmentProgressionRow> assignmentRows,
+        HashSet<Guid> solvedIds,
+        DateTimeOffset? updatedAt,
+        Guid? updatedBy)
+    {
+        var requestedSubtreeCourseIds = BuildSubtreeCourseIds(requestedCourseId, tree.Courses);
+        requestedSubtreeCourseIds.IntersectWith(accessibleCourseIds);
+        return EvaluateDocument(
+            rootCourseId,
+            requestedCourseId,
+            version,
+            document,
+            tree,
+            requestedSubtreeCourseIds,
+            accessibleCourseIds,
+            assignmentRows,
+            solvedIds,
+            updatedAt,
+            updatedBy);
     }
 
     private static Evaluation EvaluateDocument(

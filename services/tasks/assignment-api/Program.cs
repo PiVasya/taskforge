@@ -29,6 +29,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddScoped<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>();
 var app = builder.Build();
 
 app.UseTaskForgeDebugRequestLogging("tasks-api");

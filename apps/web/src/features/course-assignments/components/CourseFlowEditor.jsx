@@ -23,7 +23,7 @@ import { useNotify } from '../../../components/notify/NotifyProvider';
 import { useAuth } from '../../../auth/AuthContext';
 import { createAssignment, deleteAssignment, getAssignmentsByCourseTree } from '../../../api/assignments';
 import { createCourse, deleteCourse } from '../../../api/courses';
-import { getCourseMap, getLearningCourseMap, saveCourseMap } from '../../../api/courseMaps';
+import { getCourseMap, getLearningCourseMapDelta, saveCourseMap, streamLearningCourseMap } from '../../../api/courseMaps';
 import { createCourseMapPresenceConnection, disposeCourseMapPresenceConnection } from '../../../realtime/courseMapHub';
 import { getApiErrorMessage } from '../../../api/http';
 import { buildDefaultAssignmentPayload, previewAssignmentDescription } from '../courseAssignmentsModel';
@@ -43,7 +43,7 @@ import {
   wouldCreateCycle,
 } from '../courseMapModel';
 import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
-import { clearCourseMapLocalCache, readCourseMapLocalCache, writeCourseMapLocalCache } from '../courseMapLocalCache';
+import { clearCourseMapLocalCache, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../courseMapLocalCache';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { applyTaskGraphImport } from '../courseTaskGraphImport';
 import CourseNode from '../nodes/CourseNode';
@@ -184,7 +184,7 @@ function findOpenMapPosition(basePosition, existingNodes, index = 0) {
   return { x: base.x + index * 34, y: base.y + index * 34 };
 }
 
-function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, onGraphImportComplete }) {
+function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, onGraphImportComplete, onLearnerProgress = null }) {
   const nav = useNavigate();
   const location = useLocation();
   const notify = useNotify();
@@ -195,6 +195,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [edges, setEdges] = useEdgesState([]);
   const [record, setRecord] = React.useState({ version: 0, document: null });
   const [assignments, setAssignments] = React.useState([]);
+  const [mapCourses, setMapCourses] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [dirty, setDirty] = React.useState(false);
   const [presence, setPresence] = React.useState([]);
@@ -209,6 +210,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
+  const assignmentsRef = React.useRef([]);
   const recordRef = React.useRef(record);
   const dirtyRef = React.useRef(dirty);
   const presenceIdsRef = React.useRef(new Set());
@@ -225,9 +227,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const lastMapPointerRef = React.useRef(null);
   const appliedGraphImportRef = React.useRef('');
   const courseProgressRef = React.useRef(new Map());
+  const mapCoursesRef = React.useRef([]);
+  const projectionTokenRef = React.useRef('');
+  const pendingLearnerEdgesRef = React.useRef([]);
+  const streamAbortRef = React.useRef(null);
+  const learnerPersistTimerRef = React.useRef(null);
+  const persistLearnerGraphRef = React.useRef(null);
 
   const rootId = String(course?.id || '');
-  const visibleCourses = React.useMemo(() => subtreeCourses(rootId, allCourses, course), [allCourses, course, rootId]);
+  const mergedCourseRows = React.useMemo(() => {
+    const byId = new Map();
+    for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...(Array.isArray(mapCourses) ? mapCourses : [])]) {
+      if (item?.id) byId.set(String(item.id), item);
+    }
+    if (course?.id) byId.set(String(course.id), { ...byId.get(String(course.id)), ...course });
+    return Array.from(byId.values());
+  }, [allCourses, course, mapCourses]);
+  const visibleCourses = React.useMemo(() => subtreeCourses(rootId, mergedCourseRows, course), [course, mergedCourseRows, rootId]);
   const hiddenCourseIdsForStudents = React.useMemo(() => {
     const byId = new Map(visibleCourses.map((item) => [String(item?.id || ''), item]));
     const hidden = new Set();
@@ -260,6 +276,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   React.useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
   React.useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   React.useEffect(() => { edgesRef.current = edges; }, [edges]);
+  React.useEffect(() => { assignmentsRef.current = assignments; }, [assignments]);
+  React.useEffect(() => { mapCoursesRef.current = mapCourses; }, [mapCourses]);
+  React.useEffect(() => () => {
+    persistLearnerGraphRef.current?.();
+    streamAbortRef.current?.abort?.();
+    window.clearTimeout(learnerPersistTimerRef.current);
+  }, []);
   React.useEffect(() => { if (query) setSearchOpen(true); }, [query]);
   React.useEffect(() => {
     if (!searchOpen) return undefined;
@@ -333,9 +356,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       aliases: cacheCourseIds,
       mapRecord,
       assignments,
+      courses: mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses,
       dirty: dirtyValue,
     });
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, rootId, sessionOptions]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, rootId, sessionOptions, visibleCourses]);
 
   const rememberBeforeNavigate = React.useCallback(() => persistSession(dirtyRef.current), [persistSession]);
 
@@ -394,11 +418,12 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     flow.fitView({ nodes: branchNodes.length ? branchNodes : [byId.get(String(nodeId))], duration: 520, padding: 0.45, maxZoom: 1.15 });
   }, [flow]);
 
-  const decorateNodes = React.useCallback((rawNodes) => {
+  const decorateNodesWithSources = React.useCallback((rawNodes, rawEdges, assignmentRows, courseRows, progressOverride = null) => {
     const q = String(query || '').trim().toLowerCase();
-    const computedProgress = computeCourseProgress(rawNodes, edgesRef.current, assignments, rootId);
-    const progressByCourse = !editorMode && courseProgressByNode.size ? courseProgressByNode : computedProgress;
-    const accessByNode = computeCourseMapAccessEffects(rawNodes, edgesRef.current);
+    const idx = buildEntityIndex(courseRows, assignmentRows);
+    const computedProgress = computeCourseProgress(rawNodes, rawEdges, assignmentRows, rootId);
+    const progressByCourse = !editorMode && progressOverride?.size ? progressOverride : computedProgress;
+    const accessByNode = computeCourseMapAccessEffects(rawNodes, rawEdges);
     return rawNodes.map((node) => {
       if (node.type === 'locked') {
         const settings = node.settings || node.data?.settings || {};
@@ -407,13 +432,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         return {
           ...node,
           type: 'locked',
-          className: searchMatch ? '' : 'course-map-search-dimmed',
+          className: `${searchMatch ? '' : 'course-map-search-dimmed'}${String(node.className || '').includes('course-map-node-revealed') ? ' course-map-node-revealed' : ''}`.trim(),
           data: { settings, editorMode: false, searchMatch },
         };
       }
 
       const isCourse = node.type === 'course';
-      const rawEntity = isCourse ? entityIndex.courseById.get(String(node.entityId)) : entityIndex.assignmentById.get(String(node.entityId));
+      const rawEntity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
       const entity = isCourse && rawEntity
         ? { ...rawEntity, isHiddenForStudents: hiddenCourseIdsForStudents.has(String(rawEntity.id)) }
         : rawEntity;
@@ -422,10 +447,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const searchMatch = !q || searchText.includes(q);
       const visualType = isCourse ? 'course' : assignmentNodeType(entity?.type || node.type);
       const accessEffects = accessByNode.get(String(node.id)) || null;
+      const revealClass = String(node.className || '').includes('course-map-node-revealed') ? ' course-map-node-revealed' : '';
       return {
         ...node,
         type: visualType,
-        className: nodeAccessClassName(searchMatch, accessEffects, editorMode),
+        className: `${nodeAccessClassName(searchMatch, accessEffects, editorMode)}${revealClass}`.trim(),
         data: {
           entityId: node.entityId,
           entity,
@@ -440,7 +466,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         },
       };
     });
-  }, [assignments, courseProgressByNode, editAssignment, editCourse, editorMode, entityIndex, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
+  }, [editAssignment, editCourse, editorMode, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
+
+  const decorateNodes = React.useCallback((rawNodes) => (
+    decorateNodesWithSources(rawNodes, edgesRef.current, assignments, visibleCourses, courseProgressByNode)
+  ), [assignments, courseProgressByNode, decorateNodesWithSources, visibleCourses]);
 
   const decorateEdges = React.useCallback((rawEdges) => rawEdges.map((edge) => ({ ...edge, ...edgeStyle(editorMode, edge) })), [editorMode]);
 
@@ -450,7 +480,20 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     cachedState = null,
   } = {}) => {
     const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
-    const nextCourses = subtreeCourses(rootId, allCourses, course);
+    const cachedCourses = Array.isArray(cachedState?.courses) ? cachedState.courses : [];
+    const pendingRevealNodeIds = !editorMode && fromCache
+      ? new Set((cachedState?.pendingRevealNodeIds || []).map(String).filter(Boolean))
+      : new Set();
+    const knownCoursesById = new Map();
+    for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...cachedCourses, ...mapCoursesRef.current]) {
+      if (item?.id) knownCoursesById.set(String(item.id), item);
+    }
+    if (course?.id) knownCoursesById.set(String(course.id), { ...knownCoursesById.get(String(course.id)), ...course });
+    const nextCourses = subtreeCourses(rootId, Array.from(knownCoursesById.values()), course);
+    if (!editorMode) {
+      mapCoursesRef.current = nextCourses;
+      setMapCourses(nextCourses);
+    }
     const suppliedCourseProgress = editorMode ? new Map() : readCourseProgress(mapRecord?.document);
     const session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
     const persistedDraft = editorMode && cachedState?.dirty && cachedState?.mapRecord?.document
@@ -501,13 +544,18 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const resolvedProgress = !editorMode && suppliedCourseProgress.size ? suppliedCourseProgress : computedProgress;
     courseProgressRef.current = new Map(resolvedProgress);
     setCourseProgressByNode(new Map(resolvedProgress));
+    if (!editorMode && onLearnerProgress) {
+      const rootNode = (document.nodes || []).find((node) => node?.type === 'course' && String(node?.entityId || '') === rootId);
+      const rootProgress = rootNode ? resolvedProgress.get(String(rootNode.id)) : null;
+      if (rootProgress) onLearnerProgress({ ...rootProgress, loading: false, isComplete: rootProgress.total > 0 && rootProgress.solved >= rootProgress.total });
+    }
     const accessByNode = computeCourseMapAccessEffects(document.nodes || [], document.edges || []);
     const nextNodes = (document.nodes || []).map((node) => {
       if (node.type === 'locked') {
         return {
           ...node,
           type: 'locked',
-          className: '',
+          className: pendingRevealNodeIds.has(String(node.id)) ? 'course-map-node-revealed' : '',
           data: { settings: node.settings || {}, editorMode: false, searchMatch: true },
         };
       }
@@ -517,7 +565,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       return {
         ...node,
         type: isCourse ? 'course' : assignmentNodeType(entity?.type || node.type),
-        className: nodeAccessClassName(true, accessEffects, editorMode),
+        className: `${nodeAccessClassName(true, accessEffects, editorMode)}${pendingRevealNodeIds.has(String(node.id)) ? ' course-map-node-revealed' : ''}`.trim(),
         data: {
           entityId: node.entityId,
           entity,
@@ -550,6 +598,31 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
     });
 
+    if (pendingRevealNodeIds.size) {
+      window.setTimeout(() => {
+        setNodes((current) => {
+          const next = current.map((node) => pendingRevealNodeIds.has(String(node.id))
+            ? { ...node, className: String(node.className || '').replace(/\bcourse-map-node-revealed\b/g, '').replace(/\s+/g, ' ').trim() }
+            : node);
+          nodesRef.current = next;
+          return next;
+        });
+      }, 720);
+
+      writeCourseMapLocalCache({
+        courseId: rootId,
+        rootCourseId: mapRecord?.rootCourseId || expectedRecord.rootCourseId || rootId,
+        editorMode: false,
+        userId: currentUserId,
+        aliases: cachedState?.aliases || cacheCourseIds,
+        mapRecord: { ...(mapRecord || expectedRecord), document },
+        assignments: nextAssignments,
+        courses: cachedState?.courses?.length ? cachedState.courses : nextCourses,
+        dirty: false,
+        pendingRevealNodeIds: [],
+      });
+    }
+
     if (!fromCache || isDirty) {
       const mapRecordForCache = {
         ...(mapRecord || expectedRecord),
@@ -570,30 +643,396 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         aliases: cacheCourseIds,
         mapRecord: mapRecordForCache,
         assignments: nextAssignments,
+        courses: cachedState?.courses?.length ? cachedState.courses : visibleCourses,
         dirty: Boolean(isDirty),
       });
     }
-  }, [allCourses, cacheCourseIds, course, currentUserId, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, openAssignment, rootId, sessionOptions, setEdges, setNodes]);
+  }, [allCourses, cacheCourseIds, course, currentUserId, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, onLearnerProgress, openAssignment, rootId, sessionOptions, setEdges, setNodes, visibleCourses]);
+
+  const mergeRowsById = React.useCallback((current, incoming) => {
+    const byId = new Map();
+    for (const item of Array.isArray(current) ? current : []) {
+      if (item?.id) byId.set(String(item.id), item);
+    }
+    for (const item of Array.isArray(incoming) ? incoming : []) {
+      if (!item?.id) continue;
+      const previous = byId.get(String(item.id)) || {};
+      byId.set(String(item.id), { ...previous, ...item });
+    }
+    return Array.from(byId.values());
+  }, []);
+
+  const updateLearnerProjectionRecord = React.useCallback((patch = {}) => {
+    const current = recordRef.current || { version: 0, document: null };
+    const next = { ...current, ...patch };
+    setRecord(next);
+    recordRef.current = next;
+    if (next.projectionToken) projectionTokenRef.current = String(next.projectionToken);
+    return next;
+  }, []);
+
+  const mergeLearnerGraph = React.useCallback(({
+    nodes: incomingNodes = [],
+    edges: incomingEdges = [],
+    assignments: incomingAssignments = [],
+    courses: incomingCourses = [],
+    courseProgress = {},
+    animate = true,
+  } = {}) => {
+    const normalizedAssignments = (Array.isArray(incomingAssignments) ? incomingAssignments : []).map((item) => ({
+      ...item,
+      solvedByCurrentUser: item?.solvedByCurrentUser === true,
+      isSolved: item?.solvedByCurrentUser === true,
+      progressStatus: item?.solvedByCurrentUser === true ? 'solved' : 'not-started',
+    }));
+    const mergedAssignments = mergeRowsById(assignmentsRef.current, normalizedAssignments);
+    assignmentsRef.current = mergedAssignments;
+    setAssignments(mergedAssignments);
+
+    const normalizedCourses = Array.isArray(incomingCourses) ? incomingCourses : [];
+    const mergedCourses = mergeRowsById(mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses, normalizedCourses);
+    mapCoursesRef.current = mergedCourses;
+    setMapCourses(mergedCourses);
+
+    const nextProgress = new Map(courseProgressRef.current);
+    for (const [nodeId, value] of Object.entries(courseProgress || {})) {
+      const total = Math.max(0, Number(value?.total) || 0);
+      const solved = Math.max(0, Math.min(total, Number(value?.solved) || 0));
+      const percent = Math.max(0, Math.min(100, Number(value?.percent) || 0));
+      nextProgress.set(String(nodeId), { total, solved, percent });
+    }
+    courseProgressRef.current = nextProgress;
+    setCourseProgressByNode(new Map(nextProgress));
+
+    const incomingNodeById = new Map((Array.isArray(incomingNodes) ? incomingNodes : [])
+      .filter((node) => node?.id)
+      .map((node) => [String(node.id), node]));
+    const incomingAssignmentIds = new Set(normalizedAssignments.map((item) => String(item?.id || '')).filter(Boolean));
+    const incomingCourseIds = new Set(normalizedCourses.map((item) => String(item?.id || '')).filter(Boolean));
+    const assignmentById = new Map(mergedAssignments.map((item) => [String(item?.id || ''), item]));
+    const courseById = new Map(mergedCourses.map((item) => [String(item?.id || ''), item]));
+    const existingNodeIds = new Set(nodesRef.current.map((node) => String(node.id)));
+    const rawNewNodes = (Array.isArray(incomingNodes) ? incomingNodes : [])
+      .filter((node) => node?.id && !existingNodeIds.has(String(node.id)));
+
+    const updatedExistingNodes = nodesRef.current.map((node) => {
+      const incoming = incomingNodeById.get(String(node.id));
+      const entityId = String(incoming?.entityId || node?.entityId || node?.data?.entityId || '');
+      const isCourse = node.type === 'course' || incoming?.type === 'course';
+      const entityChanged = isCourse ? incomingCourseIds.has(entityId) : incomingAssignmentIds.has(entityId);
+      const progress = isCourse ? nextProgress.get(String(node.id)) : null;
+      if (!incoming && !entityChanged && !progress) return node;
+      const entity = isCourse ? courseById.get(entityId) : assignmentById.get(entityId);
+      return {
+        ...node,
+        ...(incoming ? {
+          entityId: incoming.entityId ?? node.entityId,
+          position: incoming.position || node.position,
+          settings: incoming.settings ?? node.settings,
+        } : {}),
+        data: {
+          ...(node.data || {}),
+          entityId: incoming?.entityId ?? node.data?.entityId ?? node.entityId,
+          ...(entity ? { entity } : {}),
+          ...(progress ? { progress } : {}),
+          ...(incoming ? { settings: incoming.settings ?? node.data?.settings } : {}),
+        },
+      };
+    });
+    const allRawNodes = [...updatedExistingNodes, ...rawNewNodes];
+
+    if (!editorMode && onLearnerProgress) {
+      const rootCourseNode = allRawNodes.find((node) => node?.type === 'course' && String(node?.entityId || node?.data?.entityId || '') === rootId);
+      const rootProgress = rootCourseNode ? nextProgress.get(String(rootCourseNode.id)) : null;
+      if (rootProgress) {
+        onLearnerProgress({
+          ...rootProgress,
+          loading: false,
+          isComplete: rootProgress.total > 0 && rootProgress.solved >= rootProgress.total,
+        });
+      }
+    }
+
+    const incomingEdgeById = new Map((Array.isArray(incomingEdges) ? incomingEdges : [])
+      .filter((edge) => edge?.id)
+      .map((edge) => [String(edge.id), edge]));
+    const updatedExistingEdges = edgesRef.current.map((edge) => {
+      const incoming = incomingEdgeById.get(String(edge.id));
+      if (!incoming) return edge;
+      return decorateEdges([{ ...edge, ...incoming }])[0];
+    });
+    const knownEdgeIds = new Set(updatedExistingEdges.map((edge) => String(edge.id)));
+    const pendingById = new Map();
+    for (const edge of [...pendingLearnerEdgesRef.current, ...(Array.isArray(incomingEdges) ? incomingEdges : [])]) {
+      if (!edge?.id || knownEdgeIds.has(String(edge.id))) continue;
+      pendingById.set(String(edge.id), edge);
+    }
+    const allNodeIds = new Set(allRawNodes.map((node) => String(node.id)));
+    const readyEdges = [];
+    const stillPending = [];
+    for (const edge of pendingById.values()) {
+      if (allNodeIds.has(String(edge.source)) && allNodeIds.has(String(edge.target))) readyEdges.push(edge);
+      else stillPending.push(edge);
+    }
+    pendingLearnerEdgesRef.current = stillPending;
+
+    const allRawEdgesForDecoration = [...updatedExistingEdges, ...readyEdges];
+    const decoratedNewNodes = decorateNodesWithSources(
+      rawNewNodes.map((node) => ({
+        ...node,
+        className: animate ? `${node.className || ''} course-map-node-revealed`.trim() : node.className,
+      })),
+      allRawEdgesForDecoration,
+      mergedAssignments,
+      mergedCourses,
+      nextProgress,
+    );
+    const decoratedNewEdges = decorateEdges(readyEdges);
+    const nextNodes = [...updatedExistingNodes, ...decoratedNewNodes];
+    const nextEdges = [...updatedExistingEdges, ...decoratedNewEdges];
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+
+    if (animate && decoratedNewNodes.length) {
+      window.setTimeout(() => {
+        setNodes((current) => {
+          const changed = current.map((node) => ({
+            ...node,
+            className: String(node.className || '').replace(/\bcourse-map-node-revealed\b/g, '').replace(/\s+/g, ' ').trim(),
+          }));
+          nodesRef.current = changed;
+          return changed;
+        });
+      }, 720);
+    }
+
+    loadedRootRef.current = rootId;
+    setLoading(false);
+  }, [decorateEdges, decorateNodesWithSources, editorMode, mergeRowsById, onLearnerProgress, rootId, setEdges, setNodes, visibleCourses]);
+
+  const persistLearnerGraph = React.useCallback(() => {
+    if (editorMode || !rootId || !nodesRef.current.length) return;
+    const document = {
+      ...serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current),
+      courseProgressVersion: 1,
+      courseProgress: writeCourseProgress(courseProgressRef.current),
+    };
+    const mapRecord = {
+      ...recordRef.current,
+      rootCourseId: recordRef.current.rootCourseId || rootId,
+      requestedCourseId: recordRef.current.requestedCourseId || rootId,
+      projectionToken: projectionTokenRef.current || recordRef.current.projectionToken || '',
+      document,
+    };
+    recordRef.current = mapRecord;
+    setRecord(mapRecord);
+    writeCourseMapLocalCache({
+      courseId: rootId,
+      rootCourseId: mapRecord.rootCourseId,
+      editorMode: false,
+      userId: currentUserId,
+      aliases: mapCoursesRef.current.map((item) => String(item?.id || '')).filter(Boolean),
+      mapRecord,
+      assignments: assignmentsRef.current,
+      courses: mapCoursesRef.current,
+      dirty: false,
+    });
+  }, [currentUserId, editorMode, rootId]);
+
+  persistLearnerGraphRef.current = persistLearnerGraph;
+
+  const applyLearnerDelta = React.useCallback((delta) => {
+    if (!delta || delta.resetRequired) return false;
+    const removeNodeIds = new Set((delta.nodeIdsRemoved || []).map(String));
+    const removeEdgeIds = new Set((delta.edgeIdsRemoved || []).map(String));
+    if (removeNodeIds.size || removeEdgeIds.size) {
+      const nextNodes = nodesRef.current.filter((node) => !removeNodeIds.has(String(node.id)));
+      const nextEdges = edgesRef.current.filter((edge) => !removeEdgeIds.has(String(edge.id)) && !removeNodeIds.has(String(edge.source)) && !removeNodeIds.has(String(edge.target)));
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+    }
+
+    mergeLearnerGraph({
+      nodes: delta.nodesAdded || [],
+      edges: delta.edgesAdded || [],
+      assignments: delta.assignmentsChanged || [],
+      courses: delta.coursesChanged || [],
+      courseProgress: delta.courseProgress || {},
+      animate: true,
+    });
+    updateLearnerProjectionRecord({
+      version: Number(delta.version || recordRef.current.version || 0),
+      projectionToken: delta.projectionToken || projectionTokenRef.current,
+      projectionRevision: Number(delta.projectionRevision || 0),
+    });
+    persistLearnerGraph();
+    return true;
+  }, [mergeLearnerGraph, persistLearnerGraph, setEdges, setNodes, updateLearnerProjectionRecord]);
+
+  const streamLearnerMap = React.useCallback(async (requestId, { quiet = false, preserveExisting = false } = {}) => {
+    streamAbortRef.current?.abort?.();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    let receivedSegment = false;
+    const seenNodeIds = new Set();
+    const seenEdgeIds = new Set();
+    if (!quiet) setLoading(true);
+
+    await streamLearningCourseMap(rootId, {
+      signal: controller.signal,
+      onMeta: (meta) => {
+        if (requestId !== loadRequestRef.current) return;
+        projectionTokenRef.current = '';
+        pendingLearnerEdgesRef.current = [];
+        if (!preserveExisting) {
+          viewportRef.current = meta?.viewport || viewportRef.current;
+          assignmentsRef.current = [];
+          mapCoursesRef.current = course?.id ? [course] : [];
+          setAssignments([]);
+          setMapCourses(mapCoursesRef.current);
+          nodesRef.current = [];
+          edgesRef.current = [];
+          setNodes([]);
+          setEdges([]);
+        }
+        updateLearnerProjectionRecord({
+          rootCourseId: meta?.rootCourseId || rootId,
+          requestedCourseId: meta?.requestedCourseId || rootId,
+          version: Number(meta?.version || 0),
+          projectionToken: '',
+          projectionRevision: 0,
+          updatedAt: meta?.updatedAt || null,
+          updatedBy: meta?.updatedBy || null,
+          ...(preserveExisting ? {} : {
+            document: {
+              schemaVersion: 1,
+              courseProgressVersion: 1,
+              courseProgress: {},
+              viewport: meta?.viewport || { x: 0, y: 0, zoom: 1 },
+              nodes: [],
+              edges: [],
+            },
+          }),
+        });
+        if (!preserveExisting) {
+          try { flow.setViewport(meta?.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
+        }
+      },
+      onSegment: (segment) => {
+        if (requestId !== loadRequestRef.current || !segment) return;
+        receivedSegment = true;
+        for (const node of segment.nodes || []) if (node?.id) seenNodeIds.add(String(node.id));
+        for (const edge of segment.edges || []) if (edge?.id) seenEdgeIds.add(String(edge.id));
+        mergeLearnerGraph({ ...segment, animate: nodesRef.current.length > 0 });
+        window.clearTimeout(learnerPersistTimerRef.current);
+        learnerPersistTimerRef.current = window.setTimeout(() => persistLearnerGraph(), 180);
+      },
+      onDone: (done, meta) => {
+        if (requestId !== loadRequestRef.current) return;
+        updateLearnerProjectionRecord({
+          rootCourseId: meta?.rootCourseId || rootId,
+          requestedCourseId: meta?.requestedCourseId || rootId,
+          version: Number(meta?.version || recordRef.current.version || 0),
+          projectionToken: done?.projectionToken || meta?.projectionToken || '',
+          projectionRevision: Number(done?.projectionRevision || meta?.projectionRevision || 0),
+          updatedAt: meta?.updatedAt || recordRef.current.updatedAt || null,
+          updatedBy: meta?.updatedBy || recordRef.current.updatedBy || null,
+        });
+        if (preserveExisting) {
+          const staleNodeIds = new Set(nodesRef.current
+            .map((node) => String(node.id))
+            .filter((id) => !seenNodeIds.has(id)));
+          const nextNodes = nodesRef.current.filter((node) => !staleNodeIds.has(String(node.id)));
+          const nextEdges = edgesRef.current.filter((edge) => seenEdgeIds.has(String(edge.id))
+            && !staleNodeIds.has(String(edge.source))
+            && !staleNodeIds.has(String(edge.target)));
+          nodesRef.current = nextNodes;
+          edgesRef.current = nextEdges;
+          setNodes(nextNodes);
+          setEdges(nextEdges);
+          pendingLearnerEdgesRef.current = [];
+
+          const visibleNodeIds = new Set(nextNodes.map((node) => String(node.id)));
+          courseProgressRef.current = new Map(
+            Array.from(courseProgressRef.current.entries()).filter(([nodeId]) => visibleNodeIds.has(String(nodeId)))
+          );
+          setCourseProgressByNode(new Map(courseProgressRef.current));
+
+          const visibleEntityIds = new Set(nextNodes
+            .map((node) => String(node?.entityId || node?.data?.entityId || ''))
+            .filter(Boolean));
+          assignmentsRef.current = assignmentsRef.current.filter((item) => visibleEntityIds.has(String(item?.id || '')));
+          mapCoursesRef.current = mapCoursesRef.current.filter((item) => visibleEntityIds.has(String(item?.id || '')) || String(item?.id || '') === rootId);
+          setAssignments(assignmentsRef.current);
+          setMapCourses(mapCoursesRef.current);
+        }
+        window.clearTimeout(learnerPersistTimerRef.current);
+        learnerPersistTimerRef.current = null;
+        persistLearnerGraph();
+      },
+    });
+
+    if (requestId === loadRequestRef.current && !receivedSegment) setLoading(false);
+  }, [course, flow, mergeLearnerGraph, persistLearnerGraph, rootId, setEdges, setNodes, updateLearnerProjectionRecord]);
 
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
     const requestId = ++loadRequestRef.current;
     const initialForRoot = loadedRootRef.current !== rootId;
     let restoredFromCache = false;
+    let cached = null;
+
     if (initialForRoot && preferSession) {
-      const cached = readCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
+      cached = readCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
+      if (!cached) cached = await readCourseMapLocalCacheAsync({ courseId: rootId, editorMode, userId: currentUserId });
+      if (requestId !== loadRequestRef.current) return;
       const cacheHasProgress = editorMode || Number(cached?.mapRecord?.document?.courseProgressVersion) === 1;
       if (cached?.mapRecord && cacheHasProgress) {
         applyMapPayload(cached.mapRecord, cached.assignments, { preferSession: true, fromCache: true, cachedState: cached });
+        if (!editorMode) {
+          projectionTokenRef.current = String(cached.mapRecord?.projectionToken || '');
+          mapCoursesRef.current = Array.isArray(cached.courses) ? cached.courses : [];
+          setMapCourses(mapCoursesRef.current);
+        }
         restoredFromCache = true;
       } else if (cached?.mapRecord && !editorMode) {
         clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
       }
     }
+
     if (!quiet && initialForRoot && !restoredFromCache) setLoading(true);
+
+    if (!editorMode) {
+      try {
+        const token = String(cached?.mapRecord?.projectionToken || projectionTokenRef.current || '');
+        if (restoredFromCache && token) {
+          const projectionCourseId = String(cached?.mapRecord?.requestedCourseId || cached?.requestedCourseId || rootId);
+          const delta = await getLearningCourseMapDelta(projectionCourseId, token, null);
+          if (requestId !== loadRequestRef.current) return;
+          if (!delta?.resetRequired) {
+            applyLearnerDelta(delta);
+            return;
+          }
+        }
+        await streamLearnerMap(requestId, { quiet: restoredFromCache || quiet, preserveExisting: restoredFromCache });
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        if (requestId === loadRequestRef.current && !restoredFromCache) {
+          notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
+        }
+      } finally {
+        if (requestId === loadRequestRef.current && !restoredFromCache) setLoading(false);
+      }
+      return;
+    }
+
     try {
       const [mapRecord, treeAssignments] = await Promise.all([
-        editorMode ? getCourseMap(rootId) : getLearningCourseMap(rootId),
+        getCourseMap(rootId),
         getAssignmentsByCourseTree(rootId),
       ]);
       if (requestId !== loadRequestRef.current) return;
@@ -605,7 +1044,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     } finally {
       if (requestId === loadRequestRef.current && initialForRoot && !restoredFromCache) setLoading(false);
     }
-  }, [applyMapPayload, currentUserId, editorMode, notify, rootId]);
+  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, notify, rootId, streamLearnerMap]);
 
   loadMapRef.current = loadMap;
   React.useEffect(() => {
@@ -619,7 +1058,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [editorMode, rootId, setEdges, setNodes]);
 
   React.useEffect(() => {
-    if (dataRevisionRef.current === dataRevision) return;
+    if (!editorMode) return undefined;
+    if (dataRevisionRef.current === dataRevision) return undefined;
     dataRevisionRef.current = dataRevision;
     if (!rootId) return;
     let disposed = false;
@@ -641,11 +1081,12 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         aliases: cacheCourseIds,
         mapRecord: { ...recordRef.current, document: cachedDocument },
         assignments: nextAssignments,
+        courses: mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses,
         dirty: editorMode && dirtyRef.current,
       });
     }).catch(() => {});
     return () => { disposed = true; };
-  }, [cacheCourseIds, currentUserId, dataRevision, editorMode, rootId]);
+  }, [cacheCourseIds, currentUserId, dataRevision, editorMode, rootId, visibleCourses]);
 
   React.useEffect(() => {
     if (!nodesRef.current.length) return;
@@ -992,6 +1433,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         aliases: cacheCourseIds,
         mapRecord: { ...saved, document },
         assignments,
+        courses: visibleCourses,
         dirty: false,
       });
       clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });

@@ -1,8 +1,94 @@
-const CACHE_SCHEMA = 2;
-const CACHE_PREFIX = 'taskforge.course-map.cache.v2';
+const CACHE_SCHEMA = 4;
+const CACHE_PREFIX = 'taskforge.course-map.cache.v4';
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const CACHE_MAX_LOCAL_CHARS = 3_800_000;
+const CACHE_MAX_LOCAL_CHARS = 650_000;
+const IDB_NAME = 'taskforge-course-map-cache-v1';
+const IDB_STORE = 'maps';
 const memory = new Map();
+let dbPromise = null;
+
+function openIndexedDb() {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve) => {
+    try {
+      const request = indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return dbPromise;
+}
+
+async function idbGet(cacheKey) {
+  const db = await openIndexedDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const request = tx.objectStore(IDB_STORE).get(cacheKey);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbSet(cacheKey, value) {
+  const db = await openIndexedDb();
+  if (!db) return;
+  await new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, cacheKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function idbDelete(cacheKey) {
+  const db = await openIndexedDb();
+  if (!db) return;
+  await new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(cacheKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function idbClear() {
+  const db = await openIndexedDb();
+  if (!db) return;
+  await new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
 
 function clean(value) {
   return String(value || '').trim();
@@ -43,6 +129,20 @@ function assignmentSummary(item) {
   };
 }
 
+
+function courseSummary(item) {
+  if (!item?.id) return null;
+  return {
+    id: item.id,
+    parentCourseId: item.parentCourseId || null,
+    title: item.title || '',
+    description: item.description || '',
+    isPublic: item.isPublic !== false,
+    isHiddenFromStudents: item.isHiddenFromStudents === true,
+    sort: Number(item.sort) || 0,
+  };
+}
+
 function normalize(payload) {
   if (!payload || payload.schema !== CACHE_SCHEMA || !payload.mapRecord) return null;
   const savedAt = Number(payload.savedAt || 0);
@@ -51,7 +151,9 @@ function normalize(payload) {
     ...payload,
     dirty: payload.dirty === true,
     assignments: Array.isArray(payload.assignments) ? payload.assignments.filter(Boolean) : [],
+    courses: Array.isArray(payload.courses) ? payload.courses.filter(Boolean) : [],
     aliases: Array.isArray(payload.aliases) ? payload.aliases.map(clean).filter(Boolean) : [],
+    pendingRevealNodeIds: Array.isArray(payload.pendingRevealNodeIds) ? payload.pendingRevealNodeIds.map(clean).filter(Boolean) : [],
   };
 }
 
@@ -83,6 +185,27 @@ export function readCourseMapLocalCache({ courseId, editorMode = false, userId =
   }
 }
 
+export async function readCourseMapLocalCacheAsync({ courseId, editorMode = false, userId = '' } = {}) {
+  const immediate = readCourseMapLocalCache({ courseId, editorMode, userId });
+  if (immediate) return immediate;
+  const cacheKey = key(courseId, editorMode, userId);
+  try {
+    let stored = await idbGet(cacheKey);
+    if (stored?.schema === CACHE_SCHEMA && stored?.aliasTo) stored = await idbGet(key(stored.aliasTo, editorMode, userId));
+    const parsed = normalize(stored);
+    if (!parsed) {
+      await idbDelete(cacheKey);
+      return null;
+    }
+    for (const id of new Set([courseId, parsed.rootCourseId, ...(parsed.aliases || [])].map(clean).filter(Boolean))) {
+      memory.set(key(id, editorMode, userId), parsed);
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function writeCourseMapLocalCache({
   courseId,
   rootCourseId,
@@ -90,8 +213,10 @@ export function writeCourseMapLocalCache({
   userId = '',
   mapRecord,
   assignments = [],
+  courses = [],
   aliases = [],
   dirty = false,
+  pendingRevealNodeIds = [],
 } = {}) {
   const requestedId = clean(courseId);
   const rootId = clean(rootCourseId || mapRecord?.rootCourseId || requestedId);
@@ -99,10 +224,11 @@ export function writeCourseMapLocalCache({
 
   const aliasIds = new Set([
     requestedId,
-    rootId,
+    ...(rootId === requestedId ? [rootId] : []),
     clean(mapRecord?.requestedCourseId),
     ...aliases.map(clean),
     ...assignments.map((item) => clean(item?.courseId)),
+    ...courses.map((item) => clean(item?.id)),
   ].filter(Boolean));
 
   const payload = {
@@ -113,33 +239,47 @@ export function writeCourseMapLocalCache({
     editorMode: Boolean(editorMode),
     dirty: dirty === true,
     aliases: Array.from(aliasIds),
+    pendingRevealNodeIds: Array.from(new Set((pendingRevealNodeIds || []).map(clean).filter(Boolean))),
     mapRecord,
     assignments: assignments.map(assignmentSummary).filter(Boolean),
+    courses: courses.map(courseSummary).filter(Boolean),
   };
 
   const target = storage();
+  const localNodeCount = Array.isArray(mapRecord?.document?.nodes) ? mapRecord.document.nodes.length : 0;
+  const localEdgeCount = Array.isArray(mapRecord?.document?.edges) ? mapRecord.document.edges.length : 0;
+  const canTryLocalStorage = localNodeCount <= 500 && localEdgeCount <= 1000;
   let encoded = null;
-  try { encoded = JSON.stringify(payload); } catch {}
-  const rootCacheKey = key(rootId, editorMode, userId);
+  if (canTryLocalStorage) {
+    try { encoded = JSON.stringify(payload); } catch {}
+  }
+  const primaryId = requestedId;
+  const primaryCacheKey = key(primaryId, editorMode, userId);
   const canPersist = Boolean(target && encoded && encoded.length <= CACHE_MAX_LOCAL_CHARS);
-  let persistedRoot = false;
+  let persistedPrimary = false;
   if (canPersist) {
     try {
-      target.setItem(rootCacheKey, encoded);
-      persistedRoot = true;
+      target.setItem(primaryCacheKey, encoded);
+      persistedPrimary = true;
     } catch {}
   }
   for (const id of aliasIds) {
     const cacheKey = key(id, editorMode, userId);
     memory.set(cacheKey, payload);
-    if (!persistedRoot) {
+    if (!persistedPrimary) {
       try { target?.removeItem(cacheKey); } catch {}
-      continue;
+    } else if (cacheKey !== primaryCacheKey) {
+      try {
+        target.setItem(cacheKey, JSON.stringify({ schema: CACHE_SCHEMA, savedAt: payload.savedAt, aliasTo: primaryId }));
+      } catch {}
     }
-    if (cacheKey === rootCacheKey) continue;
-    try {
-      target.setItem(cacheKey, JSON.stringify({ schema: CACHE_SCHEMA, savedAt: payload.savedAt, aliasTo: rootId }));
-    } catch {}
+  }
+
+  void idbSet(primaryCacheKey, payload);
+  for (const id of aliasIds) {
+    const aliasKey = key(id, editorMode, userId);
+    if (aliasKey === primaryCacheKey) continue;
+    void idbSet(aliasKey, { schema: CACHE_SCHEMA, savedAt: payload.savedAt, aliasTo: primaryId });
   }
 }
 
@@ -156,12 +296,14 @@ export function clearCourseMapLocalCache({ courseId, editorMode, userId = '' } =
       const cacheKey = key(id, mode, userId);
       memory.delete(cacheKey);
       try { target?.removeItem(cacheKey); } catch {}
+      void idbDelete(cacheKey);
     }
   }
 }
 
 export function clearAllCourseMapLocalCaches() {
   memory.clear();
+  void idbClear();
   const target = storage();
   if (!target) return;
   try {

@@ -1915,3 +1915,28 @@ html.neo-brutal .course-map-node--locked {
     left: auto;
   }
 }
+
+.react-flow__node.course-map-node-revealed {
+  animation: course-map-node-reveal 520ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+@keyframes course-map-node-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node.course-map-node-revealed {
+    animation: none;
+  }
+}

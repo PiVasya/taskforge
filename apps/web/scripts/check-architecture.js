@@ -212,6 +212,31 @@ if (/application\/x-taskforge-unplaced|onUnplacedDragStart|onMapDrop/.test(cours
   fail('unplaced course-map entities returned to drag-and-drop placement');
 }
 
+if (!/streamLearningCourseMap/.test(courseFlowEditor) || !/getLearningCourseMapDelta/.test(courseFlowEditor)) {
+  fail('learner course map lost streamed initial projection or incremental delta refresh');
+}
+if (!/persistLearnerGraphRef\.current\?\.\(\)/.test(courseFlowEditor) || !/projectionTokenRef\.current = ['"]['"]/.test(courseFlowEditor)) {
+  fail('partial learner-map streams are not persisted safely before navigation');
+}
+if (/\bgetLearningCourseMap\s*\(/.test(courseFlowEditor)) {
+  fail('learner course map returned to the legacy whole-map endpoint');
+}
+const courseMapCache = read('features/course-assignments/courseMapLocalCache.js');
+if (!/indexedDB/.test(courseMapCache) || !/readCourseMapLocalCacheAsync/.test(courseMapCache)) {
+  fail('learner course map lost IndexedDB persistence');
+}
+if (/\bgetLearningCourseMap\s*\(|\bgetAssignmentsByCourseTree\b/.test(assignmentFeature)) {
+  fail('assignment solve returned to full-map/tree refreshes for next-node navigation');
+}
+const authSource = read('auth/AuthContext.jsx');
+if (!/retryTransient/.test(authSource) || /catch\s*\{\s*setUser\(null\)/.test(authSource)) {
+  fail('authentication can again turn a transient profile failure into an immediate logout');
+}
+const httpSource = read('api/http.js');
+if (!/API_TELEMETRY_SLOW_MS/.test(httpSource) || /action:\s*isError\s*\?\s*['"]api-error['"]\s*:\s*['"]api-request['"]/.test(httpSource)) {
+  fail('per-request success telemetry returned and can amplify API request storms');
+}
+
 const coursesPage = read('pages/CoursesPage.jsx');
 if (!/!selectedCourse && !editorTools/.test(coursesPage)) {
   fail('courses catalog can open an empty context menu on blank space for viewers');

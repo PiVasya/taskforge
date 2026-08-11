@@ -13,6 +13,25 @@ function takeBrowserInjectedAccessToken() {
   return typeof token === 'string' && token.trim() ? token.trim() : null;
 }
 
+function isTransientRequestError(error) {
+  const status = Number(error?.response?.status || 0);
+  return !status || status >= 500 || status === 429;
+}
+
+async function retryTransient(action, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientRequestError(error) || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
@@ -28,17 +47,26 @@ export default function AuthProvider({ children }) {
 
   const pullProfileOnce = useCallback(async () => {
     try {
-      const profile = await getProfile();
+      const profile = await retryTransient(() => getProfile());
       setUser(profile || null);
-    } catch {
-      setUser(null);
+      return profile || null;
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status === 401 || status === 403) setUser(null);
+      throw error;
     }
   }, []);
 
   const doLogin = useCallback(async (login, password) => {
     const res = await AuthApi.login({ login, password });
     applyAccess(res.accessToken || null);
-    await pullProfileOnce();
+    try {
+      await pullProfileOnce();
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status === 401 || status === 403) throw error;
+    }
+    return res;
   }, [applyAccess, pullProfileOnce]);
 
   const doLogout = useCallback(async () => {
@@ -50,9 +78,17 @@ export default function AuthProvider({ children }) {
   }, [applyAccess]);
 
   const doRefresh = useCallback(async () => {
-    const res = await AuthApi.refresh();
+    const res = await retryTransient(() => AuthApi.refresh());
     applyAccess(res.accessToken || null);
-    await pullProfileOnce();
+    try {
+      await pullProfileOnce();
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status === 401 || status === 403) {
+        applyAccess(null);
+        throw error;
+      }
+    }
     return res;
   }, [applyAccess, pullProfileOnce]);
 
@@ -66,8 +102,9 @@ export default function AuthProvider({ children }) {
         } else {
           await doRefresh();
         }
-      } catch {
-        applyAccess(null);
+      } catch (error) {
+        const status = Number(error?.response?.status || 0);
+        if (!injectedAccess || status === 401 || status === 403) applyAccess(null);
       } finally {
         setReady(true);
       }

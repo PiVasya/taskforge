@@ -63,7 +63,14 @@ internal static partial class AssignmentApiEndpoints
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
-            var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
+            var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(
+                courseId,
+                userId.Value,
+                db,
+                clients,
+                cfg,
+                ct,
+                IsEditor(http, cfg));
             if (evaluation == null)
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
 
@@ -76,6 +83,70 @@ internal static partial class AssignmentApiEndpoints
                 updatedAt = evaluation.UpdatedAt,
                 updatedBy = evaluation.UpdatedBy
             });
+        });
+
+        app.MapGet("/api/courses/{courseId:guid}/learning-map/stream", async (
+            Guid courseId,
+            HttpContext http,
+            IConfiguration cfg,
+            CourseMapProjectionService projection,
+            CancellationToken ct) =>
+        {
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!userId.HasValue)
+            {
+                http.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            var session = await projection.CreateSessionAsync(courseId, userId.Value, IsEditor(http, cfg), ct);
+            if (session is null)
+            {
+                http.Response.StatusCode = StatusCodes.Status404NotFound;
+                http.Response.ContentType = "application/json; charset=utf-8";
+                await http.Response.WriteAsJsonAsync(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" }, cancellationToken: ct);
+                return;
+            }
+
+            http.Response.StatusCode = StatusCodes.Status200OK;
+            http.Response.ContentType = "application/x-ndjson; charset=utf-8";
+            http.Response.Headers.CacheControl = "no-store";
+            http.Response.Headers["X-Accel-Buffering"] = "no";
+            var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+            await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "meta", data = session.Meta }, jsonOptions) + "\n", ct);
+            await http.Response.Body.FlushAsync(ct);
+
+            foreach (var segment in session.Segments)
+            {
+                await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "segment", data = segment }, jsonOptions) + "\n", ct);
+                await http.Response.Body.FlushAsync(ct);
+            }
+
+            await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "done", data = new { session.Meta.ProjectionToken, session.Meta.ProjectionRevision } }, jsonOptions) + "\n", ct);
+            await http.Response.Body.FlushAsync(ct);
+        });
+
+        app.MapPost("/api/courses/{courseId:guid}/learning-map/delta", async (
+            Guid courseId,
+            LearningMapDeltaRequest request,
+            HttpContext http,
+            IConfiguration cfg,
+            CourseMapProjectionService projection,
+            CancellationToken ct) =>
+        {
+            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+            if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
+            var delta = await projection.CreateDeltaAsync(
+                courseId,
+                userId.Value,
+                IsEditor(http, cfg),
+                new CourseMapProjectionService.DeltaRequest(request.ProjectionToken, request.ChangedAssignmentId),
+                ct);
+            if (delta is null)
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
+            return Microsoft.AspNetCore.Http.Results.Ok(delta);
         });
 
 

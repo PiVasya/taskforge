@@ -84,18 +84,22 @@ internal static partial class EducationApiEndpoints
                 .Where(x => x.UserId == request.UserId)
                 .Select(x => x.GroupId)
                 .ToListAsync(ct);
-            var access = new EducationAccessContext(request.UserId, false, groupIds.ToHashSet());
+            var access = new EducationAccessContext(request.UserId, request.BypassStudentVisibility, groupIds.ToHashSet());
             var allById = await LoadCoursesWithAncestorsAsync(courseIds, db, ct);
             var courses = courseIds.Where(allById.ContainsKey).Select(id => allById[id]).ToList();
 
             var byId = courses.ToDictionary(x => x.Id);
             var rootByCourseId = courses.ToDictionary(x => x.Id, x => ResolveRootCourseId(x, allById));
-            var rootIds = rootByCourseId.Values.Distinct().ToArray();
-            var mapRows = await db.CourseMaps.AsNoTracking()
-                .Where(x => rootIds.Contains(x.RootCourseId))
-                .Select(x => new { x.RootCourseId, x.DocumentJson })
-                .ToListAsync(ct);
-            var progressionByRootId = mapRows.ToDictionary(x => x.RootCourseId, x => ContainsProgressionRules(x.DocumentJson));
+            var progressionByRootId = new Dictionary<Guid, bool>();
+            if (request.IncludeProgressionRules)
+            {
+                var rootIds = rootByCourseId.Values.Distinct().ToArray();
+                var mapRows = await db.CourseMaps.AsNoTracking()
+                    .Where(x => rootIds.Contains(x.RootCourseId))
+                    .Select(x => new { x.RootCourseId, x.DocumentJson })
+                    .ToListAsync(ct);
+                progressionByRootId = mapRows.ToDictionary(x => x.RootCourseId, x => ContainsProgressionRules(x.DocumentJson));
+            }
 
             var rows = courseIds
                 .Where(byId.ContainsKey)
@@ -122,6 +126,22 @@ internal static partial class EducationApiEndpoints
             var courses = await LoadCourseSubtreeRowsAsync(courseId, db, ct);
             if (courses.Count == 0) return Microsoft.AspNetCore.Http.Results.NotFound();
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseTreeResponse(courseId, courses.Select(x => x.Id).ToArray(), courses));
+        });
+
+        app.MapGet("/api/internal/courses/{courseId:guid}/map/meta", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
+        {
+            var root = await ResolveRootCourseAsync(courseId, db, ct);
+            if (root is null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var map = await db.CourseMaps.AsNoTracking()
+                .Where(x => x.RootCourseId == root.Id)
+                .Select(x => new { x.Version, x.UpdatedAt, x.UpdatedBy })
+                .FirstOrDefaultAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapMetaResponse(
+                root.Id,
+                courseId,
+                map?.Version ?? 0,
+                map?.UpdatedAt,
+                map?.UpdatedBy));
         });
 
         app.MapGet("/api/internal/courses/{courseId:guid}/map", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>

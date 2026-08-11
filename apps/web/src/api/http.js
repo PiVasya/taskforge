@@ -1,5 +1,6 @@
 import axios from 'axios';
 
+const API_TELEMETRY_SLOW_MS = 750;
 let accessToken = null;
 
 export function setAccessToken(token) {
@@ -53,10 +54,11 @@ function trackApiTelemetry(config = {}, statusCode, error) {
     const method = String(config.method || 'GET').toUpperCase();
     const normalizedStatus = Number(statusCode || 0) || null;
     const isError = normalizedStatus != null && normalizedStatus >= 400;
+    if (!isError && durationMs < API_TELEMETRY_SLOW_MS) return;
     const payload = {
       path,
       method,
-      action: isError ? 'api-error' : 'api-request',
+      action: isError ? 'api-error' : 'api-slow',
       source: 'api-client',
       statusCode: normalizedStatus,
       durationMs,

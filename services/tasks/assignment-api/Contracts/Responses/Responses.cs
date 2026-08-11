@@ -49,6 +49,15 @@ public sealed class CourseMapInternalResponse
     public Guid? UpdatedBy { get; set; }
 }
 
+public sealed class CourseMapMetaInternalResponse
+{
+    public Guid RootCourseId { get; set; }
+    public Guid RequestedCourseId { get; set; }
+    public int Version { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
+}
+
 public sealed class CourseSummaryDto
 {
     public Guid Id { get; set; }

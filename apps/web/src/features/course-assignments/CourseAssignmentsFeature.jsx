@@ -72,7 +72,7 @@ export default function CourseAssignmentsPage() {
   const queryClient = useQueryClient();
   const { isEditorMode } = useEditorMode();
   const assignmentsKey = useMemo(() => ['course-assignments', courseId], [courseId]);
-  const courseBundleKey = useMemo(() => ['course-bundle', courseId], [courseId]);
+  const courseBundleKey = useMemo(() => ['course-bundle', courseId, isEditorMode ? 'editor' : 'learner'], [courseId, isEditorMode]);
 
   const assignmentsQuery = useQuery({
     queryKey: assignmentsKey,
@@ -83,7 +83,7 @@ export default function CourseAssignmentsPage() {
         sort: typeof item.sort === 'number' ? item.sort : index,
       }));
     },
-    enabled: Boolean(courseId),
+    enabled: Boolean(courseId) && Boolean(isEditorMode),
     staleTime: 20_000,
     keepPreviousData: true,
   });
@@ -91,10 +91,16 @@ export default function CourseAssignmentsPage() {
   const courseBundleQuery = useQuery({
     queryKey: courseBundleKey,
     queryFn: async () => {
-      const [loadedCourse, coursesPayload] = await Promise.all([
-        getCourse(courseId),
-        getCourses().catch(() => []),
-      ]);
+      const loadedCourse = await getCourse(courseId);
+      if (!isEditorMode) {
+        return {
+          course: loadedCourse || null,
+          allCourses: loadedCourse ? [loadedCourse] : [],
+          childCourses: [],
+          courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
+        };
+      }
+      const coursesPayload = await getCourses().catch(() => []);
       const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
       const all = Array.isArray(payloadItems) ? payloadItems : [];
       const children = all
@@ -112,14 +118,14 @@ export default function CourseAssignmentsPage() {
     keepPreviousData: true,
   });
 
-  const items = assignmentsQuery.data || EMPTY_LIST;
+  const items = isEditorMode ? (assignmentsQuery.data || EMPTY_LIST) : EMPTY_LIST;
   const courseBundle = courseBundleQuery.data || EMPTY_COURSE_BUNDLE;
   const course = courseBundle.course || null;
   const childCourses = courseBundle.childCourses || EMPTY_LIST;
   const allCourses = courseBundle.allCourses || EMPTY_LIST;
   const courseCanEdit = courseBundle.courseCanEdit !== false;
-  const loading = assignmentsQuery.isLoading || courseBundleQuery.isLoading;
-  const err = assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '';
+  const loading = courseBundleQuery.isLoading || (isEditorMode && assignmentsQuery.isLoading);
+  const err = isEditorMode && assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '';
 
   const setItems = React.useCallback((updater) => {
     queryClient.setQueryData(assignmentsKey, (previous = []) => (
@@ -144,6 +150,7 @@ export default function CourseAssignmentsPage() {
 
   const [childProgressByCourseId, setChildProgressByCourseId] = useState({});
   const [courseProgressByCourseId, setCourseProgressByCourseId] = useState({});
+  const [learnerFlowProgress, setLearnerFlowProgress] = useState(null);
   const [q, setQ] = useState('');
   const [contentLayout, setContentLayout] = useState(() => {
     if (typeof window === 'undefined') return 'flow';
@@ -261,10 +268,16 @@ export default function CourseAssignmentsPage() {
     const next = await queryClient.fetchQuery({
       queryKey: courseBundleKey,
       queryFn: async () => {
-        const [loadedCourse, coursesPayload] = await Promise.all([
-          getCourse(courseId),
-          getCourses().catch(() => []),
-        ]);
+        const loadedCourse = await getCourse(courseId);
+        if (!isEditorMode) {
+          return {
+            course: loadedCourse || null,
+            allCourses: loadedCourse ? [loadedCourse] : [],
+            childCourses: [],
+            courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
+          };
+        }
+        const coursesPayload = await getCourses().catch(() => []);
         const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
         const all = Array.isArray(payloadItems) ? payloadItems : [];
         return {
@@ -278,7 +291,7 @@ export default function CourseAssignmentsPage() {
       force: true,
     });
     return next?.childCourses || [];
-  }, [courseBundleKey, courseId, queryClient]);
+  }, [courseBundleKey, courseId, isEditorMode, queryClient]);
 
   const contentItems = useMemo(() => {
     const courses = (childCourses || []).map(makeCourseContentItem);
@@ -306,7 +319,7 @@ export default function CourseAssignmentsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!progressContext || assignmentsQuery.isLoading || !progressContext.requestKey) {
+    if (!isEditorMode || !progressContext || assignmentsQuery.isLoading || !progressContext.requestKey) {
       return () => {
         cancelled = true;
       };
@@ -363,7 +376,7 @@ export default function CourseAssignmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [assignmentsQuery.isLoading, childCourses, courseId, items, progressContext, progressRevision]);
+  }, [assignmentsQuery.isLoading, childCourses, courseId, isEditorMode, items, progressContext, progressRevision]);
 
 
   const filtered = useMemo(() => {
@@ -419,8 +432,9 @@ export default function CourseAssignmentsPage() {
   }, [items]);
 
   const courseProgress = useMemo(() => {
+    if (!isEditorMode && learnerFlowProgress) return learnerFlowProgress;
     return courseProgressByCourseId[courseId] || directCourseProgress;
-  }, [courseProgressByCourseId, courseId, directCourseProgress]);
+  }, [courseProgressByCourseId, courseId, directCourseProgress, isEditorMode, learnerFlowProgress]);
 
   const setSortMode = (mode) => {
     const next = new URLSearchParams(params);
@@ -1052,10 +1066,15 @@ export default function CourseAssignmentsPage() {
           exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}
           dataRevision={assignmentsQuery.updatedAt || 0}
+          onLearnerProgress={isEditorMode ? null : setLearnerFlowProgress}
           graphImportRequest={graphImportRequest}
           onGraphImportComplete={(key) => setGraphImportRequest((current) => current?.key === key ? null : current)}
           onRefreshCourseData={async () => {
-            await Promise.all([reloadCourseData(), reloadAssignments()]);
+            if (isEditorMode) {
+              await Promise.all([reloadCourseData(), reloadAssignments()]);
+              return;
+            }
+            await reloadCourseData();
           }}
         />
       ) : (

@@ -247,6 +247,8 @@ services:
       Cache__UserSummariesTtlSeconds: ${CACHE_USER_SUMMARIES_TTL_SECONDS:-120}
       Cache__LeaderboardTtlSeconds: ${CACHE_LEADERBOARD_TTL_SECONDS:-30}
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
+      Cache__CourseMapSnapshotTtlSeconds: ${CACHE_COURSE_MAP_SNAPSHOT_TTL_SECONDS:-60}
+      Cache__CourseMapProjectionTtlSeconds: ${CACHE_COURSE_MAP_PROJECTION_TTL_SECONDS:-1800}
       CodeAnalyzer__Enabled: ${CODE_ANALYZER_ENABLED:-true}
       CodeAnalyzer__Url: http://code-analyzer:8080
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}

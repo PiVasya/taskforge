@@ -19,6 +19,8 @@ public sealed record UserIdsRequest(Guid[] UserIds);
 
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 
+public sealed record LearningMapDeltaRequest(string? ProjectionToken, Guid? ChangedAssignmentId);
+
 public sealed record ActivityLeaderboardRequest(Guid? CourseId, int? Days, Guid[]? UserIds, Guid[]? CourseIds = null);
 
 public sealed record AssignmentRequest(Guid? Id, string? Title, string? Description, string? Type, string? Language, List<string>? AllowedLanguages, string? Tags, int? Difficulty, int? Rating, string? StarterCode, string? TestsJson, JsonElement? Tests, JsonElement? TestCases, List<string>? CodeForbiddenCalls, List<string>? CodeRequiredCalls, bool? IsVisible, bool? IsHidden, int? Sort, string? ImageTestReferenceKey, int? ImageTestSimilarityThreshold, JsonElement? AnalyticsSettings = null);
