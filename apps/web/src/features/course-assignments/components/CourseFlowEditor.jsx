@@ -44,6 +44,7 @@ import {
 } from '../courseMapModel';
 import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
 import { clearCourseMapLocalCache, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../courseMapLocalCache';
+import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { applyTaskGraphImport } from '../courseTaskGraphImport';
 import CourseNode from '../nodes/CourseNode';
@@ -170,6 +171,19 @@ function nodeAccessClassName(searchMatch, accessEffects, editorMode) {
   return classes.join(' ');
 }
 
+function courseMapMode(editorMode) {
+  return editorMode ? 'editor' : 'learner';
+}
+
+function documentHasLearnerSyntheticArtifacts(document) {
+  if (!document || typeof document !== 'object') return false;
+  return hasLearnerSyntheticArtifacts(document.nodes || [], document.edges || []);
+}
+
+function sourceMatchesMode(source, mode, viewKey) {
+  return Boolean(source && source.mode === mode && source.viewKey === viewKey);
+}
+
 
 function findOpenMapPosition(basePosition, existingNodes, index = 0) {
   const base = { x: Number(basePosition?.x) || 0, y: Number(basePosition?.y) || 0 };
@@ -218,7 +232,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const dataRevisionRef = React.useRef(dataRevision);
   const loadMapRef = React.useRef(null);
   const loadRequestRef = React.useRef(0);
-  const loadedRootRef = React.useRef('');
+  const loadedViewRef = React.useRef('');
+  const activeViewRef = React.useRef('');
+  const activeModeRef = React.useRef('learner');
+  const previousViewRef = React.useRef('');
+  const graphSourceRef = React.useRef({ mode: '', source: 'empty', viewKey: '' });
+  const modeTransitionRef = React.useRef(true);
+  const autosaveTimerRef = React.useRef(null);
+  const editorTreeFetchRef = React.useRef({ rootId: '', promise: null });
   const copyBufferRef = React.useRef(null);
   const pasteSequenceRef = React.useRef(0);
   const searchInputRef = React.useRef(null);
@@ -233,8 +254,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const streamAbortRef = React.useRef(null);
   const learnerPersistTimerRef = React.useRef(null);
   const persistLearnerGraphRef = React.useRef(null);
+  const unplacedDebugRef = React.useRef('');
 
   const rootId = String(course?.id || '');
+  const modeName = courseMapMode(editorMode);
+  const viewKey = `${rootId}:${modeName}`;
+  activeViewRef.current = viewKey;
+  activeModeRef.current = modeName;
   const mergedCourseRows = React.useMemo(() => {
     const byId = new Map();
     for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...(Array.isArray(mapCourses) ? mapCourses : [])]) {
@@ -271,6 +297,51 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     rootCourseId: rootId,
     aliases: cacheCourseIds,
   }), [cacheCourseIds, currentUserId, editorMode, rootId]);
+
+  React.useLayoutEffect(() => {
+    const previousView = previousViewRef.current;
+    if (previousView === viewKey) return;
+
+    courseMapConsole(previousView ? 'MODE_SWITCH' : 'MODE_INIT', {
+      previousView: previousView || null,
+      nextView: viewKey,
+      rootCourseId: rootId,
+      mode: modeName,
+      nodesBefore: nodesRef.current.length,
+      edgesBefore: edgesRef.current.length,
+      dirtyBefore: dirtyRef.current,
+      sourceBefore: graphSourceRef.current,
+    });
+
+    previousViewRef.current = viewKey;
+    modeTransitionRef.current = true;
+    graphSourceRef.current = { mode: '', source: 'mode-transition', viewKey };
+    loadedViewRef.current = '';
+    loadRequestRef.current += 1;
+    streamAbortRef.current?.abort?.();
+    streamAbortRef.current = null;
+    pendingLearnerEdgesRef.current = [];
+    window.clearTimeout(learnerPersistTimerRef.current);
+    learnerPersistTimerRef.current = null;
+    window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
+    setContext((current) => ({ ...current, open: false }));
+
+    if (previousView) {
+      nodesRef.current = [];
+      edgesRef.current = [];
+      assignmentsRef.current = [];
+      mapCoursesRef.current = course?.id ? [course] : [];
+      courseProgressRef.current = new Map();
+      projectionTokenRef.current = '';
+      setNodes([]);
+      setEdges([]);
+      setAssignments([]);
+      setMapCourses(mapCoursesRef.current);
+      setCourseProgressByNode(new Map());
+      setLoading(true);
+    }
+  }, [course, modeName, rootId, setEdges, setNodes, viewKey]);
 
   React.useEffect(() => { recordRef.current = record; }, [record]);
   React.useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
@@ -327,8 +398,45 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     };
   }, [editorMode, loading, rootId]);
 
-  const persistSession = React.useCallback((nextDirty = dirtyRef.current) => {
-    if (!rootId || !nodesRef.current.length) return;
+  const persistSession = React.useCallback((nextDirty = dirtyRef.current, options = {}) => {
+    const reason = String(options?.reason || 'manual');
+    const expectedViewKey = String(options?.expectedViewKey || viewKey);
+    const source = graphSourceRef.current;
+
+    if (!rootId || !nodesRef.current.length) {
+      courseMapConsole('SESSION_SKIP', { reason, skip: 'empty-graph', expectedViewKey, activeView: activeViewRef.current, mode: modeName });
+      return false;
+    }
+    if (activeViewRef.current !== expectedViewKey || activeModeRef.current !== modeName) {
+      courseMapConsole('SESSION_SKIP', {
+        reason,
+        skip: 'stale-view-callback',
+        expectedViewKey,
+        activeView: activeViewRef.current,
+        callbackMode: modeName,
+        activeMode: activeModeRef.current,
+      }, 'warn');
+      return false;
+    }
+    if (modeTransitionRef.current) {
+      courseMapConsole('SESSION_SKIP', { reason, skip: 'mode-transition', viewKey, mode: modeName, source });
+      return false;
+    }
+    if (!sourceMatchesMode(source, modeName, viewKey)) {
+      courseMapConsole('SESSION_SKIP', { reason, skip: 'source-mode-mismatch', viewKey, mode: modeName, source }, 'warn');
+      return false;
+    }
+    if (editorMode && hasLearnerSyntheticArtifacts(nodesRef.current, edgesRef.current)) {
+      courseMapConsoleGraph('SYNTHETIC_GUARD', {
+        reason: 'editor-persist-blocked',
+        viewKey,
+        source,
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      }, 'error');
+      return false;
+    }
+
     const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
     const cachedDocument = editorMode ? document : {
       ...document,
@@ -346,6 +454,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       version: recordRef.current.version || 0,
       dirty: dirtyValue,
       aliases: cacheCourseIds,
+      sourceMode: modeName,
+      source: source.source,
       document,
     }, sessionOptions);
     writeCourseMapLocalCache({
@@ -355,19 +465,39 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       userId: currentUserId,
       aliases: cacheCourseIds,
       mapRecord,
-      assignments,
+      assignments: assignmentsRef.current,
       courses: mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses,
       dirty: dirtyValue,
     });
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, rootId, sessionOptions, visibleCourses]);
+    courseMapConsoleGraph('SESSION_SAVE', {
+      reason,
+      viewKey,
+      mode: modeName,
+      source: source.source,
+      dirty: dirtyValue,
+      version: Number(recordRef.current.version || 0),
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+    });
+    return true;
+  }, [cacheCourseIds, currentUserId, editorMode, modeName, rootId, sessionOptions, viewKey, visibleCourses]);
 
-  const rememberBeforeNavigate = React.useCallback(() => persistSession(dirtyRef.current), [persistSession]);
+  const rememberBeforeNavigate = React.useCallback(() => persistSession(dirtyRef.current, { reason: 'before-navigate', expectedViewKey: viewKey }), [persistSession, viewKey]);
 
   React.useEffect(() => {
+    window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
     if (!rootId || !nodes.length) return undefined;
-    const timer = window.setTimeout(() => persistSession(dirtyRef.current), 420);
-    return () => window.clearTimeout(timer);
-  }, [edges, nodes, persistSession, rootId]);
+    const expectedViewKey = viewKey;
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      persistSession(dirtyRef.current, { reason: 'autosave', expectedViewKey });
+    }, 420);
+    return () => {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    };
+  }, [edges, nodes, persistSession, rootId, viewKey]);
 
   const openAssignment = React.useCallback((assignmentId) => {
     rememberBeforeNavigate();
@@ -424,7 +554,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const computedProgress = computeCourseProgress(rawNodes, rawEdges, assignmentRows, rootId);
     const progressByCourse = !editorMode && progressOverride?.size ? progressOverride : computedProgress;
     const accessByNode = computeCourseMapAccessEffects(rawNodes, rawEdges);
-    return rawNodes.map((node) => {
+    return rawNodes
+      .filter((node) => !(editorMode && node?.type === 'locked'))
+      .map((node) => {
       if (node.type === 'locked') {
         const settings = node.settings || node.data?.settings || {};
         const searchText = `${settings.title || ''} ${settings.requirement || ''}`.toLowerCase();
@@ -472,13 +604,27 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     decorateNodesWithSources(rawNodes, edgesRef.current, assignments, visibleCourses, courseProgressByNode)
   ), [assignments, courseProgressByNode, decorateNodesWithSources, visibleCourses]);
 
-  const decorateEdges = React.useCallback((rawEdges) => rawEdges.map((edge) => ({ ...edge, ...edgeStyle(editorMode, edge) })), [editorMode]);
+  const decorateEdges = React.useCallback((rawEdges) => rawEdges
+    .filter((edge) => !(editorMode && edge?.settings?.synthetic === true))
+    .map((edge) => ({ ...edge, ...edgeStyle(editorMode, edge) })), [editorMode]);
 
   const applyMapPayload = React.useCallback((mapRecord, treeAssignments, {
     preferSession = true,
     fromCache = false,
     cachedState = null,
+    source = '',
   } = {}) => {
+    if (activeViewRef.current !== viewKey || activeModeRef.current !== modeName) {
+      courseMapConsole('SOURCE_APPLY_SKIP', {
+        source: source || (fromCache ? `${modeName}-cache` : `${modeName}-server`),
+        callbackView: viewKey,
+        activeView: activeViewRef.current,
+        callbackMode: modeName,
+        activeMode: activeModeRef.current,
+      }, 'warn');
+      return false;
+    }
+    const sourceLabel = source || (fromCache ? `${modeName}-cache` : `${modeName}-server`);
     const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
     const cachedCourses = Array.isArray(cachedState?.courses) ? cachedState.courses : [];
     const pendingRevealNodeIds = !editorMode && fromCache
@@ -495,13 +641,39 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       setMapCourses(nextCourses);
     }
     const suppliedCourseProgress = editorMode ? new Map() : readCourseProgress(mapRecord?.document);
-    const session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
-    const persistedDraft = editorMode && cachedState?.dirty && cachedState?.mapRecord?.document
+    let session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
+    if (editorMode && session?.document && documentHasLearnerSyntheticArtifacts(session.document)) {
+      courseMapConsoleGraph('SYNTHETIC_GUARD', {
+        reason: 'discard-editor-session',
+        rootCourseId: rootId,
+        source: session?.source || 'session',
+        nodes: session.document.nodes || [],
+        edges: session.document.edges || [],
+      }, 'error');
+      clearCourseMapSessionState(rootId, sessionOptions);
+      session = null;
+    }
+    const cachedDraftDocument = editorMode && cachedState?.dirty && cachedState?.mapRecord?.document
+      ? cachedState.mapRecord.document
+      : null;
+    const cachedDraftValid = !cachedDraftDocument || !documentHasLearnerSyntheticArtifacts(cachedDraftDocument);
+    if (editorMode && cachedDraftDocument && !cachedDraftValid) {
+      courseMapConsoleGraph('SYNTHETIC_GUARD', {
+        reason: 'discard-editor-local-cache',
+        rootCourseId: rootId,
+        nodes: cachedDraftDocument.nodes || [],
+        edges: cachedDraftDocument.edges || [],
+      }, 'error');
+      clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
+    }
+    const persistedDraft = editorMode && cachedState?.dirty && cachedDraftDocument && cachedDraftValid
       ? {
           version: Number(cachedState.mapRecord.version || 0),
           dirty: true,
           aliases: cachedState.aliases || cacheCourseIds,
-          document: cachedState.mapRecord.document,
+          sourceMode: 'editor',
+          source: 'editor-cache',
+          document: cachedDraftDocument,
         }
       : null;
     const localState = session?.document ? session : persistedDraft;
@@ -582,15 +754,31 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const nextEdges = decorateEdges(document.edges || []);
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
+    graphSourceRef.current = { mode: modeName, source: sourceLabel, viewKey };
+    modeTransitionRef.current = false;
+    loadedViewRef.current = viewKey;
     setNodes(nextNodes);
     setEdges(nextEdges);
-    loadedRootRef.current = rootId;
     setLoading(false);
+
+    courseMapConsoleGraph('SOURCE_APPLIED', {
+      source: sourceLabel,
+      viewKey,
+      mode: modeName,
+      version: Number(expectedRecord.version || 0),
+      assignments: nextAssignments.length,
+      courses: nextCourses.length,
+      dirty: Boolean(isDirty),
+      nodes: nextNodes,
+      edges: nextEdges,
+    });
 
     setCourseMapSessionState(rootId, {
       version: Number(expectedRecord.version || 0),
       dirty: Boolean(isDirty),
       aliases: cacheCourseIds,
+      sourceMode: modeName,
+      source: sourceLabel,
       document,
     }, sessionOptions);
 
@@ -647,7 +835,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         dirty: Boolean(isDirty),
       });
     }
-  }, [allCourses, cacheCourseIds, course, currentUserId, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, onLearnerProgress, openAssignment, rootId, sessionOptions, setEdges, setNodes, visibleCourses]);
+    return true;
+  }, [allCourses, cacheCourseIds, course, currentUserId, decorateEdges, editAssignment, editCourse, editorMode, flow, focusBranch, focusNode, modeName, onLearnerProgress, openAssignment, rootId, sessionOptions, setEdges, setNodes, viewKey, visibleCourses]);
 
   const mergeRowsById = React.useCallback((current, incoming) => {
     const byId = new Map();
@@ -679,6 +868,17 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     courseProgress = {},
     animate = true,
   } = {}) => {
+    if (editorMode || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
+      courseMapConsole('LEARNER_MERGE_SKIP', {
+        reason: 'inactive-learner-view',
+        callbackView: viewKey,
+        activeView: activeViewRef.current,
+        activeMode: activeModeRef.current,
+        incomingNodes: Array.isArray(incomingNodes) ? incomingNodes.length : 0,
+        incomingEdges: Array.isArray(incomingEdges) ? incomingEdges.length : 0,
+      }, 'warn');
+      return false;
+    }
     const normalizedAssignments = (Array.isArray(incomingAssignments) ? incomingAssignments : []).map((item) => ({
       ...item,
       solvedByCurrentUser: item?.solvedByCurrentUser === true,
@@ -808,12 +1008,44 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       }, 720);
     }
 
-    loadedRootRef.current = rootId;
+    loadedViewRef.current = viewKey;
+    modeTransitionRef.current = false;
     setLoading(false);
-  }, [decorateEdges, decorateNodesWithSources, editorMode, mergeRowsById, onLearnerProgress, rootId, setEdges, setNodes, visibleCourses]);
+    courseMapConsoleGraph('LEARNER_MERGE', {
+      viewKey,
+      source: graphSourceRef.current?.source || 'learner',
+      incomingNodes: Array.isArray(incomingNodes) ? incomingNodes.length : 0,
+      incomingEdges: Array.isArray(incomingEdges) ? incomingEdges.length : 0,
+      pendingEdges: pendingLearnerEdgesRef.current.length,
+      nodes: nextNodes,
+      edges: nextEdges,
+    });
+    return true;
+  }, [decorateEdges, decorateNodesWithSources, editorMode, mergeRowsById, onLearnerProgress, rootId, setEdges, setNodes, viewKey, visibleCourses]);
 
-  const persistLearnerGraph = React.useCallback(() => {
-    if (editorMode || !rootId || !nodesRef.current.length) return;
+  const persistLearnerGraph = React.useCallback((reason = 'learner-persist') => {
+    const expectedViewKey = viewKey;
+    const source = graphSourceRef.current;
+    if (editorMode || activeModeRef.current !== 'learner' || activeViewRef.current !== expectedViewKey) {
+      courseMapConsole('LEARNER_PERSIST_SKIP', {
+        reason,
+        skip: 'inactive-learner-view',
+        expectedViewKey,
+        activeView: activeViewRef.current,
+        activeMode: activeModeRef.current,
+      });
+      return false;
+    }
+    if (modeTransitionRef.current || !sourceMatchesMode(source, 'learner', expectedViewKey)) {
+      courseMapConsole('LEARNER_PERSIST_SKIP', {
+        reason,
+        skip: modeTransitionRef.current ? 'mode-transition' : 'source-mode-mismatch',
+        expectedViewKey,
+        source,
+      });
+      return false;
+    }
+    if (!rootId || !nodesRef.current.length) return false;
     const document = {
       ...serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current),
       courseProgressVersion: 1,
@@ -839,12 +1071,37 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       courses: mapCoursesRef.current,
       dirty: false,
     });
-  }, [currentUserId, editorMode, rootId]);
+    courseMapConsoleGraph('LEARNER_PERSIST', {
+      reason,
+      viewKey: expectedViewKey,
+      source: source.source,
+      version: Number(mapRecord.version || 0),
+      projectionRevision: Number(mapRecord.projectionRevision || 0),
+      hasProjectionToken: Boolean(mapRecord.projectionToken),
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+    });
+    return true;
+  }, [currentUserId, editorMode, rootId, viewKey]);
 
   persistLearnerGraphRef.current = persistLearnerGraph;
 
   const applyLearnerDelta = React.useCallback((delta) => {
-    if (!delta || delta.resetRequired) return false;
+    if (editorMode || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
+      courseMapConsole('DELTA_SKIP', { reason: 'inactive-learner-view', viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+      return false;
+    }
+    if (!delta || delta.resetRequired) {
+      courseMapConsole('DELTA_RESET', {
+        viewKey,
+        resetRequired: Boolean(delta?.resetRequired),
+        version: Number(delta?.version || 0),
+        projectionRevision: Number(delta?.projectionRevision || 0),
+      }, 'warn');
+      return false;
+    }
+    graphSourceRef.current = { mode: 'learner', source: 'learner-delta', viewKey };
+    modeTransitionRef.current = false;
     const removeNodeIds = new Set((delta.nodeIdsRemoved || []).map(String));
     const removeEdgeIds = new Set((delta.edgeIdsRemoved || []).map(String));
     if (removeNodeIds.size || removeEdgeIds.size) {
@@ -869,26 +1126,62 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       projectionToken: delta.projectionToken || projectionTokenRef.current,
       projectionRevision: Number(delta.projectionRevision || 0),
     });
-    persistLearnerGraph();
+    courseMapConsole('DELTA_APPLIED', {
+      viewKey,
+      nodesAdded: (delta.nodesAdded || []).length,
+      nodesRemoved: removeNodeIds.size,
+      edgesAdded: (delta.edgesAdded || []).length,
+      edgesRemoved: removeEdgeIds.size,
+      assignmentsChanged: (delta.assignmentsChanged || []).length,
+      coursesChanged: (delta.coursesChanged || []).length,
+      openedCourses: (delta.openedCourseIds || []).length,
+      projectionRevision: Number(delta.projectionRevision || 0),
+    });
+    persistLearnerGraph('delta-applied');
     return true;
-  }, [mergeLearnerGraph, persistLearnerGraph, setEdges, setNodes, updateLearnerProjectionRecord]);
+  }, [editorMode, mergeLearnerGraph, persistLearnerGraph, setEdges, setNodes, updateLearnerProjectionRecord, viewKey]);
 
   const streamLearnerMap = React.useCallback(async (requestId, { quiet = false, preserveExisting = false } = {}) => {
+    if (editorMode || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
+      courseMapConsole('STREAM_SKIP', { reason: 'inactive-learner-view', requestId, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+      return;
+    }
     streamAbortRef.current?.abort?.();
     const controller = new AbortController();
     streamAbortRef.current = controller;
     let receivedSegment = false;
+    let keepExisting = Boolean(preserveExisting);
     const seenNodeIds = new Set();
     const seenEdgeIds = new Set();
     if (!quiet) setLoading(true);
+    courseMapConsoleGraph('STREAM_BEGIN', {
+      requestId,
+      viewKey,
+      quiet: Boolean(quiet),
+      preserveExisting: keepExisting,
+      versionBefore: Number(recordRef.current.version || 0),
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+    });
 
     await streamLearningCourseMap(rootId, {
       signal: controller.signal,
       onMeta: (meta) => {
-        if (requestId !== loadRequestRef.current) return;
+        if (requestId !== loadRequestRef.current || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
+          courseMapConsole('STREAM_META_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+          return;
+        }
+        const incomingVersion = Number(meta?.version || 0);
+        const cachedVersion = Number(recordRef.current.version || 0);
+        if (keepExisting && cachedVersion > 0 && incomingVersion > 0 && incomingVersion !== cachedVersion) {
+          courseMapConsole('CACHE_DISCARD', { reason: 'map-version-changed', cachedVersion, incomingVersion, viewKey }, 'warn');
+          keepExisting = false;
+        }
+        graphSourceRef.current = { mode: 'learner', source: 'learner-stream', viewKey };
+        modeTransitionRef.current = false;
         projectionTokenRef.current = '';
         pendingLearnerEdgesRef.current = [];
-        if (!preserveExisting) {
+        if (!keepExisting) {
           viewportRef.current = meta?.viewport || viewportRef.current;
           assignmentsRef.current = [];
           mapCoursesRef.current = course?.id ? [course] : [];
@@ -907,7 +1200,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           projectionRevision: 0,
           updatedAt: meta?.updatedAt || null,
           updatedBy: meta?.updatedBy || null,
-          ...(preserveExisting ? {} : {
+          ...(keepExisting ? {} : {
             document: {
               schemaVersion: 1,
               courseProgressVersion: 1,
@@ -918,21 +1211,44 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             },
           }),
         });
-        if (!preserveExisting) {
+        if (!keepExisting) {
           try { flow.setViewport(meta?.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
         }
+        courseMapConsole('STREAM_META', {
+          requestId,
+          viewKey,
+          version: incomingVersion,
+          preserveExisting: keepExisting,
+          rootCourseId: meta?.rootCourseId || rootId,
+          requestedCourseId: meta?.requestedCourseId || rootId,
+        });
       },
       onSegment: (segment) => {
-        if (requestId !== loadRequestRef.current || !segment) return;
+        if (requestId !== loadRequestRef.current || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey || !segment) {
+          if (segment) courseMapConsole('STREAM_SEGMENT_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current }, 'warn');
+          return;
+        }
         receivedSegment = true;
         for (const node of segment.nodes || []) if (node?.id) seenNodeIds.add(String(node.id));
         for (const edge of segment.edges || []) if (edge?.id) seenEdgeIds.add(String(edge.id));
+        courseMapConsole('STREAM_SEGMENT', {
+          requestId,
+          viewKey,
+          courseId: segment.courseId || null,
+          nodes: (segment.nodes || []).length,
+          edges: (segment.edges || []).length,
+          assignments: (segment.assignments || []).length,
+          courses: (segment.courses || []).length,
+        });
         mergeLearnerGraph({ ...segment, animate: nodesRef.current.length > 0 });
         window.clearTimeout(learnerPersistTimerRef.current);
-        learnerPersistTimerRef.current = window.setTimeout(() => persistLearnerGraph(), 180);
+        learnerPersistTimerRef.current = window.setTimeout(() => persistLearnerGraph('stream-partial'), 180);
       },
       onDone: (done, meta) => {
-        if (requestId !== loadRequestRef.current) return;
+        if (requestId !== loadRequestRef.current || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
+          courseMapConsole('STREAM_DONE_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+          return;
+        }
         updateLearnerProjectionRecord({
           rootCourseId: meta?.rootCourseId || rootId,
           requestedCourseId: meta?.requestedCourseId || rootId,
@@ -942,7 +1258,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           updatedAt: meta?.updatedAt || recordRef.current.updatedAt || null,
           updatedBy: meta?.updatedBy || recordRef.current.updatedBy || null,
         });
-        if (preserveExisting) {
+        let staleNodeCount = 0;
+        let staleEdgeCount = 0;
+        if (keepExisting) {
           const staleNodeIds = new Set(nodesRef.current
             .map((node) => String(node.id))
             .filter((id) => !seenNodeIds.has(id)));
@@ -950,6 +1268,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           const nextEdges = edgesRef.current.filter((edge) => seenEdgeIds.has(String(edge.id))
             && !staleNodeIds.has(String(edge.source))
             && !staleNodeIds.has(String(edge.target)));
+          staleNodeCount = staleNodeIds.size;
+          staleEdgeCount = Math.max(0, edgesRef.current.length - nextEdges.length);
           nodesRef.current = nextNodes;
           edgesRef.current = nextEdges;
           setNodes(nextNodes);
@@ -972,55 +1292,228 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }
         window.clearTimeout(learnerPersistTimerRef.current);
         learnerPersistTimerRef.current = null;
-        persistLearnerGraph();
+        graphSourceRef.current = { mode: 'learner', source: 'learner-stream', viewKey };
+        modeTransitionRef.current = false;
+        loadedViewRef.current = viewKey;
+        courseMapConsoleGraph('STREAM_DONE', {
+          requestId,
+          viewKey,
+          version: Number(meta?.version || recordRef.current.version || 0),
+          projectionRevision: Number(done?.projectionRevision || meta?.projectionRevision || 0),
+          staleNodesRemoved: staleNodeCount,
+          staleEdgesRemoved: staleEdgeCount,
+          seenNodes: seenNodeIds.size,
+          seenEdges: seenEdgeIds.size,
+          nodes: nodesRef.current,
+          edges: edgesRef.current,
+        });
+        persistLearnerGraph('stream-done');
       },
     });
 
     if (requestId === loadRequestRef.current && !receivedSegment) setLoading(false);
-  }, [course, flow, mergeLearnerGraph, persistLearnerGraph, rootId, setEdges, setNodes, updateLearnerProjectionRecord]);
+  }, [course, editorMode, flow, mergeLearnerGraph, persistLearnerGraph, rootId, setEdges, setNodes, updateLearnerProjectionRecord, viewKey]);
+
+  const fetchEditorTree = React.useCallback(async (reason = 'editor-load') => {
+    const existing = editorTreeFetchRef.current;
+    if (existing.rootId === rootId && existing.promise) {
+      courseMapConsole('EDITOR_TREE_JOIN', { rootCourseId: rootId, reason });
+      return existing.promise;
+    }
+    const started = performance.now();
+    courseMapConsole('EDITOR_TREE_BEGIN', { rootCourseId: rootId, reason });
+    const promise = getAssignmentsByCourseTree(rootId)
+      .then((rows) => {
+        courseMapConsole('EDITOR_TREE_END', {
+          rootCourseId: rootId,
+          reason,
+          assignments: Array.isArray(rows) ? rows.length : 0,
+          durationMs: Math.round((performance.now() - started) * 10) / 10,
+        });
+        return rows;
+      })
+      .catch((error) => {
+        courseMapConsole('EDITOR_TREE_FAIL', {
+          rootCourseId: rootId,
+          reason,
+          durationMs: Math.round((performance.now() - started) * 10) / 10,
+          status: error?.response?.status || null,
+          message: error?.message || String(error),
+        }, 'error');
+        throw error;
+      })
+      .finally(() => {
+        if (editorTreeFetchRef.current.promise === promise) {
+          editorTreeFetchRef.current = { rootId: '', promise: null };
+        }
+      });
+    editorTreeFetchRef.current = { rootId, promise };
+    return promise;
+  }, [rootId]);
+
+  const resetLearnerClientGraph = React.useCallback((reason, { clearCache = false } = {}) => {
+    courseMapConsoleGraph('LEARNER_RESET_LOCAL', {
+      reason,
+      viewKey,
+      clearCache: Boolean(clearCache),
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+    }, 'warn');
+    nodesRef.current = [];
+    edgesRef.current = [];
+    assignmentsRef.current = [];
+    mapCoursesRef.current = course?.id ? [course] : [];
+    courseProgressRef.current = new Map();
+    pendingLearnerEdgesRef.current = [];
+    projectionTokenRef.current = '';
+    setNodes([]);
+    setEdges([]);
+    setAssignments([]);
+    setMapCourses(mapCoursesRef.current);
+    setCourseProgressByNode(new Map());
+    graphSourceRef.current = { mode: '', source: `learner-reset:${reason}`, viewKey };
+    modeTransitionRef.current = true;
+    loadedViewRef.current = '';
+    if (clearCache) clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
+  }, [course, currentUserId, rootId, setEdges, setNodes, viewKey]);
 
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
     const requestId = ++loadRequestRef.current;
-    const initialForRoot = loadedRootRef.current !== rootId;
+    const initialForView = loadedViewRef.current !== viewKey;
     let restoredFromCache = false;
     let cached = null;
+    const started = performance.now();
 
-    if (initialForRoot && preferSession) {
+    courseMapConsoleGraph('LOAD_BEGIN', {
+      requestId,
+      viewKey,
+      mode: modeName,
+      preferSession: Boolean(preferSession),
+      quiet: Boolean(quiet),
+      initialForView,
+      sourceBefore: graphSourceRef.current,
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+    });
+
+    if (initialForView && preferSession) {
       cached = readCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
-      if (!cached) cached = await readCourseMapLocalCacheAsync({ courseId: rootId, editorMode, userId: currentUserId });
-      if (requestId !== loadRequestRef.current) return;
+      let cacheLayer = cached?.cacheLayer || 'miss';
+      if (!cached) {
+        cached = await readCourseMapLocalCacheAsync({ courseId: rootId, editorMode, userId: currentUserId });
+        cacheLayer = cached?.cacheLayer || 'miss';
+      }
+      if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey) {
+        courseMapConsole('CACHE_SKIP', { requestId, viewKey, cacheLayer, reason: 'stale-request' }, 'warn');
+        return;
+      }
       const cacheHasProgress = editorMode || Number(cached?.mapRecord?.document?.courseProgressVersion) === 1;
-      if (cached?.mapRecord && cacheHasProgress) {
-        applyMapPayload(cached.mapRecord, cached.assignments, { preferSession: true, fromCache: true, cachedState: cached });
-        if (!editorMode) {
+      const cacheHasSynthetic = Boolean(editorMode && cached?.mapRecord?.document && documentHasLearnerSyntheticArtifacts(cached.mapRecord.document));
+      courseMapConsole('CACHE_LOOKUP', {
+        requestId,
+        viewKey,
+        mode: modeName,
+        result: cached?.mapRecord ? 'hit' : 'miss',
+        layer: cacheLayer,
+        version: Number(cached?.mapRecord?.version || 0),
+        dirty: Boolean(cached?.dirty),
+        projectionToken: Boolean(cached?.mapRecord?.projectionToken),
+        sourceMode: cached?.sourceMode || null,
+        synthetic: cacheHasSynthetic,
+      }, cacheHasSynthetic ? 'error' : 'info');
+
+      if (cacheHasSynthetic) {
+        clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
+        clearCourseMapSessionState(rootId, sessionOptions);
+        cached = null;
+      } else if (cached?.mapRecord && cacheHasProgress) {
+        const applied = applyMapPayload(cached.mapRecord, cached.assignments, {
+          preferSession: true,
+          fromCache: true,
+          cachedState: cached,
+          source: `${modeName}-cache:${cacheLayer}`,
+        });
+        restoredFromCache = applied === true;
+        if (restoredFromCache && !editorMode) {
           projectionTokenRef.current = String(cached.mapRecord?.projectionToken || '');
           mapCoursesRef.current = Array.isArray(cached.courses) ? cached.courses : [];
           setMapCourses(mapCoursesRef.current);
         }
-        restoredFromCache = true;
       } else if (cached?.mapRecord && !editorMode) {
+        courseMapConsole('CACHE_DISCARD', { viewKey, reason: 'learner-progress-schema-missing' }, 'warn');
         clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
+        cached = null;
       }
     }
 
-    if (!quiet && initialForRoot && !restoredFromCache) setLoading(true);
+    if (!quiet && initialForView && !restoredFromCache) setLoading(true);
 
     if (!editorMode) {
       try {
         const token = String(cached?.mapRecord?.projectionToken || projectionTokenRef.current || '');
         if (restoredFromCache && token) {
           const projectionCourseId = String(cached?.mapRecord?.requestedCourseId || cached?.requestedCourseId || rootId);
+          courseMapConsole('DELTA_REQUEST', {
+            requestId,
+            viewKey,
+            projectionCourseId,
+            version: Number(cached?.mapRecord?.version || 0),
+            projectionRevision: Number(cached?.mapRecord?.projectionRevision || 0),
+          });
+          const deltaStarted = performance.now();
           const delta = await getLearningCourseMapDelta(projectionCourseId, token, null);
-          if (requestId !== loadRequestRef.current) return;
+          courseMapConsole('DELTA_RESPONSE', {
+            requestId,
+            viewKey,
+            durationMs: Math.round((performance.now() - deltaStarted) * 10) / 10,
+            resetRequired: Boolean(delta?.resetRequired),
+            version: Number(delta?.version || 0),
+            projectionRevision: Number(delta?.projectionRevision || 0),
+            nodesAdded: (delta?.nodesAdded || []).length,
+            nodesRemoved: (delta?.nodeIdsRemoved || []).length,
+            edgesAdded: (delta?.edgesAdded || []).length,
+            edgesRemoved: (delta?.edgeIdsRemoved || []).length,
+          });
+          if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey) return;
           if (!delta?.resetRequired) {
             applyLearnerDelta(delta);
+            courseMapConsole('LOAD_END', {
+              requestId,
+              viewKey,
+              path: 'cache+delta',
+              durationMs: Math.round((performance.now() - started) * 10) / 10,
+            });
             return;
           }
+          resetLearnerClientGraph('delta-reset-required', { clearCache: true });
+          restoredFromCache = false;
+          cached = null;
         }
-        await streamLearnerMap(requestId, { quiet: restoredFromCache || quiet, preserveExisting: restoredFromCache });
+        await streamLearnerMap(requestId, {
+          quiet: restoredFromCache || quiet,
+          preserveExisting: restoredFromCache && !token,
+        });
+        courseMapConsole('LOAD_END', {
+          requestId,
+          viewKey,
+          path: restoredFromCache ? 'partial-cache+stream' : 'stream',
+          durationMs: Math.round((performance.now() - started) * 10) / 10,
+        });
       } catch (error) {
-        if (error?.name === 'AbortError') return;
+        if (error?.name === 'AbortError') {
+          courseMapConsole('LOAD_ABORT', { requestId, viewKey, mode: 'learner' }, 'warn');
+          return;
+        }
+        courseMapConsole('LOAD_FAIL', {
+          requestId,
+          viewKey,
+          mode: 'learner',
+          restoredFromCache,
+          status: error?.response?.status || null,
+          message: error?.message || String(error),
+          durationMs: Math.round((performance.now() - started) * 10) / 10,
+        }, 'error');
         if (requestId === loadRequestRef.current && !restoredFromCache) {
           notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
         }
@@ -1031,62 +1524,115 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
 
     try {
+      const mapStarted = performance.now();
+      const mapPromise = getCourseMap(rootId).then((value) => {
+        courseMapConsole('EDITOR_MAP_END', {
+          requestId,
+          viewKey,
+          version: Number(value?.version || 0),
+          durationMs: Math.round((performance.now() - mapStarted) * 10) / 10,
+          documentNodes: Array.isArray(value?.document?.nodes) ? value.document.nodes.length : 0,
+          documentEdges: Array.isArray(value?.document?.edges) ? value.document.edges.length : 0,
+        });
+        return value;
+      });
+      courseMapConsole('EDITOR_MAP_BEGIN', { requestId, viewKey, rootCourseId: rootId });
       const [mapRecord, treeAssignments] = await Promise.all([
-        getCourseMap(rootId),
-        getAssignmentsByCourseTree(rootId),
+        mapPromise,
+        fetchEditorTree('editor-map-load'),
       ]);
-      if (requestId !== loadRequestRef.current) return;
-      applyMapPayload(mapRecord, treeAssignments, { preferSession, fromCache: false });
+      if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey || activeModeRef.current !== 'editor') {
+        courseMapConsole('EDITOR_LOAD_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+        return;
+      }
+      applyMapPayload(mapRecord, treeAssignments, {
+        preferSession,
+        fromCache: false,
+        source: 'editor-server',
+      });
+      courseMapConsole('LOAD_END', {
+        requestId,
+        viewKey,
+        path: restoredFromCache ? 'editor-cache+server' : 'editor-server',
+        durationMs: Math.round((performance.now() - started) * 10) / 10,
+      });
     } catch (error) {
+      courseMapConsole('LOAD_FAIL', {
+        requestId,
+        viewKey,
+        mode: 'editor',
+        restoredFromCache,
+        status: error?.response?.status || null,
+        message: error?.message || String(error),
+        durationMs: Math.round((performance.now() - started) * 10) / 10,
+      }, 'error');
       if (requestId === loadRequestRef.current && !restoredFromCache) {
         notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
       }
     } finally {
-      if (requestId === loadRequestRef.current && initialForRoot && !restoredFromCache) setLoading(false);
+      if (requestId === loadRequestRef.current && initialForView && !restoredFromCache) setLoading(false);
     }
-  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, notify, rootId, streamLearnerMap]);
+  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, resetLearnerClientGraph, rootId, sessionOptions, streamLearnerMap, viewKey]);
 
   loadMapRef.current = loadMap;
   React.useEffect(() => {
     if (!rootId) return;
-    if (loadedRootRef.current !== rootId) {
-      setLoading(true);
-      setNodes([]);
-      setEdges([]);
-    }
-    void loadMapRef.current?.({ preferSession: true, quiet: loadedRootRef.current === rootId });
-  }, [editorMode, rootId, setEdges, setNodes]);
+    const alreadyLoaded = loadedViewRef.current === viewKey;
+    courseMapConsole('LOAD_TRIGGER', { viewKey, alreadyLoaded, mode: modeName });
+    void loadMapRef.current?.({ preferSession: true, quiet: alreadyLoaded });
+  }, [modeName, rootId, viewKey]);
 
   React.useEffect(() => {
-    if (!editorMode) return undefined;
+    if (!editorMode || !rootId) return undefined;
     if (dataRevisionRef.current === dataRevision) return undefined;
+    const previousRevision = dataRevisionRef.current;
     dataRevisionRef.current = dataRevision;
-    if (!rootId) return;
+    if (modeTransitionRef.current || loadedViewRef.current !== viewKey || !sourceMatchesMode(graphSourceRef.current, 'editor', viewKey)) {
+      courseMapConsole('EDITOR_TREE_REVISION_DEFER', {
+        rootCourseId: rootId,
+        viewKey,
+        previousRevision,
+        nextRevision: dataRevision,
+        transition: modeTransitionRef.current,
+        loadedView: loadedViewRef.current,
+        source: graphSourceRef.current,
+      });
+      return undefined;
+    }
     let disposed = false;
-    getAssignmentsByCourseTree(rootId).then((rows) => {
-      if (disposed) return;
+    courseMapConsole('EDITOR_TREE_REVISION', { rootCourseId: rootId, viewKey, previousRevision, nextRevision: dataRevision });
+    fetchEditorTree('data-revision').then((rows) => {
+      if (disposed || activeViewRef.current !== viewKey || activeModeRef.current !== 'editor') return;
       const nextAssignments = Array.isArray(rows) ? rows : [];
+      assignmentsRef.current = nextAssignments;
       setAssignments(nextAssignments);
+      if (hasLearnerSyntheticArtifacts(nodesRef.current, edgesRef.current)) {
+        courseMapConsoleGraph('SYNTHETIC_GUARD', {
+          reason: 'editor-tree-revision-cache-blocked',
+          viewKey,
+          nodes: nodesRef.current,
+          edges: edgesRef.current,
+        }, 'error');
+        return;
+      }
       const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
-      const cachedDocument = editorMode ? document : {
-        ...document,
-        courseProgressVersion: 1,
-        courseProgress: writeCourseProgress(courseProgressRef.current),
-      };
       writeCourseMapLocalCache({
         courseId: rootId,
         rootCourseId: recordRef.current.rootCourseId || rootId,
-        editorMode,
+        editorMode: true,
         userId: currentUserId,
         aliases: cacheCourseIds,
-        mapRecord: { ...recordRef.current, document: cachedDocument },
+        mapRecord: { ...recordRef.current, document },
         assignments: nextAssignments,
         courses: mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses,
-        dirty: editorMode && dirtyRef.current,
+        dirty: dirtyRef.current,
       });
-    }).catch(() => {});
+      courseMapConsole('EDITOR_TREE_REVISION_APPLIED', { rootCourseId: rootId, viewKey, assignments: nextAssignments.length, revision: dataRevision });
+    }).catch((error) => {
+      courseMapConsole('EDITOR_TREE_REVISION_FAIL', { rootCourseId: rootId, viewKey, status: error?.response?.status || null, message: error?.message || String(error) }, 'error');
+    });
     return () => { disposed = true; };
-  }, [cacheCourseIds, currentUserId, dataRevision, editorMode, rootId, visibleCourses]);
+  }, [cacheCourseIds, currentUserId, dataRevision, editorMode, fetchEditorTree, rootId, viewKey, visibleCourses]);
 
   React.useEffect(() => {
     if (!nodesRef.current.length) return;
@@ -1411,8 +1957,42 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (!editorMode || !rootId) return false;
     if (!dirtyRef.current) return true;
     const quietSuccess = Boolean(options?.quietSuccess);
+    const source = graphSourceRef.current;
+    if (activeModeRef.current !== 'editor' || activeViewRef.current !== viewKey || modeTransitionRef.current || !sourceMatchesMode(source, 'editor', viewKey)) {
+      courseMapConsole('SAVE_BLOCKED', {
+        reason: 'editor-source-not-ready',
+        viewKey,
+        activeView: activeViewRef.current,
+        activeMode: activeModeRef.current,
+        transition: modeTransitionRef.current,
+        source,
+      }, 'error');
+      notify.error('Полная карта редактора ещё загружается. Повторите сохранение после загрузки.');
+      return false;
+    }
+    if (hasLearnerSyntheticArtifacts(nodesRef.current, edgesRef.current)) {
+      courseMapConsoleGraph('SYNTHETIC_GUARD', {
+        reason: 'editor-save-blocked',
+        viewKey,
+        source,
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      }, 'error');
+      notify.error('Карта редактора содержит временные элементы ученического режима. Карта перезагружена без сохранения.');
+      clearCourseMapSessionState(rootId, sessionOptions);
+      clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
+      void loadMapRef.current?.({ preferSession: false, quiet: false });
+      return false;
+    }
     try {
       const document = serializeCourseMap(nodesRef.current, edgesRef.current, viewportRef.current);
+      courseMapConsoleGraph('SAVE_BEGIN', {
+        viewKey,
+        source: source.source,
+        expectedVersion: Number(recordRef.current.version || 0),
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      });
       const saved = await saveCourseMap(rootId, Number(recordRef.current.version || 0), document);
       setRecord(saved);
       recordRef.current = saved;
@@ -1437,18 +2017,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         dirty: false,
       });
       clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
+      graphSourceRef.current = { mode: 'editor', source: 'editor-server-saved', viewKey };
+      modeTransitionRef.current = false;
+      loadedViewRef.current = viewKey;
+      courseMapConsole('SAVE_END', {
+        viewKey,
+        version: Number(saved.version || 0),
+        nodes: nodesRef.current.length,
+        edges: edgesRef.current.length,
+      });
       if (!quietSuccess) notify.success('Карта сохранена');
       return true;
     } catch (error) {
       if (error?.response?.status === 409) {
+        courseMapConsole('SAVE_FAIL', { viewKey, status: 409, reason: 'version-conflict', message: error?.message || String(error) }, 'error');
         setServerChanged(true);
         notify.warn('Карту уже изменил другой редактор. Ваши локальные изменения сохранены на экране.');
         return false;
       }
+      courseMapConsole('SAVE_FAIL', { viewKey, status: error?.response?.status || null, message: error?.message || String(error) }, 'error');
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
       return false;
     }
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey]);
 
   React.useEffect(() => {
     const requestKey = String(graphImportRequest?.key || '');
@@ -1618,6 +2209,22 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const documentNow = React.useMemo(() => serializeCourseMap(nodes, edges, viewportRef.current), [edges, nodes]);
   const unplaced = React.useMemo(() => findUnplacedEntities(documentNow, visibleCourses, assignments), [assignments, documentNow, visibleCourses]);
+
+  React.useEffect(() => {
+    if (!editorMode || modeTransitionRef.current || loadedViewRef.current !== viewKey) return;
+    const signature = `${viewKey}:${nodes.length}:${edges.length}:${assignments.length}:${visibleCourses.length}:${unplaced.length}`;
+    if (unplacedDebugRef.current === signature) return;
+    unplacedDebugRef.current = signature;
+    courseMapConsole('EDITOR_UNPLACED', {
+      viewKey,
+      source: graphSourceRef.current,
+      nodes: nodes.length,
+      edges: edges.length,
+      assignments: assignments.length,
+      courses: visibleCourses.length,
+      unplaced: unplaced.length,
+    }, unplaced.length > 50 ? 'warn' : 'info');
+  }, [assignments.length, edges.length, editorMode, nodes.length, unplaced.length, viewKey, visibleCourses.length]);
 
   const buildPlacedNode = React.useCallback((entry, position) => {
     const entity = entry.entity;

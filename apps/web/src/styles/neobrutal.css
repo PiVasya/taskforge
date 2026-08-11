@@ -243,8 +243,8 @@ html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textare
 }
 
 html.neo-brutal :where(input, textarea:not(.inputarea), select, .input, .textarea, .select):focus {
-  border-color: rgb(var(--neo-ink)) !important;
-  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink)), 0 0 0 3px rgba(var(--brand-300) / 0.55) !important;
+  border-color: rgb(var(--brand-500)) !important;
+  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink)), inset 0 0 0 2px rgba(var(--brand-300) / 0.42) !important;
 }
 
 html.neo-brutal input[type="checkbox"],

@@ -11,14 +11,18 @@ function stateKey(courseId, options = {}) {
 }
 
 export function getCourseMapSessionState(courseId, options = {}) {
-  return mapState.get(stateKey(courseId, options)) || null;
+  const value = mapState.get(stateKey(courseId, options)) || null;
+  const expectedMode = clean(options.scope) || 'editor';
+  if (value?.sourceMode && clean(value.sourceMode) !== expectedMode) return null;
+  return value;
 }
 
 export function setCourseMapSessionState(courseId, value, options = {}) {
   const rootId = clean(options.rootCourseId || courseId);
   if (!rootId) return;
   const ids = new Set([rootId, clean(courseId), ...(options.aliases || []).map(clean)].filter(Boolean));
-  for (const id of ids) mapState.set(stateKey(id, options), value);
+  const nextValue = { ...value, sourceMode: clean(options.scope) || 'editor' };
+  for (const id of ids) mapState.set(stateKey(id, options), nextValue);
 }
 
 export function clearCourseMapSessionState(courseId, options = {}) {

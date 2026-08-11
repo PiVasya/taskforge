@@ -49,6 +49,7 @@ const requiredFiles = [
   'features/agent/AgentFeature.jsx',
   'features/agent/components/AgentComposer.jsx',
   'features/course-assignments/CourseAssignmentsFeature.jsx',
+  'features/course-assignments/courseMapDebug.js',
   'features/assignment-edit/AssignmentEditFeature.jsx',
   'features/admin-solutions/useAdminSolutionsData.js',
 ];
@@ -212,6 +213,22 @@ if (/application\/x-taskforge-unplaced|onUnplacedDragStart|onMapDrop/.test(cours
   fail('unplaced course-map entities returned to drag-and-drop placement');
 }
 
+if (!/activeViewRef/.test(courseFlowEditor) || !/modeTransitionRef/.test(courseFlowEditor) || !/loadedViewRef/.test(courseFlowEditor)) {
+  fail('course map no longer isolates learner/editor lifecycle by view key');
+}
+if (!/SYNTHETIC_GUARD/.test(courseFlowEditor) || !/hasLearnerSyntheticArtifacts/.test(courseFlowEditor)) {
+  fail('editor course map lost the learner synthetic-node guard');
+}
+if (/loadedRootRef/.test(courseFlowEditor)) {
+  fail('course map load identity regressed to root-only state and can mix learner/editor graphs');
+}
+if (!/EDITOR_TREE_JOIN/.test(courseFlowEditor) || !/editorTreeFetchRef/.test(courseFlowEditor)) {
+  fail('editor assignment-tree requests are no longer coalesced');
+}
+if (!/\[TFDBG MAP\]/.test(read('features/course-assignments/courseMapDebug.js'))) {
+  fail('course-map console diagnostics prefix is missing');
+}
+
 if (!/streamLearningCourseMap/.test(courseFlowEditor) || !/getLearningCourseMapDelta/.test(courseFlowEditor)) {
   fail('learner course map lost streamed initial projection or incremental delta refresh');
 }
@@ -224,6 +241,9 @@ if (/\bgetLearningCourseMap\s*\(/.test(courseFlowEditor)) {
 const courseMapCache = read('features/course-assignments/courseMapLocalCache.js');
 if (!/indexedDB/.test(courseMapCache) || !/readCourseMapLocalCacheAsync/.test(courseMapCache)) {
   fail('learner course map lost IndexedDB persistence');
+}
+if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache)) {
+  fail('course-map local cache does not separate learner/editor source modes or invalidate polluted v4 entries');
 }
 if (/\bgetLearningCourseMap\s*\(|\bgetAssignmentsByCourseTree\b/.test(assignmentFeature)) {
   fail('assignment solve returned to full-map/tree refreshes for next-node navigation');

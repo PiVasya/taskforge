@@ -27,6 +27,7 @@ def main() -> int:
     endpoints_path = ROOT / "services" / "tasks" / "assignment-api" / "Endpoints" / "Assignments" / "AssignmentsEndpoints.cs"
     assignment_access_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "AssignmentApiAccessService.cs"
     education_internal_path = ROOT / "services" / "education" / "api" / "Endpoints" / "Internal" / "InternalEndpoints.cs"
+    education_map_path = ROOT / "services" / "education" / "api" / "Endpoints" / "CourseMaps" / "CourseMapEndpoints.cs"
 
     if projection_path.exists():
         projection = projection_path.read_text(encoding="utf-8")
@@ -83,6 +84,11 @@ def main() -> int:
         education_source = education_internal_path.read_text(encoding="utf-8")
         if "request.BypassStudentVisibility" not in education_source or "request.IncludeProgressionRules" not in education_source:
             errors.append("education batch access lost admin visibility bypass or lightweight progression-rule opt-out")
+
+    if education_map_path.exists():
+        education_map_source = education_map_path.read_text(encoding="utf-8")
+        if "COURSE_MAP_SYNTHETIC_FORBIDDEN" not in education_map_source or 'TryGetProperty("synthetic"' not in education_map_source:
+            errors.append("education course-map save must reject learner synthetic nodes/edges")
 
     if errors:
         print("C# source invariants failed:\n" + "\n".join(errors), file=sys.stderr)

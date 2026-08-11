@@ -1,5 +1,5 @@
-const CACHE_SCHEMA = 4;
-const CACHE_PREFIX = 'taskforge.course-map.cache.v4';
+const CACHE_SCHEMA = 5;
+const CACHE_PREFIX = 'taskforge.course-map.cache.v5';
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_MAX_LOCAL_CHARS = 650_000;
 const IDB_NAME = 'taskforge-course-map-cache-v1';
@@ -143,8 +143,10 @@ function courseSummary(item) {
   };
 }
 
-function normalize(payload) {
+function normalize(payload, expectedMode = '') {
   if (!payload || payload.schema !== CACHE_SCHEMA || !payload.mapRecord) return null;
+  const sourceMode = clean(payload.sourceMode || (payload.editorMode ? 'editor' : 'learner'));
+  if (expectedMode && sourceMode !== expectedMode) return null;
   const savedAt = Number(payload.savedAt || 0);
   if (!savedAt || Date.now() - savedAt > CACHE_MAX_AGE_MS) return null;
   return {
@@ -158,17 +160,19 @@ function normalize(payload) {
 }
 
 function readStoredPayload(target, cacheKey, editorMode, userId) {
+  const expectedMode = modeKey(editorMode);
   const parsed = JSON.parse(target.getItem(cacheKey) || 'null');
   if (parsed?.schema === CACHE_SCHEMA && parsed?.aliasTo) {
-    return normalize(JSON.parse(target.getItem(key(parsed.aliasTo, editorMode, userId)) || 'null'));
+    return normalize(JSON.parse(target.getItem(key(parsed.aliasTo, editorMode, userId)) || 'null'), expectedMode);
   }
-  return normalize(parsed);
+  return normalize(parsed, expectedMode);
 }
+
 
 export function readCourseMapLocalCache({ courseId, editorMode = false, userId = '' } = {}) {
   const cacheKey = key(courseId, editorMode, userId);
-  const inMemory = normalize(memory.get(cacheKey));
-  if (inMemory) return inMemory;
+  const inMemory = normalize(memory.get(cacheKey), modeKey(editorMode));
+  if (inMemory) return { ...inMemory, cacheLayer: 'memory' };
   const target = storage();
   if (!target) return null;
   try {
@@ -178,7 +182,7 @@ export function readCourseMapLocalCache({ courseId, editorMode = false, userId =
       return null;
     }
     memory.set(cacheKey, parsed);
-    return parsed;
+    return { ...parsed, cacheLayer: 'localStorage' };
   } catch {
     try { target.removeItem(cacheKey); } catch {}
     return null;
@@ -192,7 +196,7 @@ export async function readCourseMapLocalCacheAsync({ courseId, editorMode = fals
   try {
     let stored = await idbGet(cacheKey);
     if (stored?.schema === CACHE_SCHEMA && stored?.aliasTo) stored = await idbGet(key(stored.aliasTo, editorMode, userId));
-    const parsed = normalize(stored);
+    const parsed = normalize(stored, modeKey(editorMode));
     if (!parsed) {
       await idbDelete(cacheKey);
       return null;
@@ -200,7 +204,7 @@ export async function readCourseMapLocalCacheAsync({ courseId, editorMode = fals
     for (const id of new Set([courseId, parsed.rootCourseId, ...(parsed.aliases || [])].map(clean).filter(Boolean))) {
       memory.set(key(id, editorMode, userId), parsed);
     }
-    return parsed;
+    return { ...parsed, cacheLayer: 'indexedDB' };
   } catch {
     return null;
   }
@@ -237,6 +241,7 @@ export function writeCourseMapLocalCache({
     requestedCourseId: requestedId,
     rootCourseId: rootId,
     editorMode: Boolean(editorMode),
+    sourceMode: modeKey(editorMode),
     dirty: dirty === true,
     aliases: Array.from(aliasIds),
     pendingRevealNodeIds: Array.from(new Set((pendingRevealNodeIds || []).map(clean).filter(Boolean))),
@@ -290,7 +295,7 @@ export function clearCourseMapLocalCache({ courseId, editorMode, userId = '' } =
   const target = storage();
   for (const mode of modes) {
     const directKey = key(targetId, mode, userId);
-    const cached = normalize(memory.get(directKey)) || readCourseMapLocalCache({ courseId: targetId, editorMode: mode, userId });
+    const cached = normalize(memory.get(directKey), modeKey(mode)) || readCourseMapLocalCache({ courseId: targetId, editorMode: mode, userId });
     const ids = new Set([targetId, ...(cached?.aliases || [])]);
     for (const id of ids) {
       const cacheKey = key(id, mode, userId);

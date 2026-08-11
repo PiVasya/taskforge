@@ -279,6 +279,13 @@ internal static partial class EducationApiEndpoints
                 return ("COURSE_MAP_COURSE_OUTSIDE_TREE", "Карта содержит курс за пределами текущего дерева.");
             if (string.Equals(kind, "course", StringComparison.OrdinalIgnoreCase) && entityId == rootCourseId)
                 hasRootCourseNode = true;
+            if (node.TryGetProperty("settings", out var nodeSettings)
+                && nodeSettings.ValueKind == JsonValueKind.Object
+                && nodeSettings.TryGetProperty("synthetic", out var syntheticNode)
+                && syntheticNode.ValueKind == JsonValueKind.True)
+            {
+                return ("COURSE_MAP_SYNTHETIC_FORBIDDEN", "В редакторскую карту нельзя сохранять временные узлы ученического режима.");
+            }
 
             if (!node.TryGetProperty("position", out var position) || position.ValueKind != JsonValueKind.Object)
                 return ("COURSE_MAP_POSITION_REQUIRED", "Для каждого узла нужна position.");
@@ -311,6 +318,8 @@ internal static partial class EducationApiEndpoints
             {
                 if (settingsElement.ValueKind != JsonValueKind.Object)
                     return ("COURSE_MAP_EDGE_SETTINGS_INVALID", "Настройки связи должны быть объектом.");
+                if (settingsElement.TryGetProperty("synthetic", out var syntheticEdge) && syntheticEdge.ValueKind == JsonValueKind.True)
+                    return ("COURSE_MAP_SYNTHETIC_FORBIDDEN", "В редакторскую карту нельзя сохранять временные связи ученического режима.");
                 if (settingsElement.TryGetProperty("accessMode", out var modeElement) && modeElement.ValueKind != JsonValueKind.Null)
                 {
                     if (modeElement.ValueKind != JsonValueKind.String)

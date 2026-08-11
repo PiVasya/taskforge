@@ -119,11 +119,26 @@ internal sealed class CourseMapProjectionService
         bool bypassStudentVisibility,
         CancellationToken ct)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        _logger.LogInformation(
+            "TFDBG MAP SESSION START requested={RequestedCourseId} user={UserId} bypass={Bypass}",
+            requestedCourseId,
+            userId,
+            bypassStudentVisibility);
+
         var snapshot = await GetSnapshotAsync(requestedCourseId, ct);
-        if (snapshot is null) return null;
+        if (snapshot is null)
+        {
+            _logger.LogWarning("TFDBG MAP SESSION MISS requested={RequestedCourseId} user={UserId} stage=snapshot", requestedCourseId, userId);
+            return null;
+        }
 
         var evaluation = await EvaluateAsync(snapshot, requestedCourseId, userId, bypassStudentVisibility, solvedIds: null, ct);
-        if (evaluation is null) return null;
+        if (evaluation is null)
+        {
+            _logger.LogWarning("TFDBG MAP SESSION MISS requested={RequestedCourseId} user={UserId} stage=evaluation version={Version}", requestedCourseId, userId, snapshot.Version);
+            return null;
+        }
 
         var state = BuildProjectionState(snapshot, evaluation, userId, bypassStudentVisibility);
         var token = Guid.NewGuid().ToString("N");
@@ -145,6 +160,20 @@ internal sealed class CourseMapProjectionService
             snapshot.UpdatedAt,
             snapshot.UpdatedBy);
 
+        _logger.LogInformation(
+            "TFDBG MAP SESSION READY requested={RequestedCourseId} root={RootCourseId} user={UserId} version={Version} revision={Revision} visibleNodes={VisibleNodes} visibleEdges={VisibleEdges} visibleCourses={VisibleCourses} visibleAssignments={VisibleAssignments} solved={Solved} durationMs={DurationMs:F2}",
+            requestedCourseId,
+            snapshot.RootCourseId,
+            userId,
+            snapshot.Version,
+            state.ProjectionRevision,
+            state.VisibleNodeIds.Length,
+            state.VisibleEdgeIds.Length,
+            state.VisibleCourseIds.Length,
+            state.VisibleAssignmentIds.Length,
+            state.SolvedAssignmentIds.Length,
+            (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+
         return new SessionResult(meta, segments);
     }
 
@@ -155,9 +184,18 @@ internal sealed class CourseMapProjectionService
         DeltaRequest request,
         CancellationToken ct)
     {
+        var startedAt = DateTimeOffset.UtcNow;
         var token = (request.ProjectionToken ?? string.Empty).Trim();
+        _logger.LogInformation(
+            "TFDBG MAP DELTA START requested={RequestedCourseId} user={UserId} bypass={Bypass} token={TokenPrefix} changedAssignment={ChangedAssignmentId}",
+            requestedCourseId,
+            userId,
+            bypassStudentVisibility,
+            token.Length > 10 ? token[..10] : token,
+            request.ChangedAssignmentId);
         if (token.Length == 0)
         {
+            _logger.LogWarning("TFDBG MAP DELTA RESET requested={RequestedCourseId} user={UserId} reason=missing-token", requestedCourseId, userId);
             return ResetDelta();
         }
 
@@ -167,6 +205,11 @@ internal sealed class CourseMapProjectionService
             || previous.RequestedCourseId != requestedCourseId
             || previous.BypassStudentVisibility != bypassStudentVisibility)
         {
+            _logger.LogWarning(
+                "TFDBG MAP DELTA RESET requested={RequestedCourseId} user={UserId} reason=projection-state-mismatch found={Found}",
+                requestedCourseId,
+                userId,
+                previous is not null);
             return ResetDelta();
         }
 
@@ -174,6 +217,14 @@ internal sealed class CourseMapProjectionService
         if (snapshot is null) return null;
         if (snapshot.RootCourseId != previous.RootCourseId || snapshot.Version != previous.Version)
         {
+            _logger.LogWarning(
+                "TFDBG MAP DELTA RESET requested={RequestedCourseId} user={UserId} reason=map-version-changed previousRoot={PreviousRoot} nextRoot={NextRoot} previousVersion={PreviousVersion} nextVersion={NextVersion}",
+                requestedCourseId,
+                userId,
+                previous.RootCourseId,
+                snapshot.RootCourseId,
+                previous.Version,
+                snapshot.Version);
             return ResetDelta(snapshot.Version);
         }
 
@@ -186,6 +237,12 @@ internal sealed class CourseMapProjectionService
             && replayState is null
             && DateTimeOffset.UtcNow - previous.VerifiedAt <= TimeSpan.FromSeconds(45))
         {
+            _logger.LogInformation(
+                "TFDBG MAP DELTA EMPTY requested={RequestedCourseId} user={UserId} reason=recently-verified revision={Revision} durationMs={DurationMs:F2}",
+                requestedCourseId,
+                userId,
+                previous.ProjectionRevision,
+                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
             return new DeltaResult(
                 false,
                 previous.ProjectionToken,
@@ -288,6 +345,22 @@ internal sealed class CourseMapProjectionService
             await SaveCurrentProjectionPointerAsync(next, ct);
         }
 
+        _logger.LogInformation(
+            "TFDBG MAP DELTA READY requested={RequestedCourseId} user={UserId} replay={Replay} version={Version} revision={Revision} addNodes={AddNodes} removeNodes={RemoveNodes} addEdges={AddEdges} removeEdges={RemoveEdges} assignmentChanges={AssignmentChanges} courseChanges={CourseChanges} openedCourses={OpenedCourses} durationMs={DurationMs:F2}",
+            requestedCourseId,
+            userId,
+            replayState is not null,
+            next.Version,
+            next.ProjectionRevision,
+            nodesAdded.Length,
+            nodeIdsRemoved.Length,
+            edgesAdded.Length,
+            edgeIdsRemoved.Length,
+            assignmentCards.Length,
+            courseCards.Length,
+            openedCourseIds.Length,
+            (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+
         return new DeltaResult(
             false,
             next.ProjectionToken,
@@ -374,12 +447,31 @@ internal sealed class CourseMapProjectionService
         CancellationToken ct,
         HashSet<Guid>? knownAccessibleCourseIds = null)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        _logger.LogInformation(
+            "TFDBG MAP EVAL START requested={RequestedCourseId} root={RootCourseId} user={UserId} version={Version} bypass={Bypass} knownAccess={KnownAccess} suppliedSolved={SuppliedSolved}",
+            requestedCourseId,
+            snapshot.RootCourseId,
+            userId,
+            snapshot.Version,
+            bypassStudentVisibility,
+            knownAccessibleCourseIds?.Count,
+            solvedIds?.Count);
         var allCourseIds = snapshot.Tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         var accessibleCourseIds = knownAccessibleCourseIds ?? (bypassStudentVisibility
             ? allCourseIds.ToHashSet()
             : await LoadAccessibleCourseIdsAsync(allCourseIds, userId, _clients, _cfg, ct));
 
-        if (!accessibleCourseIds.Contains(requestedCourseId)) return null;
+        if (!accessibleCourseIds.Contains(requestedCourseId))
+        {
+            _logger.LogWarning(
+                "TFDBG MAP EVAL DENY requested={RequestedCourseId} user={UserId} accessibleCourses={AccessibleCourses} durationMs={DurationMs:F2}",
+                requestedCourseId,
+                userId,
+                accessibleCourseIds.Count,
+                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+            return null;
+        }
 
         var assignments = snapshot.Assignments
             .Where(x => accessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
@@ -389,7 +481,7 @@ internal sealed class CourseMapProjectionService
         if (snapshot.Document is null || snapshot.Document.Value.ValueKind != JsonValueKind.Object)
         {
             var fallback = BuildFallbackDocument(snapshot, requestedCourseId, accessibleCourseIds, assignments, solvedIds);
-            return CourseMapProgressionService.EvaluatePrepared(
+            var fallbackEvaluation = CourseMapProgressionService.EvaluatePrepared(
                 snapshot.RootCourseId,
                 requestedCourseId,
                 snapshot.Version,
@@ -400,6 +492,17 @@ internal sealed class CourseMapProjectionService
                 solvedIds,
                 snapshot.UpdatedAt,
                 snapshot.UpdatedBy);
+            _logger.LogInformation(
+                "TFDBG MAP EVAL END requested={RequestedCourseId} user={UserId} fallback=true accessibleCourses={AccessibleCourses} assignments={Assignments} solved={Solved} visibleCourses={VisibleCourses} visibleAssignments={VisibleAssignments} durationMs={DurationMs:F2}",
+                requestedCourseId,
+                userId,
+                accessibleCourseIds.Count,
+                assignments.Count,
+                solvedIds.Count,
+                fallbackEvaluation.VisibleCourseIds.Count,
+                fallbackEvaluation.VisibleAssignmentIds.Count,
+                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+            return fallbackEvaluation;
         }
 
         var evaluation = CourseMapProgressionService.EvaluatePrepared(
@@ -414,17 +517,34 @@ internal sealed class CourseMapProjectionService
             snapshot.UpdatedAt,
             snapshot.UpdatedBy);
 
-        return evaluation.VisibleCourseIds.Contains(requestedCourseId) ? evaluation : null;
+        var visible = evaluation.VisibleCourseIds.Contains(requestedCourseId);
+        _logger.LogInformation(
+            "TFDBG MAP EVAL END requested={RequestedCourseId} user={UserId} fallback=false allowed={Allowed} accessibleCourses={AccessibleCourses} assignments={Assignments} solved={Solved} visibleCourses={VisibleCourses} visibleAssignments={VisibleAssignments} durationMs={DurationMs:F2}",
+            requestedCourseId,
+            userId,
+            visible,
+            accessibleCourseIds.Count,
+            assignments.Count,
+            solvedIds.Count,
+            evaluation.VisibleCourseIds.Count,
+            evaluation.VisibleAssignmentIds.Count,
+            (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+        return visible ? evaluation : null;
     }
 
     private async Task<CourseMapSnapshot?> GetSnapshotAsync(Guid requestedCourseId, CancellationToken ct)
     {
         var meta = await GetMapMetaAsync(requestedCourseId, ct);
-        if (meta is null || meta.RootCourseId == Guid.Empty) return null;
+        if (meta is null || meta.RootCourseId == Guid.Empty)
+        {
+            _logger.LogWarning("TFDBG MAP SNAPSHOT MISS requested={RequestedCourseId} stage=meta", requestedCourseId);
+            return null;
+        }
         var key = SnapshotKey(meta.RootCourseId, meta.Version);
 
         if (_memory.TryGetValue<CourseMapSnapshot>(key, out var memorySnapshot) && memorySnapshot is not null)
         {
+            _logger.LogInformation("TFDBG MAP SNAPSHOT HIT requested={RequestedCourseId} root={RootCourseId} version={Version} layer=memory", requestedCourseId, meta.RootCourseId, meta.Version);
             return memorySnapshot;
         }
 
@@ -432,12 +552,20 @@ internal sealed class CourseMapProjectionService
         if (cached is not null)
         {
             _memory.Set(key, cached, TimeSpan.FromSeconds(20));
+            _logger.LogInformation("TFDBG MAP SNAPSHOT HIT requested={RequestedCourseId} root={RootCourseId} version={Version} layer=redis", requestedCourseId, meta.RootCourseId, meta.Version);
             return cached;
         }
 
-        var lazy = SnapshotBuilds.GetOrAdd(key, _ => new Lazy<Task<CourseMapSnapshot?>>(
+        var candidate = new Lazy<Task<CourseMapSnapshot?>>(
             () => BuildAndCacheSnapshotAsync(meta, key),
-            LazyThreadSafetyMode.ExecutionAndPublication));
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        var lazy = SnapshotBuilds.GetOrAdd(key, candidate);
+        _logger.LogInformation(
+            "TFDBG MAP SNAPSHOT {Action} requested={RequestedCourseId} root={RootCourseId} version={Version}",
+            ReferenceEquals(lazy, candidate) ? "BUILD" : "JOIN",
+            requestedCourseId,
+            meta.RootCourseId,
+            meta.Version);
         var buildTask = lazy.Value;
         _ = buildTask.ContinueWith(
             completedTask =>
@@ -467,6 +595,8 @@ internal sealed class CourseMapProjectionService
 
     private async Task<CourseMapSnapshot?> BuildSnapshotAsync(CourseMapMetaInternalResponse meta, CancellationToken ct)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        _logger.LogInformation("TFDBG MAP SNAPSHOT BUILD START root={RootCourseId} version={Version}", meta.RootCourseId, meta.Version);
         var mapTask = GetInternalAsync<CourseMapInternalResponse>(
             _clients,
             _cfg,
@@ -507,7 +637,7 @@ internal sealed class CourseMapProjectionService
         foreach (var course in tree.Courses)
             course.Description = TrimPreview(course.Description);
 
-        return new CourseMapSnapshot(
+        var snapshot = new CourseMapSnapshot(
             map.RootCourseId,
             map.Version,
             map.Document,
@@ -515,6 +645,14 @@ internal sealed class CourseMapProjectionService
             map.UpdatedBy,
             tree,
             assignments);
+        _logger.LogInformation(
+            "TFDBG MAP SNAPSHOT BUILD END root={RootCourseId} version={Version} courses={Courses} assignments={Assignments} durationMs={DurationMs:F2}",
+            map.RootCourseId,
+            map.Version,
+            tree.CourseIds.Length,
+            assignments.Count,
+            (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+        return snapshot;
     }
 
     private async Task<CourseMapMetaInternalResponse?> GetMapMetaAsync(Guid courseId, CancellationToken ct)
@@ -653,12 +791,25 @@ internal sealed class CourseMapProjectionService
                     if (id is not null && progress.TryGetValue(id, out var value)) segmentProgress[id] = value;
                 }
 
+                var segmentAssignments = entityIds.Where(assignmentById.ContainsKey).Select(id => CreateAssignmentCard(assignmentById[id], solved)).ToArray();
+                var segmentCourses = entityIds.Where(courseById.ContainsKey).Select(id => CreateCourseCard(courseById[id])).ToArray();
+                _logger.LogInformation(
+                    "TFDBG MAP SEGMENT root={RootCourseId} requested={RequestedCourseId} course={CourseId} chunk={Chunk}/{ChunkCount} nodes={Nodes} edges={Edges} assignments={Assignments} courses={Courses}",
+                    snapshot.RootCourseId,
+                    requestedCourseId,
+                    courseId,
+                    chunkIndex + 1,
+                    chunkCount,
+                    segmentNodes.Length,
+                    segmentEdges.Length,
+                    segmentAssignments.Length,
+                    segmentCourses.Length);
                 yield return new SegmentPayload(
                     courseId,
                     segmentNodes,
                     segmentEdges,
-                    entityIds.Where(assignmentById.ContainsKey).Select(id => CreateAssignmentCard(assignmentById[id], solved)).ToArray(),
-                    entityIds.Where(courseById.ContainsKey).Select(id => CreateCourseCard(courseById[id])).ToArray(),
+                    segmentAssignments,
+                    segmentCourses,
                     segmentProgress);
             }
         }

@@ -90,8 +90,11 @@ internal static partial class AssignmentApiEndpoints
             HttpContext http,
             IConfiguration cfg,
             CourseMapProjectionService projection,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
+            var logger = loggerFactory.CreateLogger("TaskForge.CourseMapStream");
+            var startedAt = DateTimeOffset.UtcNow;
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!userId.HasValue)
             {
@@ -99,7 +102,9 @@ internal static partial class AssignmentApiEndpoints
                 return;
             }
 
-            var session = await projection.CreateSessionAsync(courseId, userId.Value, IsEditor(http, cfg), ct);
+            var bypass = IsEditor(http, cfg);
+            logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass}", courseId, userId.Value, bypass);
+            var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, ct);
             if (session is null)
             {
                 http.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -116,15 +121,42 @@ internal static partial class AssignmentApiEndpoints
 
             await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "meta", data = session.Meta }, jsonOptions) + "\n", ct);
             await http.Response.Body.FlushAsync(ct);
+            logger.LogInformation(
+                "TFDBG MAP HTTP STREAM META requested={RequestedCourseId} user={UserId} version={Version} visibleNodes={VisibleNodes} visibleEdges={VisibleEdges} durationMs={DurationMs:F2}",
+                courseId,
+                userId.Value,
+                session.Meta.Version,
+                session.Meta.VisibleNodeCount,
+                session.Meta.VisibleEdgeCount,
+                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
 
+            var segmentIndex = 0;
             foreach (var segment in session.Segments)
             {
+                segmentIndex++;
                 await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "segment", data = segment }, jsonOptions) + "\n", ct);
                 await http.Response.Body.FlushAsync(ct);
+                logger.LogInformation(
+                    "TFDBG MAP HTTP STREAM FLUSH requested={RequestedCourseId} user={UserId} index={SegmentIndex} course={CourseId} nodes={Nodes} edges={Edges} assignments={Assignments} courses={Courses} elapsedMs={ElapsedMs:F2}",
+                    courseId,
+                    userId.Value,
+                    segmentIndex,
+                    segment.CourseId,
+                    segment.Nodes.Length,
+                    segment.Edges.Length,
+                    segment.Assignments.Length,
+                    segment.Courses.Length,
+                    (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
             }
 
             await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "done", data = new { session.Meta.ProjectionToken, session.Meta.ProjectionRevision } }, jsonOptions) + "\n", ct);
             await http.Response.Body.FlushAsync(ct);
+            logger.LogInformation(
+                "TFDBG MAP HTTP STREAM DONE requested={RequestedCourseId} user={UserId} segments={Segments} durationMs={DurationMs:F2}",
+                courseId,
+                userId.Value,
+                segmentIndex,
+                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
         });
 
         app.MapPost("/api/courses/{courseId:guid}/learning-map/delta", async (
