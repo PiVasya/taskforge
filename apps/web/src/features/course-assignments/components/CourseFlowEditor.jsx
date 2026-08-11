@@ -11,6 +11,7 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useNodesInitialized,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
@@ -141,6 +142,7 @@ function edgeStyle(editorMode, edge = null) {
   const accessSettings = edgeAccessSettings(edge);
   const synthetic = Boolean(edge?.settings?.synthetic);
   const classes = ['course-map-edge'];
+  if (String(edge?.className || '').includes('course-map-edge-layout-pending')) classes.push('course-map-edge-layout-pending');
   if (editorMode) classes.push('is-editable');
   if (accessSettings.hiddenEffect === 'start') classes.push('is-hidden-start');
   if (accessSettings.hiddenEffect === 'stop') classes.push('is-hidden-stop');
@@ -204,6 +206,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const notify = useNotify();
   const { access, user } = useAuth();
   const flow = useReactFlow();
+  const nodesInitialized = useNodesInitialized({ includeHiddenNodes: true });
   const shellRef = React.useRef(null);
   const [nodes, setNodes] = useNodesState([]);
   const [edges, setEdges] = useEdgesState([]);
@@ -221,6 +224,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [graphRevision, setGraphRevision] = React.useState(0);
   const [mapHeight, setMapHeight] = React.useState(null);
   const [courseProgressByNode, setCourseProgressByNode] = React.useState(() => new Map());
+  const [sceneReady, setSceneReady] = React.useState(false);
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
@@ -251,6 +255,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const mapCoursesRef = React.useRef([]);
   const projectionTokenRef = React.useRef('');
   const pendingLearnerEdgesRef = React.useRef([]);
+  const pendingLayoutNodeIdsRef = React.useRef(new Set());
+  const pendingLayoutEdgeIdsRef = React.useRef(new Set());
   const streamAbortRef = React.useRef(null);
   const learnerPersistTimerRef = React.useRef(null);
   const persistLearnerGraphRef = React.useRef(null);
@@ -288,6 +294,22 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
     return hidden;
   }, [visibleCourses]);
+  const groupRestrictedCourseIdsForStudents = React.useMemo(() => {
+    const byId = new Map(visibleCourses.map((item) => [String(item?.id || ''), item]));
+    const restricted = new Set();
+    for (const item of visibleCourses) {
+      const originId = String(item?.id || '');
+      let current = item;
+      const seen = new Set();
+      while (current?.id && !seen.has(String(current.id))) {
+        seen.add(String(current.id));
+        if (current.isHiddenFromStudents) break;
+        if (current.isPublic === false) restricted.add(originId);
+        current = current.parentCourseId ? byId.get(String(current.parentCourseId)) : null;
+      }
+    }
+    return restricted;
+  }, [visibleCourses]);
   const entityIndex = React.useMemo(() => buildEntityIndex(visibleCourses, assignments), [assignments, visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
   const cacheCourseIds = React.useMemo(() => visibleCourses.map((item) => String(item?.id || '')).filter(Boolean), [visibleCourses]);
@@ -314,6 +336,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     });
 
     previousViewRef.current = viewKey;
+    setSceneReady(false);
     modeTransitionRef.current = true;
     graphSourceRef.current = { mode: '', source: 'mode-transition', viewKey };
     loadedViewRef.current = '';
@@ -321,6 +344,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     streamAbortRef.current?.abort?.();
     streamAbortRef.current = null;
     pendingLearnerEdgesRef.current = [];
+    pendingLayoutNodeIdsRef.current.clear();
+    pendingLayoutEdgeIdsRef.current.clear();
     window.clearTimeout(learnerPersistTimerRef.current);
     learnerPersistTimerRef.current = null;
     window.clearTimeout(autosaveTimerRef.current);
@@ -355,6 +380,81 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     window.clearTimeout(learnerPersistTimerRef.current);
   }, []);
   React.useEffect(() => { if (query) setSearchOpen(true); }, [query]);
+
+  React.useEffect(() => {
+    if (sceneReady || loading || !nodes.length || !nodesInitialized) return undefined;
+    const invalidNodes = nodes.filter((node) => !Number.isFinite(Number(node?.position?.x)) || !Number.isFinite(Number(node?.position?.y)));
+    if (invalidNodes.length) {
+      courseMapConsole('LAYOUT_WAIT', {
+        viewKey,
+        reason: 'invalid-position',
+        invalidNodeIds: invalidNodes.slice(0, 12).map((node) => String(node?.id || '')),
+        invalidCount: invalidNodes.length,
+        nodes: nodes.length,
+      }, 'error');
+      return undefined;
+    }
+
+    courseMapConsole('LAYOUT_WAIT', { viewKey, reason: 'react-flow-initializing', nodes: nodes.length, edges: edges.length });
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (activeViewRef.current !== viewKey) return;
+        setSceneReady(true);
+        courseMapConsole('LAYOUT_READY', {
+          viewKey,
+          mode: modeName,
+          nodes: nodesRef.current.length,
+          edges: edgesRef.current.length,
+          viewport: viewportRef.current,
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [edges.length, loading, modeName, nodes, nodesInitialized, sceneReady, viewKey]);
+
+  React.useEffect(() => {
+    if (!nodesInitialized || pendingLayoutNodeIdsRef.current.size === 0) return undefined;
+    const expectedView = viewKey;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (activeViewRef.current !== expectedView || !nodesInitialized) return;
+        const nodeIds = new Set(pendingLayoutNodeIdsRef.current);
+        const edgeIds = new Set(pendingLayoutEdgeIdsRef.current);
+        if (!nodeIds.size) return;
+        pendingLayoutNodeIdsRef.current.clear();
+        pendingLayoutEdgeIdsRef.current.clear();
+        setNodes((current) => {
+          const next = current.map((node) => nodeIds.has(String(node.id))
+            ? { ...node, className: String(node.className || '').replace(/\bcourse-map-node-layout-pending\b/g, '').replace(/\s+/g, ' ').trim() }
+            : node);
+          nodesRef.current = next;
+          return next;
+        });
+        setEdges((current) => {
+          const next = current.map((edge) => edgeIds.has(String(edge.id))
+            ? { ...edge, className: String(edge.className || '').replace(/\bcourse-map-edge-layout-pending\b/g, '').replace(/\s+/g, ' ').trim() }
+            : edge);
+          edgesRef.current = next;
+          return next;
+        });
+        courseMapConsole('LAYOUT_INCREMENT_READY', {
+          viewKey: expectedView,
+          nodes: nodeIds.size,
+          edges: edgeIds.size,
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [nodesInitialized, setEdges, setNodes, viewKey]);
+
   React.useEffect(() => {
     if (!searchOpen) return undefined;
     const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -564,7 +664,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         return {
           ...node,
           type: 'locked',
-          className: `${searchMatch ? '' : 'course-map-search-dimmed'}${String(node.className || '').includes('course-map-node-revealed') ? ' course-map-node-revealed' : ''}`.trim(),
+          className: `${searchMatch ? '' : 'course-map-search-dimmed'}${String(node.className || '').includes('course-map-node-revealed') ? ' course-map-node-revealed' : ''}${String(node.className || '').includes('course-map-node-layout-pending') ? ' course-map-node-layout-pending' : ''}`.trim(),
           data: { settings, editorMode: false, searchMatch },
         };
       }
@@ -572,7 +672,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const isCourse = node.type === 'course';
       const rawEntity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
       const entity = isCourse && rawEntity
-        ? { ...rawEntity, isHiddenForStudents: hiddenCourseIdsForStudents.has(String(rawEntity.id)) }
+        ? {
+            ...rawEntity,
+            isHiddenForStudents: hiddenCourseIdsForStudents.has(String(rawEntity.id)),
+            isGroupRestrictedForStudents: groupRestrictedCourseIdsForStudents.has(String(rawEntity.id)),
+          }
         : rawEntity;
       const progress = isCourse ? (progressByCourse.get(String(node.id)) || { total: 0, solved: 0, percent: 0 }) : null;
       const searchText = `${entity?.title || ''} ${previewAssignmentDescription(entity?.description || '')} ${entity?.tags || ''}`.toLowerCase();
@@ -580,10 +684,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const visualType = isCourse ? 'course' : assignmentNodeType(entity?.type || node.type);
       const accessEffects = accessByNode.get(String(node.id)) || null;
       const revealClass = String(node.className || '').includes('course-map-node-revealed') ? ' course-map-node-revealed' : '';
+      const layoutPendingClass = String(node.className || '').includes('course-map-node-layout-pending') ? ' course-map-node-layout-pending' : '';
       return {
         ...node,
         type: visualType,
-        className: `${nodeAccessClassName(searchMatch, accessEffects, editorMode)}${revealClass}`.trim(),
+        className: `${nodeAccessClassName(searchMatch, accessEffects, editorMode)}${revealClass}${layoutPendingClass}`.trim(),
         data: {
           entityId: node.entityId,
           entity,
@@ -598,7 +703,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         },
       };
     });
-  }, [editAssignment, editCourse, editorMode, focusBranch, focusNode, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
+  }, [editAssignment, editCourse, editorMode, focusBranch, focusNode, groupRestrictedCourseIdsForStudents, hiddenCourseIdsForStudents, openAssignment, query, rootId]);
 
   const decorateNodes = React.useCallback((rawNodes) => (
     decorateNodesWithSources(rawNodes, edgesRef.current, assignments, visibleCourses, courseProgressByNode)
@@ -977,17 +1082,26 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     pendingLearnerEdgesRef.current = stillPending;
 
     const allRawEdgesForDecoration = [...updatedExistingEdges, ...readyEdges];
+    const newNodeIds = new Set(rawNewNodes.map((node) => String(node?.id || '')).filter(Boolean));
+    const layoutPendingEdgeIds = new Set(readyEdges
+      .filter((edge) => newNodeIds.has(String(edge?.source || '')) || newNodeIds.has(String(edge?.target || '')))
+      .map((edge) => String(edge?.id || ''))
+      .filter(Boolean));
+    newNodeIds.forEach((id) => pendingLayoutNodeIdsRef.current.add(id));
+    layoutPendingEdgeIds.forEach((id) => pendingLayoutEdgeIdsRef.current.add(id));
     const decoratedNewNodes = decorateNodesWithSources(
       rawNewNodes.map((node) => ({
         ...node,
-        className: animate ? `${node.className || ''} course-map-node-revealed`.trim() : node.className,
+        className: `${node.className || ''}${animate ? ' course-map-node-revealed' : ''} course-map-node-layout-pending`.trim(),
       })),
       allRawEdgesForDecoration,
       mergedAssignments,
       mergedCourses,
       nextProgress,
     );
-    const decoratedNewEdges = decorateEdges(readyEdges);
+    const decoratedNewEdges = decorateEdges(readyEdges.map((edge) => layoutPendingEdgeIds.has(String(edge?.id || ''))
+      ? { ...edge, className: `${edge.className || ''} course-map-edge-layout-pending`.trim() }
+      : edge));
     const nextNodes = [...updatedExistingNodes, ...decoratedNewNodes];
     const nextEdges = [...updatedExistingEdges, ...decoratedNewEdges];
     nodesRef.current = nextNodes;
@@ -2073,6 +2187,16 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     persistSession(true);
 
     window.requestAnimationFrame(() => {
+      if (result.viewport && Number.isFinite(Number(result.viewport.zoom))) {
+        const viewport = {
+          x: Number(result.viewport.x) || 0,
+          y: Number(result.viewport.y) || 0,
+          zoom: Number(result.viewport.zoom) || 1,
+        };
+        viewportRef.current = viewport;
+        try { flow.setViewport(viewport, { duration: 280 }); } catch {}
+        return;
+      }
       const importedIds = new Set(result.importedNodeIds);
       const imported = nextNodes.filter((node) => importedIds.has(String(node.id)));
       if (!imported.length) return;
@@ -2279,7 +2403,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   return (
     <div
-      className={`course-map-shell${editorMode ? ' is-editor' : ' is-viewer'}${interacting || context.open ? ' is-interacting' : ''}`}
+      className={`course-map-shell${editorMode ? ' is-editor' : ' is-viewer'}${interacting || context.open ? ' is-interacting' : ''}${sceneReady ? ' is-layout-ready' : ' is-layout-pending'}`}
       ref={shellRef}
       style={mapHeight ? { height: `${mapHeight}px` } : undefined}
       data-taskforge-agent-role="course-map"

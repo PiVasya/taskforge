@@ -61,13 +61,13 @@ export async function createAssignment(courseId, payload) {
   return res.data;
 }
 
-export async function importAssignmentsFromJson(courseId, payload) {
-  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, payload);
+export async function importAssignmentsFromJson(courseId, graph, options = {}) {
+  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, { graph, options });
   return res.data;
 }
 
-export async function exportAssignmentsToJson(courseId) {
-  const res = await api.get(`/api/courses/${courseId}/assignments/export-json`);
+export async function exportAssignmentsToJson(courseId, options = {}) {
+  const res = await api.get(`/api/courses/${courseId}/assignments/export-json`, { params: options });
   return res.data;
 }
 

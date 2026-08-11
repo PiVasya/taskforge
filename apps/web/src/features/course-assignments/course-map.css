@@ -1916,8 +1916,9 @@ html.neo-brutal .course-map-node--locked {
   }
 }
 
-.react-flow__node.course-map-node-revealed {
+.react-flow__node.course-map-node-revealed > .course-map-node {
   animation: course-map-node-reveal 520ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+  transform-origin: center;
 }
 
 @keyframes course-map-node-reveal {
@@ -1936,7 +1937,34 @@ html.neo-brutal .course-map-node--locked {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .react-flow__node.course-map-node-revealed {
+  .react-flow__node.course-map-node-revealed > .course-map-node {
     animation: none;
   }
+}
+
+.course-map-shell.is-layout-pending .react-flow__nodes,
+.course-map-shell.is-layout-pending .react-flow__edges,
+.course-map-shell.is-layout-pending .react-flow__connectionline {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: none !important;
+}
+
+.course-map-shell.is-layout-ready .react-flow__nodes,
+.course-map-shell.is-layout-ready .react-flow__edges,
+.course-map-shell.is-layout-ready .react-flow__connectionline {
+  visibility: visible;
+}
+.course-map-shell.is-layout-ready .react-flow__nodes,
+.course-map-shell.is-layout-ready .react-flow__edges,
+.course-map-shell.is-layout-ready .react-flow__connectionline {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
+.react-flow__node.course-map-node-layout-pending,
+.react-flow__edge.course-map-edge-layout-pending {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }

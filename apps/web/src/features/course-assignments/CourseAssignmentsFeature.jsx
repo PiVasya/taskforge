@@ -63,6 +63,25 @@ const EMPTY_COURSE_BUNDLE = Object.freeze({
   courseCanEdit: true,
 });
 
+const FULL_JSON_EXPORT_OPTIONS = Object.freeze({
+  includeIds: true,
+  includeContent: true,
+  includeChecks: true,
+  includeVisibility: true,
+  includeConnections: true,
+  includeConnectionAccess: true,
+  includeLayout: true,
+});
+
+const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
+  updateContent: true,
+  updateChecks: true,
+  updateVisibility: true,
+  updateConnections: true,
+  updateConnectionAccess: true,
+  updateLayout: true,
+});
+
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -172,6 +191,9 @@ export default function CourseAssignmentsPage() {
   const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
+  const [jsonImportCurrentExport, setJsonImportCurrentExport] = useState(null);
+  const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS });
+  const [jsonImportOptions, setJsonImportOptions] = useState({ ...DEFAULT_JSON_IMPORT_OPTIONS });
   const [graphImportRequest, setGraphImportRequest] = useState(null);
   const [draggedContentKey, setDraggedContentKey] = useState(null);
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
@@ -781,7 +803,7 @@ export default function CourseAssignmentsPage() {
   const applyJsonImport = async (parsed) => {
     setJsonImportBusy(true);
     try {
-      const res = await importAssignmentsFromJson(courseId, parsed);
+      const res = await importAssignmentsFromJson(courseId, parsed, jsonImportOptions);
       await reloadAssignments(true);
       setJsonImportDiffOpen(false);
       setJsonImportDiff(null);
@@ -830,8 +852,9 @@ export default function CourseAssignmentsPage() {
 
     setJsonImportBusy(true);
     try {
-      const currentExport = await exportAssignmentsToJson(courseId);
-      const diff = buildTaskGraphImportDiff(parsed, currentExport);
+      const currentExport = await exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS);
+      const diff = buildTaskGraphImportDiff(parsed, currentExport, jsonImportOptions);
+      setJsonImportCurrentExport(currentExport);
       setJsonImportParsed(parsed);
       setJsonImportDiff(diff);
       setJsonImportDiffOpen(true);
@@ -842,6 +865,20 @@ export default function CourseAssignmentsPage() {
     } finally {
       setJsonImportBusy(false);
     }
+  };
+
+  const handleJsonImportOptionChange = (key, value) => {
+    setJsonImportOptions((current) => {
+      const next = { ...current, [key]: value };
+      if (jsonImportParsed && jsonImportCurrentExport) {
+        setJsonImportDiff(buildTaskGraphImportDiff(jsonImportParsed, jsonImportCurrentExport, next));
+      }
+      return next;
+    });
+  };
+
+  const handleJsonExportOptionChange = (key, value) => {
+    setJsonExportOptions((current) => ({ ...current, [key]: value }));
   };
 
   const handleApplyPreparedJsonImport = async () => {
@@ -860,7 +897,7 @@ export default function CourseAssignmentsPage() {
     if (!ensureCanManageAssignments("экспортировать JSON")) return;
     setJsonExportBusy(true);
     try {
-      const data = await exportAssignmentsToJson(courseId);
+      const data = await exportAssignmentsToJson(courseId, jsonExportOptions);
       const text = JSON.stringify(data, null, 2);
       const safeTitle = (course?.title || "course")
         .toLowerCase()
@@ -877,8 +914,9 @@ export default function CourseAssignmentsPage() {
       URL.revokeObjectURL(url);
       handleJsonImportTextChange(text);
       const count = Array.isArray(data?.tasks) ? data.tasks.length : 0;
+      const courseCount = Array.isArray(data?.courses) ? data.courses.length : 0;
       const links = Array.isArray(data?.connections) ? data.connections.length : 0;
-      notify.success(`Граф экспортирован: ${count} заданий, ${links} связей`);
+      notify.success(`Граф экспортирован: ${count} заданий, ${courseCount} вложенных курсов, ${links} связей`);
     } catch (e) {
       handleApiError(e, notify, "Не удалось экспортировать JSON");
     } finally {
@@ -956,8 +994,8 @@ export default function CourseAssignmentsPage() {
           <IfEditor>
             {courseCanEdit ? (
               <>
-                <Button variant="outline" className="w-full sm:w-auto" onClick={handleExportJson} disabled={jsonExportBusy}>
-                  <Download size={16} /> {jsonExportBusy ? "Экспортирую…" : "Экспорт JSON"}
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)} disabled={jsonExportBusy}>
+                  <Download size={16} /> Экспорт JSON
                 </Button>
                 <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openCreateDialog() : openCreateMenu(event)}>
                   {showFlowLayout ? <FileJson size={16} /> : <Plus size={16} />} {showFlowLayout ? 'Импорт JSON' : 'Создать'}
@@ -1001,6 +1039,8 @@ export default function CourseAssignmentsPage() {
         busy={jsonImportBusy}
         onClose={() => setJsonImportDiffOpen(false)}
         onApply={handleApplyPreparedJsonImport}
+        importOptions={jsonImportOptions}
+        onImportOptionChange={handleJsonImportOptionChange}
       />
 
       <JsonTaskGraphDialog
@@ -1012,6 +1052,8 @@ export default function CourseAssignmentsPage() {
         docsOpen={jsonDocsOpen}
         onClose={() => setCreateDialogOpen(false)}
         onExport={handleExportJson}
+        exportOptions={jsonExportOptions}
+        onExportOptionChange={handleJsonExportOptionChange}
         onFile={handleJsonFile}
         onCopy={async () => {
           try {
@@ -1061,7 +1103,7 @@ export default function CourseAssignmentsPage() {
           query={q}
           onQueryChange={setQ}
           onShowGrid={isEditorMode && courseCanEdit ? () => setContentLayout('grid') : null}
-          onExportJson={isEditorMode && courseCanEdit ? handleExportJson : null}
+          onExportJson={isEditorMode && courseCanEdit ? () => setCreateDialogOpen(true) : null}
           onImportJson={isEditorMode && courseCanEdit ? openCreateDialog : null}
           exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}

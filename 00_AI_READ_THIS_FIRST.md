@@ -16,26 +16,41 @@ Open this file before changing the project.
 
 ## JSON import/export shape
 
-Canonical TaskForge task-graph import/export:
+Canonical TaskForge course task-graph import/export:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "format": "taskforge-task-graph",
-  "tasks": [],
-  "connections": []
+  "scopes": ["ids", "content", "checks", "visibility", "connections", "connectionAccess", "layout"],
+  "courses": [
+    { "key": "course-advanced", "id": "00000000-0000-0000-0000-000000000000", "title": "Углубление" }
+  ],
+  "tasks": [
+    { "key": "intro", "course": "$course", "id": "00000000-0000-0000-0000-000000000000" }
+  ],
+  "connections": [],
+  "layout": {
+    "viewport": { "x": 0, "y": 0, "zoom": 1 },
+    "positions": {}
+  }
 }
 ```
 
-- `tasks[].key` is the stable reference used inside one JSON document. It is not a database ID and never controls layout.
-- Omit `tasks[].id` to create a task. Use an existing task ID from the currently open course only when updating that task.
-- `connections[].from` and `connections[].to` define order, branches and merges. `"$course"` is the reserved source for the currently open course.
+- A fresh export represents the full task-map subtree of the currently opened course, including existing nested course nodes and assignments that belong to them.
+- `courses[]` contains references to existing nested courses. JSON import does not create, rename, delete, or move course entities. Course IDs are structural references and remain present even when task IDs are omitted.
+- `tasks[].key` is the stable reference used inside one JSON document. It is not a database ID.
+- `tasks[].course` is `"$course"` for the currently opened course or the `key` of an entry from `courses[]`. Existing assignments cannot be moved between courses through JSON import.
+- Omit `tasks[].id` to create a task. An existing ID binds the document entry to that existing task; import checkboxes decide which categories are actually allowed to change.
+- `scopes` declares which data categories are intentionally present: `ids`, `content`, `checks`, `visibility`, `connections`, `connectionAccess`, `layout`.
+- `connections[].from` and `connections[].to` define order, branches and merges between task and course refs. `"$course"` is the reserved source for the currently open course.
 - Edge progression is stored only in `connections[].access.hidden` and `connections[].access.sequential`, with `start`, `stop` or `inherit`.
-- A task that is not referenced by any connection is imported but remains unplaced on the map.
-- Fresh exports and examples must not contain `courseId`, `exportedAt`, `sort`, `nodes`, `edges`, `viewport`, `position`, coordinates or other layout fields. Order is defined only by `connections`; TaskForge owns map layout.
-- Importing a canonical graph replaces connections between the listed tasks and connections from the current course to those tasks. Connections to unrelated map entities are preserved. Existing node positions are kept; newly connected tasks are laid out by TaskForge.
-- Fresh exports must not contain `analyticsSettings`.
-- Legacy assignment-array aliases may remain accepted internally for compatibility, but the UI, documentation, examples and fresh exports must use only schema version 3.
+- Layout is isolated in `layout.positions` and `layout.viewport`. Position keys may reference `"$course"`, a nested course `key`, or a task `key`. Never put coordinates inside task, course, or connection objects.
+- Partial layout imports are valid: only listed positions are replaced when the user enables layout import. Layout-only documents with existing IDs/course refs are valid and must not modify task content.
+- Import settings independently control content, checks/answers, visibility, topology, edge access effects and layout. The presence of an assignment ID never overrides those switches.
+- Canonical graph imports may contain zero tasks when they only update positions/connections of existing course nodes.
+- Fresh exports support up to 5000 task entries per course subtree and must not contain `analyticsSettings`, changelog text or implementation notes.
+- Legacy assignment arrays and schema version 3 may remain accepted internally for compatibility, but the UI, documentation, examples and fresh exports use schema version 4.
 
 Type-specific fields:
 

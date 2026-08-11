@@ -34,8 +34,8 @@ function ConnectionList({ title, rows, removed = false }) {
                 <span className="min-w-0 break-words font-medium">{row.toLabel}</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Badge variant={removed ? 'warning' : row.status === 'add' ? 'success' : 'secondary'}>
-                  {removed ? 'Удалить' : row.status === 'add' ? 'Добавить' : 'Без изменений'}
+                <Badge variant={removed ? 'warning' : row.status === 'add' ? 'success' : row.status === 'update' ? 'outline' : row.status === 'missing' ? 'warning' : 'secondary'}>
+                  {removed ? 'Удалить' : row.status === 'add' ? 'Добавить' : row.status === 'update' ? 'Изменить эффекты' : row.status === 'missing' ? 'Связь не найдена' : 'Без изменений'}
                 </Badge>
                 <EffectBadges row={row} />
               </div>
@@ -57,7 +57,16 @@ function Stat({ label, value, danger = false }) {
   );
 }
 
-export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClose, onApply }) {
+function ImportOption({ checked, disabled = false, onChange, label, hint }) {
+  return (
+    <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm ${disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer'} border-[rgba(var(--border)/0.6)]`}>
+      <input type="checkbox" checked={Boolean(checked)} disabled={disabled} onChange={(event) => onChange?.(event.target.checked)} className="mt-0.5" />
+      <span><span className="font-medium">{label}</span>{hint ? <span className="ml-1 text-xs text-neutral-500">{hint}</span> : null}</span>
+    </label>
+  );
+}
+
+export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClose, onApply, importOptions = {}, onImportOptionChange }) {
   if (!open || !diff) return null;
 
   return (
@@ -81,8 +90,22 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
+          <div className="mb-2 text-sm font-semibold">Что разрешено заменить</div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <ImportOption checked={Boolean(importOptions.updateContent && diff.scopes?.includes('content'))} disabled={!diff.scopes?.includes('content')} onChange={(value) => onImportOptionChange?.('updateContent', value)} label="Условия и настройки" />
+            <ImportOption checked={Boolean(importOptions.updateChecks && diff.scopes?.includes('checks'))} disabled={!diff.scopes?.includes('checks')} onChange={(value) => onImportOptionChange?.('updateChecks', value)} label="Тесты и ответы" />
+            <ImportOption checked={Boolean(importOptions.updateVisibility && diff.scopes?.includes('visibility'))} disabled={!diff.scopes?.includes('visibility')} onChange={(value) => onImportOptionChange?.('updateVisibility', value)} label="Видимость заданий" />
+            <ImportOption checked={Boolean(importOptions.updateConnections && diff.scopes?.includes('connections'))} disabled={!diff.scopes?.includes('connections')} onChange={(value) => onImportOptionChange?.('updateConnections', value)} label="Связи" />
+            <ImportOption checked={Boolean(importOptions.updateConnectionAccess && diff.scopes?.includes('connectionAccess'))} disabled={!diff.scopes?.includes('connectionAccess')} onChange={(value) => onImportOptionChange?.('updateConnectionAccess', value)} label="Эффекты стрелок" />
+            <ImportOption checked={Boolean(importOptions.updateLayout && diff.scopes?.includes('layout'))} disabled={!diff.scopes?.includes('layout')} onChange={(value) => onImportOptionChange?.('updateLayout', value)} label="Позиции и масштаб" />
+          </div>
+          <div className="mt-2 text-xs text-neutral-500">ID выбирает существующее задание. Галочки определяют, какие его части действительно изменятся.</div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
           <Stat label="Заданий" value={diff.total} />
+          <Stat label="Курсов" value={diff.courseCount || 0} />
           <Stat label="Создать" value={diff.createCount} />
           <Stat label="Обновить" value={diff.updateCount} />
           <Stat label="Без изменений" value={diff.unchangedCount} />
@@ -94,8 +117,10 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           <Badge variant="outline">Добавится связей: {diff.connectionAddedCount}</Badge>
           <Badge variant="outline">Удалится связей: {diff.connectionRemovedCount}</Badge>
           <Badge variant="outline">Сохранится связей: {diff.connectionUnchangedCount}</Badge>
+          {diff.connectionAccessChangedCount > 0 ? <Badge variant="outline">Изменятся эффекты: {diff.connectionAccessChangedCount}</Badge> : null}
           {diff.unplacedCount > 0 ? <Badge intent="warning">Вне карты: {diff.unplacedCount}</Badge> : null}
           {diff.legacy ? <Badge intent="warning">Без графа</Badge> : null}
+          {diff.layoutPositionCount > 0 ? <Badge variant="outline">Позиций: {diff.layoutPositionCount}</Badge> : null}
         </div>
 
         {diff.legacy ? (
@@ -143,6 +168,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
                   <div className="mt-2 break-words font-semibold">{row.title}</div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 break-all text-xs text-neutral-500">
                     {row.key ? <span>key: {row.key}</span> : null}
+                    <span>курс: {row.courseLabel}</span>
                     <span>{row.id ? `id: ${row.id}` : 'Новое задание'}</span>
                   </div>
                 </div>

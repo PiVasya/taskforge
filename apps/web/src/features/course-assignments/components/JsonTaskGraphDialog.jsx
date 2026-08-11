@@ -1,8 +1,20 @@
 import React from 'react';
-import { Copy, Download, FileJson, GitCompare, Sparkles, Upload, X } from 'lucide-react';
+import { Copy, Download, FileJson, GitCompare, Settings2, Sparkles, Upload, X } from 'lucide-react';
 
 import { Badge, Button, Card, Textarea } from '../../../components/ui';
 import JsonImportHelp from './JsonImportHelp';
+
+function ExportOption({ checked, onChange, label, hint }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-[rgba(var(--border)/0.6)] px-3 py-2 text-sm">
+      <input type="checkbox" checked={Boolean(checked)} onChange={(event) => onChange?.(event.target.checked)} className="mt-0.5" />
+      <span className="min-w-0">
+        <span className="font-medium">{label}</span>
+        {hint ? <span className="ml-1 text-xs text-neutral-500">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}
 
 export default function JsonTaskGraphDialog({
   open,
@@ -13,6 +25,8 @@ export default function JsonTaskGraphDialog({
   docsOpen = false,
   onClose,
   onExport,
+  exportOptions = {},
+  onExportOptionChange,
   onFile,
   onCopy,
   onFormat,
@@ -68,6 +82,26 @@ export default function JsonTaskGraphDialog({
           </div>
         </div>
 
+        <details className="mt-3 rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10">
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-sm font-semibold">
+            <Settings2 size={16} /> Что экспортировать
+          </summary>
+          <div className="grid gap-2 border-t border-[rgba(var(--border)/0.55)] p-3 sm:grid-cols-2 xl:grid-cols-4">
+            <ExportOption checked={exportOptions.includeIds} onChange={(value) => onExportOptionChange?.('includeIds', value)} label="ID заданий" hint="для обновления существующих" />
+            <ExportOption checked={exportOptions.includeContent} onChange={(value) => onExportOptionChange?.('includeContent', value)} label="Условия и настройки" />
+            <ExportOption checked={exportOptions.includeChecks} onChange={(value) => onExportOptionChange?.('includeChecks', value)} label="Тесты и ответы" />
+            <ExportOption checked={exportOptions.includeVisibility} onChange={(value) => onExportOptionChange?.('includeVisibility', value)} label="Видимость заданий" />
+            <ExportOption checked={exportOptions.includeConnections} onChange={(value) => onExportOptionChange?.('includeConnections', value)} label="Связи" hint="кто за кем идёт" />
+            <ExportOption checked={exportOptions.includeConnectionAccess} onChange={(value) => onExportOptionChange?.('includeConnectionAccess', value)} label="Эффекты стрелок" />
+            <ExportOption checked={exportOptions.includeLayout} onChange={(value) => onExportOptionChange?.('includeLayout', value)} label="Позиции и масштаб" />
+          </div>
+          {!exportOptions.includeIds ? (
+            <div className="border-t border-[rgba(var(--border)/0.55)] px-4 py-3 text-xs text-amber-700 dark:text-amber-200">
+              Без ID задания при обратном импорте считаются новыми. Для перестановки существующей карты оставьте ID включёнными.
+            </div>
+          ) : null}
+        </details>
+
         <Textarea
           rows={28}
           value={text}
@@ -88,7 +122,7 @@ export default function JsonTaskGraphDialog({
 
         <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="text-xs text-neutral-500">
-            JSON задаёт задания, порядок, ветви и эффекты стрелок. Расположение рассчитывает TaskForge.
+            ID связывает JSON с существующим заданием. Позиции хранятся отдельно в layout и могут импортироваться независимо от условий.
           </div>
           <Button onClick={onPrepareDiff} disabled={busy}>
             <GitCompare size={16} /> {busy ? 'Проверяю…' : 'Проверить и импортировать'}

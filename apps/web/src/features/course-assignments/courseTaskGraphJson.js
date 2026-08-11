@@ -1,22 +1,24 @@
-export const TASK_GRAPH_SCHEMA_VERSION = 3;
+export const TASK_GRAPH_SCHEMA_VERSION = 4;
+export const TASK_GRAPH_LEGACY_SCHEMA_VERSION = 3;
 export const TASK_GRAPH_FORMAT = 'taskforge-task-graph';
 export const TASK_GRAPH_COURSE_REF = '$course';
-export const TASK_GRAPH_MAX_TASKS = 200;
+export const TASK_GRAPH_MAX_TASKS = 5000;
 export const TASK_GRAPH_MAX_CONNECTIONS = 20_000;
 
 const TASK_FIELDS = new Set([
-  'key', 'id', 'type', 'title', 'description', 'language', 'allowedLanguages', 'tags',
+  'key', 'id', 'course', 'type', 'title', 'description', 'language', 'allowedLanguages', 'tags',
   'difficulty', 'rating', 'starterCode', 'testCases', 'testSettings', 'questions', 'blocks',
   'codeForbiddenCalls', 'codeRequiredCalls', 'isVisible', 'imageTestReferenceKey',
   'imageTestSimilarityThreshold',
 ]);
-const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'tasks', 'connections']);
+const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'courses', 'tasks', 'connections', 'layout']);
+const COURSE_FIELDS = new Set(['key', 'id', 'title']);
 const CONNECTION_FIELDS = new Set(['from', 'to', 'access']);
 const ACCESS_FIELDS = new Set(['hidden', 'sequential']);
-const LAYOUT_FIELDS = new Set([
-  'nodes', 'edges', 'viewport', 'position', 'positionabsolute', 'x', 'y', 'coordinates',
-  'layout', 'positions', 'mapposition', 'nodeid',
+const LEGACY_LAYOUT_FIELDS = new Set([
+  'nodes', 'edges', 'position', 'positionabsolute', 'x', 'y', 'coordinates', 'mapposition', 'nodeid',
 ]);
+export const TASK_GRAPH_SCOPES = ['ids', 'content', 'checks', 'visibility', 'connections', 'connectionAccess', 'layout'];
 const EFFECT_VALUES = new Set(['inherit', 'start', 'stop']);
 const ZERO_GUID = '00000000-0000-0000-0000-000000000000';
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -357,11 +359,15 @@ function simpleMathTask(key, title) {
 export const TASK_GRAPH_MEGA_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
   format: TASK_GRAPH_FORMAT,
+  scopes: [...TASK_GRAPH_SCOPES],
+  courses: [
+    { key: 'course-advanced', id: '22222222-2222-4222-8222-222222222222', title: 'Углубление' },
+  ],
   tasks: [
     clone(codeTask),
     clone(testTask),
     clone(imageTask),
-    clone(mathTask),
+    { ...clone(mathTask), course: 'course-advanced' },
     simpleCodeTask('sequential-a', 'По одному · шаг 1'),
     simpleTestTask('sequential-b', 'По одному · шаг 2'),
     simpleMathTask('hidden-a', 'Скрытый участок · шаг 1'),
@@ -379,7 +385,8 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
     { from: 'json-basics', to: 'draw-pixel' },
     { from: 'draw-pixel', to: 'merge-finish' },
 
-    { from: 'json-basics', to: 'math-blocks' },
+    { from: 'json-basics', to: 'course-advanced' },
+    { from: 'course-advanced', to: 'math-blocks' },
     { from: 'math-blocks', to: 'merge-finish' },
 
     { from: 'json-basics', to: 'sequential-a', access: { sequential: 'start' } },
@@ -396,11 +403,29 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
 
     { from: 'merge-finish', to: 'final-task' },
   ],
+  layout: {
+    viewport: { x: 80, y: 60, zoom: 0.9 },
+    positions: {
+      [TASK_GRAPH_COURSE_REF]: { x: 0, y: 0 },
+      'input-output': { x: 340, y: 0 },
+      'json-basics': { x: 680, y: 0 },
+      'draw-pixel': { x: 1020, y: -330 },
+      'course-advanced': { x: 1020, y: -110 },
+      'math-blocks': { x: 1360, y: -110 },
+      'sequential-a': { x: 1020, y: 110 },
+      'hidden-a': { x: 1020, y: 330 },
+      'combined-a': { x: 1020, y: 550 },
+      'merge-finish': { x: 1700, y: 0 },
+      'final-task': { x: 2040, y: 0 },
+    },
+  },
 };
 
 const SIMPLE_CHAIN_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
   format: TASK_GRAPH_FORMAT,
+  scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
+  courses: [],
   tasks: [
     simpleCodeTask('first', 'Первое задание'),
     simpleCodeTask('second', 'Второе задание'),
@@ -416,6 +441,8 @@ const SIMPLE_CHAIN_EXAMPLE = {
 const BRANCH_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
   format: TASK_GRAPH_FORMAT,
+  scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
+  courses: [],
   tasks: [
     simpleTestTask('start', 'Развилка'),
     simpleMathTask('left', 'Левая ветка'),
@@ -434,6 +461,8 @@ const BRANCH_EXAMPLE = {
 const PROGRESSION_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
   format: TASK_GRAPH_FORMAT,
+  scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
+  courses: [],
   tasks: [
     simpleCodeTask('gate', 'Входное задание'),
     simpleTestTask('hidden-step-1', 'Скрытый шаг 1'),
@@ -460,147 +489,148 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     key: 'document',
     title: 'Документ',
     items: [
-      { field: 'schemaVersion', text: `Всегда ${TASK_GRAPH_SCHEMA_VERSION}.` },
+      { field: 'schemaVersion', text: `Актуальная версия — ${TASK_GRAPH_SCHEMA_VERSION}. Импорт версии ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} поддерживается для совместимости.` },
       { field: 'format', text: `Всегда "${TASK_GRAPH_FORMAT}".` },
-      { field: 'tasks', text: 'Задания открытого курса. Их порядок в массиве не управляет картой.' },
-      { field: 'connections', text: 'Направленные связи, которые задают путь, развилки, слияния и эффекты доступа.' },
+      { field: 'scopes', text: 'Показывает, какие разделы реально присутствуют в файле: ids, content, checks, visibility, connections, connectionAccess, layout.' },
+      { field: 'courses', text: 'Ссылки на существующие вложенные курсы, которые участвуют в полной карте. Они нужны для связей и расположения, но JSON не создаёт и не переименовывает эти курсы.' },
+      { field: 'tasks', text: 'Задания текущего курса и его подкурсов. Поле course показывает, в каком курсе лежит задание. Порядок массива не задаёт порядок прохождения.' },
+      { field: 'connections', text: 'Направленные связи между заданиями и course-нодами. Они задают цепочки, развилки, слияния и эффекты стрелок.' },
+      { field: 'layout', text: 'Отдельный раздел координат и viewport. Он не смешивается с содержимым заданий.' },
+    ],
+  },
+  {
+    key: 'scopes',
+    title: 'Разделы экспорта',
+    items: [
+      { field: 'ids', text: 'id существующих заданий. Нужен, если JSON должен обновлять конкретные задания.' },
+      { field: 'content', text: 'Тип, название, условие, язык, теги, сложность, рейтинг и стартовый код.' },
+      { field: 'checks', text: 'Тест-кейсы, правильные ответы, настройки тестов и math-блоков, обязательные и запрещённые вызовы.' },
+      { field: 'visibility', text: 'isVisible задания.' },
+      { field: 'connections', text: 'Кто за кем идёт: from → to.' },
+      { field: 'connectionAccess', text: 'Настройки скрытия и пошагового открытия на стрелках.' },
+      { field: 'layout', text: 'Позиции нод и viewport карты.' },
     ],
   },
   {
     key: 'identity',
     title: 'Создание и обновление',
     items: [
-      { field: 'key', text: 'Обязательный уникальный ключ внутри файла. На карте и в базе он не сохраняется как координата.' },
-      { field: 'id', text: 'Не указывайте для нового задания. Для обновления сохраните id из экспорта текущего курса.' },
-      { field: TASK_GRAPH_COURSE_REF, text: 'Зарезервированный источник, обозначающий открытую ноду курса.' },
-      { field: 'без connections', text: 'Задание создаётся или обновляется, но остаётся в списке «Не на карте».' },
-    ],
-  },
-  {
-    key: 'common',
-    title: 'Общие поля задания',
-    items: [
-      { field: 'type', text: 'code-test, image-test, test или math.' },
-      { field: 'title', text: 'Название до 200 символов.' },
-      { field: 'description', text: 'Условие задания. Не помещайте сюда эталонное решение.' },
-      { field: 'difficulty', text: '1, 2 или 3.' },
-      { field: 'rating', text: 'Неотрицательное количество очков.' },
-      { field: 'tags', text: 'Строка тегов.' },
-      { field: 'isVisible', text: 'Показывать задание ученикам после выполнения правил карты.' },
+      { field: 'key', text: 'Уникальный ключ элемента внутри JSON. По нему connections и layout ссылаются на задания и вложенные курсы.' },
+      { field: 'id', text: 'Если id найден в текущем поддереве, импорт связывает запись с существующим заданием. Какие его части разрешено заменить, выбирается отдельными галочками импорта.' },
+      { field: 'course', text: `Для задания: ${TASK_GRAPH_COURSE_REF} или key вложенного курса из courses. Существующее задание JSON не переносит между курсами.` },
+      { field: 'без id', text: 'Создаётся новое задание в курсе из поля course. Для создания JSON должен содержать достаточные поля выбранного типа.' },
+      { field: TASK_GRAPH_COURSE_REF, text: 'Ссылка на открытую ноду курса. Может быть источником connection и ключом позиции в layout.positions.' },
     ],
   },
   {
     key: 'connections',
-    title: 'Пути, развилки и слияния',
+    title: 'Пути',
     items: [
-      { field: 'from', text: `Источник: ${TASK_GRAPH_COURSE_REF} или key задания.` },
-      { field: 'to', text: 'key следующего задания.' },
-      { field: 'развилка', text: 'Несколько связей с одинаковым from.' },
-      { field: 'слияние', text: 'Несколько связей с одинаковым to.' },
-      { field: 'конец пути', text: 'У задания нет исходящих связей.' },
-      { field: 'цикл', text: 'Запрещён. Граф должен оставаться направленным и ацикличным.' },
+      { field: 'from / to', text: `from — ${TASK_GRAPH_COURSE_REF}, key вложенного курса или key задания; to — key вложенного курса или задания.` },
+      { field: 'развилка', text: 'Несколько connections с одинаковым from.' },
+      { field: 'слияние', text: 'Несколько connections с одинаковым to.' },
+      { field: 'конец пути', text: 'Нет исходящей связи.' },
+      { field: 'цикл', text: 'Запрещён. Карта остаётся DAG.' },
     ],
   },
   {
     key: 'access',
     title: 'Эффекты стрелок',
     items: [
-      { field: 'access.hidden', text: 'start — начать полное скрытие; stop — закончить; inherit или отсутствие — продолжить текущее состояние.' },
-      { field: 'access.sequential', text: 'start — открывать задания по одному; stop — закончить; inherit или отсутствие — продолжить текущее состояние.' },
-      { field: 'комбинация', text: 'hidden и sequential независимы и могут начинаться или заканчиваться на одной связи.' },
-    ],
-  },
-  {
-    key: 'code',
-    title: 'Code test и Image test',
-    items: [
-      { field: 'language', text: 'Язык стартового кода.' },
-      { field: 'allowedLanguages', text: 'Разрешённые языки решения.' },
-      { field: 'starterCode', text: 'Код, который ученик увидит в редакторе.' },
-      { field: 'testCases', text: 'input, expectedOutput и isHidden. Для image-test также эталон изображения и threshold.' },
-      { field: 'codeRequiredCalls', text: 'Вызовы, которые должны присутствовать в решении.' },
-      { field: 'codeForbiddenCalls', text: 'Вызовы, которые запрещены условием задания.' },
-      { field: 'imageTestSimilarityThreshold', text: 'Общий порог совпадения изображения от 0 до 100.' },
-    ],
-  },
-  {
-    key: 'test',
-    title: 'Обычный тест',
-    items: [
-      { field: 'testSettings', text: 'maxAttempts, passPercent, shuffleQuestions, shuffleAnswers, allowReview, attemptTimeLimitsSeconds.' },
-      { field: 'single-choice', text: 'options и один key в correctOptionKeys.' },
-      { field: 'multi-choice', text: 'options и несколько key в correctOptionKeys.' },
-      { field: 'fill', text: 'acceptedAnswers для короткого ответа.' },
-      { field: 'text', text: 'acceptedAnswers, caseSensitive и trim для текстового ответа.' },
-    ],
-  },
-  {
-    key: 'math',
-    title: 'Math-задание',
-    items: [
-      { field: 'testSettings', text: 'maxAttempts, passPercent, shuffleBlocks, allowReview, attemptTimeLimitsSeconds.' },
-      { field: 'info', text: 'Информационный блок без ответа.' },
-      { field: 'single-choice / multi-choice', text: 'options и correctOptionKeys.' },
-      { field: 'number', text: 'acceptedAnswers и numericTolerance.' },
-      { field: 'expression / set', text: 'acceptedAnswers, caseSensitive и trim.' },
-      { field: 'order', text: 'orderItems в правильной последовательности.' },
-      { field: 'match', text: 'matchLeftItems, matchRightItems и matchPairs.' },
-    ],
-  },
-  {
-    key: 'apply',
-    title: 'Что делает импорт',
-    items: [
-      { field: 'задания', text: 'Создаёт задания без id и обновляет задания с id из текущего курса.' },
-      { field: 'связи', text: 'Заменяет связи между перечисленными заданиями и входы из текущего курса. Остальная карта сохраняется.' },
-      { field: 'позиции', text: 'Существующие ноды остаются на месте. Новые связанные ноды раскладывает TaskForge.' },
-      { field: 'не на карте', text: 'Перечисленное задание без связей снимается с карты и остаётся доступным для ручного перетаскивания.' },
-      { field: 'лимиты', text: `До ${TASK_GRAPH_MAX_TASKS} заданий и ${TASK_GRAPH_MAX_CONNECTIONS.toLocaleString('ru-RU')} связей за импорт.` },
+      { field: 'access.hidden', text: 'start — начать полное скрытие участка; stop — закончить; inherit или отсутствие — наследовать.' },
+      { field: 'access.sequential', text: 'start — начать открытие по одному заданию; stop — закончить; inherit или отсутствие — наследовать.' },
+      { field: 'комбинация', text: 'hidden и sequential независимы и могут пересекаться.' },
     ],
   },
   {
     key: 'layout',
-    title: 'Расположение нод',
+    title: 'Расположение',
     items: [
-      { field: 'координаты', text: 'Не передаются в JSON. Нейросеть описывает смысл графа, а не пиксели.' },
-      { field: 'запрещённые поля', text: 'nodes, edges, viewport, position, x, y, coordinates, layout и любые аналоги расположения.' },
+      { field: 'layout.positions', text: `Объект вида key -> {x,y}. Можно переставлять задания и вложенные course-ноды; для текущей корневой ноды используется "${TASK_GRAPH_COURSE_REF}".` },
+      { field: 'layout.viewport', text: 'x, y и zoom рабочей области.' },
+      { field: 'частичный layout', text: 'Можно указать позиции только тех нод, которые нужно переставить. Остальные остаются на месте.' },
+      { field: 'важно', text: 'Координаты разрешены только внутри layout. position/x/y внутри tasks или connections запрещены.' },
+    ],
+  },
+  {
+    key: 'content',
+    title: 'Содержимое задания',
+    items: [
+      { field: 'type', text: 'code-test, image-test, test или math.' },
+      { field: 'title / description', text: 'Название и условие. В description не помещается эталонное решение.' },
+      { field: 'language / allowedLanguages / starterCode', text: 'Настройки кода и стартовый шаблон.' },
+      { field: 'difficulty / rating / tags', text: 'Сложность, очки и теги.' },
+    ],
+  },
+  {
+    key: 'checks',
+    title: 'Проверки и ответы',
+    items: [
+      { field: 'code-test / image-test', text: 'testCases, codeRequiredCalls, codeForbiddenCalls; для image-test также эталон и threshold.' },
+      { field: 'test', text: 'testSettings и questions; типы single-choice, multi-choice, fill, text.' },
+      { field: 'math', text: 'testSettings и blocks; виды info, single-choice, multi-choice, number, expression, set, order, match.' },
+    ],
+  },
+  {
+    key: 'import',
+    title: 'Выбор при импорте',
+    items: [
+      { field: 'Содержимое', text: 'Разрешает менять название, условие, тип, языки, теги, сложность, рейтинг и стартовый код существующих заданий.' },
+      { field: 'Проверки', text: 'Разрешает менять тесты, ответы, testSettings/math blocks и ограничения кода.' },
+      { field: 'Видимость', text: 'Разрешает менять isVisible.' },
+      { field: 'Связи', text: 'Разрешает менять топологию from → to для перечисленных заданий.' },
+      { field: 'Эффекты связей', text: 'Разрешает менять hidden/sequential. Можно менять эффекты без перестройки топологии.' },
+      { field: 'Позиции', text: 'Разрешает применять layout.positions и viewport. Если выключено, существующая раскладка остаётся.' },
+      { field: 'id не равно перезаписать всё', text: 'id только выбирает существующее задание. Реально изменяются только включённые категории.' },
     ],
   },
 ];
 
-export const TASK_GRAPH_AI_PROMPT = `Создай или измени JSON-граф заданий для импорта в TaskForge.
+export const TASK_GRAPH_AI_PROMPT = `Ты работаешь с JSON-графом курса TaskForge.
 
-Верни только один валидный JSON без Markdown, пояснений и текста вокруг него.
+Верни только один валидный JSON без Markdown и текста вокруг него.
 
-Обязательная оболочка:
+Актуальная оболочка:
 - schemaVersion: ${TASK_GRAPH_SCHEMA_VERSION}
 - format: "${TASK_GRAPH_FORMAT}"
-- tasks: массив заданий
-- connections: массив направленных связей
+- scopes: какие разделы действительно присутствуют
+- courses: существующие вложенные course-ноды, если они есть на карте
+- tasks: задания текущего курса и подкурсов
+- connections: направленные связи
+- layout: позиции и viewport, только если они нужны
 
-Правила документа:
-1. У каждого задания должен быть уникальный key длиной до 80 символов. key используется только для ссылок внутри этого JSON.
-2. При работе с экспортом сохраняй id и key существующих заданий, которые нужно обновить. Для нового задания id не добавляй.
-3. Текущий открытый курс обозначается строкой "${TASK_GRAPH_COURSE_REF}" и может быть только значением from.
-4. Порядок прохождения задаётся только connections: from -> to. Не добавляй sort.
-5. Несколько connections с одинаковым from создают развилку. Несколько connections с одинаковым to создают слияние.
-6. Задание без единой входящей или исходящей связи импортируется, но остаётся вне карты.
-7. Не создавай циклы, самоссылки и повторяющиеся связи.
-8. Эффекты находятся только в access.hidden и access.sequential. Допустимы start, stop и inherit. Отсутствие поля означает inherit.
-9. hidden и sequential независимы: их можно начать или закончить вместе либо на разных стрелках.
-10. Допустимые типы заданий: code-test, image-test, test, math.
-11. Для code-test и image-test нужен непустой testCases. Для test нужны testSettings и questions. Для math нужны testSettings и blocks.
-12. В test используй типы вопросов single-choice, multi-choice, fill и text.
-13. В math используй виды блоков info, single-choice, multi-choice, number, expression, set, order и match.
-14. Не добавляй analyticsSettings. Не помещай эталонное решение или ответы в description.
-15. Никогда не добавляй courseId, exportedAt, nodes, edges, viewport, position, positionAbsolute, x, y, coordinates, layout, positions, mapPosition или nodeId.
-16. Нейросеть никогда не выбирает расположение нод. Существующие позиции сохраняет TaskForge, новые рассчитывает TaskForge.
-17. Используй только канонические поля из примера. Не больше ${TASK_GRAPH_MAX_TASKS} заданий и ${TASK_GRAPH_MAX_CONNECTIONS} связей.
+Scopes:
+- ids — id существующих заданий
+- content — содержимое и основные настройки
+- checks — тесты, ответы и проверки
+- visibility — isVisible
+- connections — топология from -> to
+- connectionAccess — hidden/sequential на стрелках
+- layout — координаты нод и viewport
 
-Мега-пример со всеми типами заданий и возможностями графа:
+Правила:
+1. key обязателен и уникален среди courses/tasks. Он используется в connections и layout.positions.
+2. courses содержит только ссылки на уже существующие вложенные курсы: key, id, title. Не придумывай новые course id.
+3. У каждого задания поле course — "${TASK_GRAPH_COURSE_REF}" или key вложенного курса.
+4. id существующего задания сохраняй, если задача должна быть связана с этой записью. Для новой задачи id не добавляй.
+5. Наличие id само по себе не означает, что TaskForge перезапишет всё: пользователь отдельно выбирает, какие категории разрешено импортировать.
+6. Текущий курс обозначается "${TASK_GRAPH_COURSE_REF}".
+7. Порядок прохождения задаётся connections. Не используй sort.
+8. Несколько связей из одной ноды создают развилку; несколько входящих — слияние. Циклы запрещены.
+9. access.hidden и access.sequential принимают start, stop, inherit.
+10. Допустимые типы: code-test, image-test, test, math.
+11. Не добавляй analyticsSettings и не помещай правильное решение в description.
+12. Расположение задаётся только как layout.positions[key] = {x,y}; viewport — layout.viewport = {x,y,zoom}.
+13. Никогда не помещай position, x, y, nodes, edges или nodeId внутрь tasks/connections.
+14. Если пользователь просит только переставить карту, сохрани ids/keys/connections и измени только layout; не переписывай условия и тесты.
+15. Если пользователь просит изменить только задания, layout можно не трогать.
+16. Частичный layout допустим: неуказанные позиции TaskForge оставит прежними.
+17. Не больше ${TASK_GRAPH_MAX_TASKS} заданий и ${TASK_GRAPH_MAX_CONNECTIONS} связей.
+
+Мега-пример:
 ${JSON.stringify(TASK_GRAPH_MEGA_EXAMPLE, null, 2)}
 
-Задание пользователя:
+Задача пользователя:
 `;
 
 function cleanId(value) {
@@ -630,18 +660,54 @@ function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function collectLayoutIssues(value, path, issues) {
+function collectLegacyLayoutIssues(value, path, issues) {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => collectLayoutIssues(item, `${path}[${index}]`, issues));
+    value.forEach((item, index) => collectLegacyLayoutIssues(item, `${path}[${index}]`, issues));
     return;
   }
   if (!isPlainObject(value)) return;
   for (const [key, item] of Object.entries(value)) {
     const itemPath = `${path}.${key}`;
-    if (LAYOUT_FIELDS.has(String(key).toLowerCase())) {
-      issues.push({ path: itemPath, message: 'Расположение нод задаёт TaskForge.' });
+    if (path === '$' && key === 'layout') continue;
+    if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) {
+      issues.push({ path: itemPath, message: 'Координаты разрешены только внутри layout.positions.' });
+      continue;
     }
-    collectLayoutIssues(item, itemPath, issues);
+    collectLegacyLayoutIssues(item, itemPath, issues);
+  }
+}
+
+function validateLayout(layout, keySet, issues) {
+  if (layout === undefined || layout === null) return;
+  if (!isPlainObject(layout)) {
+    issues.push({ path: '$.layout', message: 'layout должен быть объектом.' });
+    return;
+  }
+  for (const key of Object.keys(layout)) {
+    if (!['viewport', 'positions'].includes(key)) issues.push({ path: `$.layout.${key}`, message: 'Неизвестное поле layout.' });
+  }
+  if (layout.viewport !== undefined) {
+    if (!isPlainObject(layout.viewport)) issues.push({ path: '$.layout.viewport', message: 'viewport должен быть объектом.' });
+    else {
+      for (const key of Object.keys(layout.viewport)) if (!['x', 'y', 'zoom'].includes(key)) issues.push({ path: `$.layout.viewport.${key}`, message: 'Неизвестное поле viewport.' });
+      for (const key of ['x', 'y']) if (!Number.isFinite(Number(layout.viewport[key]))) issues.push({ path: `$.layout.viewport.${key}`, message: 'Укажите число.' });
+      if (layout.viewport.zoom !== undefined && (!Number.isFinite(Number(layout.viewport.zoom)) || Number(layout.viewport.zoom) < 0.05 || Number(layout.viewport.zoom) > 4)) {
+        issues.push({ path: '$.layout.viewport.zoom', message: 'zoom должен быть от 0.05 до 4.' });
+      }
+    }
+  }
+  if (layout.positions !== undefined) {
+    if (!isPlainObject(layout.positions)) issues.push({ path: '$.layout.positions', message: 'positions должен быть объектом key -> {x,y}.' });
+    else {
+      for (const [ref, position] of Object.entries(layout.positions)) {
+        const path = `$.layout.positions.${ref}`;
+        if (ref !== TASK_GRAPH_COURSE_REF && !keySet.has(ref)) issues.push({ path, message: `Неизвестный key позиции "${ref}".` });
+        if (!isPlainObject(position)) { issues.push({ path, message: 'Позиция должна быть объектом {x,y}.' }); continue; }
+        for (const key of Object.keys(position)) if (!['x', 'y'].includes(key)) issues.push({ path: `${path}.${key}`, message: 'Неизвестное поле позиции.' });
+        if (!Number.isFinite(Number(position.x))) issues.push({ path: `${path}.x`, message: 'Укажите число.' });
+        if (!Number.isFinite(Number(position.y))) issues.push({ path: `${path}.y`, message: 'Укажите число.' });
+      }
+    }
   }
 }
 
@@ -659,7 +725,7 @@ export function isCanonicalTaskGraph(parsed) {
   return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     && Array.isArray(parsed.tasks)
     && (parsed.format === TASK_GRAPH_FORMAT
-      || Number(parsed.schemaVersion) === TASK_GRAPH_SCHEMA_VERSION
+      || [TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(Number(parsed.schemaVersion))
       || Array.isArray(parsed.connections)));
 }
 
@@ -809,7 +875,7 @@ function validateTaskPayload(task, index, isPatch) {
   const path = `$.tasks[${index}]`;
   if (!isPlainObject(task)) return [{ path, message: 'Ожидался объект задания.' }];
   for (const key of Object.keys(task)) {
-    if (LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
+    if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
     if (!TASK_FIELDS.has(key)) issues.push({ path: `${path}.${key}`, message: 'Неизвестное поле задания.' });
   }
   const title = String(task.title || '').trim();
@@ -882,23 +948,31 @@ export function normalizeTaskGraphPayload(parsed) {
       legacy: true,
       schemaVersion: 2,
       format: 'legacy-assignment-list',
+      courses: [],
       tasks: assignments.map((task, index) => ({ ...task, key: `task-${String(index + 1).padStart(3, '0')}` })),
       connections: [],
     };
   }
+  const schemaVersion = Number(parsed.schemaVersion);
+  const scopes = schemaVersion === TASK_GRAPH_LEGACY_SCHEMA_VERSION
+    ? ['ids', 'content', 'checks', 'visibility', 'connections', 'connectionAccess']
+    : (Array.isArray(parsed.scopes) ? parsed.scopes.map(String) : []);
   return {
     legacy: false,
-    schemaVersion: Number(parsed.schemaVersion),
+    schemaVersion,
     format: String(parsed.format || ''),
+    scopes,
+    courses: Array.isArray(parsed.courses) ? parsed.courses : [],
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
     connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+    layout: isPlainObject(parsed.layout) ? parsed.layout : (parsed.layout ?? null),
   };
 }
 
 export function validateTaskGraphPayload(parsed) {
   const graph = normalizeTaskGraphPayload(parsed);
   const issues = [];
-  collectLayoutIssues(parsed, '$', issues);
+  collectLegacyLayoutIssues(parsed, '$', issues);
   if (graph.legacy) {
     if (!graph.tasks.length) issues.push({ path: '$', message: 'JSON не содержит заданий.' });
     if (graph.tasks.length > TASK_GRAPH_MAX_TASKS) issues.push({ path: '$', message: `Не больше ${TASK_GRAPH_MAX_TASKS} заданий.` });
@@ -918,19 +992,60 @@ export function validateTaskGraphPayload(parsed) {
 
   const root = parsed;
   for (const key of Object.keys(root || {})) {
-    if (LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
+    if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
     if (!TOP_LEVEL_FIELDS.has(key)) issues.push({ path: `$.${key}`, message: 'Неизвестное поле верхнего уровня.' });
   }
-  if (Number(root?.schemaVersion) !== TASK_GRAPH_SCHEMA_VERSION) issues.push({ path: '$.schemaVersion', message: `Ожидается ${TASK_GRAPH_SCHEMA_VERSION}.` });
+  const schemaVersion = Number(root?.schemaVersion);
+  if (![TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(schemaVersion)) issues.push({ path: '$.schemaVersion', message: `Поддерживаются ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} и ${TASK_GRAPH_SCHEMA_VERSION}.` });
   if (root?.format !== TASK_GRAPH_FORMAT) issues.push({ path: '$.format', message: `Ожидается "${TASK_GRAPH_FORMAT}".` });
+  if (schemaVersion === TASK_GRAPH_SCHEMA_VERSION) {
+    if (!Array.isArray(root?.scopes)) issues.push({ path: '$.scopes', message: 'Нужен массив scopes.' });
+    else {
+      const seenScopes = new Set();
+      root.scopes.forEach((scope, index) => {
+        if (typeof scope !== 'string' || !TASK_GRAPH_SCOPES.includes(scope)) issues.push({ path: `$.scopes[${index}]`, message: 'Неизвестный scope.' });
+        else if (seenScopes.has(scope)) issues.push({ path: `$.scopes[${index}]`, message: 'Scope указан повторно.' });
+        else seenScopes.add(scope);
+      });
+    }
+  }
+  if (schemaVersion === TASK_GRAPH_SCHEMA_VERSION && root?.layout != null && !graph.scopes.includes('layout')) {
+    issues.push({ path: '$.scopes', message: 'Добавьте scope layout, если документ содержит layout.' });
+  }
   if (!Array.isArray(root?.tasks)) issues.push({ path: '$.tasks', message: 'Нужен массив заданий.' });
   if (!Array.isArray(root?.connections)) issues.push({ path: '$.connections', message: 'Нужен массив связей.' });
-  if (!graph.tasks.length) issues.push({ path: '$.tasks', message: 'Добавьте хотя бы одно задание.' });
   if (graph.tasks.length > TASK_GRAPH_MAX_TASKS) issues.push({ path: '$.tasks', message: `Не больше ${TASK_GRAPH_MAX_TASKS} заданий.` });
   if (graph.connections.length > TASK_GRAPH_MAX_CONNECTIONS) issues.push({ path: '$.connections', message: `Не больше ${TASK_GRAPH_MAX_CONNECTIONS} связей.` });
 
+  const courseKeySet = new Set();
+  const courseIdSet = new Set();
+  graph.courses.forEach((course, index) => {
+    const path = `$.courses[${index}]`;
+    if (!isPlainObject(course)) {
+      issues.push({ path, message: 'Ожидался объект курса.' });
+      return;
+    }
+    for (const field of Object.keys(course)) {
+      if (LEGACY_LAYOUT_FIELDS.has(String(field).toLowerCase())) continue;
+      if (!COURSE_FIELDS.has(field)) issues.push({ path: `${path}.${field}`, message: 'Неизвестное поле курса.' });
+    }
+    const key = String(course.key || '').trim();
+    if (!key) issues.push({ path: `${path}.key`, message: 'Укажите уникальный key вложенного курса.' });
+    else {
+      if (key === TASK_GRAPH_COURSE_REF) issues.push({ path: `${path}.key`, message: `${TASK_GRAPH_COURSE_REF} зарезервирован.` });
+      if (key.length > 80 || !/^[\p{L}\p{N}._-]+$/u.test(key)) issues.push({ path: `${path}.key`, message: 'До 80 букв, цифр и символов . _ -.' });
+      if (courseKeySet.has(key)) issues.push({ path: `${path}.key`, message: `key "${key}" используется повторно.` });
+      courseKeySet.add(key);
+    }
+    const id = cleanId(course.id);
+    if (!id || !isGuid(id)) issues.push({ path: `${path}.id`, message: 'id должен быть GUID существующего вложенного курса.' });
+    else if (courseIdSet.has(id)) issues.push({ path: `${path}.id`, message: 'Один вложенный курс нельзя объявлять дважды.' });
+    else courseIdSet.add(id);
+  });
+
   const keySet = new Set();
   const idSet = new Set();
+  const graphRefSet = new Set([TASK_GRAPH_COURSE_REF, ...courseKeySet]);
   graph.tasks.forEach((task, index) => {
     const path = `$.tasks[${index}]`;
     const key = String(task?.key || '').trim();
@@ -938,8 +1053,13 @@ export function validateTaskGraphPayload(parsed) {
     else {
       if (key === TASK_GRAPH_COURSE_REF) issues.push({ path: `${path}.key`, message: `${TASK_GRAPH_COURSE_REF} зарезервирован.` });
       if (key.length > 80 || !/^[\p{L}\p{N}._-]+$/u.test(key)) issues.push({ path: `${path}.key`, message: 'До 80 букв, цифр и символов . _ -.' });
-      if (keySet.has(key)) issues.push({ path: `${path}.key`, message: `key "${key}" используется повторно.` });
+      if (keySet.has(key) || courseKeySet.has(key)) issues.push({ path: `${path}.key`, message: `key "${key}" уже используется другим элементом графа.` });
       keySet.add(key);
+      graphRefSet.add(key);
+    }
+    const courseRef = String(task?.course || TASK_GRAPH_COURSE_REF).trim();
+    if (!graphRefSet.has(courseRef) || (courseRef !== TASK_GRAPH_COURSE_REF && !courseKeySet.has(courseRef))) {
+      issues.push({ path: `${path}.course`, message: `Курс "${courseRef}" не объявлен в courses.` });
     }
     const id = cleanId(task?.id);
     if (id && !isGuid(id)) issues.push({ path: `${path}.id`, message: 'id должен быть GUID существующего задания.' });
@@ -947,6 +1067,8 @@ export function validateTaskGraphPayload(parsed) {
     if (id) idSet.add(id);
     issues.push(...validateTaskPayload(task, index, Boolean(id)));
   });
+
+  validateLayout(graph.layout, graphRefSet, issues);
 
   const connectionSet = new Set();
   const normalizedConnections = [];
@@ -957,16 +1079,16 @@ export function validateTaskGraphPayload(parsed) {
       return;
     }
     for (const key of Object.keys(connection)) {
-      if (LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
+      if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
       if (!CONNECTION_FIELDS.has(key)) issues.push({ path: `${path}.${key}`, message: 'Неизвестное поле связи.' });
     }
     const from = String(connection.from || '').trim();
     const to = String(connection.to || '').trim();
     if (!from) issues.push({ path: `${path}.from`, message: `Укажите ${TASK_GRAPH_COURSE_REF} или key задания.` });
-    else if (from !== TASK_GRAPH_COURSE_REF && !keySet.has(from)) issues.push({ path: `${path}.from`, message: `Задание "${from}" не объявлено.` });
+    else if (!graphRefSet.has(from)) issues.push({ path: `${path}.from`, message: `Элемент "${from}" не объявлен в courses/tasks.` });
     if (!to) issues.push({ path: `${path}.to`, message: 'Укажите key следующего задания.' });
     else if (to === TASK_GRAPH_COURSE_REF) issues.push({ path: `${path}.to`, message: `${TASK_GRAPH_COURSE_REF} может быть только источником.` });
-    else if (!keySet.has(to)) issues.push({ path: `${path}.to`, message: `Задание "${to}" не объявлено.` });
+    else if (!graphRefSet.has(to)) issues.push({ path: `${path}.to`, message: `Элемент "${to}" не объявлен в courses/tasks.` });
     if (from && from === to) issues.push({ path, message: 'Задание нельзя соединить с самим собой.' });
     const signature = `${from}\u001f${to}`;
     if (from && to && connectionSet.has(signature)) issues.push({ path, message: 'Такая связь уже объявлена.' });
@@ -977,7 +1099,7 @@ export function validateTaskGraphPayload(parsed) {
       if (!access || typeof access !== 'object' || Array.isArray(access)) issues.push({ path: `${path}.access`, message: 'access должен быть объектом.' });
       else {
         for (const key of Object.keys(access)) {
-          if (LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
+          if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
           if (!ACCESS_FIELDS.has(key)) issues.push({ path: `${path}.access.${key}`, message: 'Неизвестное поле эффекта.' });
         }
         for (const field of ['hidden', 'sequential']) {
@@ -990,7 +1112,7 @@ export function validateTaskGraphPayload(parsed) {
     normalizedConnections.push({ from, to, access: normalizeAccess(access) });
   });
 
-  if (hasCycle([...keySet], normalizedConnections)) issues.push({ path: '$.connections', message: 'Связи не должны образовывать цикл.' });
+  if (hasCycle([...courseKeySet, ...keySet], normalizedConnections)) issues.push({ path: '$.connections', message: 'Связи не должны образовывать цикл.' });
   return { graph: { ...graph, connections: normalizedConnections }, issues, legacy: false };
 }
 
@@ -1011,7 +1133,7 @@ export function summarizeTaskGraphPayload(parsed) {
     const topology = legacy
       ? ' · без графа'
       : ` · ${graph.connections.length} связей${unplaced ? ` · вне карты ${unplaced}` : ''}`;
-    return `${graph.tasks.length} заданий${topology}${issues.length ? ` · ошибок ${issues.length}` : ''}`;
+    return `${graph.tasks.length} заданий${graph.courses?.length ? ` · курсов ${graph.courses.length}` : ''}${topology}${issues.length ? ` · ошибок ${issues.length}` : ''}`;
   } catch {
     return 'JSON не читается';
   }
@@ -1040,23 +1162,43 @@ const DIFF_FIELDS = [
   ['imageTestSimilarityThreshold', 'Порог изображения'],
 ];
 
-function connectionSignature(connection, identityByKey) {
+function connectionSignature(connection, identityByKey, includeAccess = true) {
   const access = normalizeAccess(connection.access);
   const from = connection.from === TASK_GRAPH_COURSE_REF ? TASK_GRAPH_COURSE_REF : (identityByKey.get(connection.from) || `key:${connection.from}`);
   const to = identityByKey.get(connection.to) || `key:${connection.to}`;
-  return `${from}\u001f${to}\u001f${access.hidden}\u001f${access.sequential}`;
+  return includeAccess
+    ? `${from}\u001f${to}\u001f${access.hidden}\u001f${access.sequential}`
+    : `${from}\u001f${to}`;
 }
 
-function taskIdentityByKey(tasks, missingPrefix) {
-  return new Map(tasks.map((task) => {
+function graphIdentityByKey(graph, missingPrefix) {
+  const result = new Map([[TASK_GRAPH_COURSE_REF, TASK_GRAPH_COURSE_REF]]);
+  for (const course of graph?.courses || []) {
+    const key = String(course?.key || '');
+    if (!key) continue;
+    const id = cleanId(course?.id);
+    result.set(key, id ? `course:${id}` : `${missingPrefix}:course:${key}`);
+  }
+  for (const task of graph?.tasks || []) {
     const key = String(task?.key || '');
-    const id = cleanId(task?.id);
-    return [key, id ? `id:${id}` : `${missingPrefix}:${key}`];
-  }));
+    if (!key) continue;
+    const id = cleanId(task?.id ?? task?.assignmentId);
+    result.set(key, id ? `task:${id}` : `${missingPrefix}:task:${key}`);
+  }
+  return result;
 }
 
-function taskTitleByKey(tasks) {
-  return new Map(tasks.map((task) => [String(task?.key || ''), String(task?.title || task?.key || 'Задание')]));
+function graphTitleByKey(graph) {
+  const result = new Map([[TASK_GRAPH_COURSE_REF, 'Текущий курс']]);
+  for (const course of graph?.courses || []) {
+    const key = String(course?.key || '');
+    if (key) result.set(key, String(course?.title || key || 'Курс'));
+  }
+  for (const task of graph?.tasks || []) {
+    const key = String(task?.key || '');
+    if (key) result.set(key, String(task?.title || key || 'Задание'));
+  }
+  return result;
 }
 
 function connectionRow(connection, index, titleByKey, status) {
@@ -1075,13 +1217,24 @@ function connectionRow(connection, index, titleByKey, status) {
   };
 }
 
-export function buildTaskGraphImportDiff(parsed, currentExport) {
+export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = {}) {
   const incomingValidation = validateTaskGraphPayload(parsed);
   const currentValidation = validateTaskGraphPayload(currentExport);
   const incoming = incomingValidation.graph;
   const current = currentValidation.graph;
+  const scopes = new Set(incoming.scopes || []);
+  const options = {
+    updateContent: importOptions.updateContent !== false && scopes.has('content'),
+    updateChecks: importOptions.updateChecks !== false && scopes.has('checks'),
+    updateVisibility: importOptions.updateVisibility !== false && scopes.has('visibility'),
+    updateConnections: importOptions.updateConnections !== false && scopes.has('connections'),
+    updateConnectionAccess: importOptions.updateConnectionAccess !== false && scopes.has('connectionAccess'),
+    updateLayout: importOptions.updateLayout !== false && scopes.has('layout'),
+  };
   const currentById = new Map(current.tasks.map((task) => [cleanId(task.id), task]).filter(([id]) => id));
   const currentTitles = new Set(current.tasks.map((task) => String(task.title || '').trim().toLowerCase()).filter(Boolean));
+  const incomingTitle = graphTitleByKey(incoming);
+  const currentTitle = graphTitleByKey(current);
 
   const rows = incoming.tasks.map((task, index) => {
     const id = cleanId(task.id ?? task.assignmentId);
@@ -1090,6 +1243,14 @@ export function buildTaskGraphImportDiff(parsed, currentExport) {
     const duplicateTitle = !existing && title && currentTitles.has(title.toLowerCase());
     const changes = existing
       ? DIFF_FIELDS.map(([key, label]) => {
+          const group = key === 'isVisible'
+            ? 'visibility'
+            : ['testCases', 'testSettings', 'questions', 'blocks', 'codeRequiredCalls', 'codeForbiddenCalls', 'imageTestReferenceKey', 'imageTestSimilarityThreshold'].includes(key)
+              ? 'checks'
+              : 'content';
+          if (group === 'content' && !options.updateContent) return null;
+          if (group === 'checks' && !options.updateChecks) return null;
+          if (group === 'visibility' && !options.updateVisibility) return null;
           if (task[key] === undefined || sameValue(existing[key], task[key])) return null;
           return { key, label, before: existing[key], after: task[key] };
         }).filter(Boolean)
@@ -1100,6 +1261,8 @@ export function buildTaskGraphImportDiff(parsed, currentExport) {
       index,
       id,
       key: task.key,
+      courseRef: String(task?.course || TASK_GRAPH_COURSE_REF),
+      courseLabel: incomingTitle.get(String(task?.course || TASK_GRAPH_COURSE_REF)) || String(task?.course || TASK_GRAPH_COURSE_REF),
       title,
       type: task.type || existing?.type || 'code-test',
       action,
@@ -1109,67 +1272,78 @@ export function buildTaskGraphImportDiff(parsed, currentExport) {
     };
   });
 
-  const incomingIdentity = taskIdentityByKey(incoming.tasks, 'new');
-  const currentIdentity = taskIdentityByKey(current.tasks, 'current');
-  const incomingTitle = taskTitleByKey(incoming.tasks);
-  const currentTitle = taskTitleByKey(current.tasks);
-  const incomingConnections = new Map(incoming.connections.map((connection, index) => [connectionSignature(connection, incomingIdentity), { connection, index }]));
-  const currentConnections = new Map(current.connections.map((connection, index) => [connectionSignature(connection, currentIdentity), { connection, index }]));
-  const connectedIncomingKeys = connectedTaskKeys(incoming);
-  const importedExistingIdentities = new Set(incoming.tasks
-    .map((task) => cleanId(task?.id))
-    .filter(Boolean)
-    .map((id) => `id:${id}`));
-  const detachedExistingIdentities = new Set(incoming.tasks
-    .filter((task) => cleanId(task?.id) && !connectedIncomingKeys.has(String(task?.key || '')))
-    .map((task) => `id:${cleanId(task.id)}`));
+  const incomingIdentity = graphIdentityByKey(incoming, 'new');
+  const currentIdentity = graphIdentityByKey(current, 'current');
+  const incomingTopologyConnections = new Map(incoming.connections.map((connection, index) => [
+    connectionSignature(connection, incomingIdentity, false),
+    { connection, index },
+  ]));
+  const currentTopologyConnections = new Map(current.connections.map((connection, index) => [
+    connectionSignature(connection, currentIdentity, false),
+    { connection, index },
+  ]));
+  const importedBoundIdentities = new Set();
+  for (const course of incoming.courses || []) {
+    const identity = incomingIdentity.get(String(course?.key || ''));
+    if (identity?.startsWith('course:')) importedBoundIdentities.add(identity);
+  }
+  for (const task of incoming.tasks || []) {
+    const identity = incomingIdentity.get(String(task?.key || ''));
+    if (identity?.startsWith('task:')) importedBoundIdentities.add(identity);
+  }
 
   const affectedCurrentConnections = new Map();
-  for (const [signature, row] of currentConnections) {
-    const sourceIdentity = row.connection.from === TASK_GRAPH_COURSE_REF
-      ? TASK_GRAPH_COURSE_REF
-      : currentIdentity.get(row.connection.from);
+  for (const [signature, row] of currentTopologyConnections) {
+    const sourceIdentity = currentIdentity.get(row.connection.from);
     const targetIdentity = currentIdentity.get(row.connection.to);
-    const sourceImported = importedExistingIdentities.has(sourceIdentity);
-    const targetImported = importedExistingIdentities.has(targetIdentity);
-    const sourceDetached = detachedExistingIdentities.has(sourceIdentity);
-    const targetDetached = detachedExistingIdentities.has(targetIdentity);
+    const sourceImported = importedBoundIdentities.has(sourceIdentity);
+    const targetImported = importedBoundIdentities.has(targetIdentity);
     const affected = (sourceIdentity === TASK_GRAPH_COURSE_REF && targetImported)
-      || (sourceImported && targetImported)
-      || sourceDetached
-      || targetDetached;
+      || sourceImported
+      || targetImported;
     if (affected) affectedCurrentConnections.set(signature, row);
   }
 
-  const connectionAddedCount = incomingValidation.legacy
+  const connectionAddedCount = incomingValidation.legacy || !options.updateConnections
     ? 0
-    : [...incomingConnections.keys()].filter((signature) => !currentConnections.has(signature)).length;
-  const connectionRemovedCount = incomingValidation.legacy
+    : [...incomingTopologyConnections.keys()].filter((signature) => !currentTopologyConnections.has(signature)).length;
+  const connectionRemovedCount = incomingValidation.legacy || !options.updateConnections
     ? 0
-    : [...affectedCurrentConnections.keys()].filter((signature) => !incomingConnections.has(signature)).length;
-  const connectionUnchangedCount = incomingValidation.legacy
-    ? currentConnections.size
-    : [...incomingConnections.keys()].filter((signature) => currentConnections.has(signature)).length;
+    : [...affectedCurrentConnections.keys()].filter((signature) => !incomingTopologyConnections.has(signature)).length;
+  const connectionUnchangedCount = incomingValidation.legacy || !options.updateConnections
+    ? currentTopologyConnections.size
+    : [...incomingTopologyConnections.keys()].filter((signature) => currentTopologyConnections.has(signature)).length;
+  const connectionAccessChangedCount = incomingValidation.legacy || !options.updateConnectionAccess
+    ? 0
+    : [...incomingTopologyConnections.entries()].filter(([signature, row]) => {
+        const currentRow = currentTopologyConnections.get(signature);
+        return currentRow && !sameValue(normalizeAccess(currentRow.connection.access), normalizeAccess(row.connection.access));
+      }).length;
   const connected = connectedTaskKeys(incoming);
   const unplacedCount = incomingValidation.legacy
     ? 0
     : incoming.tasks.filter((task) => !connected.has(String(task?.key || ''))).length;
-  const connectionRows = incomingValidation.legacy
+  const connectionRows = incomingValidation.legacy || (!options.updateConnections && !options.updateConnectionAccess)
     ? []
-    : incoming.connections.map((connection, index) => connectionRow(
-        connection,
-        index,
-        incomingTitle,
-        currentConnections.has(connectionSignature(connection, incomingIdentity)) ? 'unchanged' : 'add',
-      ));
-  const removedConnectionRows = incomingValidation.legacy
+    : incoming.connections.map((connection, index) => {
+        const signature = connectionSignature(connection, incomingIdentity, false);
+        const currentRow = currentTopologyConnections.get(signature);
+        let status = 'unchanged';
+        if (!currentRow) status = options.updateConnections ? 'add' : 'missing';
+        else if (options.updateConnectionAccess
+          && !sameValue(normalizeAccess(currentRow.connection.access), normalizeAccess(connection.access))) status = 'update';
+        return connectionRow(connection, index, incomingTitle, status);
+      });
+  const removedConnectionRows = incomingValidation.legacy || !options.updateConnections
     ? []
     : [...affectedCurrentConnections.entries()]
-        .filter(([signature]) => !incomingConnections.has(signature))
+        .filter(([signature]) => !incomingTopologyConnections.has(signature))
         .map(([, row]) => connectionRow(row.connection, row.index, currentTitle, 'remove'));
+
 
   return {
     total: rows.length,
+    courseCount: Array.isArray(incoming.courses) ? incoming.courses.length : 0,
     createCount: rows.filter((row) => row.action === 'create').length,
     updateCount: rows.filter((row) => row.action === 'update').length,
     unchangedCount: rows.filter((row) => row.action === 'unchanged').length,
@@ -1178,10 +1352,14 @@ export function buildTaskGraphImportDiff(parsed, currentExport) {
     validationErrorCount: incomingValidation.issues.length,
     graphIssues: incomingValidation.issues,
     legacy: incomingValidation.legacy,
+    scopes: incoming.scopes || [],
+    layoutPositionCount: incoming.layout?.positions && typeof incoming.layout.positions === 'object' ? Object.keys(incoming.layout.positions).length : 0,
+    importOptions: options,
     connectionCount: incomingValidation.legacy ? current.connections.length : incoming.connections.length,
     connectionAddedCount,
     connectionRemovedCount,
     connectionUnchangedCount,
+    connectionAccessChangedCount,
     connectionRows,
     removedConnectionRows,
     unplacedCount,
