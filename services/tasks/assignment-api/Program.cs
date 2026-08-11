@@ -32,6 +32,11 @@ builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(build
 builder.Services.AddScoped<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>();
 var app = builder.Build();
 
+using (var criticalServiceScope = app.Services.CreateScope())
+{
+    _ = criticalServiceScope.ServiceProvider.GetRequiredService<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>();
+}
+
 app.UseTaskForgeDebugRequestLogging("tasks-api");
 
 if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))

@@ -26,7 +26,7 @@ internal static partial class AssignmentApiEndpoints
     {
         app.MapGet("/health/live", () => Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", service = "taskforge-tasks-api" }));
 
-        app.MapGet("/health/ready", async (TasksDbContext db) => await db.Database.CanConnectAsync() ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-tasks-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503));
+        app.MapGet("/health/ready", async (TasksDbContext db, TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService _) => await db.Database.CanConnectAsync() ? Microsoft.AspNetCore.Http.Results.Ok(new { status = "ready", service = "taskforge-tasks-api" }) : Microsoft.AspNetCore.Http.Results.StatusCode(503));
 
         app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-tasks-api", database = "taskforge_tasks", status = "tasks microservice active" }));
 

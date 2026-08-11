@@ -85,12 +85,14 @@ internal static class TaskForgeDebugDiagnostics
                 context.Response.Body = responseBuffer;
             }
 
+            Exception? pipelineException = null;
             try
             {
                 await next();
             }
             catch (Exception ex)
             {
+                pipelineException = ex;
                 var elapsedOnError = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 logger.LogError(ex, "TFDBG IN EXCEPTION trace={TraceId} service={Service} method={Method} path={Path} durationMs={DurationMs:F2}", traceId, serviceName, context.Request.Method, context.Request.Path.Value, elapsedOnError);
                 throw;
@@ -98,6 +100,9 @@ internal static class TaskForgeDebugDiagnostics
             finally
             {
                 var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                var statusForLog = pipelineException is null || context.Response.HasStarted
+                    ? context.Response.StatusCode
+                    : StatusCodes.Status500InternalServerError;
                 string? responseText = null;
                 TaskForgeDebugPayloadSummary? responseSummary = null;
 
@@ -123,7 +128,7 @@ internal static class TaskForgeDebugDiagnostics
                     caller,
                     context.Request.Method,
                     context.Request.Path.Value,
-                    context.Response.StatusCode,
+                    statusForLog,
                     elapsed,
                     Short(userAfter),
                     roleAfter,

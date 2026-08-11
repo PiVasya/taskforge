@@ -42,6 +42,28 @@ def main() -> int:
             errors.append("course-map current projection pointers must be scoped by requested course, not only by root")
         if "LoadNewerCurrentProjectionAsync" not in projection or "replayState" not in projection:
             errors.append("quiet learner-map deltas must replay a newer immutable projection after fast solve/back navigation")
+        if not re.search(r"\bpublic\s+CourseMapProjectionService\s*\(", projection):
+            errors.append("CourseMapProjectionService must expose a public constructor so ASP.NET DI can activate it")
+
+    program_path = ROOT / "services" / "tasks" / "assignment-api" / "Program.cs"
+    readiness_path = ROOT / "services" / "tasks" / "assignment-api" / "Endpoints" / "ServiceInfo" / "ServiceInfoEndpoints.cs"
+    diagnostics_path = ROOT / "services" / "tasks" / "assignment-api" / "Diagnostics" / "TaskForgeDebugDiagnostics.cs"
+
+    if program_path.exists():
+        program_source = program_path.read_text(encoding="utf-8")
+        if "GetRequiredService<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>()" not in program_source:
+            errors.append("tasks-api startup must resolve CourseMapProjectionService so broken DI fails before serving traffic")
+
+    if readiness_path.exists():
+        readiness_source = readiness_path.read_text(encoding="utf-8")
+        ready_match = re.search(r'MapGet\("/health/ready"[\s\S]{0,700}', readiness_source)
+        if ready_match is None or "CourseMapProjectionService" not in ready_match.group(0):
+            errors.append("tasks-api readiness must resolve CourseMapProjectionService, not only check PostgreSQL")
+
+    if diagnostics_path.exists():
+        diagnostics_source = diagnostics_path.read_text(encoding="utf-8")
+        if "pipelineException" not in diagnostics_source or "StatusCodes.Status500InternalServerError" not in diagnostics_source:
+            errors.append("tasks-api debug request logging must report unhandled pipeline exceptions as server failures")
 
     if endpoints_path.exists():
         endpoints = endpoints_path.read_text(encoding="utf-8")

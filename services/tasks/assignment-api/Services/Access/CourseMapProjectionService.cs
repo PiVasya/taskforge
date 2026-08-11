@@ -34,7 +34,7 @@ internal sealed class CourseMapProjectionService
     private readonly IMemoryCache _memory;
     private readonly ILogger<CourseMapProjectionService> _logger;
 
-    internal CourseMapProjectionService(
+    public CourseMapProjectionService(
         TasksDbContext db,
         IServiceScopeFactory scopeFactory,
         IHttpClientFactory clients,
