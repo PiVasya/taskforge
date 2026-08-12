@@ -187,9 +187,11 @@ deploy/prod/compose/
 
 `browser-api` находится в `50-integrations.yaml`, запускает настоящий Chromium и отображает уже развёрнутые `taskforge.by`/`ct.taskforge.by`. Наружу его порт не публикуется: discovery, snapshot, PNG/PDF и session endpoints доступны только через gateway.
 
-Перед первым развёртыванием этой версии создайте EF-миграцию `AddAiAccountType` в исходном репозитории, закоммитьте её и дождитесь сборки `identity-api`. Сам `browser-api` своей БД не имеет.
+Миграция Identity для AI-маркера уже находится в репозитории: `services/identity/api/Migrations/20260807225514_AddAiAccountType.cs`. Не создавайте вторую `AddAiAccountType`; обычный migration pipeline `identity-api` применяет существующую миграцию. Сам `browser-api` своей БД не имеет.
 
 Основные production-пределы задаются переменными `BROWSER_*`: concurrency, число сессий, viewport, full-page pixels, размер кэша и максимальный размер ответа. Не отключайте `BROWSER_RATE_LIMITS_ENABLED`, не добавляйте произвольные origins и не публикуйте порт контейнера.
+
+Для AI-аккаунтов отдельно доступны `AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true`, `AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20`, `BROWSER_EDGE_RATE_RPS=25` и `BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=4`. `BROWSER_EDGE_RATE_RPS` — только грубый IP-потолок gateway и намеренно выше identity-aware лимитов `browser-api`, чтобы Nginx не отменял AI multiplier. GET-compatible remote Chromium оставляет сетевые ограничения `AI_REMOTE_BROWSER_START_LIMIT=60`, `AI_REMOTE_BROWSER_ACTION_LIMIT=300`, `AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60`; это защита публичного capability API, а не пользовательская энергия.
 
 Проверка после обновления:
 
@@ -198,7 +200,7 @@ deploy/prod/compose/
 ./deploy/prod/compose.sh logs --tail=200 browser-api gateway identity-api
 ```
 
-Discovery должен быть доступен по `/.well-known/taskforge-ai.json`, OpenAPI — по `/api/browser/openapi.json`. Интерактивные сессии пока process-local, поэтому `browser-api` должен работать в одной реплике без внешней sticky-session маршрутизации.
+Discovery должен быть доступен по `/.well-known/taskforge-ai.json` и `/.well-known/taskforge-ai-browser.json`, playbook — по `/api/site/agent/playbook`, OpenAPI — по `/api/browser/openapi.json`. Текущие версии: Browser API `1.3`, semantic snapshot `2.2`. Интерактивные сессии пока process-local, поэтому `browser-api` должен работать в одной реплике без внешней sticky-session маршрутизации.
 
 ## Security checklist
 

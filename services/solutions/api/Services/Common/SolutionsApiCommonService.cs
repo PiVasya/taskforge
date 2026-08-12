@@ -24,12 +24,16 @@ internal static class SolutionsApiCommonService
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> LeaderboardViewLocks = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, DateTimeOffset> LeaderboardViewFallback = new(StringComparer.Ordinal);
     private static long LeaderboardViewFallbackSweepCounter;
-    internal static IResult? CheckUserRateLimit(HttpContext http, string bucket)
+    internal static IResult? CheckUserRateLimit(HttpContext http, IConfiguration cfg, string bucket)
     {
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";
-        if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
+        var multiplier = IsAiAccount(http, cfg)
+            ? System.Math.Clamp(cfg.GetValue("AiAccounts:TaskRateLimitMultiplier", 20), 1, 100)
+            : 1;
+        if (multiplier > 1) http.Response.Headers["X-TaskForge-AI-Rate-Multiplier"] = multiplier.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (TaskForgeApiRateLimiters.Allow(bucket, key, multiplier)) return null;
         return Microsoft.AspNetCore.Http.Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
     }
 

@@ -15,6 +15,11 @@ export async function submitTaskTest(assignmentId, payload) {
   return data;
 }
 
+export async function getMyTaskTestAttempt(attemptId) {
+  const { data } = await api.get(`/api/me/test-attempts/${attemptId}`);
+  return data;
+}
+
 export async function getTaskTestEdit(assignmentId) {
   const { data } = await api.get(`/api/task-tests/${assignmentId}/edit`);
   return data;

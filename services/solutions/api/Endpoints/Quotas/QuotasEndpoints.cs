@@ -26,7 +26,8 @@ internal static partial class SolutionsApiEndpoints
         {
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
-            var status = await GetQuotaStatus(db, uid.Value, cfg, IsAdmin(http, cfg), http.RequestAborted);
+            var isAdmin = IsAdmin(http, cfg);
+            var status = await GetQuotaStatus(db, uid.Value, cfg, HasUnlimitedTaskEnergy(http, cfg), isAdmin, http.RequestAborted);
             return Microsoft.AspNetCore.Http.Results.Ok(status);
         });
 
@@ -34,7 +35,8 @@ internal static partial class SolutionsApiEndpoints
         {
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
-            return Microsoft.AspNetCore.Http.Results.Ok(await GetQuotaStatus(db, uid.Value, cfg, IsAdmin(http, cfg), http.RequestAborted));
+            var isAdmin = IsAdmin(http, cfg);
+            return Microsoft.AspNetCore.Http.Results.Ok(await GetQuotaStatus(db, uid.Value, cfg, HasUnlimitedTaskEnergy(http, cfg), isAdmin, http.RequestAborted));
         });
 
         return app;

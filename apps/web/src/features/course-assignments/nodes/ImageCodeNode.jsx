@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image } from 'lucide-react';
-import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { activateCourseMapNodeForAgent, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function ImageCodeNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -9,12 +9,15 @@ export default function ImageCodeNode({ data, selected }) {
   return (
     <div
       className={`course-map-node course-map-node--image${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
+      data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="assignment"
       data-taskforge-entity-id={assignment.id || data?.entityId}
       data-taskforge-assignment-type="image-test"
       data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
+      data-taskforge-agent-kind="image-test"
       data-taskforge-agent-action="open-assignment"
+      onClick={(event) => activateCourseMapNodeForAgent(event, data, data?.onOpen)}
       aria-label={`Задание с изображением: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />

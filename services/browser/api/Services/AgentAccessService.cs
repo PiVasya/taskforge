@@ -57,6 +57,8 @@ public sealed class AgentAccessService(
 
         sb.Append("<h2>Interactive agents</h2>")
           .Append("<p>Clients that can issue POST requests can register an ordinary AI-marked user, create a Browser API session and use click/fill/scroll actions. Start with the <a href=\"/api/site/agent/playbook\">agent playbook</a>, then use <a href=\"/llms.txt\">llms.txt</a> and <a href=\"/api/browser/openapi.json\">OpenAPI</a> for the full contract.</p>")
+          .Append("<p>Semantic snapshot v2.2 exposes stable test metadata. Prefer <code>questionId + answerOptionKey</code> (or explicit one-based indexes) instead of translated radio-button labels. For reliable serial solving, use the ordinary authenticated submit/attempt APIs after Browser API discovery; if a UI submit response is lost, reconcile with the authoritative GET before retrying.</p>")
+          .Append("<p>An <code>accountType=ai</code> account remains an ordinary user with no extra role or hidden-data access. Operator resource policy may give AI accounts unlimited task energy and higher per-user throughput; <code>/api/me/quotas</code> is the authoritative quota view.</p>")
           .Append("<p class=\"muted\">Recommended expensive-capture concurrency: ").Append(_options.RecommendedCaptureConcurrency).Append(". Artifact TTL: ").Append(_options.AgentArtifactTtlSeconds).Append(" seconds.</p>")
           .Append("</main></body></html>");
         return sb.ToString();

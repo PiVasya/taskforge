@@ -26,7 +26,7 @@ internal static partial class AssignmentApiEndpoints
     {
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/reference", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
-            if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "image-test") is { } limited) return limited;
             if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для загрузки эталона нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             var assignment = await db.Assignments.FindAsync(assignmentId);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
@@ -55,25 +55,25 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare", async (Guid assignmentId, HttpRequest req, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) =>
         {
-            if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "image-test") is { } limited) return limited;
             return await CompareImageUpload(assignmentId, req, http, cfg, db, clients);
         });
 
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/run-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) =>
         {
-            if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "image-test") is { } limited) return limited;
             return await RenderImageCode(assignmentId, request, http, db, clients, cfg);
         });
 
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/compare-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) =>
         {
-            if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "image-test") is { } limited) return limited;
             return await CompareImageCode(assignmentId, request, db, clients, cfg, submit: false, context: http);
         });
 
         app.MapPost("/api/assignments/{assignmentId:guid}/image-test/submit-code", async (Guid assignmentId, ImageCodeRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) =>
         {
-            if (CheckUserRateLimit(http, "image-test") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "image-test") is { } limited) return limited;
             return await CompareImageCode(assignmentId, request, db, clients, cfg, submit: true, context: http);
         });
 

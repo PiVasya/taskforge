@@ -189,6 +189,8 @@ if 'Production browser-api requires BrowserRateLimits:Enabled=true' not in progr
     die('production does not require application rate limiting')
 if 'Production browser-api requires a Redis connection string' not in program:
     die('production does not require Redis')
+if 'EnsureRange(rateOptions.AuthenticatedAiMultiplier, 1, 20, "BrowserRateLimits:AuthenticatedAiMultiplier")' not in program:
+    die('authenticated AI Browser rate multiplier is no longer configuration-validated')
 if 'response.Headers.Vary = "Authorization"' not in program or 'Authorization, Cookie' in program:
     die('Browser API cache variance must match explicit Bearer-only authentication')
 
@@ -265,6 +267,115 @@ for marker in ('data-taskforge-automation-id', 'automationState', 'automationKin
     if marker not in snapshot_builder:
         die(f'agent-friendly semantic snapshot marker missing: {marker}')
 
+# Keep the machine contract versioned as one unit. A stale discovery document or
+# production smoke test makes a healthy Browser API look broken to agents.
+discovery = text('services/browser/api/Services/DiscoveryDocumentService.cs')
+openapi_enhancer = text('services/browser/api/OpenApi/BrowserOpenApiDocumentEnhancer.cs')
+browser_options = text('services/browser/api/Configuration/BrowserOptions.cs')
+prod_browser_smoke = text('scripts/prod/check-browser-api.sh')
+
+api_version = re.search(r'apiVersion\s*=\s*"([^"]+)"', discovery)
+snapshot_version = re.search(r'semanticSnapshot\s*=\s*new\s*\{\s*version\s*=\s*"([^"]+)"', discovery, re.S)
+snapshot_builder_version = re.search(r'SemanticSnapshotVersion\s*=\s*"([^"]+)"', snapshot_builder)
+openapi_api_version = re.search(r'root\["x-taskforge-agent-contract"\]\s*=\s*"([^"]+)"', openapi_enhancer)
+openapi_snapshot_version = re.search(r'root\["x-taskforge-snapshot-version"\]\s*=\s*"([^"]+)"', openapi_enhancer)
+user_agent_version = re.search(r'TaskForgeBrowserApi/([0-9.]+)', browser_options)
+for label, match in (
+    ('discovery apiVersion', api_version),
+    ('discovery semantic snapshot version', snapshot_version),
+    ('SnapshotBuilder semantic version', snapshot_builder_version),
+    ('OpenAPI agent contract version', openapi_api_version),
+    ('OpenAPI snapshot version', openapi_snapshot_version),
+    ('Browser User-Agent version', user_agent_version),
+):
+    if not match:
+        die(f'cannot resolve {label}')
+if len({api_version.group(1), openapi_api_version.group(1), user_agent_version.group(1)}) != 1:
+    die('Browser API version drift between discovery, OpenAPI and Chromium User-Agent')
+if len({snapshot_version.group(1), snapshot_builder_version.group(1), openapi_snapshot_version.group(1)}) != 1:
+    die('semantic snapshot version drift between discovery, SnapshotBuilder and OpenAPI')
+if f"discovery.get('apiVersion') == '{api_version.group(1)}'" not in prod_browser_smoke:
+    die('production Browser smoke test does not enforce the current discovery API version')
+if f"value.get('semanticSnapshotVersion') == '{snapshot_version.group(1)}'" not in prod_browser_smoke:
+    die('production Browser smoke test does not enforce the current semantic snapshot version')
+if f'            "{snapshot_version.group(1)}",' not in program:
+    die('site info does not advertise the current semantic snapshot version')
+
+for marker in ('QuestionIndex', 'QuestionId', 'AnswerOptionIndex', 'AnswerOptionKey'):
+    if marker not in contracts:
+        die(f'stable test-answer snapshot field missing: {marker}')
+for marker in ('data-taskforge-question-index', 'data-taskforge-question-id', 'data-taskforge-option-index', 'data-taskforge-option-key'):
+    if marker not in snapshot_builder:
+        die(f'snapshot builder lost stable test-answer metadata: {marker}')
+for frontend_path in ('apps/web/src/features/task-test/TaskTestQuestion.jsx', 'apps/web/src/features/math-task/MathTaskBlock.jsx'):
+    value = text(frontend_path)
+    for marker in ('data-taskforge-question-index', 'data-taskforge-question-id', 'data-taskforge-option-index'):
+        if marker not in value:
+            die(f'{frontend_path} lost stable machine test metadata: {marker}')
+if 'data-taskforge-option-key' not in text('apps/web/src/features/task-test/TaskTestQuestion.jsx'):
+    die('task-test choices no longer expose stable answer option keys')
+
+attempt_recovery = text('apps/web/src/features/attempts/recoverSubmittedAttempt.js')
+for marker in ('shouldRecoverSubmittedAttempt', 'recoverSubmittedAttempt', 'ATTEMPT_ALREADY_SUBMITTED', 'attempt?.submittedAt'):
+    if marker not in attempt_recovery:
+        die(f'frontend lost accepted-attempt recovery marker: {marker}')
+for frontend_path, getter in (
+    ('apps/web/src/pages/TaskTestSolve.jsx', 'getMyTaskTestAttempt'),
+    ('apps/web/src/pages/MathTaskSolve.jsx', 'getMyMathAttempt'),
+):
+    value = text(frontend_path)
+    for marker in ('shouldRecoverSubmittedAttempt', 'recoverSubmittedAttempt', getter, 'recoveredAfterTransportFailure'):
+        if marker not in value:
+            die(f'{frontend_path} lost lost-submit reconciliation marker: {marker}')
+code_solve = text('apps/web/src/features/assignment-solve/AssignmentSolveFeature.jsx')
+for marker in ('recoverRecentCodeSubmission', 'listMySolutions', 'submitStartedAt', 'Результат восстановлен'):
+    if marker not in code_solve:
+        die(f'code submit flow lost lost-response reconciliation marker: {marker}')
+
+for marker in ('authoritativeApi', '/api/courses', '/learning-map', '/solve-shell', '/api/me/solutions', '/api/me/test-attempts', '/api/me/math-attempts', 'recoveryRule', 'verdictHandling', 'JudgeUnavailable', 'elementReferences', 'preferred = "automationId"'):
+    if marker not in discovery or marker not in program:
+        die(f'agent discovery/playbook lost authoritative submit recovery marker: {marker}')
+if 'X-TaskForge-AI-Rate-Multiplier' not in discovery or 'X-TaskForge-AI-Rate-Multiplier' not in program or 'X-TaskForge-AI-Rate-Multiplier' not in openapi_enhancer:
+    die('authenticated AI Browser rate multiplier is not consistently discoverable')
+
+if 'limiter.CheckAsync(operation, caller.OwnerKey, caller.NetworkKey' not in remote_endpoints:
+    die('AI remote-browser limiter key ordering regressed')
+if 'limiter.CheckAsync(caller.OwnerKey, caller.NetworkKey, operation' in remote_endpoints:
+    die('AI remote-browser limiter is using the old owner/network/operation parameter order')
+for marker in (
+    'rateLimits = new',
+    'authenticatedAiMultiplier = Math.Clamp(rateOptions.AuthenticatedAiMultiplier, 1, 20)',
+    'RateLimit-Reset',
+    'RateLimit-Policy',
+    'X-RateLimit-Reset',
+    'X-TaskForge-AI-Rate-Multiplier',
+    'resetSemantics = "RateLimit-Reset is seconds until reset; X-RateLimit-Reset is the UTC Unix timestamp."',
+    'var resetAfterSeconds = Math.Max(0, (int)Math.Ceiling((decision.ResetAtUtc - DateTimeOffset.UtcNow).TotalSeconds))',
+    'http.Response.Headers["RateLimit-Reset"] = resetAfterSeconds.ToString',
+    'http.Response.Headers["X-RateLimit-Reset"] = resetUnix',
+):
+    if marker not in remote_endpoints:
+        die(f'AI remote-browser rate contract marker missing: {marker}')
+
+course_map_primitives = text('apps/web/src/features/course-assignments/nodes/CourseMapNodePrimitives.jsx')
+for marker in ('window.__TASKFORGE_BROWSER_AUTOMATION__ !== true', 'data?.editorMode', 'action();'):
+    if marker not in course_map_primitives:
+        die(f'course-map Browser Automation activation guard missing: {marker}')
+for node_path in (
+    'apps/web/src/features/course-assignments/nodes/CodeTestNode.jsx',
+    'apps/web/src/features/course-assignments/nodes/TestNode.jsx',
+    'apps/web/src/features/course-assignments/nodes/MathNode.jsx',
+    'apps/web/src/features/course-assignments/nodes/ImageCodeNode.jsx',
+):
+    node_source = text(node_path)
+    for marker in ('data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}', 'data-taskforge-agent-action="open-assignment"', 'activateCourseMapNodeForAgent'):
+        if marker not in node_source:
+            die(f'{node_path} lost stable Browser Automation navigation marker: {marker}')
+course_node = text('apps/web/src/features/course-assignments/nodes/CourseNode.jsx')
+for marker in ('data-taskforge-automation-id={`course-${course.id || data?.entityId}`}', 'data-taskforge-agent-action="focus-course"', 'activateCourseMapNodeForAgent'):
+    if marker not in course_node:
+        die(f'course map nested-course automation marker missing: {marker}')
+
 code_editor = text('apps/web/src/components/CodeEditor.jsx')
 for marker in ('__TASKFORGE_BROWSER_AUTOMATION__', 'data-taskforge-automation-id'):
     if marker not in code_editor:
@@ -276,6 +387,19 @@ if 'solution-code-editor' not in solve_editor:
 for marker in ('CrawlerFamily', 'MJ12bot', 'Web crawler / MJ12bot'):
     if marker not in support_telemetry:
         die(f'crawler telemetry classification marker missing: {marker}')
+
+# Keep the machine route catalog synchronized with the real React routers.
+route_catalog = text('services/browser/api/Services/SiteRouteCatalog.cs')
+main_app = text('apps/web/src/App.jsx')
+ct_app = text('apps/web-ct/src/App.jsx')
+main_routes = set(re.findall(r'new\("main",\s*"([^"]+)"', route_catalog))
+ct_routes = set(re.findall(r'new\("ct",\s*"([^"]+)"', route_catalog))
+main_actual = set(re.findall(r'<Route\s+path="([^"]+)"', main_app)) - {'*'}
+ct_actual = set(re.findall(r'<Route\s+path="([^"]+)"', ct_app)) - {'*'}
+if main_routes != main_actual:
+    die(f'main SiteRouteCatalog drift: missing={sorted(main_actual-main_routes)} extra={sorted(main_routes-main_actual)}')
+if ct_routes != ct_actual:
+    die(f'ct SiteRouteCatalog drift: missing={sorted(ct_actual-ct_routes)} extra={sorted(ct_routes-ct_actual)}')
 
 agent_access = text('services/browser/api/Services/AgentAccessService.cs')
 for required_marker in ('TaskForge AI / crawler access', '/api/site/agent/capture/', 'authoritative Chromium PNG', 'RequiresAuthentication'):
@@ -394,6 +518,12 @@ for template in ('dev.conf', 'http.conf', 'https.conf'):
         die(f'{template} has no Browser API connection zone')
     if 'limit_conn_zone $binary_remote_addr zone=tf_browser_capture_connections' not in value:
         die(f'{template} has no dedicated Browser capture connection zone')
+    if 'rate=${BROWSER_EDGE_RATE_RPS}r/s' not in value:
+        die(f'{template} hardcodes the Browser edge rate instead of using BROWSER_EDGE_RATE_RPS')
+
+gateway_select = text('apps/gateway/99-select-config.sh')
+if 'BROWSER_EDGE_RATE_RPS:-25' not in gateway_select or "${BROWSER_EDGE_RATE_RPS}" not in gateway_select:
+    die('gateway does not validate/substitute the configurable Browser edge rate')
 
 for environment in ('dev', 'prod'):
     compose_path = root / f'deploy/{environment}/compose/50-integrations.yaml'
@@ -420,7 +550,7 @@ for environment in ('dev', 'prod'):
     if 'docker.sock' in volumes:
         die(f'{environment}: browser-api must never mount the Docker socket')
     environment_values = service.get('environment') or {}
-    for key in ('ConnectionStrings__Redis', 'BrowserRateLimits__Enabled', 'Browser__Sites__main', 'Browser__MaxCachedArtifactBytes', 'Browser__MaxArtifactResponseBytes', 'AiRemoteBrowser__Enabled', 'AiRemoteBrowser__AllowGetMutations'):
+    for key in ('ConnectionStrings__Redis', 'BrowserRateLimits__Enabled', 'BrowserRateLimits__AuthenticatedAiMultiplier', 'Browser__Sites__main', 'Browser__MaxCachedArtifactBytes', 'Browser__MaxArtifactResponseBytes', 'AiRemoteBrowser__Enabled', 'AiRemoteBrowser__AllowGetMutations'):
         if key not in environment_values:
             die(f'{environment}: browser-api environment misses {key}')
     if environment == 'prod':
@@ -439,6 +569,13 @@ for environment in ('dev', 'prod'):
     env_example = text(f'deploy/{environment}/.env.example')
     if 'BROWSER_MAX_ARTIFACT_RESPONSE_BYTES=' not in env_example:
         die(f'{environment}: artifact response size limit is missing from .env.example')
+    for marker in ('BROWSER_EDGE_RATE_RPS=25', 'BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=', 'AI_REMOTE_BROWSER_START_LIMIT=60', 'AI_REMOTE_BROWSER_ACTION_LIMIT=300', 'AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60'):
+        if marker not in env_example:
+            die(f'{environment}: current AI Browser throughput setting missing from .env.example: {marker}')
+    gateway_compose = yaml.safe_load(text(f'deploy/{environment}/compose/10-apps-gateway.yaml'))
+    gateway_environment = (((gateway_compose.get('services') or {}).get('gateway') or {}).get('environment') or {})
+    if 'BROWSER_EDGE_RATE_RPS' not in gateway_environment:
+        die(f'{environment}: gateway does not receive BROWSER_EDGE_RATE_RPS')
 
 codec = text('services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs')
 for marker in ('TFART001', 'FullPageTruncated', 'Annotated'):

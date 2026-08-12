@@ -436,15 +436,16 @@ services:
       AiRemoteBrowser__SessionAbsoluteMinutes: ${AI_REMOTE_BROWSER_SESSION_ABSOLUTE_MINUTES:-105}
       AiRemoteBrowser__MaxSessionsPerNetwork: ${AI_REMOTE_BROWSER_MAX_SESSIONS_PER_NETWORK:-2}
       AiRemoteBrowser__MaxValueCharacters: ${AI_REMOTE_BROWSER_MAX_VALUE_CHARACTERS:-20000}
-      AiRemoteBrowser__StartLimit: ${AI_REMOTE_BROWSER_START_LIMIT:-30}
+      AiRemoteBrowser__StartLimit: ${AI_REMOTE_BROWSER_START_LIMIT:-60}
       AiRemoteBrowser__StartWindowSeconds: ${AI_REMOTE_BROWSER_START_WINDOW_SECONDS:-60}
       AiRemoteBrowser__ConfirmLimit: ${AI_REMOTE_BROWSER_CONFIRM_LIMIT:-5}
       AiRemoteBrowser__ConfirmWindowSeconds: ${AI_REMOTE_BROWSER_CONFIRM_WINDOW_SECONDS:-60}
-      AiRemoteBrowser__ActionLimit: ${AI_REMOTE_BROWSER_ACTION_LIMIT:-240}
+      AiRemoteBrowser__ActionLimit: ${AI_REMOTE_BROWSER_ACTION_LIMIT:-300}
       AiRemoteBrowser__ActionWindowSeconds: ${AI_REMOTE_BROWSER_ACTION_WINDOW_SECONDS:-60}
-      AiRemoteBrowser__ScreenshotLimit: ${AI_REMOTE_BROWSER_SCREENSHOT_LIMIT:-30}
+      AiRemoteBrowser__ScreenshotLimit: ${AI_REMOTE_BROWSER_SCREENSHOT_LIMIT:-60}
       AiRemoteBrowser__ScreenshotWindowSeconds: ${AI_REMOTE_BROWSER_SCREENSHOT_WINDOW_SECONDS:-60}
       BrowserRateLimits__Enabled: ${BROWSER_RATE_LIMITS_ENABLED:-true}
+      BrowserRateLimits__AuthenticatedAiMultiplier: ${BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER:-4}
       BrowserRateLimits__MetadataLimit: ${BROWSER_METADATA_LIMIT:-120}
       BrowserRateLimits__MetadataWindowSeconds: ${BROWSER_METADATA_WINDOW_SECONDS:-60}
       BrowserRateLimits__SnapshotLimit: ${BROWSER_SNAPSHOT_LIMIT:-30}

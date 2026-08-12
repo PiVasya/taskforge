@@ -27,7 +27,7 @@ import { createCourse, deleteCourse } from '../../../api/courses';
 import { getCourseMap, getLearningCourseMapDelta, saveCourseMap, streamLearningCourseMap } from '../../../api/courseMaps';
 import { createCourseMapPresenceConnection, disposeCourseMapPresenceConnection } from '../../../realtime/courseMapHub';
 import { getApiErrorMessage } from '../../../api/http';
-import { buildDefaultAssignmentPayload, previewAssignmentDescription } from '../courseAssignmentsModel';
+import { buildDefaultAssignmentPayload, isAssignmentSolved, previewAssignmentDescription } from '../courseAssignmentsModel';
 import {
   assignmentNodeId,
   assignmentNodeType,
@@ -187,6 +187,76 @@ function sourceMatchesMode(source, mode, viewKey) {
 }
 
 
+function learnerEntryFocusCandidate(nodes, edges, rootCourseId) {
+  const rows = Array.isArray(nodes) ? nodes.filter(Boolean) : [];
+  const links = Array.isArray(edges) ? edges.filter(Boolean) : [];
+  if (!rows.length) return { targetId: '', rootId: '', fallbackId: '' };
+
+  const byId = new Map(rows.map((node) => [String(node?.id || ''), node]));
+  const outgoing = new Map(rows.map((node) => [String(node?.id || ''), []]));
+  const incomingCount = new Map(rows.map((node) => [String(node?.id || ''), 0]));
+
+  for (const edge of links) {
+    const source = String(edge?.source || '');
+    const target = String(edge?.target || '');
+    if (!byId.has(source) || !byId.has(target) || source === target) continue;
+    outgoing.get(source).push(target);
+    incomingCount.set(target, (incomingCount.get(target) || 0) + 1);
+  }
+
+  const wantedCourseId = String(rootCourseId || '');
+  const rootNode = rows.find((node) => node?.type === 'course'
+    && String(node?.entityId || node?.data?.entityId || '') === wantedCourseId)
+    || rows.find((node) => (incomingCount.get(String(node?.id || '')) || 0) === 0)
+    || rows[0];
+  const rootNodeId = String(rootNode?.id || '');
+  if (!rootNodeId) return { targetId: '', rootId: '', fallbackId: '' };
+
+  const queue = [rootNodeId];
+  const visited = new Set();
+  let fallbackId = rootNodeId;
+
+  while (queue.length) {
+    const currentId = String(queue.shift() || '');
+    if (!currentId || visited.has(currentId)) continue;
+    visited.add(currentId);
+    const node = byId.get(currentId);
+    if (!node) continue;
+
+    if (node.type === 'locked') continue;
+
+    if (node.type !== 'course') {
+      const entity = node?.data?.entity || null;
+      if (entity && !isAssignmentSolved(entity)) {
+        return { targetId: currentId, rootId: rootNodeId, fallbackId: currentId };
+      }
+      if (entity) fallbackId = currentId;
+    }
+
+    for (const nextId of outgoing.get(currentId) || []) {
+      if (!visited.has(nextId)) queue.push(nextId);
+    }
+  }
+
+  return { targetId: '', rootId: rootNodeId, fallbackId };
+}
+
+function centerLearnerEntryNode(flow, nodeId, { duration = 0, zoom = 0.92 } = {}) {
+  const node = flow.getNode(String(nodeId || ''));
+  if (!node) return false;
+  const position = node.positionAbsolute || node.position || { x: 0, y: 0 };
+  const width = Number(node.width || node.measured?.width) || 300;
+  const height = Number(node.height || node.measured?.height) || 120;
+  const centerX = (Number(position.x) || 0) + width / 2;
+  const centerY = (Number(position.y) || 0) + height / 2;
+  try {
+    flow.setCenter(centerX, centerY, { zoom, duration });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function findOpenMapPosition(basePosition, existingNodes, index = 0) {
   const base = { x: Number(basePosition?.x) || 0, y: Number(basePosition?.y) || 0 };
   const occupied = (existingNodes || []).map((node) => ({ x: Number(node?.position?.x) || 0, y: Number(node?.position?.y) || 0 }));
@@ -261,6 +331,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const learnerPersistTimerRef = React.useRef(null);
   const persistLearnerGraphRef = React.useRef(null);
   const unplacedDebugRef = React.useRef('');
+  const learnerEntryFocusRef = React.useRef({ viewKey: '', lastTargetId: '', fallbackCentered: false, completed: false });
+  const learnerProjectionSettledRef = React.useRef(false);
 
   const rootId = String(course?.id || '');
   const modeName = courseMapMode(editorMode);
@@ -344,6 +416,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     streamAbortRef.current?.abort?.();
     streamAbortRef.current = null;
     pendingLearnerEdgesRef.current = [];
+    learnerEntryFocusRef.current = { viewKey, lastTargetId: '', fallbackCentered: false, completed: false };
+    learnerProjectionSettledRef.current = false;
     pendingLayoutNodeIdsRef.current.clear();
     pendingLayoutEdgeIdsRef.current.clear();
     window.clearTimeout(learnerPersistTimerRef.current);
@@ -887,9 +961,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       document,
     }, sessionOptions);
 
-    window.requestAnimationFrame(() => {
-      try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
-    });
+    if (editorMode) {
+      window.requestAnimationFrame(() => {
+        try { flow.setViewport(document.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
+      });
+    }
 
     if (pendingRevealNodeIds.size) {
       window.setTimeout(() => {
@@ -1216,6 +1292,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
     graphSourceRef.current = { mode: 'learner', source: 'learner-delta', viewKey };
     modeTransitionRef.current = false;
+    learnerProjectionSettledRef.current = true;
     const removeNodeIds = new Set((delta.nodeIdsRemoved || []).map(String));
     const removeEdgeIds = new Set((delta.edgeIdsRemoved || []).map(String));
     if (removeNodeIds.size || removeEdgeIds.size) {
@@ -1293,6 +1370,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }
         graphSourceRef.current = { mode: 'learner', source: 'learner-stream', viewKey };
         modeTransitionRef.current = false;
+        learnerProjectionSettledRef.current = false;
         projectionTokenRef.current = '';
         pendingLearnerEdgesRef.current = [];
         if (!keepExisting) {
@@ -1325,9 +1403,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             },
           }),
         });
-        if (!keepExisting) {
-          try { flow.setViewport(meta?.viewport || { x: 0, y: 0, zoom: 1 }, { duration: 0 }); } catch {}
-        }
+        if (!keepExisting) viewportRef.current = meta?.viewport || viewportRef.current;
         courseMapConsole('STREAM_META', {
           requestId,
           viewKey,
@@ -1408,6 +1484,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         learnerPersistTimerRef.current = null;
         graphSourceRef.current = { mode: 'learner', source: 'learner-stream', viewKey };
         modeTransitionRef.current = false;
+        learnerProjectionSettledRef.current = true;
         loadedViewRef.current = viewKey;
         courseMapConsoleGraph('STREAM_DONE', {
           requestId,
@@ -1756,6 +1833,44 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       return next;
     });
   }, [decorateNodes, graphRevision, setNodes]);
+
+  React.useEffect(() => {
+    if (editorMode || focusCourseId || !nodesInitialized || !nodes.length) return;
+    const state = learnerEntryFocusRef.current;
+    if (state.viewKey !== viewKey) {
+      learnerEntryFocusRef.current = { viewKey, lastTargetId: '', fallbackCentered: false, completed: false };
+    }
+    const current = learnerEntryFocusRef.current;
+    if (current.completed) return;
+
+    const candidate = learnerEntryFocusCandidate(nodes, edges, rootId);
+    const source = String(graphSourceRef.current?.source || '');
+    const provisional = source.includes('cache');
+    const preferredId = candidate.targetId || candidate.rootId || candidate.fallbackId;
+    if (!preferredId) return;
+
+    const targetChanged = current.lastTargetId !== String(preferredId);
+    if (targetChanged || !current.fallbackCentered) {
+      const duration = current.fallbackCentered ? 280 : 0;
+      if (centerLearnerEntryNode(flow, preferredId, { duration, zoom: 0.92 })) {
+        current.lastTargetId = String(preferredId);
+        current.fallbackCentered = true;
+        window.requestAnimationFrame(() => {
+          try { viewportRef.current = flow.getViewport(); } catch {}
+        });
+        courseMapConsole('LEARNER_ENTRY_FOCUS', {
+          viewKey,
+          source,
+          targetNodeId: String(preferredId),
+          reason: candidate.targetId ? 'first-unsolved-from-start' : 'root-fallback',
+          provisional,
+        });
+      }
+    }
+
+    if (!provisional && candidate.targetId) current.completed = true;
+    if (!provisional && learnerProjectionSettledRef.current && !candidate.targetId) current.completed = true;
+  }, [edges, editorMode, flow, focusCourseId, nodes, nodesInitialized, record?.projectionRevision, rootId, viewKey]);
 
   React.useEffect(() => {
     const wanted = String(focusCourseId || '').trim();

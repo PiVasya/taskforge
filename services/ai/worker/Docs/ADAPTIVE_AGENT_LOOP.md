@@ -1,86 +1,64 @@
 # Adaptive agent loop
 
-`AdaptiveAgentLoopWorkflow` — верхний управляющий слой AI-worker.
+`AdaptiveAgentLoopWorkflow` is the top-level controller of `services/ai/worker`. The worker does not force every request through one hard-coded `analysis -> generation -> validation` chain. On each step the decision model selects a bounded package of actions from an explicit allowlist; the backend executes them in order and persists observations in `AgentLoopState`.
 
-Он решает проблему прямого пайплайна: пользовательские запросы разные, поэтому фиксированная цепочка `анализ -> план -> генерация -> проверка` не всегда подходит. Вместо этого модель на каждом шаге выбирает следующее действие из белого списка, а backend выполняет его и сохраняет результат в `AgentLoopState`.
-
-## Цикл выполнения
+## Execution model
 
 ```text
-получить run
--> спросить модель: какой следующий шаг нужен?
--> проверить, что действие разрешено
--> выполнить действие
--> сохранить observation и state
--> повторить до finish или лимита шагов
+claim run
+-> inspect accumulated AgentLoopState
+-> model chooses 1..MaxAgentActionsPerStep allowed actions
+-> backend validates and executes actions sequentially
+-> persist observations/working memory
+-> repeat until finish or MaxAgentLoopSteps
 ```
 
-## Инструменты agent loop
+Invalid JSON, an unavailable action or an LLM failure does not bypass the workflow: `AgentLoopDecisionClient` falls back to deterministic routing.
 
-Модель выбирает только из разрешённых действий:
+## Current action allowlist
 
-- `inspect_context` — сохранить payload, историю, курс, focus/target assignments и память чата в `AgentLoopState`;
-- `classify_request` — определить сценарий, ограничения, количество задач и целевую тему;
-- `map_course_structure` — построить карту курса: порядок заданий, типы, языки, сложность, rating и timeline понятий;
-- `extract_course_style` — извлечь стиль курса: названия, описания, секции, inline-code, тесты, теги, язык;
-- `find_learning_gaps` — найти скачки сложности, слабые тесты, отсутствие hidden/referenceSolution, места для bridge tasks;
-- `plan_course_enrichment` — собрать единый brief для генерации/правок из запроса, карты курса, стиля и найденных проблем;
-- `search_course` — найти релевантные задания в уже загруженном курсе;
-- `delegate_assignment_draft` — передать работу генератору заданий;
-- `delegate_course_audit` — передать работу аудитору курса;
-- `delegate_course_edit` — подготовить безопасные правки курса без авто-записи;
-- `delegate_polish_assignment` — доработать выбранное задание/черновик;
-- `review_delegated_result` — проверить результат рабочего workflow перед завершением;
-- `answer_directly` — ответить в чат без генерации/записи;
-- `finish` — завершить run.
+The current code exposes exactly these 18 actions:
 
-## Память run-а
+- `inspect_context` — normalize the run payload, conversation history, course/focus assignment context and useful memory;
+- `classify_request` — determine intent/scenario, constraints and whether the request needs course context, generation, analysis or mass editing;
+- `load_editable_assignments` — load and normalize all editable assignments available to the current course operation;
+- `map_course_structure` — build the course map: order, types, languages, difficulty/rating and concept timeline;
+- `extract_course_style` — infer the course's naming, descriptions, tags, tests, inline-code and teaching style;
+- `find_learning_gaps` — identify missing bridges, difficulty jumps, weak tests and other course gaps;
+- `analyze_assignment_complexity` — produce per-assignment complexity/reason/confidence data; required before mass rerating/difficulty work;
+- `plan_course_enrichment` — combine request, course map, style and gap report into one working brief;
+- `search_course` — search already loaded course content; accepts a `query` argument;
+- `propose_assignment_patch_set` — produce a bounded patch set with diffs for mass changes such as rating/tag/title updates;
+- `review_patch_set` — validate a pending patch set before the run can finish;
+- `review_delegated_result` — validate a result returned by a specialized `delegate_*` workflow before finishing;
+- `delegate_assignment_draft` — generate/revise assignment drafts through the validated draft workflow;
+- `delegate_course_audit` — run the specialized course audit workflow;
+- `delegate_course_edit` — prepare safe course edits without silently writing them;
+- `delegate_polish_assignment` — revise selected assignment drafts;
+- `answer_directly` — answer the user when no generator/validator/write workflow is needed;
+- `finish` — finish only when a valid final message, reviewed delegated result or reviewed patch set exists.
 
-`AgentLoopState` хранит:
+Keep this list synchronized with `Workflows/AgentLoop/AgentLoopDecisionClient.cs` and `AdaptiveAgentLoopWorkflow.Actions.cs`. Do not document an action that is not in the allowlist and do not add an allowlisted action without documenting its guardrails here.
 
-- исходный запрос пользователя;
-- id курса и задания;
-- контекст payload;
-- последние сообщения;
-- outline курса;
-- выбранные/целевые задания;
-- intent;
-- `courseMap`;
-- `courseStyleProfile`;
-- `courseGapReport`;
-- `courseEnrichmentBrief`;
-- рабочие заметки;
-- решения модели;
-- наблюдения каждого шага;
-- краткую сводку результата workflow.
+## Run memory
 
-Перед делегированием в `AssignmentDraftWorkflow`, `CourseAuditWorkflow`, `CourseEditWorkflow` или `PolishAssignmentDraftWorkflow` эта память добавляется в payload как `agentLoopMemory` и в `memory.agentLoop`. Поэтому специализированные workflow получают не голый запрос, а накопленное состояние чата/run-а.
+`AgentLoopState` persists the user request, course/assignment ids, payload, recent messages, outline/targets, intent, course map, style profile, gap report, enrichment brief, editable assignments, complexity report, pending patch set/review, delegated result/review, notes, decisions, observations and final message.
+
+Before delegation, this state is forwarded as `agentLoopMemory` / `memory.agentLoop`, so specialized workflows operate on accumulated context rather than a bare prompt.
 
 ## Guardrails
 
-Код ограничивает модель:
+- Actions outside the 18-action allowlist are rejected and deterministic fallback is used.
+- Delegation is delayed until `inspect_context` and `classify_request` have run.
+- Course-dependent generation should first build the map/style/brief when those are relevant.
+- Mass rating/difficulty changes must load assignments, map the course, analyze complexity, propose a bounded patch set and run `review_patch_set`.
+- `delegate_*` cannot be repeated after a delegated result already exists.
+- `finish` is rejected when a delegated result has not passed `review_delegated_result`.
+- `finish` is rejected when a pending patch set has not passed `review_patch_set`.
+- Mass changes must remain patches/diffs; do not silently auto-apply broad edits from the decision loop.
+- `MaxAgentActionsPerStep`, `MaxAgentLoopSteps`, context/state character limits and `MaxPatchOperationsPerRun` remain backend-enforced limits, not suggestions to the model.
+- Draft validation/critic/repair stages remain authoritative. The agent loop chooses the route; it does not replace validators.
 
-- нельзя вызвать действие вне белого списка;
-- нельзя делегировать рабочий workflow до `inspect_context` и `classify_request`;
-- для работы по курсу fallback сначала строит карту/стиль/brief, а не прыгает сразу в генерацию;
-- нельзя повторно запускать `delegate_*`, если workflow уже вернул результат;
-- после `delegate_*` нужно выполнить `review_delegated_result`, иначе `finish` отклоняется;
-- нельзя завершить run без результата;
-- есть лимит `TaskForgeAgent__MaxAgentLoopSteps`;
-- если модель вернула плохой JSON или недоступное действие, используется deterministic fallback.
+## Assignment solution material
 
-## Почему это важно для качества задач
-
-Генерация заданий требует не одного prompt-а, а нескольких проверяемых этапов:
-
-- понять стиль курса;
-- понять ограничения пользователя;
-- увидеть, какие задания уже есть;
-- найти пробелы и скачки сложности;
-- собрать brief для генерации;
-- создать черновики;
-- проверить структуру, тесты, язык и сложность;
-- исправить найденные ошибки;
-- сохранить только прошедшие проверку варианты.
-
-Agent loop не заменяет валидаторы. Он выбирает маршрут. Качество обеспечивают `AssignmentDraftWorkflow`, `DraftValidationExecutor`, `DraftCriticExecutor`, repair-попытки и финальный `review_delegated_result`.
+`referenceSolution` is internal generation/validation material. It must never be used as a fallback for learner-visible `starterCode`. If no starter code was supplied, starter code stays empty. This invariant is enforced in the AI API mapping layer and must not be weakened by a future workflow refactor.

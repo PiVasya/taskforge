@@ -23,14 +23,22 @@ internal static class AssignmentApiCommonService
 {
     internal sealed record CodePolicyAnalysis(IResult? Problem, JsonElement? Attestation);
 
-    internal static IResult? CheckUserRateLimit(HttpContext http, string bucket)
+    internal static IResult? CheckUserRateLimit(HttpContext http, IConfiguration cfg, string bucket)
     {
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";
-        if (TaskForgeApiRateLimiters.Allow(bucket, key)) return null;
+        var multiplier = TaskForgeRequestSecurity.IsAiAccount(http.User)
+            ? System.Math.Clamp(cfg.GetValue("AiAccounts:TaskRateLimitMultiplier", 20), 1, 100)
+            : 1;
+        if (multiplier > 1) http.Response.Headers["X-TaskForge-AI-Rate-Multiplier"] = multiplier.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (TaskForgeApiRateLimiters.Allow(bucket, key, multiplier)) return null;
         return Microsoft.AspNetCore.Http.Results.Json(new { message = "Слишком много запросов. Подождите немного и попробуйте снова.", code = "RATE_LIMITED" }, statusCode: StatusCodes.Status429TooManyRequests);
     }
+
+    internal static bool HasUnlimitedAiTaskEnergy(HttpContext http, IConfiguration cfg)
+        => cfg.GetValue("AiAccounts:UnlimitedTaskEnergy", true)
+           && TaskForgeRequestSecurity.IsAiAccount(http.User);
 
     internal static string? NodeString(JsonObject o, string name) => o.TryGetPropertyValue(name, out var n) && n is not null ? n.ToString() : null;
 
@@ -146,7 +154,7 @@ internal static class AssignmentApiCommonService
         CancellationToken ct)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
-        if (principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin")) return null;
+        if (principal != null && (TaskForgeRequestSecurity.HasAnyRole(principal, "Admin") || HasUnlimitedAiTaskEnergy(http, cfg))) return null;
 
         var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
         try
@@ -189,7 +197,7 @@ internal static class AssignmentApiCommonService
         CancellationToken ct)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
-        if (principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin")) return;
+        if (principal != null && (TaskForgeRequestSecurity.HasAnyRole(principal, "Admin") || HasUnlimitedAiTaskEnergy(http, cfg))) return;
 
         var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
         try

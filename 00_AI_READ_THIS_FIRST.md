@@ -14,6 +14,20 @@ Open this file before changing the project.
 - JSON examples must contain only canonical editable fields.
 - Keep legacy import aliases in code only when needed for compatibility; do not advertise them in UI or fresh exports.
 
+## AI/browser current-state invariants
+
+- The public machine entry points are `/.well-known/taskforge-ai.json`, `/.well-known/taskforge-ai-browser.json`, `/llms.txt`, `/ai-access`, `/ai-browser`, `/api/site/agent/playbook` and `/api/browser/openapi.json`. Keep them synchronized with the real Browser API implementation.
+- Current Browser API contract version is `1.3`; current semantic snapshot contract is `2.2`. Production smoke tests and OpenAPI/discovery must use the same versions.
+- `browser-api` drives the real deployed TaskForge frontends in Chromium. It accepts configured TaskForge origins plus relative paths and must never become an arbitrary-URL proxy.
+- Normal Browser API mutation sessions require an ordinary TaskForge access token and `readOnly=false`. The GET-only `/api/ai/browser/*` compatibility layer is a low-level capability wrapper around the same `BrowserSessionRegistry`; it must not become a high-level solver or silently choose courses/answers.
+- For test/math controls, machine automation must prefer stable `questionId + answerOptionKey`; explicit one-based `questionIndex + answerOptionIndex` are the fallback. Do not force agents to depend on translated radio/checkbox labels.
+- Browser API is for discovery, navigation, screenshots and UI-only flows. When a client can send ordinary authenticated HTTP requests, TaskForge submit/attempt APIs are authoritative for reliable serial solving and verdict reconciliation. After an uncertain submit response, query the matching solution/attempt GET before retrying the mutation.
+- `accountType=ai` is separate from authorization roles. It grants no Admin/Editor role or hidden-data access. Current resource policy intentionally gives AI accounts unlimited **task-solving** energy and higher per-user task/browser throughput; top/leaderboard energy remains normal. Defaults are `AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true`, `AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20`, `BROWSER_EDGE_RATE_RPS=25`, `BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=4`; the gateway value is a coarse IP DoS ceiling and must stay above the effective identity-aware Browser API rate, while public GET-compatible remote-browser limits remain bounded separately. The marker is currently self-declared, so changing that trust model later requires an explicit verified-AI policy rather than turning `accountType` into a privileged role.
+- Do not auto-map an internal AI `referenceSolution` into learner-visible `starterCode`. `referenceSolution` is validation material only; absent starter code must stay empty.
+- Learner course-map entry must focus the first accessible unsolved assignment reachable from the course start. Do not restore a stale learner viewport that can open into empty space. Editor viewport behavior remains independent.
+- Course-map nodes/edges must stay hidden until ReactFlow positions are finite/initialized; preserve the existing delayed reveal that prevents the one-frame pile-up in the corner.
+- Solved course-map cards may be visually muted, but do not reduce the opacity of the whole card so far that animated/WebGL backgrounds shine through. The map surface must remain visually subordinate to task nodes.
+
 ## JSON import/export shape
 
 Canonical TaskForge course task-graph import/export:
@@ -68,8 +82,8 @@ Type-specific fields:
 - Ответы backend с `itemsPayload` нельзя печатать целиком. Разрешены HTTP status, длина тела и безопасные скалярные поля.
 - Никогда не печатать полные `MINECRAFT_PLUGIN_KEY`, `MINECRAFT_WEBHOOK_KEY`, `security.taskforgeKey`, `taskforge.pluginKey` или другие секреты. Разрешены только наличие, длина и короткий SHA-256 fingerprint.
 - В репозитории Minecraft должны оставаться только два собираемых плагина: `TaskForgeLink` и `CustomMobTweaks`. Не возвращать `DefaultGroupAssigner`, `WorldLoaderFolia` или другие JAR без прямой просьбы пользователя.
-- Текущая ветка `CustomMobTweaks` — версия `2.6.0` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
-- Текущая ветка `TaskForgeLink` — версия `1.9.0` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
+- Текущая ветка `CustomMobTweaks` — версия `2.7.0` для Folia `26.1.2` / Java `25`. Не откатывать её к старой реализации `1.1.x` и не менять имя выходного JAR `CustomMobTweaks-*.jar` без прямой просьбы пользователя.
+- Текущая ветка `TaskForgeLink` — версия `1.10.0` для Folia `26.1.2` / Java `25`. Сохранять полный hot-reload runtime через `/tflink reload`.
 - Minecraft link codes are delivery-only: the website must never display, copy, or return a fallback/backup code to the browser. A generated code must be sent directly to the online Minecraft player through the authenticated webhook. If delivery fails, invalidate the generated code and return a clear error.
 - Production defaults for direct site-to-Minecraft delivery are `http://mc.taskforge.by:25566` and `/taskforge/link/send`; health is `http://mc.taskforge.by:25566/health`. Do not blank these defaults unless the user explicitly changes the deployment topology.
 - Keep detailed safe logs for link-code generation and delivery: resolved URL/path, request ID, HTTP status, elapsed time, response preview, exception type/message, and secret presence/length/fingerprint. Never log the raw code or secret.

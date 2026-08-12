@@ -12,6 +12,8 @@ export default function LockedNode({ data }) {
     <div
       className="course-map-node course-map-node--locked"
       data-taskforge-agent-role="course-map-locked-node"
+      data-taskforge-agent-kind="locked"
+      data-taskforge-agent-state="locked"
       aria-label={`${title}. ${requirement}`}
     >
       <Handle

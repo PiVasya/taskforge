@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sigma } from 'lucide-react';
-import { AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { activateCourseMapNodeForAgent, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function MathNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -8,12 +8,15 @@ export default function MathNode({ data, selected }) {
   return (
     <div
       className={`course-map-node course-map-node--math${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
+      data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="assignment"
       data-taskforge-entity-id={assignment.id || data?.entityId}
       data-taskforge-assignment-type="math"
       data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
+      data-taskforge-agent-kind="math"
       data-taskforge-agent-action="open-assignment"
+      onClick={(event) => activateCourseMapNodeForAgent(event, data, data?.onOpen)}
       aria-label={`Математическое задание: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />

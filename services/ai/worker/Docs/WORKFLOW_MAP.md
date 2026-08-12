@@ -1,5 +1,20 @@
 # Workflow map
 
+Current top-level coordinator:
+
+```text
+AdaptiveAgentLoopWorkflow
+  inspect_context -> classify_request
+  safe action / actions[] batch
+  AgentLoopState persists observations and working memory
+  delegate_* -> review_delegated_result -> finish
+  load_editable_assignments -> map_course_structure
+    -> analyze_assignment_complexity
+    -> propose_assignment_patch_set -> review_patch_set -> finish
+```
+
+Specialized workflows delegated by the loop:
+
 ```text
 OpenChatWorkflow
   LoadRunContextExecutor

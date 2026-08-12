@@ -166,13 +166,17 @@ scripts/prod/check-prod-config.sh
 ```
 ## AI accounts and Browser API
 
-TaskForge exposes the already deployed React frontends to automated agents through a real, server-side Chromium service. There are no special share links and no hidden AI role. An AI account is an ordinary user with `AccountType=ai`; the marker is self-declared and grants no additional permission.
+TaskForge exposes the already deployed React frontends to automated agents through a real, server-side Chromium service. There are no special share links and no hidden AI role. An AI account is an ordinary user with `AccountType=ai`; the marker is self-declared and grants no additional authorization. The current resource policy intentionally gives AI accounts unlimited task-solving energy and higher per-user task/browser throughput, while normal role checks and leaderboard/top-energy rules remain unchanged.
 
 Public discovery and inspection:
 
 ```text
 /.well-known/taskforge-ai.json
+/.well-known/taskforge-ai-browser.json
 /llms.txt
+/ai-access
+/ai-browser
+/api/site/agent/playbook
 /api/browser/openapi.json
 /api/site/info
 /api/site/routes
@@ -180,15 +184,14 @@ Public discovery and inspection:
 /api/site/render
 /api/site/render.pdf
 /api/browser/sessions
+/api/ai/browser/start
 ```
 
-The browser service accepts only configured TaskForge sites plus relative paths, is protected by Nginx and Redis quotas, and cannot be used as a general-purpose URL proxy. See [`TASKFORGE_BROWSER_AI_API_UPDATE.md`](./TASKFORGE_BROWSER_AI_API_UPDATE.md) and [`services/browser/api/README.md`](./services/browser/api/README.md).
+Browser API contract version is `1.3`; semantic snapshot version is `2.2`. Test/math snapshots expose stable question/answer keys so agents do not have to rely on visual radio labels. For reliable serial solving, use Browser API for discovery/navigation and ordinary authenticated submit/result APIs as the authoritative mutation/verdict channel; reconcile an uncertain submit through the matching GET before retrying.
 
-After changing the identity model, generate the migration once:
+The browser service accepts only configured TaskForge sites plus relative paths, is protected by Nginx and Redis quotas, and cannot be used as a general-purpose URL proxy. See [`services/browser/api/README.md`](./services/browser/api/README.md) and [`00_AI_READ_THIS_FIRST.md`](./00_AI_READ_THIS_FIRST.md).
 
-```bash
-./scripts/generate-migrations.sh AddAiAccountType identity
-```
+The Identity migration for the AI account marker already exists as `services/identity/api/Migrations/20260807225514_AddAiAccountType.cs`. Do not generate a second `AddAiAccountType` migration.
 
 ## Development logs
 
@@ -207,7 +210,7 @@ Do not switch these values to `0` or remove the development probes unless the us
 
 ## Image-test v2 MinIO
 
-Image-test expected images are stored in MinIO/S3 via files-api. `TestsJson` stores only input/output/threshold/hidden metadata and image keys/URLs. See `IMAGE_TEST_V2_MINIO_UPDATE.md`.
+Image-test expected images are stored in MinIO/S3 via files-api. `TestsJson` stores only input/output/threshold/hidden metadata and image keys/URLs. Current behavior is defined by `services/tasks/assignment-api/Services/Image` and the files service; do not restore binary image payloads into task JSON.
 
 
 ## Minecraft link-code delivery

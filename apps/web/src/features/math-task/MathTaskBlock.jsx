@@ -3,9 +3,19 @@ import { Badge, Button, Card, Field, Select, Textarea } from '../../components/u
 import StatementViewer from '../../components/tiptap/StatementViewer';
 import { setAttemptAnswer, useAttemptAnswer } from '../attempts/attemptAnswerStore';
 
+function automationPart(value, fallback) {
+  const normalized = String(value ?? '').trim().replace(/[^a-zA-Z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
+  return (normalized || fallback).slice(0, 100);
+}
+
 function MathTaskBlock({ storeKey, block, index }) {
   const answer = useAttemptAnswer(storeKey, block.id);
   const kind = String(block.kind || '').toLowerCase();
+  const automationId = `math-q-${automationPart(block.id, String(index + 1))}`;
+  const questionAttrs = {
+    'data-taskforge-question-index': index + 1,
+    'data-taskforge-question-id': String(block.id || ''),
+  };
 
   const moveOrderItem = useCallback((itemIndex, direction) => {
     setAttemptAnswer(storeKey, block.id, (current) => {
@@ -26,12 +36,20 @@ function MathTaskBlock({ storeKey, block, index }) {
     const multiple = kind === 'multi-choice';
     body = (
       <div className="space-y-2">
-        {(block.options || []).map((option) => (
+        {(block.options || []).map((option, optionIndex) => (
           <label key={option.key} className="flex items-center gap-2 text-sm cursor-pointer">
             <input
               type={multiple ? 'checkbox' : 'radio'}
               name={`math-${block.id}`}
               checked={selected.includes(option.key)}
+              aria-label={`Вопрос ${index + 1}, вариант ${optionIndex + 1}: ${option.text}`}
+              data-taskforge-automation-id={`${automationId}-option-${optionIndex + 1}`}
+              data-taskforge-agent-role="math-answer-option"
+              data-taskforge-agent-action={multiple ? 'toggle-math-answer' : 'select-math-answer'}
+              data-taskforge-agent-kind={kind}
+              data-taskforge-option-index={optionIndex + 1}
+              data-taskforge-option-key={String(option.key ?? '')}
+              {...questionAttrs}
               onChange={() => setAttemptAnswer(storeKey, block.id, (current) => {
                 if (!multiple) return { ...current, selectedOptionKeys: [option.key] };
                 const next = new Set(current.selectedOptionKeys || []);
@@ -51,6 +69,12 @@ function MathTaskBlock({ storeKey, block, index }) {
         <Textarea
           rows={kind === 'expression' ? 3 : 2}
           value={answer.text || ''}
+          aria-label={`Вопрос ${index + 1}: ${kind === 'number' ? 'числовой ответ' : kind === 'set' ? 'множество или список' : 'формула или выражение'}`}
+          data-taskforge-automation-id={`${automationId}-answer`}
+          data-taskforge-agent-role="math-answer-input"
+          data-taskforge-agent-action="fill-math-answer"
+          data-taskforge-agent-kind={kind}
+          {...questionAttrs}
           onChange={(event) => setAttemptAnswer(storeKey, block.id, (current) => ({ ...current, text: event.target.value }))}
           placeholder={kind === 'number' ? 'Например: 3.14' : kind === 'set' ? 'Например: 1, 2, 3' : 'Например: (x-1)(x+1)'}
         />
@@ -64,8 +88,28 @@ function MathTaskBlock({ storeKey, block, index }) {
           <div key={`${item}_${itemIndex}`} className="flex items-center gap-2 rounded-xl border border-neutral-200 dark:border-neutral-800 px-3 py-2">
             <Badge>{itemIndex + 1}</Badge>
             <div className="flex-1">{item}</div>
-            <Button variant="outline" onClick={() => moveOrderItem(itemIndex, -1)}>↑</Button>
-            <Button variant="outline" onClick={() => moveOrderItem(itemIndex, 1)}>↓</Button>
+            <Button
+              variant="outline"
+              aria-label={`Вопрос ${index + 1}: переместить элемент ${itemIndex + 1} вверх`}
+              data-taskforge-automation-id={`${automationId}-order-${itemIndex + 1}-up`}
+              data-taskforge-agent-role="math-order-control"
+              data-taskforge-agent-action="move-math-item-up"
+              data-taskforge-agent-kind="order"
+              data-taskforge-option-index={itemIndex + 1}
+              {...questionAttrs}
+              onClick={() => moveOrderItem(itemIndex, -1)}
+            >↑</Button>
+            <Button
+              variant="outline"
+              aria-label={`Вопрос ${index + 1}: переместить элемент ${itemIndex + 1} вниз`}
+              data-taskforge-automation-id={`${automationId}-order-${itemIndex + 1}-down`}
+              data-taskforge-agent-role="math-order-control"
+              data-taskforge-agent-action="move-math-item-down"
+              data-taskforge-agent-kind="order"
+              data-taskforge-option-index={itemIndex + 1}
+              {...questionAttrs}
+              onClick={() => moveOrderItem(itemIndex, 1)}
+            >↓</Button>
           </div>
         ))}
       </div>
@@ -74,11 +118,19 @@ function MathTaskBlock({ storeKey, block, index }) {
     const pairs = answer.matchPairs ?? (block.matchLeftItems || []).map((item) => ({ leftKey: item.key, rightKey: '' }));
     body = (
       <div className="space-y-3">
-        {(block.matchLeftItems || []).map((left) => (
+        {(block.matchLeftItems || []).map((left, leftIndex) => (
           <div key={left.key} className="grid md:grid-cols-[1fr_220px] gap-3 items-center">
             <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 px-3 py-2">{left.text}</div>
             <Select
               value={pairs.find((pair) => pair.leftKey === left.key)?.rightKey || ''}
+              aria-label={`Вопрос ${index + 1}: соответствие ${leftIndex + 1}`}
+              data-taskforge-automation-id={`${automationId}-match-${leftIndex + 1}`}
+              data-taskforge-agent-role="math-match-select"
+              data-taskforge-agent-action="select-math-match"
+              data-taskforge-agent-kind="match"
+              data-taskforge-option-index={leftIndex + 1}
+              data-taskforge-option-key={String(left.key ?? '')}
+              {...questionAttrs}
               onChange={(event) => setAttemptAnswer(storeKey, block.id, (current) => {
                 const currentPairs = current.matchPairs ?? (block.matchLeftItems || []).map((item) => ({ leftKey: item.key, rightKey: '' }));
                 const next = currentPairs.map((pair) => (
@@ -99,7 +151,12 @@ function MathTaskBlock({ storeKey, block, index }) {
   }
 
   return (
-    <Card>
+    <Card
+      data-taskforge-automation-id={automationId}
+      data-taskforge-agent-role="math-question"
+      data-taskforge-agent-kind={kind}
+      {...questionAttrs}
+    >
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>

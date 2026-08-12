@@ -35,7 +35,7 @@ migration by accident. The script restores/builds only selected projects, checks
 pending model changes, and adds a migration only when EF reports a real model change.
 
 Examples:
-  ./scripts/generate-migrations.sh AddAiAccountType identity
+  ./scripts/generate-migrations.sh AddProfileFields identity
   ./scripts/generate-migrations.sh AddCourseFields education
   ./scripts/generate-migrations.sh SomeCrossServiceChange identity,education
 

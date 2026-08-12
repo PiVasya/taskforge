@@ -14,13 +14,13 @@ public sealed class AiRemoteBrowserOptions
     public int SessionAbsoluteMinutes { get; set; } = 105;
     public int MaxSessionsPerNetwork { get; set; } = 2;
     public int MaxValueCharacters { get; set; } = 20000;
-    public int StartLimit { get; set; } = 30;
+    public int StartLimit { get; set; } = 60;
     public int StartWindowSeconds { get; set; } = 60;
     public int ConfirmLimit { get; set; } = 5;
     public int ConfirmWindowSeconds { get; set; } = 60;
-    public int ActionLimit { get; set; } = 240;
+    public int ActionLimit { get; set; } = 300;
     public int ActionWindowSeconds { get; set; } = 60;
-    public int ScreenshotLimit { get; set; } = 30;
+    public int ScreenshotLimit { get; set; } = 60;
     public int ScreenshotWindowSeconds { get; set; } = 60;
 
     public int GetEffectiveSessionIdleMinutes(BrowserOptions browser)

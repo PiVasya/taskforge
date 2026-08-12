@@ -1,5 +1,8 @@
 # TaskForge 98 CI fix audit
 
+> **HISTORICAL SNAPSHOT.** This file describes the state of an older TaskForge 98 CI incident and is not a source of current versions or architecture. For the current project state read `00_AI_READ_THIS_FIRST.md`, the service READMEs and the actual build files.
+
+
 ## Причина падения
 
 `check-minecraft-plugin-runtime-invariants.sh` требует, чтобы в `plugins/minecraft` оставался только каталог `minecraft-plugin-folia` с двумя поддерживаемыми проектами:

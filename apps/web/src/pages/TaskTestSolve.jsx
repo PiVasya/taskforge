@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button } from '../components/ui';
-import { startTaskTest, submitTaskTest } from '../api/taskTests';
+import { getMyTaskTestAttempt, startTaskTest, submitTaskTest } from '../api/taskTests';
 import { useNotify } from '../components/notify/NotifyProvider';
 import StatementViewer from '../components/tiptap/StatementViewer';
 import AttemptCountdown from '../features/attempts/AttemptCountdown';
@@ -11,6 +11,7 @@ import {
   subscribeAttemptAnswers,
 } from '../features/attempts/attemptAnswerStore';
 import TaskTestQuestion from '../features/task-test/TaskTestQuestion';
+import { recoverSubmittedAttempt, shouldRecoverSubmittedAttempt } from '../features/attempts/recoverSubmittedAttempt';
 
 function hashActivityText(value) {
   const text = typeof value === 'string' ? value : '';
@@ -78,6 +79,32 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     }
   }, [assignmentId, notify, onActivity, storeKey]);
 
+  const applySubmittedResult = useCallback((response, recovered = false) => {
+    onActivity?.('test_finished', {
+      attemptId: startData?.attemptId || null,
+      payload: {
+        passed: Boolean(response?.passed),
+        scorePercent: response?.scorePercent ?? null,
+        recoveredAfterTransportFailure: recovered,
+      },
+    });
+    if (storeKey) destroyAttemptAnswers(storeKey);
+    setResult(response);
+    if (
+      Number.isFinite(startData?.attemptNumber)
+      && Number.isFinite(startData?.maxAttempts)
+      && startData.attemptNumber >= startData.maxAttempts
+    ) {
+      setLimitReached(true);
+    }
+    if (response?.passed) onCompleted?.();
+    if (recovered) {
+      notify.info('Ответы уже были приняты сервером. Результат восстановлен после сбоя связи.');
+    } else {
+      notify.success(response?.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
+    }
+  }, [notify, onActivity, onCompleted, startData, storeKey]);
+
   const doSubmit = useCallback(async () => {
     if (!startData?.attemptId || !storeKey || submitLoading || result) return;
     const answers = getAttemptAnswers(storeKey);
@@ -101,22 +128,15 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         })),
       };
       const response = await submitTaskTest(assignmentId, payload);
-      onActivity?.('test_finished', {
-        attemptId: startData.attemptId,
-        payload: { passed: Boolean(response?.passed), scorePercent: response?.scorePercent ?? null },
-      });
-      destroyAttemptAnswers(storeKey);
-      setResult(response);
-      if (
-        Number.isFinite(startData?.attemptNumber)
-        && Number.isFinite(startData?.maxAttempts)
-        && startData.attemptNumber >= startData.maxAttempts
-      ) {
-        setLimitReached(true);
-      }
-      if (response.passed) onCompleted?.();
-      notify.success(response.passed ? 'Тест засчитан ✅' : 'Попытка завершена');
+      applySubmittedResult(response, false);
     } catch (error) {
+      if (shouldRecoverSubmittedAttempt(error) && startData?.attemptId) {
+        const recovered = await recoverSubmittedAttempt(() => getMyTaskTestAttempt(startData.attemptId));
+        if (recovered) {
+          applySubmittedResult(recovered, true);
+          return;
+        }
+      }
       onActivity?.('submit_failed', {
         attemptId: startData?.attemptId || null,
         payload: { kind: 'test', message: error?.userMessage || error?.message || 'Не удалось отправить ответы' },
@@ -125,7 +145,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     } finally {
       setSubmitLoading(false);
     }
-  }, [assignmentId, notify, onActivity, onCompleted, result, startData, storeKey, submitLoading]);
+  }, [applySubmittedResult, assignmentId, notify, onActivity, result, startData, storeKey, submitLoading]);
 
   useEffect(() => {
     if (!storeKey || result) return undefined;
@@ -188,7 +208,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <Card>
           <div className="space-y-3">
             <div className="flex gap-3">
-              <Button onClick={begin} disabled={loading || limitReached}>
+              <Button data-taskforge-automation-id="task-test-start" data-taskforge-agent-role="test-action" data-taskforge-agent-action="start-test" onClick={begin} disabled={loading || limitReached}>
                 {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать тест')}
               </Button>
             </div>
@@ -198,7 +218,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       ) : null}
 
       {result ? (
-        <Card>
+        <Card data-taskforge-automation-id="task-test-result" data-taskforge-agent-role="test-status" data-taskforge-agent-state={result?.passed ? 'passed' : 'failed'}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-lg font-semibold">
@@ -210,9 +230,9 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={closeAttempt}>Закрыть</Button>
+              <Button data-taskforge-automation-id="task-test-close-result" data-taskforge-agent-role="test-action" data-taskforge-agent-action="close-test-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
               {startData && startData.attemptNumber < startData.maxAttempts ? (
-                <Button onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
+                <Button data-taskforge-automation-id="task-test-restart" data-taskforge-agent-role="test-action" data-taskforge-agent-action="restart-test" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>
               )}
@@ -227,8 +247,8 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             <TaskTestQuestion key={question.id} storeKey={storeKey} question={question} index={index} />
           ))}
           <div className="flex gap-3">
-            <Button onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Завершить тест'}</Button>
-            <Button variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
+            <Button data-taskforge-automation-id="task-test-submit" data-taskforge-agent-role="test-action" data-taskforge-agent-action="submit-test" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Завершить тест'}</Button>
+            <Button data-taskforge-automation-id="task-test-cancel" data-taskforge-agent-role="test-action" data-taskforge-agent-action="cancel-test" variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
           </div>
         </div>
       ) : null}

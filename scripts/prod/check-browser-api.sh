@@ -73,6 +73,9 @@ request_once() {
 printf '[browser-smoke] base=%s site=%s path=%s viewport=%sx%s\n' "$BASE_URL" "$SITE" "$PATH_TO_CHECK" "$WIDTH" "$HEIGHT"
 printf '[browser-smoke] discovery\n'
 request_retry 'AI discovery' "$tmp_dir/discovery.json" "$BASE_URL/.well-known/taskforge-ai.json"
+request_retry 'AI remote-browser discovery' "$tmp_dir/remote-discovery.json" "$BASE_URL/.well-known/taskforge-ai-browser.json"
+request_retry 'Browser OpenAPI' "$tmp_dir/openapi.json" "$BASE_URL/api/browser/openapi.json"
+request_retry 'agent playbook' "$tmp_dir/playbook.json" "$BASE_URL/api/site/agent/playbook"
 request_retry 'llms.txt' "$tmp_dir/llms.txt" "$BASE_URL/llms.txt"
 request_retry 'agent access index' "$tmp_dir/agent-access.html" "$BASE_URL/ai-access"
 request_retry 'site info' "$tmp_dir/info.json" "${auth_args[@]}" "$BASE_URL/api/site/info"
@@ -187,20 +190,65 @@ def load(name):
     return json.loads((root/name).read_text(encoding='utf-8'))
 
 discovery=load('discovery.json')
+remote_discovery=load('remote-discovery.json')
+openapi=load('openapi.json')
+playbook=load('playbook.json')
 info=load('info.json')
 routes=load('routes.json')
 snapshot=load('snapshot.json')
 session=load('session.json')
 session_snapshot=load('session-snapshot.json')
 
-assert discovery.get('apiVersion') == '1.2', 'unexpected discovery API version'
+assert discovery.get('apiVersion') == '1.3', 'unexpected discovery API version'
 assert discovery.get('agentAccess'), 'AI discovery does not advertise agent access index'
 assert discovery.get('siteInspection', {}).get('recommendedCaptureConcurrency') == 1, 'unexpected crawler concurrency recommendation'
+semantic=discovery.get('semanticSnapshot') or {}
+assert semantic.get('version') == '2.2', 'AI discovery semantic snapshot version is stale'
+metadata=set(semantic.get('testAnswerMetadata') or [])
+assert {'questionIndex', 'questionId', 'answerOptionIndex', 'answerOptionKey'} <= metadata, 'stable test answer metadata is not advertised'
+authoritative=discovery.get('authoritativeApi') or {}
+assert authoritative.get('quotaStatus', '').endswith('/api/me/quotas'), 'AI discovery has no quota status endpoint'
+study=authoritative.get('study') or {}
+assert study.get('courses', '').endswith('/api/courses'), 'AI discovery has no course catalog API'
+assert '/learning-map' in study.get('learningMap', ''), 'AI discovery has no learner progression map API'
+assert '/solve-shell' in study.get('solveShell', ''), 'AI discovery has no assignment solve-shell API'
+code_api=authoritative.get('code') or {}
+assert code_api.get('listMine'), 'AI discovery has no code-verdict reconciliation endpoint'
+verdict_handling=code_api.get('verdictHandling') or {}
+assert {'Preparing', 'Queued', 'Running'} <= set(verdict_handling.get('pending') or []), 'AI discovery omits pending code verdict handling'
+assert 'JudgeUnavailable' in set(verdict_handling.get('terminal') or []), 'AI discovery omits JudgeUnavailable infrastructure verdict guidance'
+assert (authoritative.get('test') or {}).get('getAttempt'), 'AI discovery has no test-attempt reconciliation endpoint'
+assert (authoritative.get('math') or {}).get('getAttempt'), 'AI discovery has no math-attempt reconciliation endpoint'
+assert authoritative.get('recoveryRule'), 'AI discovery has no lost-submit recovery rule'
+interactive=discovery.get('interactiveBrowser') or {}
+assert (interactive.get('elementReferences') or {}).get('preferred') == 'automationId', 'AI discovery does not prefer stable automationId for browser actions'
+assert (discovery.get('rateLimits') or {}).get('authenticatedAiMultiplier', 0) >= 1, 'AI Browser throughput multiplier is not advertised'
+assert 'unlimited task-solving energy' in (discovery.get('aiAccounts') or {}).get('note', ''), 'AI task resource policy is not discoverable'
+
+assert remote_discovery.get('enabled') is True, 'AI remote-browser compatibility is disabled'
+remote_primitives=set(remote_discovery.get('primitives') or [])
+for primitive in ('snapshot', 'screenshot', 'navigate', 'click', 'mouse-click', 'fill', 'insert', 'select', 'press', 'key', 'hover', 'check', 'scroll', 'wait', 'back', 'reload', 'close'):
+    assert primitive in remote_primitives, f'AI remote-browser primitive missing: {primitive}'
+remote_rates=remote_discovery.get('rateLimits') or {}
+assert (remote_rates.get('action') or {}).get('limit', 0) >= 300, 'AI remote-browser action throughput default is unexpectedly low'
+assert (remote_rates.get('screenshot') or {}).get('limit', 0) >= 60, 'AI remote-browser screenshot throughput default is unexpectedly low'
+assert remote_rates.get('authenticatedAiMultiplier', 0) >= 1, 'AI remote-browser discovery omits authenticated AI multiplier'
+assert 'seconds until reset' in remote_rates.get('resetSemantics', ''), 'AI remote-browser RateLimit-Reset semantics are not documented'
+remote_headers=set(remote_rates.get('headers') or [])
+assert {'RateLimit-Reset', 'RateLimit-Policy', 'X-RateLimit-Reset', 'X-TaskForge-AI-Rate-Multiplier'} <= remote_headers, 'AI remote-browser discovery omits rate-limit compatibility headers'
+assert openapi.get('x-taskforge-agent-contract') == '1.3', 'Browser OpenAPI agent contract version is stale'
+assert openapi.get('x-taskforge-snapshot-version') == '2.2', 'Browser OpenAPI semantic snapshot version is stale'
+assert playbook.get('version') == '1.1', 'agent playbook version is stale'
+assert ((playbook.get('browser') or {}).get('elementReferences') or {}).get('preferred') == 'automationId', 'agent playbook does not prefer stable automationId element references'
+assert (playbook.get('authoritativeApi') or {}).get('study', {}).get('learningMap'), 'agent playbook has no learner progression map path'
+assert (playbook.get('authoritativeApi') or {}).get('code', {}).get('listMine'), 'agent playbook has no code reconciliation path'
 assert info.get('name') == 'TaskForge.by', 'site info is invalid'
+assert (info.get('limits') or {}).get('semanticSnapshotVersion') == '2.2', 'site info semantic snapshot version is stale'
+assert (info.get('limits') or {}).get('authenticatedAiRateLimitMultiplier', 0) >= 1, 'site info omits AI Browser throughput multiplier'
 assert isinstance(routes.get('routes'), list) and routes['routes'], 'route catalog is empty'
 for value, label in ((snapshot, 'stateless'), (session_snapshot, 'session')):
     assert value.get('url'), f'{label} snapshot has no URL'
-    assert value.get('semanticSnapshotVersion') == '2.0', f'{label} snapshot version is invalid'
+    assert value.get('semanticSnapshotVersion') == '2.2', f'{label} snapshot version is invalid'
     assert isinstance(value.get('elements'), list), f'{label} snapshot elements are missing'
     assert 'ariaSnapshot' in value, f'{label} snapshot ARIA field is missing'
 assert session.get('readOnly') is True, 'anonymous smoke session is not read-only'

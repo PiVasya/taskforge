@@ -1,5 +1,7 @@
 # Migration from Python AI worker
 
+> **HISTORICAL / MIGRATION COMPLETE.** The current repository contains the .NET AI worker as the active implementation; there is no Python worker to run side-by-side. Use `../README.md`, `ADAPTIVE_AGENT_LOOP.md` and the current source as the operational contract. The rollout list below is retained only as migration history.
+
 ## Keep
 
 - `AgentConversation`, `AgentRun`, `AgentMessage`, `AgentStep`, `AgentRunArtifact`.

@@ -37,6 +37,16 @@ internal static class SolutionsApiAccessService
         return principal != null && TaskForgeRequestSecurity.HasAnyRole(principal, "Admin");
     }
 
+    internal static bool IsAiAccount(HttpContext http, IConfiguration cfg)
+    {
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
+        return TaskForgeRequestSecurity.IsAiAccount(principal);
+    }
+
+    internal static bool HasUnlimitedTaskEnergy(HttpContext http, IConfiguration cfg)
+        => IsAdmin(http, cfg)
+           || (cfg.GetValue("AiAccounts:UnlimitedTaskEnergy", true) && IsAiAccount(http, cfg));
+
     internal static bool IsEditor(HttpContext http, IConfiguration cfg)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);

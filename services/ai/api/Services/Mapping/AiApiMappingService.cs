@@ -190,7 +190,7 @@ internal static class AiApiMappingService
                 ["hiddenTests"] = data["hiddenTests"]?.DeepClone()
             };
         }
-        return new { title, description, type = assignmentType, language, starterCode = data["starterCode"]?.ToString() ?? data["referenceSolution"]?.ToString(), tests, isVisible = false };
+        return new { title, description, type = assignmentType, language, starterCode = data["starterCode"]?.ToString() ?? string.Empty, tests, isVisible = false };
     }
 
     internal static void ForwardAuth(HttpRequest request, HttpClient client)

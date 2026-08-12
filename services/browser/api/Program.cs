@@ -60,7 +60,7 @@ builder.Services.AddCors(options => options.AddPolicy("public-browser-api", poli
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()
         .WithExposedHeaders(
             "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "Retry-After",
-            "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+            "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-TaskForge-AI-Rate-Multiplier",
             "X-TaskForge-Browser-Session-Token", "X-TaskForge-Agent-Artifact-Id", "X-TaskForge-Agent-Artifact-Expires",
             "X-TaskForge-Capture-Cache", "X-TaskForge-Cache", "X-TaskForge-Snapshot-Version", "X-TaskForge-Render-Width", "X-TaskForge-Render-Height",
             "X-TaskForge-Full-Page", "X-TaskForge-Full-Page-Truncated", "X-TaskForge-Annotated", "X-TaskForge-AI-Remote-Session")));
@@ -340,8 +340,9 @@ app.MapGet("/api/site/info", async (
             options.CaptureTimeoutSeconds,
             options.CaptureCacheSeconds,
             options.RecommendedCaptureConcurrency,
-            "2.1",
-            new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Reset", "Retry-After" })));
+            System.Math.Clamp(limits.AuthenticatedAiMultiplier, 1, 20),
+            "2.2",
+            new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Reset", "X-TaskForge-AI-Rate-Multiplier", "Retry-After" })));
 })
 .WithName("GetSiteInfo")
 .WithTags("Site inspection")
@@ -374,26 +375,31 @@ app.MapGet("/api/site/routes", async (
 .Produces<SiteRoutesResponse>(StatusCodes.Status200OK)
 .AllowAnonymous();
 
-app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions options) =>
+app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions options, BrowserRateLimitOptions rateLimits) =>
 {
     var root = PublicRoot(request);
     return Results.Ok(new
     {
-        version = "1.0",
-        purpose = "Register an AI-marked ordinary user, sign in, browse courses, solve code assignments and verify verdicts through the interactive Browser API.",
+        version = "1.1",
+        purpose = "Discover TaskForge, register an AI-marked ordinary account, navigate the real site with Chromium, solve assignments, and reconcile submissions against authoritative TaskForge APIs.",
         principles = new[]
         {
+            "Use Browser API for discovery, navigation, visual inspection and UI-only flows; use ordinary authenticated TaskForge APIs as the authoritative source for submissions, attempts and verdicts when the client can send POST/GET requests.",
             "Prefer one interactive session over repeated public captures once authenticated.",
-            "Use automationId/automationRole/automationAction/automationState from semantic snapshots instead of CSS selectors or translated button text.",
-            "After mutations request a session snapshot with waitMs=1500..5000 instead of tight polling.",
-            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden access."
+            "Use stable automationId directly in Browser action endpoints when available; use automationRole/automationAction/automationState/automationKind to discover targets and tfN only as a snapshot-local fallback. Avoid CSS selectors or translated button text.",
+            "For test and math choices prefer questionId + answerOptionKey, or explicit one-based questionIndex + answerOptionIndex, rather than ambiguous visual radio labels.",
+            "After UI mutations request a session snapshot with waitMs=1500..5000 instead of tight polling.",
+            "If a submit click reports a transport/server error, reconcile through the authoritative GET attempt/solution API before retrying so an accepted submission is not duplicated.",
+            "For code verdicts, poll Preparing/Queued/Running through the returned solution GET with bounded backoff; JudgeUnavailable means infrastructure failed for that submission, so reconcile and back off instead of tight resubmission loops.",
+            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden-data access; operator-configured resource policy may grant unlimited task energy and higher throughput."
         },
         onboarding = new
         {
             registerApi = $"{root}/api/auth/register",
             loginApi = $"{root}/api/auth/login",
             registerUi = $"{root}/register?accountType=ai",
-            accountType = "ai"
+            accountType = "ai",
+            quotaStatusApi = $"{root}/api/me/quotas"
         },
         browser = new
         {
@@ -401,17 +407,59 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             sessionTokenHeader = "X-TaskForge-Browser-Session-Token",
             recommendedWaitMs = new { afterNavigation = 1200, afterSubmit = 2500, max = options.MaxWaitMilliseconds },
             idleMinutes = options.SessionIdleMinutes,
-            absoluteMinutes = options.SessionAbsoluteMinutes
+            absoluteMinutes = options.SessionAbsoluteMinutes,
+            semanticSnapshotVersion = "2.2",
+            elementReferences = new { preferred = "automationId", fallback = "tfN", actionField = "elementId" },
+            authenticatedAiRateLimitMultiplier = System.Math.Clamp(rateLimits.AuthenticatedAiMultiplier, 1, 20)
+        },
+        authoritativeApi = new
+        {
+            study = new
+            {
+                courses = $"{root}/api/courses",
+                courseAssignments = $"{root}/api/courses/{{courseId}}/assignments",
+                learningMap = $"{root}/api/courses/{{courseId}}/learning-map",
+                assignment = $"{root}/api/assignments/{{assignmentId}}",
+                solveShell = $"{root}/api/assignments/{{assignmentId}}/solve-shell",
+                statement = $"{root}/api/assignments/{{assignmentId}}/statement",
+                tests = $"{root}/api/assignments/{{assignmentId}}/tests"
+            },
+            code = new
+            {
+                submit = $"{root}/api/assignments/{{assignmentId}}/submit",
+                listMine = $"{root}/api/me/solutions?assignmentId={{assignmentId}}",
+                getMine = $"{root}/api/me/solutions/{{solutionId}}",
+                verdictHandling = new
+                {
+                    pending = new[] { "Preparing", "Queued", "Running" },
+                    terminal = new[] { "Accepted", "Rejected", "CompileError", "PolicyFailed", "NoTestsConfigured", "JudgeUnavailable", "LanguageNotAllowed" },
+                    judgeUnavailable = "Infrastructure failure for this submission; reconcile state and use bounded backoff before a new submission."
+                }
+            },
+            test = new
+            {
+                start = $"{root}/api/task-tests/{{assignmentId}}/start",
+                submit = $"{root}/api/task-tests/{{assignmentId}}/submit",
+                getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}"
+            },
+            math = new
+            {
+                start = $"{root}/api/math-tasks/{{assignmentId}}/start",
+                submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
+                getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
+            },
+            recoveryRule = "After an uncertain UI/HTTP submit, query the matching GET endpoint first. Retry the mutation only when the server has not recorded the submission."
         },
         workflow = new object[]
         {
-            new { step = 1, action = "register", note = "POST /api/auth/register with accountType=ai, then POST /api/auth/login and keep the returned ordinary access token." },
-            new { step = 2, action = "create-session", note = "Create readOnly=false session with Authorization: Bearer <access-token>, site=main, path=/courses." },
+            new { step = 1, action = "register-login", note = "POST /api/auth/register with accountType=ai, then POST /api/auth/login and keep the returned ordinary access token." },
+            new { step = 2, action = "create-session", note = "Create readOnly=false session with Authorization: Bearer <access-token>, site=main, path=/courses. GET-only clients can use /.well-known/taskforge-ai-browser.json and /api/ai/browser/start instead." },
             new { step = 3, action = "choose-course", targetRole = "course-card", preferredState = "incomplete" },
-            new { step = 4, action = "choose-assignment", targetRole = "assignment-card", preferredState = "unsolved", preferredKind = "code-test" },
-            new { step = 5, action = "solve", targets = new[] { "solution-language", "solution-code-editor", "submit-code-solution" }, note = "For the submit click set waitMs=2500..5000 and includeSnapshot=true; if state is still queued/running, use GET session snapshot with another waitMs." },
-            new { step = 6, action = "verify", targetRole = "solution-status", acceptedState = "accepted", note = "Use snapshot?waitMs=2500 or larger when execution is still queued/running." },
-            new { step = 7, action = "continue", targetAction = "next-assignment" }
+            new { step = 4, action = "choose-assignment", targetRoles = new[] { "course-map-node", "assignment-card" }, targetAction = "open-assignment", preferredState = "unsolved", note = "Flow-map and card modes expose the same stable assignment-{id} automationId. In Browser Automation, one click on a flow assignment node performs open-assignment; normal human map behavior remains unchanged." },
+            new { step = 5, action = "inspect-assignment", note = "Read the semantic snapshot and assignment kind. If ordinary HTTP is available, GET the assignment/solve-shell/statement/tests directly. For test/math choices bind answers to questionId + answerOptionKey whenever available." },
+            new { step = 6, action = "submit", note = "Prefer the authoritative ordinary API for reliable serial solving. If using the UI, submit with waitMs=2500..5000 and includeSnapshot=true." },
+            new { step = 7, action = "verify-reconcile", note = "For code query /api/me/solutions; for tests/math query the attempt by id. Treat those APIs as authoritative even if the UI lost the submit response." },
+            new { step = 8, action = "continue", targetAction = "next-assignment" }
         }
     });
 })
@@ -765,7 +813,16 @@ static async Task EnforceRateLimit(
     int windowSeconds,
     CancellationToken cancellationToken)
 {
-    var decision = await limiter.CheckAsync(bucket, caller.OwnerKey, caller.NetworkKey, limit, windowSeconds, cancellationToken);
+    var rateOptions = http.RequestServices.GetRequiredService<BrowserRateLimitOptions>();
+    var aiMultiplier = caller.IsAuthenticated && string.Equals(caller.AccountType, "ai", StringComparison.OrdinalIgnoreCase)
+        ? System.Math.Clamp(rateOptions.AuthenticatedAiMultiplier, 1, 20)
+        : 1;
+    var effectiveLimit = System.Math.Min(1_000_000, System.Math.Max(1, limit) * aiMultiplier);
+    if (aiMultiplier > 1)
+    {
+        http.Response.Headers["X-TaskForge-AI-Rate-Multiplier"] = aiMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+    var decision = await limiter.CheckAsync(bucket, caller.OwnerKey, caller.NetworkKey, effectiveLimit, windowSeconds, cancellationToken);
     var resetAfterSeconds = Math.Max(0, (int)Math.Ceiling((decision.ResetAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
     var resetUnix = decision.ResetAtUtc.ToUnixTimeSeconds().ToString();
     http.Response.Headers["RateLimit-Limit"] = decision.Limit.ToString();
@@ -887,6 +944,7 @@ static void ValidateConfiguration(
     EnsureRateRule(rateOptions.RenderLimit, rateOptions.RenderWindowSeconds, "Render");
     EnsureRateRule(rateOptions.SessionCreateLimit, rateOptions.SessionCreateWindowSeconds, "SessionCreate");
     EnsureRateRule(rateOptions.SessionActionLimit, rateOptions.SessionActionWindowSeconds, "SessionAction");
+    EnsureRange(rateOptions.AuthenticatedAiMultiplier, 1, 20, "BrowserRateLimits:AuthenticatedAiMultiplier");
     EnsureRange(rateOptions.NetworkMultiplier, 1, 100, "BrowserRateLimits:NetworkMultiplier");
 
     if (environment.IsProduction())

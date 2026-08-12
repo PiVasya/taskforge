@@ -30,7 +30,7 @@ public static class AiRemoteBrowserEndpoints
 
     private static void MapDiscovery(WebApplication app)
     {
-        app.MapGet("/.well-known/taskforge-ai-browser.json", (HttpRequest request, AiRemoteBrowserOptions options, BrowserOptions browserOptions) =>
+        app.MapGet("/.well-known/taskforge-ai-browser.json", (HttpRequest request, AiRemoteBrowserOptions options, BrowserOptions browserOptions, BrowserRateLimitOptions rateOptions) =>
         {
             var root = PublicRoot(request);
             return Results.Json(new
@@ -59,6 +59,17 @@ public static class AiRemoteBrowserEndpoints
                         effectiveIdleMinutes = options.GetEffectiveSessionIdleMinutes(browserOptions),
                         effectiveAbsoluteMinutes = options.GetEffectiveSessionAbsoluteMinutes(browserOptions)
                     }
+                },
+                rateLimits = new
+                {
+                    start = new { limit = options.StartLimit, windowSeconds = options.StartWindowSeconds },
+                    confirm = new { limit = options.ConfirmLimit, windowSeconds = options.ConfirmWindowSeconds },
+                    action = new { limit = options.ActionLimit, windowSeconds = options.ActionWindowSeconds },
+                    screenshot = new { limit = options.ScreenshotLimit, windowSeconds = options.ScreenshotWindowSeconds },
+                    authenticatedAiMultiplier = Math.Clamp(rateOptions.AuthenticatedAiMultiplier, 1, 20),
+                    note = "Authenticated accountType=ai outer Browser calls may receive the AI multiplier; anonymous capability traffic remains bounded by the base remote limits and gateway protection.",
+                    headers = new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Reset", "X-TaskForge-AI-Rate-Multiplier", "Retry-After" },
+                    resetSemantics = "RateLimit-Reset is seconds until reset; X-RateLimit-Reset is the UTC Unix timestamp."
                 }
             });
         }).WithName("GetTaskForgeAiRemoteBrowserDiscovery").WithTags("AI remote browser").AllowAnonymous();
@@ -106,6 +117,7 @@ public static class AiRemoteBrowserEndpoints
             CancellationToken ct) =>
         {
             var caller = callers.Resolve(http);
+            callers.ThrowIfInvalidCredential(caller);
             await EnforceRateLimit(http, limiter, caller, "ai-remote-start", options.StartLimit, options.StartWindowSeconds, ct);
             var provider = ClassifyProvider(http.Request.Headers.UserAgent.ToString());
             var (challenge, record) = remote.CreateChallenge(caller, site, path, width, height, waitMs, provider);
@@ -137,6 +149,7 @@ public static class AiRemoteBrowserEndpoints
             CancellationToken ct) =>
         {
             var caller = callers.Resolve(http);
+            callers.ThrowIfInvalidCredential(caller);
             await EnforceRateLimit(http, limiter, caller, "ai-remote-start", options.StartLimit, options.StartWindowSeconds, ct);
             var provider = ClassifyProvider(http.Request.Headers.UserAgent.ToString());
             var (challenge, record) = remote.CreateChallenge(caller, request.Site, request.Path, request.Width, request.Height, request.WaitMs, provider);
@@ -167,6 +180,7 @@ public static class AiRemoteBrowserEndpoints
                 throw new BrowserApiException(StatusCodes.Status403Forbidden, "AI_REMOTE_INDEXING_CRAWLER_BLOCKED", "Search/indexing crawlers may read discovery but cannot allocate writable remote-browser sessions.");
             }
             var caller = callers.Resolve(http);
+            callers.ThrowIfInvalidCredential(caller);
             await EnforceRateLimit(http, limiter, caller, "ai-remote-confirm", options.ConfirmLimit, options.ConfirmWindowSeconds, ct);
             var started = await remote.ConfirmAsync(challenge, ct);
             ApplyPrivateHeaders(http.Response);
@@ -496,24 +510,42 @@ public static class AiRemoteBrowserEndpoints
     private static async Task LimitAction(HttpContext http, AiRemoteBrowserOptions options, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct)
     {
         var caller = callers.Resolve(http);
+        callers.ThrowIfInvalidCredential(caller);
         await EnforceRateLimit(http, limiter, caller, "ai-remote-action", options.ActionLimit, options.ActionWindowSeconds, ct);
     }
 
     private static async Task LimitScreenshot(HttpContext http, AiRemoteBrowserOptions options, BrowserCallerResolver callers, RedisFixedWindowRateLimiter limiter, CancellationToken ct)
     {
         var caller = callers.Resolve(http);
+        callers.ThrowIfInvalidCredential(caller);
         await EnforceRateLimit(http, limiter, caller, "ai-remote-screenshot", options.ScreenshotLimit, options.ScreenshotWindowSeconds, ct);
     }
 
     private static async Task EnforceRateLimit(HttpContext http, RedisFixedWindowRateLimiter limiter, BrowserCaller caller, string operation, int limit, int seconds, CancellationToken ct)
     {
-        var decision = await limiter.CheckAsync(caller.OwnerKey, caller.NetworkKey, operation, Math.Max(1, limit), Math.Max(1, seconds), ct);
-        http.Response.Headers["RateLimit-Limit"] = decision.Limit.ToString();
-        http.Response.Headers["RateLimit-Remaining"] = decision.Remaining.ToString();
-        http.Response.Headers["RateLimit-Reset"] = decision.ResetAtUtc.ToUnixTimeSeconds().ToString();
+        var rateOptions = http.RequestServices.GetRequiredService<BrowserRateLimitOptions>();
+        var aiMultiplier = caller.IsAuthenticated && string.Equals(caller.AccountType, "ai", StringComparison.OrdinalIgnoreCase)
+            ? Math.Clamp(rateOptions.AuthenticatedAiMultiplier, 1, 20)
+            : 1;
+        var effectiveLimit = Math.Min(1_000_000, Math.Max(1, limit) * aiMultiplier);
+        if (aiMultiplier > 1)
+        {
+            http.Response.Headers["X-TaskForge-AI-Rate-Multiplier"] = aiMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var decision = await limiter.CheckAsync(operation, caller.OwnerKey, caller.NetworkKey, effectiveLimit, Math.Max(1, seconds), ct);
+        var resetAfterSeconds = Math.Max(0, (int)Math.Ceiling((decision.ResetAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
+        var resetUnix = decision.ResetAtUtc.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["RateLimit-Limit"] = decision.Limit.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["RateLimit-Remaining"] = decision.Remaining.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["RateLimit-Reset"] = resetAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["RateLimit-Policy"] = $"{decision.Limit};w={decision.WindowSeconds}";
+        http.Response.Headers["X-RateLimit-Limit"] = decision.Limit.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["X-RateLimit-Remaining"] = decision.Remaining.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        http.Response.Headers["X-RateLimit-Reset"] = resetUnix;
         if (!decision.Allowed)
         {
-            http.Response.Headers.RetryAfter = decision.RetryAfterSeconds.ToString();
+            http.Response.Headers.RetryAfter = decision.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             throw new BrowserApiException(StatusCodes.Status429TooManyRequests, "RATE_LIMITED", "Слишком много AI remote-browser запросов. Повторите позже.", decision.RetryAfterSeconds);
         }
     }

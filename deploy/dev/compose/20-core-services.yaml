@@ -218,6 +218,8 @@ services:
       dockerfile: services/tasks/assignment-api/Dockerfile
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
+      AiAccounts__TaskRateLimitMultiplier: ${AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER:-20}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       RabbitMq__Host: rabbitmq
@@ -283,6 +285,8 @@ services:
       dockerfile: services/solutions/api/Dockerfile
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
+      AiAccounts__TaskRateLimitMultiplier: ${AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER:-20}
       Quotas__Tasks__Capacity: ${TASKFORGE_TASK_ENERGY_CAPACITY:-10}
       Quotas__Tasks__RefillSeconds: ${TASKFORGE_TASK_ENERGY_REFILL_SECONDS:-90}
       Quotas__Top__Capacity: ${TASKFORGE_RATING_ENERGY_CAPACITY:-5}

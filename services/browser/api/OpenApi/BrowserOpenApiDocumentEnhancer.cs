@@ -22,7 +22,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
         PatchResponses(components);
         PatchPaths(root);
         PatchTags(root);
-        root["x-taskforge-snapshot-version"] = "2.1";
+        root["x-taskforge-snapshot-version"] = "2.2";
         root["x-taskforge-agent-contract"] = "1.3";
         return root.ToJsonString(JsonOptions);
     }
@@ -200,6 +200,10 @@ public sealed class BrowserOpenApiDocumentEnhancer
         PatchProperty(schemas, "SnapshotElement", "automationAction", NullableStringSchema("Stable intended action such as open-course, open-assignment, fill-solution-code, select-language or submit-code-solution."));
         PatchProperty(schemas, "SnapshotElement", "automationState", NullableStringSchema("Machine-readable current state such as solved, unsolved, completed, incomplete, accepted, rejected, queued or running."));
         PatchProperty(schemas, "SnapshotElement", "automationKind", NullableStringSchema("Machine-readable subtype when useful, for example assignment type."));
+        PatchProperty(schemas, "SnapshotElement", "questionIndex", NullableIntegerSchema("One-based visible question/block index when the control belongs to a test or math question."));
+        PatchProperty(schemas, "SnapshotElement", "questionId", NullableStringSchema("Stable backend question/block identifier. Prefer this together with answerOptionKey instead of translated visual labels."));
+        PatchProperty(schemas, "SnapshotElement", "answerOptionIndex", NullableIntegerSchema("One-based answer-option index for choice controls."));
+        PatchProperty(schemas, "SnapshotElement", "answerOptionKey", NullableStringSchema("Stable answer-option key used by the authoritative submit API."));
         PatchProperty(schemas, "SnapshotElement", "value", NullableStringSchema("Current safe form value. Password values are deliberately omitted."));
         foreach (var schemaName in new[]
                  {
@@ -228,7 +232,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
             "activeSessions", "anonymousSessionsPerOwner", "authenticatedSessionsPerOwner",
             "sessionIdleMinutes", "sessionAbsoluteMinutes", "agentArtifactTtlSeconds",
             "captureTimeoutSeconds", "captureCacheSeconds", "recommendedCaptureConcurrency",
-            "semanticSnapshotVersion", "rateLimitHeaders");
+            "authenticatedAiRateLimitMultiplier", "semanticSnapshotVersion", "rateLimitHeaders");
         PatchRequired(schemas, "SiteInfoResponse",
             "name", "apiVersion", "defaultSite", "sites", "anonymousBrowsing", "aiAccounts",
             "interactiveBrowserSessions", "discovery", "instructions", "openApi", "registration",
@@ -539,7 +543,8 @@ public sealed class BrowserOpenApiDocumentEnhancer
             ["RateLimit-Policy"] = Header("string", "Applied fixed-window policy, for example 10;w=60."),
             ["X-RateLimit-Limit"] = Header("integer", "Compatibility copy of RateLimit-Limit."),
             ["X-RateLimit-Remaining"] = Header("integer", "Compatibility copy of RateLimit-Remaining."),
-            ["X-RateLimit-Reset"] = Header("integer", "UTC Unix timestamp when the active window resets.")
+            ["X-RateLimit-Reset"] = Header("integer", "UTC Unix timestamp when the active window resets."),
+            ["X-TaskForge-AI-Rate-Multiplier"] = Header("integer", "Present when an authenticated accountType=ai caller receives the configured Browser API per-owner multiplier.")
         };
         if (includeRetryAfter) headers["Retry-After"] = Header("integer", "Seconds to wait before retrying.");
         return headers;
@@ -793,6 +798,14 @@ public sealed class BrowserOpenApiDocumentEnhancer
         if (maxLength is > 0) schema["maxLength"] = maxLength.Value;
         return schema;
     }
+
+    private static JsonObject NullableIntegerSchema(string description) => new()
+    {
+        ["type"] = "integer",
+        ["nullable"] = true,
+        ["minimum"] = 1,
+        ["description"] = description
+    };
 
     private static JsonArray Array(params string[] values)
         => new(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());

@@ -10,7 +10,7 @@ public sealed class BrowserOptions
     };
 
     public string AllowedExternalOrigins { get; set; } = "https://s3.taskforge.by";
-    public string UserAgent { get; set; } = "TaskForgeBrowserApi/1.2 (+https://taskforge.by/llms.txt)";
+    public string UserAgent { get; set; } = "TaskForgeBrowserApi/1.3 (+https://taskforge.by/llms.txt)";
     public bool DisableSandbox { get; set; } = true;
     public bool IgnoreHttpsErrors { get; set; }
     public int NavigationTimeoutSeconds { get; set; } = 20;
@@ -90,5 +90,6 @@ public sealed class BrowserRateLimitOptions
     public int SessionCreateWindowSeconds { get; set; } = 60;
     public int SessionActionLimit { get; set; } = 120;
     public int SessionActionWindowSeconds { get; set; } = 60;
+    public int AuthenticatedAiMultiplier { get; set; } = 4;
     public int NetworkMultiplier { get; set; } = 10;
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderTree } from 'lucide-react';
-import { CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { activateCourseMapNodeForAgent, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 function taskWord(value) {
   const number = Math.abs(Number(value) || 0) % 100;
@@ -24,10 +24,13 @@ export default function CourseNode({ data, selected }) {
   return (
     <div
       className={`course-map-node course-map-node--course${selected ? ' is-selected' : ''}${hiddenFromStudents ? ' is-hidden-from-students' : ''}`}
+      data-taskforge-automation-id={`course-${course.id || data?.entityId}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="course"
       data-taskforge-entity-id={course.id || data?.entityId}
+      data-taskforge-agent-kind="course"
       data-taskforge-agent-action="focus-course"
+      onClick={(event) => activateCourseMapNodeForAgent(event, data, data?.onFocus || data?.onOpen)}
       data-taskforge-admin-hidden={hiddenFromStudents ? 'true' : undefined}
       aria-label={`Курс ${course.title || 'Без названия'}. ${hiddenFromStudents ? 'Скрыт от учеников. ' : groupRestricted ? 'Доступ по группам. ' : ''}Решено ${solved} из ${total}.`}
     >

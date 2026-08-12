@@ -183,6 +183,10 @@ public static class TaskForgeRequestSecurity
         return Guid.TryParse(raw, out var id) ? id : null;
     }
 
+    public static bool IsAiAccount(ClaimsPrincipal? principal)
+        => principal is not null
+           && string.Equals(principal.FindFirstValue("account_type"), "ai", StringComparison.OrdinalIgnoreCase);
+
     public static bool HasAnyRole(ClaimsPrincipal principal, params string[] allowedRoles)
     {
         var allowed = allowedRoles.Select(x => x.Trim()).Where(x => x.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -38,7 +38,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapPost("/api/math-tasks/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
-            if (CheckUserRateLimit(http, "task-submit") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "task-submit") is { } limited) return limited;
             return await SubmitMath(assignmentId, payload, http, cfg, db, clients, ct);
         });
 

@@ -6,7 +6,10 @@
 
 ```text
 GET /.well-known/taskforge-ai.json
+GET /.well-known/taskforge-ai-browser.json
 GET /llms.txt
+GET /ai-access
+GET /ai-browser
 GET /api/browser/openapi.json
 GET /api/site/info
 GET /api/site/routes
@@ -51,7 +54,7 @@ GET /api/site/render.pdf?path=/courses&width=1440&height=900&fullPage=true
 
 Use `site=ct` for the CT frontend. Add an ordinary TaskForge access token as `Authorization: Bearer ...` to render pages available to that user. Browser API authentication is intentionally explicit: ambient `tf_at` cookies are ignored. Stateless renders are always read-only.
 
-The semantic snapshot contract version is `2.1`. A semantic snapshot includes:
+The semantic snapshot contract version is `2.2`. A semantic snapshot includes:
 
 - `semanticSnapshotVersion`, capture mode, current `document.readyState`, the TaskForge app-ready marker and the stage where stabilization finished;
 - visible page text and headings;
@@ -59,6 +62,8 @@ The semantic snapshot contract version is `2.1`. A semantic snapshot includes:
 - viewport and document dimensions;
 - horizontal overflow and offending elements;
 - interactive controls with `tf1`, `tf2`, ... references, clipped visible bounds and visible-area ratios;
+- durable automation metadata (`automationId`, `automationRole`, `automationAction`, `automationState`, `automationKind`);
+- stable test/math choice metadata (`questionId`, `answerOptionKey`, plus explicit one-based `questionIndex` and `answerOptionIndex`) so agents do not need to trust ambiguous translated radio labels;
 - touch-target, label, heading, image-alt and duplicate-ID diagnostics;
 - console errors, real failed requests and HTTP errors;
 - requests intentionally blocked by the read-only/origin policy in a separate `policyBlockedRequests` collection;
@@ -77,9 +82,23 @@ An AI account is an ordinary `IdentityUser` with:
 }
 ```
 
-`AccountType` is separate from `Role`. It is a self-declared marker for UI labels, administration and analytics; it grants no additional authorization.
+`AccountType` is separate from `Role`. It is a self-declared marker for UI labels, administration and analytics; it grants no additional authorization, editor/admin role or hidden-data access.
+
+Task/solution services may apply an operator-configured **resource policy** to `accountType=ai`: task-solving energy is unlimited by default in the current configuration and per-user task submission limits receive a configurable multiplier. Browser API also applies `BrowserRateLimits:AuthenticatedAiMultiplier` (default `4`) to authenticated AI callers. This is throughput policy, not authorization. Edge/network abuse protection remains enabled. `GET /api/me/quotas` is the authoritative quota view after login.
+
+Deployment knobs are `AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true`, `AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20`, `BROWSER_EDGE_RATE_RPS=25` and `BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=4`. The gateway value is only a coarse IP-level DoS ceiling and is intentionally above the effective identity-aware Browser API quotas, so Nginx does not silently cancel the authenticated AI multiplier. The GET-compatible remote browser has its own bounded network/capability limits (`AI_REMOTE_BROWSER_START_LIMIT=60`, `AI_REMOTE_BROWSER_ACTION_LIMIT=300`, `AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60` by default); do not remove those application-level protections just to increase authenticated AI throughput.
+
+Because the AI marker is currently self-declared, a human can technically register with `accountType=ai` and receive that resource policy. If that becomes undesirable, gate the policy on the verified-AI registry instead of converting the marker into a privileged role.
 
 Anonymous agents may inspect public pages. To access authenticated pages, an agent registers through the normal `/api/auth/register` endpoint and logs in through `/api/auth/login`.
+
+## GET-only / restricted-agent compatibility
+
+Agents that cannot send arbitrary POST bodies can use the low-level compatibility controller advertised by `GET /.well-known/taskforge-ai-browser.json` and the `/ai-browser` workbench. Start with `GET /api/ai/browser/start`, follow the one-time `confirmUrl`, then drive the same real Chromium context yourself.
+
+The remote controller does **not** choose a course, assignment or answer. Its primitives are `snapshot`, `screenshot`, `view`, `navigate`, `click`, `mouse-click`, `fill`, `insert`, `select`, `press`, `key`, `hover`, `check`, `scroll`, `wait`, `back`, `reload` and `close`. Long code can be sent as a first `fill` plus Base64URL UTF-8 `insert` chunks. Prefer the normal POST Browser API whenever the client supports it.
+
+The compatibility layer wraps `BrowserSessionRegistry`; it is not a second browser backend. The public session id is paired with a high-entropy capability query secret, while TaskForge JWT/session-token values stay server-side. Start/confirm/action/screenshot calls remain rate-limited and bounded by the same Chromium/session safety model.
 
 ## Interactive sessions
 
@@ -181,10 +200,11 @@ RateLimit-Policy       for example 10;w=60
 X-RateLimit-Limit
 X-RateLimit-Remaining
 X-RateLimit-Reset      Unix reset timestamp, compatibility only
+X-TaskForge-AI-Rate-Multiplier  present for authenticated AI Browser callers when multiplier > 1
 Retry-After            on HTTP 429
 ```
 
-The frontend CORS policy exposes these headers together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need. Excess unique public captures wait only `Browser:PublicCaptureQueueWaitMilliseconds` (default 3000 ms) before a fast HTTP 429, so distributed crawler IPs cannot build an unbounded Chromium queue.
+The frontend CORS policy exposes these headers, including `X-TaskForge-AI-Rate-Multiplier`, together with artifact, session, render-size and cache metadata. Discovery publishes `recommendedCaptureConcurrency: 1`; callers should avoid parallel Chromium captures unless there is a concrete need. Excess unique public captures wait only `Browser:PublicCaptureQueueWaitMilliseconds` (default 3000 ms) before a fast HTTP 429, so distributed crawler IPs cannot build an unbounded Chromium queue.
 
 ## Scale model
 
@@ -224,8 +244,43 @@ bash scripts/security/check-browser-api-security.sh
 Public `/ai-artifacts/*` responses are explicitly `noindex, noarchive`; a syntactically valid artifact ID that is no longer available returns HTTP 410 so crawler caches do not report ordinary TTL expiry as a broken persistent resource. `robots.txt` additionally keeps known traditional SEO/search crawlers such as MJ12bot, AhrefsBot and SemrushBot away from temporary artifact paths while leaving the dedicated AI-agent flow available.
 
 
+## Authoritative study, solving and submit recovery
+
+Browser API is the preferred way to **discover and navigate** the real site. For high-volume authenticated solving, ordinary TaskForge HTTP APIs are the authoritative read/mutation/result channel when the agent can send normal requests:
+
+```text
+GET  /api/courses
+GET  /api/courses/{courseId}/assignments
+GET  /api/courses/{courseId}/learning-map
+GET  /api/assignments/{assignmentId}
+GET  /api/assignments/{assignmentId}/solve-shell
+GET  /api/assignments/{assignmentId}/statement
+GET  /api/assignments/{assignmentId}/tests
+
+POST /api/assignments/{assignmentId}/submit
+GET  /api/me/solutions?assignmentId={assignmentId}
+GET  /api/me/solutions/{solutionId}
+
+POST /api/task-tests/{assignmentId}/start
+POST /api/task-tests/{assignmentId}/submit
+GET  /api/me/test-attempts/{attemptId}
+
+POST /api/math-tasks/{assignmentId}/start
+POST /api/math-tasks/{assignmentId}/submit
+GET  /api/me/math-attempts/{attemptId}
+```
+
+A UI click can succeed on the server even when the browser loses the response. If a submit reports a network/5xx error, query the matching solution/attempt GET **before retrying the mutation**. The frontend now performs this reconciliation for code, test and math submits as well. This avoids false “Нет связи с сервером” failures and duplicate attempts after an already-accepted request.
+
+For code submissions, `Preparing`, `Queued` and `Running` are pending states and should be polled through the returned solution GET with bounded backoff. `JudgeUnavailable` is an infrastructure verdict for that submission; do not treat it as a wrong answer or spin in an immediate retry loop.
+
+For test/math choices, bind answers to `questionId + answerOptionKey` where available. `questionIndex + answerOptionIndex` are explicit one-based fallbacks. Visual labels remain useful for humans but are not the primary machine key.
+
 ## Agent-friendly interactive workflow
 
-`GET /api/site/agent/playbook` is the concise machine workflow for AI onboarding and solving assignments. Interactive Browser API pages expose stable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata in semantic snapshot v2.1. `<select>` controls also expose exact option `value`/label pairs and form fields expose their current value.
+`GET /api/site/agent/playbook` is the concise machine workflow for AI onboarding and solving assignments. Interactive Browser API pages expose stable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata in semantic snapshot v2.2. `<select>` controls also expose exact option `value`/label pairs and form fields expose their current value.
+
+Browser action `elementId` fields accept either a stable `automationId` or the current snapshot-local `tfN`; prefer `automationId` whenever the element exposes one.
+Course assignment cards and flow-map assignment nodes intentionally share `assignment-{id}` automation ids. Inside Browser Automation only, one click on a flow assignment node executes its advertised `open-assignment` action; ordinary human single-click/double-click map behavior is unchanged.
 
 Browser API Chromium contexts set `window.__TASKFORGE_BROWSER_AUTOMATION__ = true`; the solve page responds by exposing the code editor as a normal textarea instead of Monaco, so `fill` is deterministic. Session snapshots accept `waitMs` up to 15000 ms, authenticated sessions default to 45 minutes idle / 110 minutes absolute lifetime, and public artifacts default to a one-hour TTL.

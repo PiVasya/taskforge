@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button } from '../components/ui';
-import { startMathTask, submitMathTask } from '../api/mathTasks';
+import { getMyMathAttempt, startMathTask, submitMathTask } from '../api/mathTasks';
 import { useNotify } from '../components/notify/NotifyProvider';
 import StatementViewer from '../components/tiptap/StatementViewer';
 import AttemptCountdown from '../features/attempts/AttemptCountdown';
@@ -11,6 +11,7 @@ import {
   subscribeAttemptAnswers,
 } from '../features/attempts/attemptAnswerStore';
 import MathTaskBlock from '../features/math-task/MathTaskBlock';
+import { recoverSubmittedAttempt, shouldRecoverSubmittedAttempt } from '../features/attempts/recoverSubmittedAttempt';
 
 function hashActivityText(value) {
   const text = typeof value === 'string' ? value : '';
@@ -83,6 +84,32 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     }
   }, [assignmentId, notify, onActivity, storeKey]);
 
+  const applySubmittedResult = useCallback((response, recovered = false) => {
+    onActivity?.('math_finished', {
+      attemptId: startData?.attemptId || null,
+      payload: {
+        passed: Boolean(response?.passed),
+        scorePercent: response?.scorePercent ?? null,
+        recoveredAfterTransportFailure: recovered,
+      },
+    });
+    if (storeKey) destroyAttemptAnswers(storeKey);
+    setResult(response);
+    if (
+      Number.isFinite(startData?.attemptNumber)
+      && Number.isFinite(startData?.maxAttempts)
+      && startData.attemptNumber >= startData.maxAttempts
+    ) {
+      setLimitReached(true);
+    }
+    if (response?.passed) onCompleted?.();
+    if (recovered) {
+      notify.info('Ответ уже был принят сервером. Результат восстановлен после сбоя связи.');
+    } else {
+      notify.success(response?.passed ? 'Математическое задание засчитано ✅' : 'Попытка завершена');
+    }
+  }, [notify, onActivity, onCompleted, startData, storeKey]);
+
   const doSubmit = useCallback(async () => {
     if (!startData?.attemptId || !storeKey || submitLoading || result) return;
     const answers = getAttemptAnswers(storeKey);
@@ -113,22 +140,15 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         })),
       };
       const response = await submitMathTask(assignmentId, payload);
-      onActivity?.('math_finished', {
-        attemptId: startData.attemptId,
-        payload: { passed: Boolean(response?.passed), scorePercent: response?.scorePercent ?? null },
-      });
-      destroyAttemptAnswers(storeKey);
-      setResult(response);
-      if (
-        Number.isFinite(startData?.attemptNumber)
-        && Number.isFinite(startData?.maxAttempts)
-        && startData.attemptNumber >= startData.maxAttempts
-      ) {
-        setLimitReached(true);
-      }
-      if (response.passed) onCompleted?.();
-      notify.success(response.passed ? 'Математическое задание засчитано ✅' : 'Попытка завершена');
+      applySubmittedResult(response, false);
     } catch (error) {
+      if (shouldRecoverSubmittedAttempt(error) && startData?.attemptId) {
+        const recovered = await recoverSubmittedAttempt(() => getMyMathAttempt(startData.attemptId));
+        if (recovered) {
+          applySubmittedResult(recovered, true);
+          return;
+        }
+      }
       onActivity?.('submit_failed', {
         attemptId: startData?.attemptId || null,
         payload: { kind: 'math', message: error?.userMessage || error?.message || 'Не удалось отправить ответы' },
@@ -137,7 +157,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     } finally {
       setSubmitLoading(false);
     }
-  }, [assignmentId, notify, onActivity, onCompleted, result, startData, storeKey, submitLoading]);
+  }, [applySubmittedResult, assignmentId, notify, onActivity, result, startData, storeKey, submitLoading]);
 
   useEffect(() => {
     if (!storeKey || result) return undefined;
@@ -206,7 +226,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <Card>
           <div className="space-y-3">
             <div className="flex gap-3">
-              <Button onClick={begin} disabled={loading || limitReached}>
+              <Button data-taskforge-automation-id="math-task-start" data-taskforge-agent-role="math-action" data-taskforge-agent-action="start-math-task" onClick={begin} disabled={loading || limitReached}>
                 {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать задание')}
               </Button>
             </div>
@@ -216,7 +236,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       ) : null}
 
       {result ? (
-        <Card>
+        <Card data-taskforge-automation-id="math-task-result" data-taskforge-agent-role="math-status" data-taskforge-agent-state={result?.passed ? 'passed' : 'failed'}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-lg font-semibold">
@@ -227,9 +247,9 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={closeAttempt}>Закрыть</Button>
+              <Button data-taskforge-automation-id="math-task-close-result" data-taskforge-agent-role="math-action" data-taskforge-agent-action="close-math-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
               {startData && startData.attemptNumber < startData.maxAttempts ? (
-                <Button onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
+                <Button data-taskforge-automation-id="math-task-restart" data-taskforge-agent-role="math-action" data-taskforge-agent-action="restart-math-task" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>
               )}
@@ -244,8 +264,8 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             <MathTaskBlock key={block.id} storeKey={storeKey} block={block} index={index} />
           ))}
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
-            <Button onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Отправить решение'}</Button>
+            <Button data-taskforge-automation-id="math-task-cancel" data-taskforge-agent-role="math-action" data-taskforge-agent-action="cancel-math-task" variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
+            <Button data-taskforge-automation-id="math-task-submit" data-taskforge-agent-role="math-action" data-taskforge-agent-action="submit-math-task" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Отправить решение'}</Button>
           </div>
         </div>
       ) : null}

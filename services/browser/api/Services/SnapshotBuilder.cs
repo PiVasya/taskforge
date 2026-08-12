@@ -55,7 +55,7 @@ public sealed class SnapshotBuilder(
 
         return new SiteSnapshotResponse
         {
-            SemanticSnapshotVersion = "2.1",
+            SemanticSnapshotVersion = "2.2",
             Site = handle.Site,
             Url = SafePageUrl(handle.Page.Url),
             Title = await handle.Page.TitleAsync().WaitAsync(cancellationToken),
@@ -375,6 +375,14 @@ public sealed class SnapshotBuilder(
       automationAction: element.getAttribute('data-taskforge-agent-action') || null,
       automationState: element.getAttribute('data-taskforge-agent-state') || null,
       automationKind: element.getAttribute('data-taskforge-agent-kind') || null,
+      questionIndex: element.hasAttribute('data-taskforge-question-index')
+        ? Number(element.getAttribute('data-taskforge-question-index'))
+        : null,
+      questionId: element.getAttribute('data-taskforge-question-id') || null,
+      answerOptionIndex: element.hasAttribute('data-taskforge-option-index')
+        ? Number(element.getAttribute('data-taskforge-option-index'))
+        : null,
+      answerOptionKey: element.getAttribute('data-taskforge-option-key') || null,
       value: element instanceof HTMLInputElement && String(element.type || '').toLowerCase() === 'password'
         ? null
         : (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)

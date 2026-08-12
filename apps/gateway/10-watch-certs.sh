@@ -3,12 +3,14 @@ set -eu
 
 DOMAIN="${DOMAIN:-taskforge.example.com}"
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
+BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
+export BROWSER_EDGE_RATE_RPS
 TPL_DIR=/etc/nginx/templates
 CONF=/etc/nginx/conf.d/default.conf
 LIVE_DIR="/etc/letsencrypt/live/${DOMAIN}"
 
 render_https() {
-  envsubst '${DOMAIN} ${CT_DOMAIN}' < "${TPL_DIR}/https.conf" > "${CONF}"
+  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS}' < "${TPL_DIR}/https.conf" > "${CONF}"
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     sed -i '1i error_log /var/log/nginx/error.log info;' "${CONF}"
   fi

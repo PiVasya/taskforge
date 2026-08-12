@@ -7,7 +7,7 @@ import MathTaskSolve from '../../pages/MathTaskSolve';
 
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../../api/assignments';
-import { submitSolution } from '../../api/solutions';
+import { listMySolutions, submitSolution } from '../../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
@@ -59,6 +59,28 @@ import {
   SolveDraftActionDock,
   AssignmentFirstLoadSkeleton,
 } from './components/AssignmentSolvePresentation';
+async function recoverRecentCodeSubmission(assignmentId, language, code, submitStartedAt) {
+  const attempts = [0, 300, 900];
+  for (const delayMs of attempts) {
+    if (delayMs > 0) await wait(delayMs);
+    try {
+      const rows = await listMySolutions(assignmentId);
+      const match = (Array.isArray(rows) ? rows : []).find((row) => {
+        const rowCode = String(row?.code ?? row?.submittedCode ?? '');
+        const rowLanguage = normalizeLang(row?.language);
+        const createdAt = Date.parse(row?.createdAtUtc || row?.submittedAt || row?.createdAt || '');
+        const isRecent = !Number.isFinite(createdAt) || createdAt >= submitStartedAt - 5000;
+        return rowCode === code && rowLanguage === normalizeLang(language) && isRecent;
+      });
+      if (match) return match;
+    } catch {
+      // Best-effort reconciliation after a transport/proxy failure. The original
+      // submit error remains authoritative when no matching server-side row exists.
+    }
+  }
+  return null;
+}
+
 import {
   displayRunnerText,
   isHiddenTestCase,
@@ -710,7 +732,17 @@ export default function AssignmentSolvePage() {
     });
 
     try {
-      let r = await submitSolution(assignmentId, { language, code });
+      const submitStartedAt = Date.now();
+      let r;
+      try {
+        r = await submitSolution(assignmentId, { language, code });
+      } catch (submitError) {
+        const status = Number(submitError?.response?.status || 0);
+        if (submitError?.response && status < 500) throw submitError;
+        r = await recoverRecentCodeSubmission(assignmentId, language, code, submitStartedAt);
+        if (!r) throw submitError;
+        notify.info('Связь с ответом прервалась, но решение уже принято сервером. Результат восстановлен.');
+      }
       let solutionId = r?.id || r?.Id || r?.solutionId || r?.SolutionId || null;
       let timedOut = false;
 

@@ -43,6 +43,7 @@ public sealed record SiteApiLimits(
     int CaptureTimeoutSeconds,
     int CaptureCacheSeconds,
     int RecommendedCaptureConcurrency,
+    int AuthenticatedAiRateLimitMultiplier,
     string SemanticSnapshotVersion,
     IReadOnlyList<string> RateLimitHeaders);
 
@@ -149,7 +150,7 @@ public sealed record BrowserActionResponse(
 
 public sealed class SiteSnapshotResponse
 {
-    public string SemanticSnapshotVersion { get; set; } = "2.1";
+    public string SemanticSnapshotVersion { get; set; } = "2.2";
     public string Site { get; set; } = "main";
     public string Url { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -232,6 +233,10 @@ public sealed class SnapshotElement
     public string? AutomationAction { get; set; }
     public string? AutomationState { get; set; }
     public string? AutomationKind { get; set; }
+    public int? QuestionIndex { get; set; }
+    public string? QuestionId { get; set; }
+    public int? AnswerOptionIndex { get; set; }
+    public string? AnswerOptionKey { get; set; }
     public string? Value { get; set; }
     public List<SnapshotSelectOption> Options { get; set; } = [];
     public bool Interactive { get; set; }

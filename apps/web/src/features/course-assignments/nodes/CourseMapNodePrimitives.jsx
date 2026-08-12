@@ -3,6 +3,14 @@ import { Handle, Position } from 'reactflow';
 import { ArrowRight, CheckCircle2, Circle, ListOrdered, LockKeyhole } from 'lucide-react';
 import { previewAssignmentDescription } from '../courseAssignmentsModel';
 
+export function activateCourseMapNodeForAgent(event, data, action) {
+  if (data?.editorMode) return;
+  if (typeof window === 'undefined' || window.__TASKFORGE_BROWSER_AUTOMATION__ !== true) return;
+  if (typeof action !== 'function') return;
+  event?.stopPropagation?.();
+  action();
+}
+
 export function CourseMapHandles() {
   return (
     <>

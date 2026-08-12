@@ -24,10 +24,11 @@ internal static partial class SolutionsApiEndpoints
     {
         app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmentId, SubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
-            if (CheckUserRateLimit(http, "solution-submit") is { } limited) return limited;
+            if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
             if (userId == null) return Unauthorized();
             var isAdmin = IsAdmin(http, cfg);
+            var unlimitedTaskEnergy = HasUnlimitedTaskEnergy(http, cfg);
             var canRevealHidden = IsEditor(http, cfg);
 
             var language = NormalizeLanguage(request.Language) ?? "csharp";
@@ -106,7 +107,7 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var taskPolicy = QuotaPolicy(cfg, "tasks");
-            if (!isAdmin)
+            if (!unlimitedTaskEnergy)
             {
                 var quotaResult = await ConsumeQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
                 WriteQuotaHeaders(http.Response, quotaResult.quota);
@@ -121,7 +122,7 @@ internal static partial class SolutionsApiEndpoints
             var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
             if (!enqueue.Created)
             {
-                if (!isAdmin)
+                if (!unlimitedTaskEnergy)
                 {
                     var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
                     WriteQuotaHeaders(http.Response, refundedQuota);

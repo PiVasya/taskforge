@@ -16,7 +16,7 @@ public sealed record LoadedImageBytes(byte[] Bytes, string? ContentType, string?
 internal static class TaskForgeApiRateLimiters
 {
     private static readonly SlidingWindowRateLimiter Limiter = new();
-    public static bool Allow(string bucket, string key)
+    public static bool Allow(string bucket, string key, int multiplier = 1)
     {
         var (limit, window) = bucket switch
         {
@@ -24,7 +24,9 @@ internal static class TaskForgeApiRateLimiters
             "image-test" => (20, TimeSpan.FromMinutes(5)),
             _ => (60, TimeSpan.FromMinutes(1))
         };
-        return Limiter.Allow(key, limit, window);
+        var effectiveMultiplier = System.Math.Clamp(multiplier, 1, 100);
+        var effectiveLimit = System.Math.Min(100_000, limit * effectiveMultiplier);
+        return Limiter.Allow(key, effectiveLimit, window);
     }
 }
 

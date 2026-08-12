@@ -108,6 +108,58 @@ def main() -> int:
         if "/api/internal/courses/{courseId:D}/tree" not in assignment_endpoints_source:
             errors.append("task-graph export/import must resolve nested course ownership from education tree")
 
+    # AI accounts have a resource policy, not an authorization shortcut. Keep the
+    # account marker in the JWT, bypass only task energy, preserve rating energy,
+    # and never leak the worker's reference solution into learner starter code.
+    identity_access_path = ROOT / "services" / "identity" / "api" / "Services" / "Access" / "IdentityApiAccessService.cs"
+    tasks_common_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Common" / "AssignmentApiCommonService.cs"
+    solutions_access_path = ROOT / "services" / "solutions" / "api" / "Services" / "Access" / "SolutionsApiAccessService.cs"
+    quota_endpoints_path = ROOT / "services" / "solutions" / "api" / "Endpoints" / "Quotas" / "QuotasEndpoints.cs"
+    ai_mapping_path = ROOT / "services" / "ai" / "api" / "Services" / "Mapping" / "AiApiMappingService.cs"
+
+    if identity_access_path.exists():
+        identity_access = identity_access_path.read_text(encoding="utf-8")
+        if 'new("account_type", NormalizeAccountType(user.AccountType))' not in identity_access:
+            errors.append("identity JWT must carry normalized account_type so downstream AI resource policy is explicit")
+
+    if tasks_common_path.exists():
+        tasks_common = tasks_common_path.read_text(encoding="utf-8")
+        for marker in ('AiAccounts:UnlimitedTaskEnergy', 'AiAccounts:TaskRateLimitMultiplier', 'TaskForgeRequestSecurity.IsAiAccount(http.User)', 'X-TaskForge-AI-Rate-Multiplier'):
+            if marker not in tasks_common:
+                errors.append(f"tasks-api AI resource policy marker missing: {marker}")
+        if 'HasUnlimitedAiTaskEnergy(http, cfg)' not in tasks_common:
+            errors.append("tasks-api attempt/image task energy consumption no longer bypasses task energy for configured AI accounts")
+
+    if solutions_access_path.exists():
+        solutions_access = solutions_access_path.read_text(encoding="utf-8")
+        if 'AiAccounts:UnlimitedTaskEnergy' not in solutions_access or 'IsAiAccount(http, cfg)' not in solutions_access:
+            errors.append("solutions-api lost configured AI task-energy bypass")
+
+    if quota_endpoints_path.exists():
+        quota_endpoints = quota_endpoints_path.read_text(encoding="utf-8")
+        if 'GetQuotaStatus(db, uid.Value, cfg, HasUnlimitedTaskEnergy(http, cfg), isAdmin' not in quota_endpoints:
+            errors.append("quota status must report AI task energy as unlimited while keeping top/rating unlimited only for admins")
+
+    if ai_mapping_path.exists():
+        ai_mapping = ai_mapping_path.read_text(encoding="utf-8")
+        if 'starterCode = data["starterCode"]?.ToString() ?? string.Empty' not in ai_mapping:
+            errors.append("AI assignment mapping must default learner starterCode to empty")
+        if re.search(r'starterCode\s*=.*referenceSolution', ai_mapping):
+            errors.append("AI referenceSolution must never fall back into learner starterCode")
+
+    for environment in ("dev", "prod"):
+        core_compose = ROOT / "deploy" / environment / "compose" / "20-core-services.yaml"
+        env_example = ROOT / "deploy" / environment / ".env.example"
+        if core_compose.exists():
+            compose_text = core_compose.read_text(encoding="utf-8")
+            if compose_text.count("AiAccounts__UnlimitedTaskEnergy:") < 2 or compose_text.count("AiAccounts__TaskRateLimitMultiplier:") < 2:
+                errors.append(f"{environment} compose must pass AI task resource policy to both tasks-api and solutions-api")
+        if env_example.exists():
+            env_text = env_example.read_text(encoding="utf-8")
+            for marker in ("AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true", "AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20"):
+                if marker not in env_text:
+                    errors.append(f"{environment} .env.example missing AI resource policy knob: {marker}")
+
     if errors:
         print("C# source invariants failed:\n" + "\n".join(errors), file=sys.stderr)
         return 1

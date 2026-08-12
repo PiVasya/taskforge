@@ -3,10 +3,11 @@ using TaskForge.Browser.Api.Security;
 
 namespace TaskForge.Browser.Api.Services;
 
-public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, BrowserOptions options, AiRemoteBrowserOptions remoteOptions)
+public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, BrowserOptions options, BrowserRateLimitOptions rateOptions, AiRemoteBrowserOptions remoteOptions)
 {
     private readonly BrowserUrlPolicy _urlPolicy = urlPolicy;
     private readonly BrowserOptions _options = options;
+    private readonly BrowserRateLimitOptions _rateOptions = rateOptions;
     private readonly AiRemoteBrowserOptions _remoteOptions = remoteOptions;
 
     public object BuildDiscovery(HttpRequest request)
@@ -33,7 +34,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 loginApi = $"{root}/api/auth/login",
                 accountTypeField = "accountType",
                 value = "ai",
-                note = "AI accounts are ordinary TaskForge.by users. The marker is self-declared and grants no extra role or permission."
+                note = "AI accounts use ordinary TaskForge authorization and receive no extra role, editor/admin privilege or hidden-data access. The self-declared ai marker may receive operator-configured resource policy: unlimited task-solving energy and higher task/browser throughput."
             },
             siteInspection = new
             {
@@ -62,11 +63,13 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
             },
             semanticSnapshot = new
             {
-                version = "2.1",
+                version = "2.2",
                 topLevelReadiness = new[] { "captureMode", "policyInterference", "pageReadyState", "appReady", "readiness" },
                 diagnostics = new[] { "console", "networkFailures", "httpErrors", "policyBlockedRequests" },
                 visibility = "Interactive elements respect hidden, aria-hidden, inert, closed details, CSS visibility and clipping ancestors.",
-                policyBlockedRequests = "Requests intentionally blocked by anonymous/read-only inspector policy are expected diagnostics and are not counted as networkFailures."
+                policyBlockedRequests = "Requests intentionally blocked by anonymous/read-only inspector policy are expected diagnostics and are not counted as networkFailures.",
+                testAnswerMetadata = new[] { "questionIndex", "questionId", "answerOptionIndex", "answerOptionKey" },
+                testAutomationNote = "For tests and math choice controls, prefer stable questionId + answerOptionKey (or explicit one-based indexes) over translated visual labels."
             },
             interactiveBrowser = new
             {
@@ -77,8 +80,54 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 anonymousSessionAuthorization = "session-token",
                 authenticatedSessionAuthorization = "same-taskforge-user+session-token",
                 actions = new[] { "navigate", "snapshot", "screenshot", "click", "fill", "press", "select", "hover", "check", "scroll", "back", "reload", "close" },
-                stableAutomationMetadata = new[] { "automationId", "automationRole", "automationAction", "automationState", "automationKind" },
+                stableAutomationMetadata = new[] { "automationId", "automationRole", "automationAction", "automationState", "automationKind", "questionIndex", "questionId", "answerOptionIndex", "answerOptionKey" },
+                elementReferences = new
+                {
+                    preferred = "automationId",
+                    fallback = "tfN",
+                    note = "Browser action elementId fields accept either a stable automationId or the current snapshot-local tfN. Prefer automationId when present."
+                },
                 snapshotWaitMilliseconds = new { max = _options.MaxWaitMilliseconds, recommendedAfterSubmit = 2500 }
+            },
+            authoritativeApi = new
+            {
+                purpose = "Use these ordinary authenticated APIs for reliable serial solving and verdict reconciliation after Browser API discovery/navigation.",
+                quotaStatus = $"{root}/api/me/quotas",
+                study = new
+                {
+                    courses = $"{root}/api/courses",
+                    courseAssignments = $"{root}/api/courses/{{courseId}}/assignments",
+                    learningMap = $"{root}/api/courses/{{courseId}}/learning-map",
+                    assignment = $"{root}/api/assignments/{{assignmentId}}",
+                    solveShell = $"{root}/api/assignments/{{assignmentId}}/solve-shell",
+                    statement = $"{root}/api/assignments/{{assignmentId}}/statement",
+                    tests = $"{root}/api/assignments/{{assignmentId}}/tests"
+                },
+                code = new
+                {
+                    submit = $"{root}/api/assignments/{{assignmentId}}/submit",
+                    listMine = $"{root}/api/me/solutions?assignmentId={{assignmentId}}",
+                    getMine = $"{root}/api/me/solutions/{{solutionId}}",
+                    verdictHandling = new
+                    {
+                        pending = new[] { "Preparing", "Queued", "Running" },
+                        terminal = new[] { "Accepted", "Rejected", "CompileError", "PolicyFailed", "NoTestsConfigured", "JudgeUnavailable", "LanguageNotAllowed" },
+                        note = "If submit returns a pending verdict, poll getMine with bounded backoff. Treat JudgeUnavailable as an infrastructure result: reconcile first and avoid tight resubmit loops."
+                    }
+                },
+                test = new
+                {
+                    start = $"{root}/api/task-tests/{{assignmentId}}/start",
+                    submit = $"{root}/api/task-tests/{{assignmentId}}/submit",
+                    getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}"
+                },
+                math = new
+                {
+                    start = $"{root}/api/math-tasks/{{assignmentId}}/start",
+                    submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
+                    getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
+                },
+                recoveryRule = "If a UI or HTTP submit response is lost, query the matching attempt/solution GET before retrying the mutation."
             },
             remoteBrowserCompatibility = new
             {
@@ -89,7 +138,7 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 purpose = "For agents that cannot send arbitrary POST/fill requests. This is a low-level adapter over the same real Chromium BrowserSessionRegistry, not a solver or second backend.",
                 agentChoosesEverything = true,
                 getOnlyActions = _remoteOptions.AllowGetMutations,
-                actions = new[] { "snapshot", "screenshot", "view", "navigate", "click", "fill", "select", "press", "check", "scroll", "wait", "back", "reload", "close" },
+                actions = new[] { "snapshot", "screenshot", "view", "navigate", "click", "mouse-click", "fill", "insert", "select", "press", "key", "hover", "check", "scroll", "wait", "back", "reload", "close" },
                 registration = $"Navigate the remote Chromium tab to /register?accountType=ai and fill/click the ordinary UI yourself.",
                 authenticatedPrivateScreenshots = true,
                 fullPageScreenshots = true,
@@ -105,11 +154,13 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
             },
             rateLimits = new
             {
-                headers = new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy" },
+                headers = new[] { "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-TaskForge-AI-Rate-Multiplier" },
                 compatibilityHeaders = new[] { "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset" },
                 resetSemantics = "RateLimit-Reset is seconds until reset; X-RateLimit-Reset is the UTC Unix timestamp.",
                 rejectedRequestHeaders = new[] { "Retry-After" },
-                status = 429
+                status = 429,
+                authenticatedAiMultiplier = System.Math.Clamp(_rateOptions.AuthenticatedAiMultiplier, 1, 20),
+                aiPolicy = "Authenticated AI Browser API sessions receive a configurable higher per-owner limit. Edge/network abuse protection remains active."
             },
             openApi = $"{root}/api/browser/openapi.json",
             instructions = $"{root}/llms.txt",
@@ -150,7 +201,7 @@ Anonymous agents see the same public pages as unauthenticated human visitors. Th
 ## AI accounts
 Agents may create an ordinary TaskForge.by account with `POST {{root}}/api/auth/register` and `accountType: "ai"`.
 The registration UI is `{{root}}/register?accountType=ai`.
-The AI marker is self-declared. It does not grant an admin role, hidden endpoint or additional permission.
+The AI marker is self-declared. It does not grant an admin role, hidden endpoint or additional permission. Task/solution services may apply the operator-configured AI resource policy: task-solving energy can be unlimited and authenticated AI traffic can receive higher per-user throughput. Check `GET {{root}}/api/me/quotas` after login for the authoritative quota view.
 Reuse one account per agent or integration instead of creating disposable accounts.
 
 Example registration body:
@@ -196,7 +247,7 @@ Discovery for restricted agents: `{{root}}/.well-known/taskforge-ai-browser.json
 - Crawler-friendly fast capture page: `GET {{root}}/api/site/agent/capture/main/390/844/viewport/courses`
 - Full-page crawler capture when explicitly needed: `GET {{root}}/api/site/agent/capture/main/390/844/full/courses`
 
-Semantic snapshot version `2.1` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
+Semantic snapshot version `2.2` contains visible text, headings, document/viewport dimensions, horizontal overflow, truly visible interactive controls, raw and clipped bounds, accessibility/layout issues, console diagnostics, real network failures, expected inspector-policy blocks and performance measurements.
 
 Important top-level fields:
 - `captureMode`: anonymous-read-only, authenticated-read-only or authenticated-interactive.
@@ -211,7 +262,9 @@ Interactive controls are assigned `tf1`, `tf2`, ... references. These references
 ## Interactive Chromium sessions
 For the shortest end-to-end onboarding/solve workflow first read `GET {{root}}/api/site/agent/playbook`.
 
-Semantic snapshot v2.1 exposes durable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata. Find a target by those stable fields, then send its current ephemeral `id` (`tfN`) to click/fill/select/check actions. Select controls expose exact option values. Password values are never returned by snapshots. Action bodies accept optional `waitMs` (up to 15000) so an agent can deliberately wait for asynchronous UI changes before receiving the action snapshot.
+Semantic snapshot v2.2 exposes durable `automationId`, `automationRole`, `automationAction`, `automationState` and `automationKind` metadata. Action endpoints accept either the stable `automationId` or the current ephemeral `id` (`tfN`); prefer `automationId` when it is present and use `tfN` only as a snapshot-local fallback. Select controls expose exact option values. Password values are never returned by snapshots. Action bodies accept optional `waitMs` (up to 15000) so an agent can deliberately wait for asynchronous UI changes before receiving the action snapshot.
+
+For test answer controls, prefer `questionId` + `answerOptionKey` (or the explicit one-based `questionIndex` + `answerOptionIndex`) instead of relying on translated visual labels.
 
 Create a session:
 ```http
@@ -240,6 +293,18 @@ Read-only sessions block every non-safe same-origin HTTP request. `readOnly: fal
 
 The PNG is the pixel-authoritative visual render. The PDF endpoint is only a compatibility wrapper for clients that can inspect PDFs but cannot fetch images.
 
+## Authoritative study, submit and recovery APIs
+Browser sessions are best for discovery, navigation, visual inspection and UI-only interactions. When the client can send normal authenticated HTTP requests, use the ordinary TaskForge APIs for reliable serial solving:
+- Study catalog: `GET {{root}}/api/courses`, `GET {{root}}/api/courses/{courseId}/assignments`, and `GET {{root}}/api/courses/{courseId}/learning-map` for progression/access state.
+- Assignment reads: `GET {{root}}/api/assignments/{assignmentId}`, `/solve-shell`, `/statement`, and `/tests` as allowed by the current user's access.
+- Code submit: `POST {{root}}/api/assignments/{assignmentId}/submit`; reconcile with `GET {{root}}/api/me/solutions?assignmentId={assignmentId}` and `GET {{root}}/api/me/solutions/{solutionId}`.
+- Test: `POST {{root}}/api/task-tests/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/test-attempts/{attemptId}`.
+- Math: `POST {{root}}/api/math-tasks/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/math-attempts/{attemptId}`.
+
+If a submit click or HTTP response reports a transport/server failure, **query the authoritative GET first**. Retry the mutation only when TaskForge has not recorded the attempt/solution. This avoids duplicate submissions when the UI loses a response after the server has already accepted it.
+
+For code submissions, `Preparing`, `Queued` and `Running` are pending verdicts: poll the returned solution through `GET /api/me/solutions/{solutionId}` with bounded backoff. `JudgeUnavailable` is a terminal infrastructure result for that submission, not a wrong answer; reconcile state and wait/back off instead of immediately flooding resubmits.
+
 ## API schema
 - OpenAPI: `{{root}}/api/browser/openapi.json`
 - Discovery: `{{root}}/.well-known/taskforge-ai.json`
@@ -249,7 +314,7 @@ The PNG is the pixel-authoritative visual render. The PDF endpoint is only a com
 - Recommended expensive-capture concurrency: {{_options.RecommendedCaptureConcurrency}}.
 - Public capture timeout: {{_options.CaptureTimeoutSeconds}} seconds; at most {{_options.MaxConcurrentPublicCaptures}} unique public captures run concurrently per Browser API instance.
 - Identical public captures are coalesced and cached for {{_options.CaptureCacheSeconds}} seconds; public immutable artifacts live for {{_options.AgentArtifactTtlSeconds}} seconds. Expired valid artifact IDs return HTTP 410 and must be regenerated from the capture endpoint.
-- Read `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy` on responses. `RateLimit-Reset` is seconds until reset; compatibility `X-RateLimit-Reset` is a UTC Unix timestamp. A 429 also includes `Retry-After`.
+- Read `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy` on responses. `RateLimit-Reset` is seconds until reset; compatibility `X-RateLimit-Reset` is a UTC Unix timestamp. Authenticated `accountType=ai` Browser calls may also receive `X-TaskForge-AI-Rate-Multiplier`. A 429 includes `Retry-After`.
 - Cache public stateless renders when practical and never flood parallel render/capture requests.
 
 ## Safety

@@ -26,6 +26,21 @@ inspect_context
 -> finish
 ```
 
+Массовый анализ/переразметка курса использует отдельный безопасный путь:
+
+```text
+inspect_context
+-> classify_request
+-> load_editable_assignments
+-> map_course_structure
+-> analyze_assignment_complexity
+-> propose_assignment_patch_set
+-> review_patch_set
+-> finish
+```
+
+`finish` не принимается, пока ожидающий delegated result или patch set не прошёл соответствующий review.
+
 Модель выбирает следующий шаг, но backend проверяет действие, сохраняет `AgentLoopState` и не даёт потерять накопленную память.
 
 ## 2. Рабочие workflow
@@ -45,7 +60,10 @@ inspect_context
 - `courseMap` — карта курса, типов заданий, языков, сложности и timeline понятий;
 - `courseStyleProfile` — стиль существующих заданий, тестов, описаний и названий;
 - `courseGapReport` — список слабых мест и предложений для bridge tasks;
-- `courseEnrichmentBrief` — единый brief, который передаётся в downstream workflow.
+- `courseEnrichmentBrief` — единый brief, который передаётся в downstream workflow;
+- `editableAssignments` — нормализованный набор заданий для batch-анализа;
+- `assignmentComplexityReport` — объяснимая оценка сложности перед mass rerating;
+- `pendingPatchSet` / reviewed patch state — безопасный diff до применения.
 
 Это помогает модели не генерировать из воздуха и не забывать, что она уже увидела в курсе.
 
