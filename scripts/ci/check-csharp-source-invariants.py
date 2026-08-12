@@ -181,6 +181,11 @@ def main() -> int:
             errors.append("C# runner must cache trusted-platform metadata references across submissions")
         if "concurrentBuild: false" not in compiler_source:
             errors.append("C# runner Roslyn compilation must stay serial to match RunnerJobGate and bound peak memory")
+        for marker in ("ImplicitUsingsSyntaxTree", "global using System;", "syntaxTrees: [ImplicitUsingsSyntaxTree, syntax]"):
+            if marker not in compiler_source:
+                errors.append(f"C# runner SDK-style implicit using support missing: {marker}")
+        if "usings:" in compiler_source:
+            errors.append("C# runner must not rely on CSharpCompilationOptions.Usings for normal-compilation implicit usings")
         if "CompilationFailureKind.InfrastructureError" not in compiler_source or "catch (OutOfMemoryException" not in compiler_source:
             errors.append("C# Roslyn parent resource failures must not be reported as student CompileError")
         compile_method = compiler_source.split("public RoslynCompilationResult Compile", 1)[-1].split("private static MetadataReference[] CreateFrameworkReferences", 1)[0]

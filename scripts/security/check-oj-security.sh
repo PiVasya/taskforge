@@ -74,6 +74,11 @@ if 'Verify("csharp", "standard"' not in (root / 'services/execution/runners/csha
 csharp_compiler = (root / 'services/execution/runners/csharp-runner/Services/RoslynCompilationService.cs').read_text()
 if '_frameworkReferences = CreateFrameworkReferences()' not in csharp_compiler or 'concurrentBuild: false' not in csharp_compiler:
     die('C# compiler resource reuse/serialization drift')
+for marker in ('ImplicitUsingsSyntaxTree', 'global using System;', 'syntaxTrees: [ImplicitUsingsSyntaxTree, syntax]'):
+    if marker not in csharp_compiler:
+        die(f'C# compiler SDK-style implicit using support drift: {marker}')
+if 'usings:' in csharp_compiler:
+    die('C# compiler incorrectly relies on CSharpCompilationOptions.Usings for implicit usings')
 if 'CompilationFailureKind.InfrastructureError' not in csharp_compiler or 'catch (OutOfMemoryException' not in csharp_compiler:
     die('C# compiler parent resource failures can be misclassified as CompileError')
 compile_body = csharp_compiler.split('public RoslynCompilationResult Compile', 1)[-1].split('private static MetadataReference[] CreateFrameworkReferences', 1)[0]

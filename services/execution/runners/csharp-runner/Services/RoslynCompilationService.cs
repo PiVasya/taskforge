@@ -43,13 +43,35 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
     // every submission leaves a large amount of mapped metadata/file handles waiting for GC.
     // Under a fast stream of C# submissions this used to exhaust the runner's parent process
     // (EMFILE / "Too many open files") and eventually its container memory.
+    private static readonly CSharpParseOptions ParseOptions = new(LanguageVersion.CSharp14);
+
+    // Direct Roslyn compilation does not read <ImplicitUsings> from the runner's csproj.
+    // CSharpCompilationOptions.Usings is not a substitute for SDK-generated global-usings
+    // in a normal compilation, so bare student code such as Console.WriteLine(...) used to
+    // fail with CS0103. Keep the intended OJ defaults in one trusted synthetic syntax tree
+    // and reuse it across submissions. Global usings apply to every user compilation unit,
+    // while the security policy still validates the original user syntax tree.
+    private static readonly SyntaxTree ImplicitUsingsSyntaxTree = CSharpSyntaxTree.ParseText(
+        """
+        global using System;
+        global using System.Text;
+        global using System.Linq;
+        global using System.Collections.Generic;
+        """,
+        ParseOptions,
+        path: "TaskForge.ImplicitUsings.g.cs");
+
     private readonly MetadataReference[] _frameworkReferences = CreateFrameworkReferences();
 
     public RoslynCompilationResult Compile(string code, CancellationToken cancellationToken = default)
     {
         try
         {
-            var syntax = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.CSharp14), cancellationToken: cancellationToken);
+            var syntax = CSharpSyntaxTree.ParseText(
+                code,
+                ParseOptions,
+                path: "UserSubmission.cs",
+                cancellationToken: cancellationToken);
 
             var options = new CSharpCompilationOptions(
                 OutputKind.ConsoleApplication,
@@ -59,15 +81,11 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
                 // Roslyn compilation only increases peak worker/thread memory here.
                 concurrentBuild: false,
                 deterministic: true,
-                checkOverflow: true,
-                usings:
-                [
-                    "System", "System.Text", "System.Linq", "System.Collections.Generic"
-                ]);
+                checkOverflow: true);
 
             var compilation = CSharpCompilation.Create(
                 assemblyName: "UserSubmission",
-                syntaxTrees: [syntax],
+                syntaxTrees: [ImplicitUsingsSyntaxTree, syntax],
                 references: _frameworkReferences,
                 options: options);
 
