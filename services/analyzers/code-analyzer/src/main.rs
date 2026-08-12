@@ -1615,6 +1615,28 @@ mod tests {
 
 
     #[test]
+    fn python_task_identifier_rule_accepts_function_reference_in_map() {
+        let source = "a, b = map(float, input().split())\nprint(a + b)";
+        let cleaned = strip_comments_and_strings("python", source);
+        let no_comments = strip_comments_only("python", source);
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "float").is_some());
+        // `float(` would intentionally mean a direct call, so it must not be used
+        // for a task that also allows passing float as a callable to map().
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "float(").is_none());
+    }
+
+    #[test]
+    fn python_final_card_does_not_need_float_call_shape_rule() {
+        let source = "a, b, score = input().split()\nprint(f\"Score: {float(score)}\")";
+        let cleaned = strip_comments_and_strings("python", source);
+        let no_comments = strip_comments_only("python", source);
+        // The executable expression inside an f-string is not a reliable place for
+        // the lightweight string stripper to enforce a direct-call shape. Course
+        // rules should require semantic output here, not the exact `float(` spelling.
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "print").is_some());
+    }
+
+    #[test]
     fn task_multi_token_rules_match_real_token_sequences() {
         assert!(find_task_rule_pos("long long value = 5;", "long long value = 5;", "long long").is_some());
         assert!(find_task_rule_pos("long\nlong value = 5;", "long\nlong value = 5;", "long long").is_some());

@@ -626,6 +626,9 @@ Scopes:
 15. Если пользователь просит изменить только задания, layout можно не трогать.
 16. Частичный layout допустим: неуказанные позиции TaskForge оставит прежними.
 17. Не больше ${TASK_GRAPH_MAX_TASKS} заданий и ${TASK_GRAPH_MAX_CONNECTIONS} связей.
+18. codeRequiredCalls/codeForbiddenCalls — только учебные требования. Если конкретный синтаксис обязателен (например, while, do, &&, break), прямо напиши это в цели/условии задания.
+19. Не фиксируй одну синтаксическую форму, если по смыслу допустимы эквивалентные варианты: for/while, &&/вложенный if, float(x)/map(float, ...). Массив codeRequiredCalls имеет семантику AND, а не «любой из вариантов».
+20. Поле guide — документация. Не переноси примеры x/y из guide.layout в реальные поля; импорт должен игнорировать guide.
 
 Мега-пример:
 ${JSON.stringify(TASK_GRAPH_MEGA_EXAMPLE, null, 2)}
@@ -668,7 +671,9 @@ function collectLegacyLayoutIssues(value, path, issues) {
   if (!isPlainObject(value)) return;
   for (const [key, item] of Object.entries(value)) {
     const itemPath = `${path}.${key}`;
-    if (path === '$' && key === 'layout') continue;
+    // `guide` is exported documentation for humans/AI. It may intentionally contain
+    // example x/y coordinates and must never be validated as live course layout.
+    if (path === '$' && (key === 'layout' || key === 'guide')) continue;
     if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) {
       issues.push({ path: itemPath, message: 'Координаты разрешены только внутри layout.positions.' });
       continue;

@@ -705,7 +705,7 @@ internal static class AssignmentTaskGraphJsonService
                     {
                         ["checks"] = Strings("testCases", "codeRequiredCalls", "codeForbiddenCalls"),
                         ["testCase"] = new JsonObject { ["input"] = "2 4", ["expectedOutput"] = "6", ["isHidden"] = false },
-                        ["note"] = "codeRequiredCalls/codeForbiddenCalls — учебные структурные требования. Защиту песочницы не нужно дублировать искусственными запретами."
+                        ["note"] = "codeRequiredCalls/codeForbiddenCalls — учебные структурные требования. Защиту песочницы не нужно дублировать искусственными запретами. Конкретный синтаксис требуйте только когда он прямо является целью задания и явно указан в description; если допустимы эквивалентные формы, не кодируйте одну из них как обязательную."
                     },
                     ["image-test"] = new JsonObject
                     {
@@ -804,7 +804,9 @@ internal static class AssignmentTaskGraphJsonService
                 "Не удаляй старые задачи/связи молча, если пользователь просит только расширить курс.",
                 "При больших учебных графах предпочитай дерево/ветви, а не одну длинную змейку.",
                 "Финальные тесты логично располагать после слияния концов тематических ветвей.",
-                "Учебные codeRequiredCalls/codeForbiddenCalls должны проверять смысл задания, а не повторять системную sandbox-защиту."
+                "Учебные codeRequiredCalls/codeForbiddenCalls должны проверять смысл задания, а не повторять системную sandbox-защиту.",
+                "Если обязательны while/do/for/&&/break и т.п., это должно быть прямо написано в цели или условии задания.",
+                "Если допустимы эквивалентные решения (например for или while, && или вложенный if, float(x) или map(float,...)), не требуйте только одну форму: codeRequiredCalls проверяется как AND-набор, а не как список альтернатив."
             )
         };
     }

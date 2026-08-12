@@ -322,6 +322,9 @@ const taskGraphDiff = read('features/course-assignments/components/JsonTaskGraph
 if (!/TASK_GRAPH_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/['"]courses['"]/.test(taskGraphJson) || !/['"]course['"]/.test(taskGraphJson)) {
   fail('canonical JSON graph v4 lost nested-course references');
 }
+if (!/key === 'layout' \|\| key === 'guide'/.test(taskGraphJson)) {
+  fail('task-graph import must ignore documentation guide when checking legacy layout fields');
+}
 if (!/includeLayout/.test(taskGraphExportDialog) || !/includeIds/.test(taskGraphExportDialog) || !/updateLayout/.test(taskGraphDiff) || !/updateConnections/.test(taskGraphDiff)) {
   fail('selective JSON import/export controls are missing');
 }

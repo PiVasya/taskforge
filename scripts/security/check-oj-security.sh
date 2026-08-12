@@ -111,7 +111,7 @@ if '!ShouldApplyIncomingVerdict(previous, incomingVerdict)' not in solutions_int
     die('internal verdict endpoint can overwrite a deterministic terminal verdict during stale execution replay')
 
 analyzer_source = (root / 'services/analyzers/code-analyzer/src/main.rs').read_text()
-for marker in ('find_identifier_sequence_pos', 'task_rule_needs_strings', 'format-string fragments such as `%.2f`'):
+for marker in ('find_identifier_sequence_pos', 'task_rule_needs_strings', 'format-string fragments such as `%.2f`', 'python_task_identifier_rule_accepts_function_reference_in_map'):
     if marker not in analyzer_source:
         die(f'code-analyzer task-rule matcher regression: {marker}')
 
