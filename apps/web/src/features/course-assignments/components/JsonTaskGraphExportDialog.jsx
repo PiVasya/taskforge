@@ -64,6 +64,7 @@ export default function JsonTaskGraphExportDialog({
               <ExportOption checked={exportOptions.includeConnections} onChange={(value) => onExportOptionChange?.('includeConnections', value)} label="Связи" hint="кто за кем идёт" />
               <ExportOption checked={exportOptions.includeConnectionAccess} onChange={(value) => onExportOptionChange?.('includeConnectionAccess', value)} label="Эффекты стрелок" />
               <ExportOption checked={exportOptions.includeLayout} onChange={(value) => onExportOptionChange?.('includeLayout', value)} label="Позиции и масштаб" />
+              <ExportOption checked={exportOptions.includeGuide} onChange={(value) => onExportOptionChange?.('includeGuide', value)} label="Обучалка внутри JSON" hint="большая справка для ИИ или человека" />
             </div>
             {!exportOptions.includeIds ? (
               <div className="border-t border-[rgba(var(--border)/0.55)] px-4 py-3 text-xs text-amber-700 dark:text-amber-200">

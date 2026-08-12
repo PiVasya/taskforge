@@ -402,6 +402,7 @@ internal static partial class AssignmentApiEndpoints
             bool? includeConnections,
             bool? includeConnectionAccess,
             bool? includeLayout,
+            bool? includeGuide,
             HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg))
@@ -448,7 +449,8 @@ internal static partial class AssignmentApiEndpoints
                 includeVisibility ?? true,
                 includeConnections ?? true,
                 includeConnectionAccess ?? true,
-                includeLayout ?? true);
+                includeLayout ?? true,
+                includeGuide ?? true);
             return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions), JsonOptions());
         });
 
@@ -512,21 +514,31 @@ internal static partial class AssignmentApiEndpoints
                 graphSubtreeCourseIds = importTree.CourseIds.Where(x => x != Guid.Empty).ToHashSet();
                 graphSubtreeCourseIds.Add(courseId);
                 graphCourseIds = new Dictionary<string, Guid>(StringComparer.Ordinal) { [CourseReference] = courseId };
-                var invalidCourseRefs = taskGraph.Courses
-                    .Select((item, index) => new { item, index })
-                    .Where(x => x.item.Id == Guid.Empty || !graphSubtreeCourseIds.Contains(x.item.Id))
-                    .Select(x => new { path = $"$.courses[{x.index}].id", message = "Вложенный курс не принадлежит импортируемому поддереву." })
-                    .ToList();
-                if (invalidCourseRefs.Count > 0)
+                var courseReferenceIssues = new List<object>();
+                for (var courseIndex = 0; courseIndex < taskGraph.Courses.Count; courseIndex++)
+                {
+                    var graphCourse = taskGraph.Courses[courseIndex];
+                    var desiredId = graphCourse.Id != Guid.Empty ? graphCourse.Id : Guid.NewGuid();
+                    if (desiredId == courseId)
+                    {
+                        courseReferenceIssues.Add(new
+                        {
+                            path = $"$.courses[{courseIndex}].id",
+                            message = "Текущий курс нельзя повторно объявлять как вложенный. Используйте $course."
+                        });
+                        continue;
+                    }
+                    graphCourseIds[graphCourse.Key] = desiredId;
+                }
+                if (courseReferenceIssues.Count > 0)
                 {
                     return Microsoft.AspNetCore.Http.Results.Json(new
                     {
-                        message = "Импорт остановлен: JSON ссылается на чужой курс.",
+                        message = "Импорт остановлен: некорректные ссылки на вложенные курсы.",
                         code = "TASK_GRAPH_COURSE_INVALID",
-                        issues = invalidCourseRefs
+                        issues = courseReferenceIssues
                     }, statusCode: StatusCodes.Status400BadRequest);
                 }
-                foreach (var graphCourse in taskGraph.Courses) graphCourseIds[graphCourse.Key] = graphCourse.Id;
                 sourceItems = taskGraph.Tasks.Select(x => x.Source).ToList();
             }
             else
@@ -646,6 +658,44 @@ internal static partial class AssignmentApiEndpoints
                 }
             }
 
+            var createdCourseCount = 0;
+            if (taskGraph != null && graphCourseIds != null && taskGraph.Courses.Count > 0)
+            {
+                var educationBaseUrl = ServiceUrl(cfg, "EducationApi", "http://education-api:8080");
+                var courseEnsure = await PostInternalAsync<CourseGraphImportEnsureResponse>(
+                    clients,
+                    cfg,
+                    educationBaseUrl,
+                    "/api/internal/courses/import-ensure",
+                    new
+                    {
+                        rootCourseId = courseId,
+                        ownerId = RequireUser(http, cfg),
+                        courses = taskGraph.Courses.Select(x => new
+                        {
+                            key = x.Key,
+                            id = graphCourseIds[x.Key],
+                            title = x.Title
+                        }).ToArray()
+                    },
+                    ct);
+                if (courseEnsure == null || courseEnsure.Courses.Count != taskGraph.Courses.Count)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "Импорт остановлен: не удалось разрешить или создать вложенные курсы. Проверьте, что UUID не занят чужим курсом.",
+                        code = "TASK_GRAPH_COURSE_RESOLVE_FAILED"
+                    }, statusCode: StatusCodes.Status400BadRequest);
+                }
+                foreach (var resolvedCourse in courseEnsure.Courses)
+                {
+                    if (string.IsNullOrWhiteSpace(resolvedCourse.Key) || resolvedCourse.Id == Guid.Empty) continue;
+                    graphCourseIds[resolvedCourse.Key] = resolvedCourse.Id;
+                    graphSubtreeCourseIds?.Add(resolvedCourse.Id);
+                    if (resolvedCourse.Created) createdCourseCount++;
+                }
+            }
+
             var targetCourseIds = taskGraph != null && graphCourseIds != null
                 ? taskGraph.Tasks.Select(x => graphCourseIds.GetValueOrDefault(x.CourseRef, courseId)).Append(courseId).Distinct().ToArray()
                 : new[] { courseId };
@@ -730,10 +780,11 @@ internal static partial class AssignmentApiEndpoints
                 var mappedCourses = new JsonArray();
                 foreach (var graphCourse in taskGraph.Courses)
                 {
+                    var resolvedCourseId = graphCourseIds?.GetValueOrDefault(graphCourse.Key, Guid.Empty) ?? Guid.Empty;
                     mappedCourses.Add(new JsonObject
                     {
                         ["key"] = graphCourse.Key,
-                        ["id"] = graphCourse.Id.ToString("D"),
+                        ["id"] = resolvedCourseId == Guid.Empty ? null : resolvedCourseId.ToString("D"),
                         ["title"] = graphCourse.Title
                     });
                 }
@@ -763,6 +814,7 @@ internal static partial class AssignmentApiEndpoints
             {
                 createdCount = created.Count,
                 updatedCount = updated.Count,
+                createdCourseCount,
                 totalCount = processed.Count,
                 assignments = processed.Select(x => ToDto(x.Assignment, includeSensitive: true)).ToList(),
                 taskGraph = importedTaskGraph

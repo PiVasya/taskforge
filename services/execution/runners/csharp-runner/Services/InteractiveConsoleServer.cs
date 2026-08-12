@@ -167,13 +167,16 @@ public sealed class InteractiveConsoleServer : BackgroundService
             if (!compilation.Ok || compilation.Pe is null)
             {
                 var policyFailure = compilation.FailureKind == CompilationFailureKind.PolicyError;
-                var message = policyFailure ? "Решение отклонено системой безопасности." : compilation.Error;
+                var infrastructureFailure = compilation.FailureKind == CompilationFailureKind.InfrastructureError;
+                var message = infrastructureFailure
+                    ? "Runner compiler resources are temporarily unavailable."
+                    : policyFailure ? "Решение отклонено системой безопасности." : compilation.Error;
                 await SendAsync(new { type = "output", stream = "stderr", data = NormalizeTerminalText(message) }, stoppingToken);
                 await SendAsync(new
                 {
                     type = "exit",
                     exitCode = policyFailure ? 126 : 1,
-                    reason = policyFailure ? "policy_error" : "compile_error",
+                    reason = infrastructureFailure ? "judge_unavailable" : policyFailure ? "policy_error" : "compile_error",
                     durationMs = 0
                 }, stoppingToken);
                 return;

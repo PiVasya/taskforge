@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Runner.Models;
 using Runner.Services;
 
@@ -99,13 +99,16 @@ public sealed class RunController : ControllerBase
             if (!compileResult.Ok || compileResult.Pe is null)
             {
                 var policyFailure = compileResult.FailureKind == CompilationFailureKind.PolicyError;
+                var infrastructureFailure = compileResult.FailureKind == CompilationFailureKind.InfrastructureError;
                 return Ok(new RunResponse
                 {
-                    Status = policyFailure ? "policy_error" : "compile_error",
+                    Status = infrastructureFailure ? "judge_unavailable" : policyFailure ? "policy_error" : "compile_error",
                     Stdout = "",
                     Stderr = "",
                     ExitCode = policyFailure ? 126 : 1,
-                    Error = SanitizeRunnerText(compileResult.Error)
+                    Error = infrastructureFailure
+                        ? "Runner compiler resources are temporarily unavailable."
+                        : SanitizeRunnerText(compileResult.Error)
                 });
             }
 
@@ -206,6 +209,7 @@ public sealed class RunController : ControllerBase
             {
                 var first = tests.FirstOrDefault();
                 var policyFailure = compileResult.FailureKind == CompilationFailureKind.PolicyError;
+                var infrastructureFailure = compileResult.FailureKind == CompilationFailureKind.InfrastructureError;
                 return Ok(new TestResultsResponse
                 {
                     Results =
@@ -216,10 +220,12 @@ public sealed class RunController : ControllerBase
                             ExpectedOutput = first?.ExpectedOutput ?? "",
                             ActualOutput = "",
                             Passed = false,
-                            Status = policyFailure ? "policy_error" : "compile_error",
+                            Status = infrastructureFailure ? "judge_unavailable" : policyFailure ? "policy_error" : "compile_error",
                             ExitCode = policyFailure ? 126 : 1,
-                            Stderr = policyFailure ? "Решение отклонено системой безопасности." : "",
-                            CompileStderr = policyFailure ? null : SanitizeRunnerText(compileResult.Error),
+                            Stderr = infrastructureFailure
+                                ? "Runner compiler resources are temporarily unavailable."
+                                : policyFailure ? "Решение отклонено системой безопасности." : "",
+                            CompileStderr = policyFailure || infrastructureFailure ? null : SanitizeRunnerText(compileResult.Error),
                             Hidden = first?.IsHidden ?? false
                         }
                     ]
@@ -285,7 +291,9 @@ public sealed class RunController : ControllerBase
                     Hidden = test.IsHidden
                 });
 
-                if (status == "policy_error" || batchCts.IsCancellationRequested)
+                if (string.Equals(status, "policy_error", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(status, "judge_unavailable", StringComparison.OrdinalIgnoreCase)
+                    || batchCts.IsCancellationRequested)
                 {
                     break;
                 }

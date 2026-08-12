@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -129,6 +130,10 @@ public sealed class ExecutionService : IExecutionService
                 if (string.IsNullOrWhiteSpace(childStdout))
                 {
                     var error = string.IsNullOrWhiteSpace(childStderr) ? "Execution failed." : childStderr;
+                    if (IsRunnerInfrastructureDiagnostic(error))
+                    {
+                        return (false, "", "Runner process resources are temporarily unavailable.", "judge_unavailable");
+                    }
                     return (false, "", error, "runtime_error");
                 }
 
@@ -162,6 +167,12 @@ public sealed class ExecutionService : IExecutionService
                 await WaitAfterKillAsync(process);
                 throw;
             }
+            catch (Exception ex) when (IsRunnerInfrastructureFailure(ex))
+            {
+                TryKill(process);
+                await WaitAfterKillAsync(process);
+                return (false, "", "Runner process resources are temporarily unavailable.", "judge_unavailable");
+            }
             catch (Exception ex)
             {
                 TryKill(process);
@@ -173,6 +184,37 @@ public sealed class ExecutionService : IExecutionService
         {
             TryDeleteWorkDirectory(workDirectory);
         }
+    }
+
+
+    private static bool IsRunnerInfrastructureFailure(Exception exception)
+    {
+        // Process.Start on Linux reports parent/container resource exhaustion as a
+        // Win32Exception. These are judge failures, not failures of the student's code.
+        if (exception is Win32Exception win32 && win32.NativeErrorCode is 11 or 12 or 23 or 24)
+        {
+            return true;
+        }
+
+        if (IsRunnerInfrastructureDiagnostic(exception.Message))
+        {
+            return true;
+        }
+
+        return exception.InnerException is not null && IsRunnerInfrastructureFailure(exception.InnerException);
+    }
+
+    private static bool IsRunnerInfrastructureDiagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return value.Contains("Too many open files", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("error=24", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("EMFILE", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("ENFILE", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PopulateSandboxEnvironment(ProcessStartInfo startInfo, string preloadPath, string workDirectory, int timeLimitMs, int memoryLimitMb)

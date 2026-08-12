@@ -89,6 +89,7 @@ services:
       ExecutionQueue__MaxAttempts: ${EXECUTION_QUEUE_MAX_ATTEMPTS:-3}
       ExecutionQueue__RunningTimeoutMinutes: ${EXECUTION_QUEUE_RUNNING_TIMEOUT_MINUTES:-5}
       Judge__TimeoutSeconds: ${JUDGE_TIMEOUT_SECONDS:-45}
+      Judge__RunnerAttempts: ${JUDGE_RUNNER_ATTEMPTS:-3}
       Runners__Cpp: http://cpp-runner:8080
       Runners__CSharp: http://csharp-runner:8080
       Runners__Java: http://java-runner:8080
@@ -167,12 +168,12 @@ services:
     ulimits:
       core: 0
       nofile:
-        soft: 256
-        hard: 256
+        soft: 4096
+        hard: 4096
     cap_drop: *id002
     pids_limit: ${RUNNER_PIDS_LIMIT:-128}
-    mem_limit: ${CSHARP_RUNNER_MEM_LIMIT:-768m}
-    memswap_limit: ${CSHARP_RUNNER_MEM_LIMIT:-768m}
+    mem_limit: ${CSHARP_RUNNER_MEM_LIMIT:-1024m}
+    memswap_limit: ${CSHARP_RUNNER_MEM_LIMIT:-1024m}
     cpus: ${RUNNER_CPUS:-1.0}
     read_only: true
     tmpfs: *id003

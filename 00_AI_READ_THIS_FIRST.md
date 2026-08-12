@@ -37,8 +37,10 @@ Canonical TaskForge course task-graph import/export:
   "schemaVersion": 4,
   "format": "taskforge-task-graph",
   "scopes": ["ids", "content", "checks", "visibility", "connections", "connectionAccess", "layout"],
+  "guide": { "about": "Fresh exports may contain a self-contained human/AI guide; import ignores it." },
   "courses": [
-    { "key": "course-advanced", "id": "00000000-0000-0000-0000-000000000000", "title": "Углубление" }
+    { "key": "course-existing", "id": "11111111-1111-4111-8111-111111111111", "title": "Существующий подкурс" },
+    { "key": "course-new", "title": "Новый подкурс" }
   ],
   "tasks": [
     { "key": "intro", "course": "$course", "id": "00000000-0000-0000-0000-000000000000" }
@@ -52,10 +54,10 @@ Canonical TaskForge course task-graph import/export:
 ```
 
 - A fresh export represents the full task-map subtree of the currently opened course, including existing nested course nodes and assignments that belong to them.
-- `courses[]` contains references to existing nested courses. JSON import does not create, rename, delete, or move course entities. Course IDs are structural references and remain present even when task IDs are omitted.
+- `courses[]` contains nested course nodes. An ID that already exists inside the imported subtree binds that existing course. A free UUID creates a new direct child course with that UUID. Omitting `courses[].id` also creates a new direct child course and TaskForge generates its UUID. An ID already owned by a course outside the subtree is rejected. Fresh exports always emit real IDs for existing courses.
 - `tasks[].key` is the stable reference used inside one JSON document. It is not a database ID.
 - `tasks[].course` is `"$course"` for the currently opened course or the `key` of an entry from `courses[]`. Existing assignments cannot be moved between courses through JSON import.
-- Omit `tasks[].id` to create a task. An existing ID binds the document entry to that existing task; import checkboxes decide which categories are actually allowed to change.
+- Task and course identity follow the same deterministic rule: existing ID in the subtree binds, a free UUID creates with that UUID, and omitted ID creates with a server-generated UUID. Existing assignments still cannot be moved between courses through JSON import.
 - `scopes` declares which data categories are intentionally present: `ids`, `content`, `checks`, `visibility`, `connections`, `connectionAccess`, `layout`.
 - `connections[].from` and `connections[].to` define order, branches and merges between task and course refs. `"$course"` is the reserved source for the currently open course.
 - Edge progression is stored only in `connections[].access.hidden` and `connections[].access.sequential`, with `start`, `stop` or `inherit`.
@@ -63,7 +65,7 @@ Canonical TaskForge course task-graph import/export:
 - Partial layout imports are valid: only listed positions are replaced when the user enables layout import. Layout-only documents with existing IDs/course refs are valid and must not modify task content.
 - Import settings independently control content, checks/answers, visibility, topology, edge access effects and layout. The presence of an assignment ID never overrides those switches.
 - Canonical graph imports may contain zero tasks when they only update positions/connections of existing course nodes.
-- Fresh exports support up to 5000 task entries per course subtree and must not contain `analyticsSettings`, changelog text or implementation notes.
+- Fresh exports support up to 5000 task entries per course subtree and must not contain `analyticsSettings`, changelog text or implementation notes. By default they include a large top-level `guide` block intended to make the file self-describing for a human or AI; the export dialog can omit it.
 - Legacy assignment arrays and schema version 3 may remain accepted internally for compatibility, but the UI, documentation, examples and fresh exports use schema version 4.
 
 Type-specific fields:

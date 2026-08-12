@@ -131,6 +131,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           {diff.connectionAccessChangedCount > 0 ? <Badge variant="outline">Изменятся эффекты: {diff.connectionAccessChangedCount}</Badge> : null}
           {diff.unplacedCount > 0 ? <Badge intent="warning">Вне карты: {diff.unplacedCount}</Badge> : null}
           {diff.legacy ? <Badge intent="warning">Без графа</Badge> : null}
+          {diff.courseCreateCount > 0 ? <Badge variant="outline">Создастся курсов: {diff.courseCreateCount}</Badge> : null}
+          {diff.courseExistingCount > 0 ? <Badge variant="outline">Существующих курсов: {diff.courseExistingCount}</Badge> : null}
           {diff.layoutPositionCount > 0 ? <Badge variant="outline">Позиций: {diff.layoutPositionCount}</Badge> : null}
         </div>
 

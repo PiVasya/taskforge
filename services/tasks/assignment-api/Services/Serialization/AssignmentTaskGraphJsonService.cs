@@ -17,7 +17,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static readonly HashSet<string> TopLevelFields = new(StringComparer.Ordinal)
     {
-        "schemaVersion", "format", "scopes", "courses", "tasks", "connections", "layout"
+        "schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout"
     };
 
     private static readonly HashSet<string> TaskFields = new(StringComparer.Ordinal)
@@ -90,7 +90,8 @@ internal static class AssignmentTaskGraphJsonService
         bool IncludeVisibility = true,
         bool IncludeConnections = true,
         bool IncludeConnectionAccess = true,
-        bool IncludeLayout = true);
+        bool IncludeLayout = true,
+        bool IncludeGuide = true);
 
     internal sealed record GraphImportOptions(
         bool UpdateContent = true,
@@ -222,7 +223,7 @@ internal static class AssignmentTaskGraphJsonService
         {
             if (coursesElement.ValueKind != JsonValueKind.Array)
             {
-                issues.Add(new ValidationIssue("$.courses", "courses должен быть массивом существующих вложенных курсов."));
+                issues.Add(new ValidationIssue("$.courses", "courses должен быть массивом вложенных курсов."));
             }
             else
             {
@@ -255,15 +256,21 @@ internal static class AssignmentTaskGraphJsonService
                         if (!courseRefs.Add(key))
                             issues.Add(new ValidationIssue($"{path}.key", $"Ключ \"{key}\" используется повторно."));
                     }
-                    if (!Guid.TryParse(rawId, out var id) || id == Guid.Empty)
+                    var id = Guid.Empty;
+                    if (!string.IsNullOrWhiteSpace(rawId))
                     {
-                        issues.Add(new ValidationIssue($"{path}.id", "id должен быть GUID существующего вложенного курса."));
-                        id = Guid.Empty;
+                        if (!Guid.TryParse(rawId, out id) || id == Guid.Empty)
+                        {
+                            issues.Add(new ValidationIssue($"{path}.id", "Если id указан, он должен быть корректным непустым GUID."));
+                            id = Guid.Empty;
+                        }
+                        else if (!courseIds.Add(id))
+                        {
+                            issues.Add(new ValidationIssue($"{path}.id", "Один id вложенного курса нельзя объявлять дважды."));
+                        }
                     }
-                    else if (!courseIds.Add(id))
-                    {
-                        issues.Add(new ValidationIssue($"{path}.id", "Один вложенный курс нельзя объявлять дважды."));
-                    }
+                    if (id == Guid.Empty && string.IsNullOrWhiteSpace(title))
+                        issues.Add(new ValidationIssue($"{path}.title", "Для нового вложенного курса без id укажите title."));
                     courses.Add(new GraphCourse(key, id, title));
                 }
             }
@@ -595,6 +602,8 @@ internal static class AssignmentTaskGraphJsonService
             ["connections"] = connectionsJson
         };
 
+        if (options.IncludeGuide) result["guide"] = BuildGuide();
+
         if (options.IncludeLayout && hasMap)
         {
             var positions = new JsonObject();
@@ -609,6 +618,195 @@ internal static class AssignmentTaskGraphJsonService
         }
 
         return result;
+    }
+
+    private static JsonObject BuildGuide()
+    {
+        JsonArray Strings(params string[] values)
+        {
+            var array = new JsonArray();
+            foreach (var value in values) array.Add(value);
+            return array;
+        }
+
+        return new JsonObject
+        {
+            ["about"] = new JsonObject
+            {
+                ["title"] = "TaskForge task-graph JSON: обучалка для человека и ИИ",
+                ["important"] = "Поле guide является только документацией. Импорт его читает как справочный блок и не применяет к курсу.",
+                ["goal"] = "Файл можно передать человеку или нейронной сети вместе с просьбой изменить/расширить курс. Возвращать нужно один валидный JSON taskforge-task-graph."
+            },
+            ["document"] = new JsonObject
+            {
+                ["schemaVersion"] = SchemaVersion,
+                ["format"] = Format,
+                ["rootCourseReference"] = CourseReference,
+                ["maxTasks"] = MaxTasks,
+                ["maxConnections"] = MaxConnections,
+                ["topLevel"] = Strings("schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout"),
+                ["rules"] = Strings(
+                    "key обязателен и уникален среди courses и tasks.",
+                    "$course обозначает курс, из которого выполняется импорт. Его нельзя использовать как key обычной ноды.",
+                    "Порядок прохождения задаётся connections, а не порядком объектов в tasks.",
+                    "Циклы в connections запрещены: карта должна оставаться DAG.",
+                    "Не добавляйте analyticsSettings: это не часть canonical task-graph JSON.",
+                    "Не помещайте эталонное/готовое решение в description, если это отдельно не требуется автором курса.",
+                    "Координаты хранятся только в layout.positions; position/x/y/nodes/edges внутри task/course/connection не используются."
+                )
+            },
+            ["scopes"] = new JsonObject
+            {
+                ["ids"] = "id заданий. Существующий id обновляет задание, свободный UUID создаёт новое задание с этим UUID; без id UUID генерирует TaskForge.",
+                ["content"] = "type, title, description, language, allowedLanguages, tags, difficulty, rating, starterCode.",
+                ["checks"] = "testCases, testSettings, questions, blocks, codeRequiredCalls, codeForbiddenCalls и настройки image-test.",
+                ["visibility"] = "isVisible.",
+                ["connections"] = "Топология from -> to.",
+                ["connectionAccess"] = "Эффекты hidden/sequential на стрелках.",
+                ["layout"] = "layout.positions и layout.viewport."
+            },
+            ["courses"] = new JsonObject
+            {
+                ["purpose"] = "courses объявляет вложенные course-ноды, на которые ссылаются tasks, connections и layout.",
+                ["existingCourse"] = new JsonObject
+                {
+                    ["key"] = "course-existing",
+                    ["id"] = "11111111-1111-4111-8111-111111111111",
+                    ["title"] = "Существующий вложенный курс"
+                },
+                ["newCourseWithStableId"] = new JsonObject
+                {
+                    ["key"] = "course-new-stable",
+                    ["id"] = "22222222-2222-4222-8222-222222222222",
+                    ["title"] = "Новый вложенный курс с заранее выбранным UUID"
+                },
+                ["newCourseWithGeneratedId"] = new JsonObject
+                {
+                    ["key"] = "course-new-auto",
+                    ["title"] = "Новый вложенный курс с UUID от TaskForge"
+                },
+                ["identityRules"] = Strings(
+                    "Если id уже существует внутри импортируемого поддерева, course key привязывается к этому существующему курсу.",
+                    "Если указан свободный UUID, TaskForge создаёт новый непосредственный вложенный курс именно с этим UUID.",
+                    "Если id занят курсом вне импортируемого поддерева, импорт останавливается: чужой курс использовать нельзя.",
+                    "Если id отсутствует, TaskForge создаёт вложенный курс и сам генерирует UUID. Для такого курса title обязателен.",
+                    "Экспорт существующего курса всегда содержит его реальный id. Это делает последующий импорт детерминированным.",
+                    "JSON не переименовывает существующий курс только потому, что title в courses отличается: title прежде всего подпись/данные для создания новой ноды."
+                )
+            },
+            ["tasks"] = new JsonObject
+            {
+                ["commonFields"] = Strings("key", "id?", "course?", "type", "title", "description", "language?", "allowedLanguages?", "tags?", "difficulty?", "rating?", "starterCode?", "isVisible?"),
+                ["courseRule"] = "course = $course или key из courses. Если поле course отсутствует, используется $course.",
+                ["idRule"] = "Для задачи: существующий id в поддереве -> update; свободный UUID -> create с этим UUID; id отсутствует -> create с UUID от TaskForge; id из чужого поддерева -> ошибка.",
+                ["types"] = new JsonObject
+                {
+                    ["code-test"] = new JsonObject
+                    {
+                        ["checks"] = Strings("testCases", "codeRequiredCalls", "codeForbiddenCalls"),
+                        ["testCase"] = new JsonObject { ["input"] = "2 4", ["expectedOutput"] = "6", ["isHidden"] = false },
+                        ["note"] = "codeRequiredCalls/codeForbiddenCalls — учебные структурные требования. Защиту песочницы не нужно дублировать искусственными запретами."
+                    },
+                    ["image-test"] = new JsonObject
+                    {
+                        ["checks"] = Strings("testCases", "imageTestReferenceKey?", "imageTestSimilarityThreshold?"),
+                        ["note"] = "Эталон изображения может храниться на уровне задания или конкретного testCase."
+                    },
+                    ["test"] = new JsonObject
+                    {
+                        ["checks"] = Strings("testSettings", "questions"),
+                        ["questionTypes"] = Strings("single-choice", "multi-choice", "fill", "text")
+                    },
+                    ["math"] = new JsonObject
+                    {
+                        ["checks"] = Strings("testSettings", "blocks"),
+                        ["blockKinds"] = Strings("info", "single-choice", "multi-choice", "number", "expression", "set", "order", "match")
+                    }
+                }
+            },
+            ["connections"] = new JsonObject
+            {
+                ["shape"] = new JsonObject { ["from"] = "task-a", ["to"] = "task-b" },
+                ["allowedRefs"] = "from: $course/course key/task key; to: course key/task key. $course может быть только from.",
+                ["branch"] = "Несколько connections с одинаковым from создают развилку.",
+                ["merge"] = "Несколько connections с одинаковым to создают слияние. Это удобно для финального теста, который должен ждать завершения всех ветвей.",
+                ["access"] = new JsonObject
+                {
+                    ["hidden"] = "start начинает скрытый участок, stop заканчивает, inherit/отсутствие наследует состояние.",
+                    ["sequential"] = "start начинает пошаговое открытие, stop заканчивает, inherit/отсутствие наследует состояние.",
+                    ["combinedExample"] = new JsonObject
+                    {
+                        ["from"] = "topic-start",
+                        ["to"] = "step-1",
+                        ["access"] = new JsonObject { ["hidden"] = "start", ["sequential"] = "start" }
+                    }
+                }
+            },
+            ["layout"] = new JsonObject
+            {
+                ["positionsExample"] = new JsonObject
+                {
+                    [CourseReference] = new JsonObject { ["x"] = 0, ["y"] = 0 },
+                    ["task-a"] = new JsonObject { ["x"] = 340, ["y"] = -170 },
+                    ["task-b"] = new JsonObject { ["x"] = 680, ["y"] = -170 },
+                    ["course-new-stable"] = new JsonObject { ["x"] = 340, ["y"] = 170 }
+                },
+                ["viewportExample"] = new JsonObject { ["x"] = 80, ["y"] = 60, ["zoom"] = 0.9 },
+                ["rules"] = Strings(
+                    "Можно экспортировать/импортировать частичный layout: отсутствующие позиции остаются прежними.",
+                    "Для читаемой карты располагайте корень слева, развитие вправо, а тематические ветви держите в собственных вертикальных коридорах.",
+                    "При слиянии ветвей старайтесь сводить линии правее последних задач ветки, чтобы уменьшать пересечения."
+                )
+            },
+            ["recipes"] = new JsonObject
+            {
+                ["createOneTask"] = new JsonObject
+                {
+                    ["tasks"] = new JsonArray(new JsonObject
+                    {
+                        ["key"] = "hello",
+                        ["type"] = "code-test",
+                        ["title"] = "Hello",
+                        ["description"] = "Выведите Hello.",
+                        ["language"] = "cpp",
+                        ["allowedLanguages"] = new JsonArray("cpp"),
+                        ["starterCode"] = "#include <iostream>\nusing namespace std;\nint main(){ return 0; }",
+                        ["testCases"] = new JsonArray(new JsonObject { ["input"] = "", ["expectedOutput"] = "Hello", ["isHidden"] = false }),
+                        ["codeRequiredCalls"] = new JsonArray("cout"),
+                        ["codeForbiddenCalls"] = new JsonArray(),
+                        ["isVisible"] = true
+                    }),
+                    ["connections"] = new JsonArray(new JsonObject { ["from"] = CourseReference, ["to"] = "hello" })
+                },
+                ["branchAndFinal"] = new JsonObject
+                {
+                    ["connections"] = new JsonArray(
+                        new JsonObject { ["from"] = "topic", ["to"] = "left" },
+                        new JsonObject { ["from"] = "topic", ["to"] = "right" },
+                        new JsonObject { ["from"] = "left", ["to"] = "final" },
+                        new JsonObject { ["from"] = "right", ["to"] = "final" }
+                    ),
+                    ["explanation"] = "final имеет два входа; карта может использовать это как общий финал после ветвей."
+                },
+                ["newSubcourse"] = new JsonObject
+                {
+                    ["courses"] = new JsonArray(new JsonObject { ["key"] = "course-functions", ["title"] = "Функции" }),
+                    ["taskCourse"] = "У задач нового подкурса ставьте course: course-functions.",
+                    ["connection"] = new JsonObject { ["from"] = CourseReference, ["to"] = "course-functions" }
+                }
+            },
+            ["aiChecklist"] = Strings(
+                "Верни только валидный JSON, если пользователь явно не просит пояснение отдельно.",
+                "Сохраняй существующие id и key при редактировании уже существующих сущностей.",
+                "Для нового курса можно указать свободный UUID или не указывать id.",
+                "Для нового задания можно указать свободный UUID или не указывать id.",
+                "Не меняй course у существующего задания: импорт не используется как механизм переноса существующих заданий между курсами.",
+                "Не удаляй старые задачи/связи молча, если пользователь просит только расширить курс.",
+                "При больших учебных графах предпочитай дерево/ветви, а не одну длинную змейку.",
+                "Финальные тесты логично располагать после слияния концов тематических ветвей.",
+                "Учебные codeRequiredCalls/codeForbiddenCalls должны проверять смысл задания, а не повторять системную sandbox-защиту."
+            )
+        };
     }
 
     private static Dictionary<Guid, string> BuildCourseKeys(IReadOnlyList<CourseTreeCourseDto> courses, HashSet<string> used)

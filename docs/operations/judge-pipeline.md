@@ -34,6 +34,12 @@ Operational non-scoring verdicts include:
 
 Regular code tasks support six languages through the same runner contract: C#, C++, Java, JavaScript, Pascal and Python. Each runner must expose both `/run/tests` and `/run-tests` aliases; `execution-worker` uses `/run-tests`.
 
+## Transient runner failures
+
+The worker retries a runner request only when the failure is operational and retryable: connection/request failure, HTTP 408/429/5xx, or an explicit `judge_unavailable`/infrastructure result. The retry count is bounded by `Judge:RunnerAttempts` (`JUDGE_RUNNER_ATTEMPTS`, default `3`). Wrong answers, compile errors, policy failures, and student runtime errors are never retried as infrastructure.
+
+A partial batch must not become `Rejected` when one testcase failed because the runner parent could not start the sandboxed child. Resource failures such as `EMFILE`/`ENFILE` (`Too many open files`) are `JudgeUnavailable` with score `0`. This rule is intentionally recognized by both the C# runner and the worker so rolling deployments remain safe when one side is still on the previous image.
+
 ## Queue safety
 
 `execution-api` claims jobs with an atomic status update. Running jobs older than `ExecutionQueue:RunningTimeoutMinutes` can be requeued while `AttemptCount` is below `ExecutionQueue:MaxAttempts`.

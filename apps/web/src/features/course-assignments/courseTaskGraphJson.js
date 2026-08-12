@@ -11,7 +11,7 @@ const TASK_FIELDS = new Set([
   'codeForbiddenCalls', 'codeRequiredCalls', 'isVisible', 'imageTestReferenceKey',
   'imageTestSimilarityThreshold',
 ]);
-const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'courses', 'tasks', 'connections', 'layout']);
+const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'connections', 'layout']);
 const COURSE_FIELDS = new Set(['key', 'id', 'title']);
 const CONNECTION_FIELDS = new Set(['from', 'to', 'access']);
 const ACCESS_FIELDS = new Set(['hidden', 'sequential']);
@@ -492,7 +492,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'schemaVersion', text: `Актуальная версия — ${TASK_GRAPH_SCHEMA_VERSION}. Импорт версии ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} поддерживается для совместимости.` },
       { field: 'format', text: `Всегда "${TASK_GRAPH_FORMAT}".` },
       { field: 'scopes', text: 'Показывает, какие разделы реально присутствуют в файле: ids, content, checks, visibility, connections, connectionAccess, layout.' },
-      { field: 'courses', text: 'Ссылки на существующие вложенные курсы, которые участвуют в полной карте. Они нужны для связей и расположения, но JSON не создаёт и не переименовывает эти курсы.' },
+      { field: 'courses', text: 'Вложенные course-ноды. Существующий id привязывает существующий курс; свободный UUID создаёт новый курс с этим id; без id TaskForge создаёт курс и генерирует UUID.' },
       { field: 'tasks', text: 'Задания текущего курса и его подкурсов. Поле course показывает, в каком курсе лежит задание. Порядок массива не задаёт порядок прохождения.' },
       { field: 'connections', text: 'Направленные связи между заданиями и course-нодами. Они задают цепочки, развилки, слияния и эффекты стрелок.' },
       { field: 'layout', text: 'Отдельный раздел координат и viewport. Он не смешивается с содержимым заданий.' },
@@ -516,9 +516,9 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     title: 'Создание и обновление',
     items: [
       { field: 'key', text: 'Уникальный ключ элемента внутри JSON. По нему connections и layout ссылаются на задания и вложенные курсы.' },
-      { field: 'id', text: 'Если id найден в текущем поддереве, импорт обновляет существующее задание. Если UUID нигде не занят, создаётся новое задание именно с этим id. Чужой/занятый id из другого поддерева отклоняется.' },
+      { field: 'id', text: 'Для заданий и вложенных курсов действует одинаковая идея: существующий id в текущем поддереве привязывает сущность; свободный UUID создаёт новую сущность с этим UUID; без id UUID генерирует TaskForge; чужой занятый UUID отклоняется.' },
       { field: 'course', text: `Для задания: ${TASK_GRAPH_COURSE_REF} или key вложенного курса из courses. Существующее задание JSON не переносит между курсами.` },
-      { field: 'без id', text: 'Тоже создаётся новое задание, но TaskForge сам сгенерирует UUID. Для создания JSON должен содержать достаточные поля выбранного типа.' },
+      { field: 'без id', text: 'Новая задача или новый вложенный курс могут быть без id — TaskForge сам сгенерирует UUID. Для нового курса обязателен title; для новой задачи нужны полноценные поля её типа.' },
       { field: TASK_GRAPH_COURSE_REF, text: 'Ссылка на открытую ноду курса. Может быть источником connection и ключом позиции в layout.positions.' },
     ],
   },
@@ -594,7 +594,7 @@ export const TASK_GRAPH_AI_PROMPT = `Ты работаешь с JSON-графо�
 - schemaVersion: ${TASK_GRAPH_SCHEMA_VERSION}
 - format: "${TASK_GRAPH_FORMAT}"
 - scopes: какие разделы действительно присутствуют
-- courses: существующие вложенные course-ноды, если они есть на карте
+- courses: вложенные course-ноды: существующие и новые
 - tasks: задания текущего курса и подкурсов
 - connections: направленные связи
 - layout: позиции и viewport, только если они нужны
@@ -610,9 +610,9 @@ Scopes:
 
 Правила:
 1. key обязателен и уникален среди courses/tasks. Он используется в connections и layout.positions.
-2. courses содержит только ссылки на уже существующие вложенные курсы: key, id, title. Не придумывай новые course id.
-3. У каждого задания поле course — "${TASK_GRAPH_COURSE_REF}" или key вложенного курса.
-4. id существующего задания сохраняй для обновления. Для новой задачи можно либо не указывать id (TaskForge создаст UUID), либо указать заранее сгенерированный свободный UUID — тогда новое задание будет создано именно с ним.
+2. courses содержит вложенные курсы: для существующего сохраняй реальный id; для нового можно указать свободный UUID или не указывать id. Без id TaskForge создаст UUID сам.
+3. У каждого задания поле course — "${TASK_GRAPH_COURSE_REF}" или key вложенного курса. Новый вложенный курс создаётся непосредственным дочерним курсом импортируемого корня.
+4. id существующей задачи/курса сохраняй. Для новой задачи или нового курса можно не указывать id либо указать свободный UUID для детерминированного создания.
 5. Наличие id само по себе не означает, что TaskForge перезапишет всё: пользователь отдельно выбирает, какие категории разрешено импортировать.
 6. Текущий курс обозначается "${TASK_GRAPH_COURSE_REF}".
 7. Порядок прохождения задаётся connections. Не используй sort.
@@ -1038,9 +1038,10 @@ export function validateTaskGraphPayload(parsed) {
       courseKeySet.add(key);
     }
     const id = cleanId(course.id);
-    if (!id || !isGuid(id)) issues.push({ path: `${path}.id`, message: 'id должен быть GUID существующего вложенного курса.' });
-    else if (courseIdSet.has(id)) issues.push({ path: `${path}.id`, message: 'Один вложенный курс нельзя объявлять дважды.' });
-    else courseIdSet.add(id);
+    if (id && !isGuid(id)) issues.push({ path: `${path}.id`, message: 'Если id указан, он должен быть корректным GUID.' });
+    else if (id && courseIdSet.has(id)) issues.push({ path: `${path}.id`, message: 'Один id вложенного курса нельзя объявлять дважды.' });
+    else if (id) courseIdSet.add(id);
+    if (!id && !String(course.title || '').trim()) issues.push({ path: `${path}.title`, message: 'Для нового курса без id укажите title.' });
   });
 
   const keySet = new Set();
@@ -1341,9 +1342,18 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
         .map(([, row]) => connectionRow(row.connection, row.index, currentTitle, 'remove'));
 
 
+  const currentCourseIds = new Set((current.courses || []).map((course) => cleanId(course?.id)).filter(Boolean));
+  const courseCreateCount = (incoming.courses || []).filter((course) => {
+    const id = cleanId(course?.id);
+    return !id || !currentCourseIds.has(id);
+  }).length;
+  const courseExistingCount = Math.max(0, (incoming.courses || []).length - courseCreateCount);
+
   return {
     total: rows.length,
     courseCount: Array.isArray(incoming.courses) ? incoming.courses.length : 0,
+    courseCreateCount,
+    courseExistingCount,
     createCount: rows.filter((row) => row.action === 'create').length,
     updateCount: rows.filter((row) => row.action === 'update').length,
     unchangedCount: rows.filter((row) => row.action === 'unchanged').length,

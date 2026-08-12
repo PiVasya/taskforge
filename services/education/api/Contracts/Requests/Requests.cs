@@ -9,6 +9,10 @@ namespace TaskForge.Education.Api.Contracts;
 
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 
+public sealed record CourseGraphImportItemRequest(string Key, Guid? Id, string? Title);
+
+public sealed record CourseGraphImportEnsureRequest(Guid RootCourseId, Guid? OwnerId, CourseGraphImportItemRequest[]? Courses);
+
 public sealed record CourseAccessBatchRequest(Guid UserId, Guid[]? CourseIds, bool BypassStudentVisibility = false, bool IncludeProgressionRules = true);
 
 public sealed record CourseGroupsRequest(Guid[]? GroupIds);

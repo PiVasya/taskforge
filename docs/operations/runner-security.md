@@ -19,7 +19,7 @@ Default limits:
 
 ```env
 RUNNER_MEM_LIMIT=512m
-CSHARP_RUNNER_MEM_LIMIT=768m
+CSHARP_RUNNER_MEM_LIMIT=1024m
 RUNNER_PIDS_LIMIT=128
 RUNNER_TMPFS_SIZE=256m
 ```
@@ -33,6 +33,10 @@ Do not pass database, Redis, object-storage, signing, API, or service-to-service
 ## C# defense layers
 
 C# submissions are checked twice around compilation. `RoslynSecurityPolicy` validates the syntax and resolved framework symbols before emit, while `ManagedPeSecurityPolicy` validates the generated managed PE before execution. These layers intentionally check different things: the Roslyn layer owns the user-facing framework API denylist, while the PE layer is a structural backstop for native/imported methods, raw standard handles, and forbidden interop or early-execution attributes. Do not reapply the framework namespace/type denylist to every emitted `TypeRef`/`MemberRef`: Roslyn legitimately synthesizes framework references for normal language features such as async/iterator state machines, records, large array initializers, and debugger metadata. Explicit student references to blocked APIs remain rejected by semantic symbol analysis before emit.
+
+The C# runner keeps Roslyn in the long-lived parent process. Trusted-platform `MetadataReference` objects are created once and reused across submissions; rebuilding the full reference set for every compile can leave mapped metadata/file handles waiting for GC and exhaust the parent under burst traffic. The parent container therefore has a 1 GiB default memory limit and a 4096 `nofile` limit. This does **not** loosen the student sandbox: every spawned submission process still receives `TASKFORGE_LIMIT_NOFILE=128` through the managed sandbox preload and its own memory/CPU limits.
+
+The execution worker retries only transient runner failures (connection/5xx/rate-limit/infrastructure statuses). A runner-side resource failure such as `EMFILE`/`Too many open files` must be surfaced as `JudgeUnavailable`, never converted into a partial `Rejected` score. Configure the bounded retry count with `JUDGE_RUNNER_ATTEMPTS` (default `3`).
 
 The CI regression project at `tools/csharp-runner-policy-check` compiles safe language features such as top-level statements, anonymous types, async code, iterators, records, and compiler-optimized array initialization. It also verifies that process, filesystem, environment-exit, `System.Type`, `RuntimeHelpers`, raw standard handles, explicit debugger attributes, and P/Invoke access stay rejected. Keep this check in the OJ security invariant jobs.
 

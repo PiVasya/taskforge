@@ -39,6 +39,19 @@ public sealed class CourseTreeCourseDto
     public int Sort { get; set; }
 }
 
+public sealed class CourseGraphImportEnsureResponse
+{
+    public List<CourseGraphImportItemDto> Courses { get; set; } = new();
+}
+
+public sealed class CourseGraphImportItemDto
+{
+    public string Key { get; set; } = string.Empty;
+    public Guid Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public bool Created { get; set; }
+}
+
 public sealed class CourseMapInternalResponse
 {
     public Guid RootCourseId { get; set; }

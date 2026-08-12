@@ -61,6 +61,13 @@ def positive_number(key):
         if float(value)<=0: raise ValueError
     except ValueError: errors.append(f'{key} must be a positive number')
 
+def memory_bytes(value):
+    match=re.fullmatch(r'(?i)\s*(\d+(?:\.\d+)?)\s*([kmgt]i?b?|b)?\s*', value or '')
+    if not match: return None
+    number=float(match.group(1)); unit=(match.group(2) or 'b').lower()
+    factors={'b':1,'k':1024,'kb':1024,'kib':1024,'m':1024**2,'mb':1024**2,'mib':1024**2,'g':1024**3,'gb':1024**3,'gib':1024**3,'t':1024**4,'tb':1024**4,'tib':1024**4}
+    return int(number*factors[unit])
+
 for key in ('IMAGE_REPOSITORY','IMAGE_TAG','DOMAIN','CT_DOMAIN','LETSENCRYPT_EMAIL',
             'S3_PUBLIC_ENDPOINT','BOOTSTRAP_ADMIN_EMAILS','BROWSER_MAIN_ORIGIN',
             'BROWSER_CT_ORIGIN','BROWSER_MEM_LIMIT','BROWSER_SHM_SIZE','BROWSER_TMPFS_SIZE'):
@@ -97,6 +104,12 @@ for key in ('MINECRAFT_DEATH_COORDINATES_COST','MINECRAFT_DEATH_CHEST_COST',
     positive_int(key)
 for key in ('RUNNER_CPUS','CODE_ANALYZER_CPUS','BROWSER_CPUS'):
     positive_number(key)
+
+csharp_memory=memory_bytes(required('CSHARP_RUNNER_MEM_LIMIT'))
+if csharp_memory is None:
+    errors.append('CSHARP_RUNNER_MEM_LIMIT must be a memory value such as 1024m or 1g')
+elif csharp_memory < 1024**3:
+    errors.append('CSHARP_RUNNER_MEM_LIMIT must be at least 1024m for the long-lived Roslyn parent')
 
 if env.get('ASPNETCORE_ENVIRONMENT')!='Production': errors.append('ASPNETCORE_ENVIRONMENT must be Production')
 if env.get('ENSURE_CREATED')!='false': errors.append('ENSURE_CREATED must be false')

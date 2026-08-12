@@ -71,6 +71,28 @@ if schema not in csharp_verifier or policy_version not in csharp_verifier:
 if 'Verify("csharp", "standard"' not in (root / 'services/execution/runners/csharp-runner/Controllers/RunController.cs').read_text():
     die('C# endpoints do not enforce attestation')
 
+csharp_compiler = (root / 'services/execution/runners/csharp-runner/Services/RoslynCompilationService.cs').read_text()
+if '_frameworkReferences = CreateFrameworkReferences()' not in csharp_compiler or 'concurrentBuild: false' not in csharp_compiler:
+    die('C# compiler resource reuse/serialization drift')
+if 'CompilationFailureKind.InfrastructureError' not in csharp_compiler or 'catch (OutOfMemoryException' not in csharp_compiler:
+    die('C# compiler parent resource failures can be misclassified as CompileError')
+compile_body = csharp_compiler.split('public RoslynCompilationResult Compile', 1)[-1].split('private static MetadataReference[] CreateFrameworkReferences', 1)[0]
+if 'MetadataReference.CreateFromFile' in compile_body:
+    die('C# compiler recreates framework metadata references per submission')
+
+csharp_execution = (root / 'services/execution/runners/csharp-runner/Services/ExecutionService.cs').read_text()
+if 'TASKFORGE_LIMIT_NOFILE"] = "128"' not in csharp_execution:
+    die('C# student child nofile limit drift')
+if 'judge_unavailable' not in csharp_execution or 'Too many open files' not in csharp_execution:
+    die('C# runner no longer distinguishes parent infrastructure exhaustion')
+
+worker_source = (root / 'services/execution/worker/Worker.cs').read_text()
+worker_sanitization = (root / 'services/execution/worker/Worker.Sanitization.cs').read_text()
+if 'Judge:RunnerAttempts' not in worker_source or 'IsJudgeUnavailableResult' not in worker_source:
+    die('execution worker lost bounded runner recovery')
+if 'Too many open files' not in worker_sanitization or 'EMFILE' not in worker_sanitization:
+    die('execution worker lost backward-compatible infrastructure classification')
+
 python_a = root / 'services/execution/runners/python-runner/security/python_policy.py'
 python_b = root / 'services/execution/runners/image-python-runner/security/python_policy.py'
 if python_a.read_bytes() != python_b.read_bytes():
@@ -164,6 +186,13 @@ for environment in ('dev', 'prod'):
             die(f'{environment}: {runner} capabilities are not fully dropped')
         if 'no-new-privileges:true' not in (service.get('security_opt') or []):
             die(f'{environment}: {runner} no-new-privileges is missing')
+
+    csharp = services['csharp-runner']
+    csharp_nofile = (csharp.get('ulimits') or {}).get('nofile') or {}
+    if int(csharp_nofile.get('soft', 0)) < 4096 or int(csharp_nofile.get('hard', 0)) < 4096:
+        die(f'{environment}: C# parent nofile must be at least 4096')
+    if 'CSHARP_RUNNER_MEM_LIMIT:-1024m' not in str(csharp.get('mem_limit')):
+        die(f'{environment}: C# parent default memory must be 1024m')
 
     analyzer = services.get('code-analyzer')
     if not analyzer:

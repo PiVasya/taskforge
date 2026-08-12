@@ -150,6 +150,10 @@ def main() -> int:
 
     execution_worker_contracts_path = ROOT / "services" / "execution" / "worker" / "Worker.Contracts.cs"
     execution_worker_policy_path = ROOT / "services" / "execution" / "worker" / "Worker.Policy.cs"
+    execution_worker_path = ROOT / "services" / "execution" / "worker" / "Worker.cs"
+    execution_worker_sanitization_path = ROOT / "services" / "execution" / "worker" / "Worker.Sanitization.cs"
+    csharp_compiler_path = ROOT / "services" / "execution" / "runners" / "csharp-runner" / "Services" / "RoslynCompilationService.cs"
+    csharp_execution_path = ROOT / "services" / "execution" / "runners" / "csharp-runner" / "Services" / "ExecutionService.cs"
     if execution_worker_contracts_path.exists():
         worker_contracts = execution_worker_contracts_path.read_text(encoding="utf-8")
         if 'string.IsNullOrWhiteSpace(Stderr)' not in worker_contracts or 'Код не соответствует правилам задания.' not in worker_contracts:
@@ -158,6 +162,36 @@ def main() -> int:
         worker_policy = execution_worker_policy_path.read_text(encoding="utf-8")
         if 'Код не соответствует правилам задания:' not in worker_policy:
             errors.append("execution worker task-policy message lost its explicit assignment-rule wording")
+
+    if execution_worker_path.exists():
+        worker_source = execution_worker_path.read_text(encoding="utf-8")
+        for marker in ("Judge:RunnerAttempts", "IsJudgeUnavailableRoot", "IsJudgeUnavailableResult", "IsTransientRunnerStatus"):
+            if marker not in worker_source:
+                errors.append(f"execution worker runner-recovery marker missing: {marker}")
+
+    if execution_worker_sanitization_path.exists():
+        worker_sanitization = execution_worker_sanitization_path.read_text(encoding="utf-8")
+        for marker in ("Too many open files", "EMFILE", "ENFILE", "judge_unavailable"):
+            if marker not in worker_sanitization:
+                errors.append(f"execution worker infrastructure-failure classifier missing: {marker}")
+
+    if csharp_compiler_path.exists():
+        compiler_source = csharp_compiler_path.read_text(encoding="utf-8")
+        if "_frameworkReferences = CreateFrameworkReferences()" not in compiler_source:
+            errors.append("C# runner must cache trusted-platform metadata references across submissions")
+        if "concurrentBuild: false" not in compiler_source:
+            errors.append("C# runner Roslyn compilation must stay serial to match RunnerJobGate and bound peak memory")
+        if "CompilationFailureKind.InfrastructureError" not in compiler_source or "catch (OutOfMemoryException" not in compiler_source:
+            errors.append("C# Roslyn parent resource failures must not be reported as student CompileError")
+        compile_method = compiler_source.split("public RoslynCompilationResult Compile", 1)[-1].split("private static MetadataReference[] CreateFrameworkReferences", 1)[0]
+        if "MetadataReference.CreateFromFile" in compile_method:
+            errors.append("C# runner must not rebuild trusted-platform MetadataReference objects inside every Compile call")
+
+    if csharp_execution_path.exists():
+        execution_source = csharp_execution_path.read_text(encoding="utf-8")
+        for marker in ('TASKFORGE_LIMIT_NOFILE"] = "128"', '"judge_unavailable"', "IsRunnerInfrastructureFailure"):
+            if marker not in execution_source:
+                errors.append(f"C# runner child isolation/infrastructure marker missing: {marker}")
 
     if math_service_path.exists():
         math_service = math_service_path.read_text(encoding="utf-8")
@@ -221,6 +255,23 @@ def main() -> int:
             ):
                 if marker not in env_text:
                     errors.append(f"{environment} .env.example missing AI resource policy knob: {marker}")
+
+    for environment in ("dev", "prod"):
+        execution_compose = ROOT / "deploy" / environment / "compose" / "30-execution.yaml"
+        env_example = ROOT / "deploy" / environment / ".env.example"
+        if execution_compose.exists():
+            compose_text = execution_compose.read_text(encoding="utf-8")
+            if "Judge__RunnerAttempts: ${JUDGE_RUNNER_ATTEMPTS:-3}" not in compose_text:
+                errors.append(f"{environment} execution worker must expose bounded runner retries")
+            csharp_block = compose_text.split("  csharp-runner:", 1)[-1].split("\n  cpp-runner:", 1)[0]
+            for marker in ("soft: 4096", "hard: 4096", "${CSHARP_RUNNER_MEM_LIMIT:-1024m}"):
+                if marker not in csharp_block:
+                    errors.append(f"{environment} C# runner resource headroom marker missing: {marker}")
+        if env_example.exists():
+            env_text = env_example.read_text(encoding="utf-8")
+            for marker in ("CSHARP_RUNNER_MEM_LIMIT=1024m", "JUDGE_RUNNER_ATTEMPTS=3"):
+                if marker not in env_text:
+                    errors.append(f"{environment} .env.example C# runner stability knob missing: {marker}")
 
     if errors:
         print("C# source invariants failed:\n" + "\n".join(errors), file=sys.stderr)

@@ -121,6 +121,90 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
+        app.MapPost("/api/internal/courses/import-ensure", async (CourseGraphImportEnsureRequest request, EducationDbContext db, CancellationToken ct) =>
+        {
+            if (request.RootCourseId == Guid.Empty)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Не указан корневой курс.", code = "COURSE_IMPORT_ROOT_REQUIRED" });
+
+            var root = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.RootCourseId, ct);
+            if (root == null)
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Корневой курс не найден.", code = "COURSE_IMPORT_ROOT_NOT_FOUND" });
+
+            var items = (request.Courses ?? Array.Empty<CourseGraphImportItemRequest>())
+                .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+                .Take(1000)
+                .ToArray();
+            if (items.Length == 0)
+                return Microsoft.AspNetCore.Http.Results.Ok(new CourseGraphImportEnsureResponse(new List<CourseGraphImportItemResponse>()));
+
+            if (items.Select(x => x.Key.Trim()).Distinct(StringComparer.Ordinal).Count() != items.Length)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Ключи вложенных курсов должны быть уникальны.", code = "COURSE_IMPORT_DUPLICATE_KEY" });
+
+            var requestedIds = items.Where(x => x.Id.HasValue && x.Id.Value != Guid.Empty).Select(x => x.Id!.Value).ToArray();
+            if (requestedIds.Distinct().Count() != requestedIds.Length)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "UUID вложенных курсов должны быть уникальны.", code = "COURSE_IMPORT_DUPLICATE_ID" });
+            if (requestedIds.Contains(request.RootCourseId))
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Нельзя объявить текущий корневой курс как вложенный.", code = "COURSE_IMPORT_ROOT_AS_CHILD" });
+
+            var subtreeRows = await LoadCourseSubtreeRowsAsync(request.RootCourseId, db, ct);
+            var subtreeIds = subtreeRows.Select(x => x.Id).ToHashSet();
+            var existingRequested = requestedIds.Length == 0
+                ? new List<Course>()
+                : await db.Courses.Where(x => requestedIds.Contains(x.Id)).ToListAsync(ct);
+            var foreign = existingRequested.Where(x => !subtreeIds.Contains(x.Id)).Select(x => x.Id).ToArray();
+            if (foreign.Length > 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Conflict(new
+                {
+                    message = "Один из UUID принадлежит курсу вне импортируемого поддерева.",
+                    code = "COURSE_IMPORT_FOREIGN_ID",
+                    courseIds = foreign
+                });
+            }
+
+            var existingById = existingRequested.ToDictionary(x => x.Id);
+            var maxSort = await db.Courses.Where(x => x.ParentCourseId == request.RootCourseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
+            var created = new List<Course>();
+            var response = new List<CourseGraphImportItemResponse>();
+
+            foreach (var item in items)
+            {
+                var key = item.Key.Trim();
+                var desiredId = item.Id.HasValue && item.Id.Value != Guid.Empty ? item.Id.Value : Guid.NewGuid();
+                if (existingById.TryGetValue(desiredId, out var existing))
+                {
+                    response.Add(new CourseGraphImportItemResponse(key, existing.Id, existing.Title, false));
+                    continue;
+                }
+
+                var title = string.IsNullOrWhiteSpace(item.Title) ? "Новый вложенный курс" : item.Title.Trim();
+                var course = new Course
+                {
+                    Id = desiredId,
+                    Title = title,
+                    Description = null,
+                    IsPublic = false,
+                    IsHiddenFromStudents = false,
+                    ParentCourseId = request.RootCourseId,
+                    Sort = ++maxSort,
+                    OwnerIdsJson = Serialize(request.OwnerId.HasValue && request.OwnerId.Value != Guid.Empty ? new[] { request.OwnerId.Value } : Array.Empty<Guid>()),
+                    VisibleGroupIdsJson = "[]"
+                };
+                NormalizeCourseAudience(course);
+                created.Add(course);
+                existingById[course.Id] = course;
+                response.Add(new CourseGraphImportItemResponse(key, course.Id, course.Title, true));
+            }
+
+            if (created.Count > 0)
+            {
+                db.Courses.AddRange(created);
+                await db.SaveChangesAsync(ct);
+            }
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new CourseGraphImportEnsureResponse(response));
+        });
+
         app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
             var courses = await LoadCourseSubtreeRowsAsync(courseId, db, ct);

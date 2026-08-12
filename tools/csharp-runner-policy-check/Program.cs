@@ -10,6 +10,12 @@ ExpectAccepted(
     """);
 
 ExpectAccepted(
+    "implicit-system-using",
+    """
+    Console.WriteLine("Hello");
+    """);
+
+ExpectAccepted(
     "anonymous-type",
     """
     using System;
@@ -173,6 +179,8 @@ ExpectCompileError(
     Console.WriteLine(
     """);
 
+ExpectStableCompilerResources();
+
 Console.WriteLine("[csharp-runner-policy] regression cases ok");
 return;
 
@@ -207,3 +215,33 @@ void ExpectCompileError(string name, string code)
         throw new InvalidOperationException($"expected compile error for '{name}', got {result.FailureKind}: {result.Error}");
     }
 }
+void ExpectStableCompilerResources()
+{
+    if (!OperatingSystem.IsLinux() || !Directory.Exists("/proc/self/fd"))
+    {
+        return;
+    }
+
+    var before = Directory.GetFiles("/proc/self/fd").Length;
+    for (var i = 0; i < 64; i++)
+    {
+        var result = compiler.Compile(
+            "using System; Console.WriteLine(42);");
+        if (!result.Ok)
+        {
+            throw new InvalidOperationException(
+                $"resource-stability compile {i} failed with {result.FailureKind}: {result.Error}");
+        }
+    }
+
+    var after = Directory.GetFiles("/proc/self/fd").Length;
+    var growth = after - before;
+    if (growth > 32)
+    {
+        throw new InvalidOperationException(
+            $"C# compiler leaked too many parent file descriptors across repeated compiles: before={before}, after={after}, growth={growth}");
+    }
+
+    Console.WriteLine($"[csharp-runner-policy] resource stability ok: fd growth {growth}");
+}
+

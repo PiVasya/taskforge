@@ -72,6 +72,7 @@ const FULL_JSON_EXPORT_OPTIONS = Object.freeze({
   includeConnections: true,
   includeConnectionAccess: true,
   includeLayout: true,
+  includeGuide: true,
 });
 
 const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
@@ -812,13 +813,14 @@ export default function CourseAssignmentsPage() {
     setJsonImportBusy(true);
     try {
       const res = await importAssignmentsFromJson(courseId, parsed, jsonImportOptions);
-      await reloadAssignments(true);
+      await Promise.all([reloadAssignments(), reloadCourseData()]);
       setJsonImportDiffOpen(false);
       setJsonImportDiff(null);
       setJsonImportParsed(null);
       setJsonImportDialogOpen(false);
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
+      const createdCourses = res?.createdCourseCount ?? 0;
       const taskGraph = res?.taskGraph || res?.graph;
       const taskMappings = Array.isArray(res?.taskMappings) ? res.taskMappings : [];
       const hasGraph = Boolean(Array.isArray(taskGraph?.tasks) && Array.isArray(taskGraph?.connections));
@@ -832,9 +834,9 @@ export default function CourseAssignmentsPage() {
           taskGraph,
           taskMappings,
         });
-        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}. Карта обновляется.`);
+        notify.success(`Импорт завершён: создано заданий ${created}, курсов ${createdCourses}, обновлено ${updated}. Карта обновляется.`);
       } else {
-        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}`);
+        notify.success(`Импорт завершён: создано заданий ${created}, курсов ${createdCourses}, обновлено ${updated}`);
       }
     } catch (e) {
       handleApiError(e, notify, "Не удалось импортировать JSON");

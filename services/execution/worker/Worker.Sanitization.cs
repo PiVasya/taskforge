@@ -132,6 +132,77 @@ public sealed partial class Worker
         return false;
     }
 
+    private static bool IsJudgeUnavailableResult(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return false;
+
+        if (item.TryGetProperty("status", out var status)
+            && IsJudgeUnavailableStatus(status.ToString()))
+        {
+            return true;
+        }
+
+        return ContainsRunnerInfrastructureDiagnostic(item);
+    }
+
+    private static bool IsJudgeUnavailableRoot(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+
+        if (root.TryGetProperty("status", out var status)
+            && IsJudgeUnavailableStatus(status.ToString()))
+        {
+            return true;
+        }
+
+        return ContainsRunnerInfrastructureDiagnostic(root);
+    }
+
+    private static bool IsJudgeUnavailableStatus(string? value)
+        => string.Equals(value, "judge_unavailable", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "runner_unavailable", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "infrastructure_error", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsRunnerInfrastructureDiagnostic(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return IsRunnerInfrastructureDiagnostic(value.GetString());
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in value.EnumerateObject())
+            {
+                if (property.NameEquals("actualOutput")
+                    || property.NameEquals("stderr")
+                    || property.NameEquals("error")
+                    || property.NameEquals("message")
+                    || property.NameEquals("detail")
+                    || property.NameEquals("errorMessage"))
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String
+                        && IsRunnerInfrastructureDiagnostic(property.Value.GetString()))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsRunnerInfrastructureDiagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        return value.Contains("Too many open files", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("error=24", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("EMFILE", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("ENFILE", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsPolicyErrorResult(JsonElement item)
     {
         if (item.ValueKind != JsonValueKind.Object) return false;

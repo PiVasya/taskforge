@@ -198,38 +198,104 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         var payload = new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb, attestation);
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
+        var attempts = System.Math.Clamp(configuration.GetValue("Judge:RunnerAttempts", 3), 1, 5);
 
-        try
+        for (var attempt = 1; attempt <= attempts; attempt++)
         {
-            logger.LogInformation("Dispatching execution job {JobId} to {Language} runner at {RunnerUrl} with {TestCount} tests.", job.Id, language, baseUrl, tests.Length);
-            using var response = await client.PostAsJsonAsync($"{baseUrl}/run-tests", payload, JsonOptions, ct);
-            var text = await response.Content.ReadAsStringAsync(ct);
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                var safeText = SanitizeRunnerText(text);
-                logger.LogWarning("Runner for job {JobId} returned status {StatusCode}: {Body}", job.Id, (int)response.StatusCode, Truncate(safeText, 500));
-                return RunnerResult.Error("JudgeUnavailable", $"Runner returned {(int)response.StatusCode}.", CloneJson(safeText));
-            }
+                logger.LogInformation(
+                    "Dispatching execution job {JobId} to {Language} runner at {RunnerUrl} with {TestCount} tests (attempt {Attempt}/{Attempts}).",
+                    job.Id, language, baseUrl, tests.Length, attempt, attempts);
 
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
-            var root = SanitizeRunnerPayload(doc.RootElement.Clone());
-            var results = ExtractResults(root);
-            var total = results.HasValue && results.Value.ValueKind == JsonValueKind.Array ? results.Value.GetArrayLength() : 0;
-            var passed = results.HasValue && results.Value.ValueKind == JsonValueKind.Array ? results.Value.EnumerateArray().Count(IsPassedResult) : 0;
-            var allPassed = total > 0 && passed == total;
-            var policyError = IsPolicyErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsPolicyErrorResult));
-            var compileError = !policyError && (IsCompileErrorRoot(root) || (results.HasValue && results.Value.ValueKind == JsonValueKind.Array && results.Value.EnumerateArray().Any(IsCompileErrorResult)));
-            var verdict = allPassed ? "Accepted" : policyError ? "PolicyFailed" : compileError ? "CompileError" : "Rejected";
-            var score = total <= 0 ? 0 : (int)System.Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
-            var policyMessage = policyError ? "Решение отклонено системой безопасности." : null;
-            return new RunnerResult(verdict, score, allPassed, root, results, null, policyMessage, null, compileError);
+                using var response = await client.PostAsJsonAsync($"{baseUrl}/run-tests", payload, JsonOptions, ct);
+                var text = await response.Content.ReadAsStringAsync(ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var safeText = SanitizeRunnerText(text);
+                    logger.LogWarning(
+                        "Runner for job {JobId} returned status {StatusCode} on attempt {Attempt}/{Attempts}: {Body}",
+                        job.Id, (int)response.StatusCode, attempt, attempts, Truncate(safeText, 500));
+
+                    if (attempt < attempts && IsTransientRunnerStatus(response.StatusCode))
+                    {
+                        await DelayRunnerRetryAsync(attempt, ct);
+                        continue;
+                    }
+
+                    return RunnerResult.Error("JudgeUnavailable", $"Runner returned {(int)response.StatusCode}.", CloneJson(safeText));
+                }
+
+                using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+                var root = SanitizeRunnerPayload(doc.RootElement.Clone());
+                var results = ExtractResults(root);
+                var hasResults = results.HasValue && results.Value.ValueKind == JsonValueKind.Array;
+                var total = hasResults ? results!.Value.GetArrayLength() : 0;
+                var passed = hasResults ? results!.Value.EnumerateArray().Count(IsPassedResult) : 0;
+                var allPassed = total > 0 && passed == total;
+                var judgeUnavailable = IsJudgeUnavailableRoot(root)
+                    || (hasResults && results!.Value.EnumerateArray().Any(IsJudgeUnavailableResult));
+
+                if (judgeUnavailable)
+                {
+                    logger.LogWarning(
+                        "Runner for job {JobId} reported an infrastructure failure on attempt {Attempt}/{Attempts}; the submission will not be classified as Rejected.",
+                        job.Id, attempt, attempts);
+
+                    if (attempt < attempts)
+                    {
+                        await DelayRunnerRetryAsync(attempt, ct);
+                        continue;
+                    }
+
+                    return RunnerResult.Error("JudgeUnavailable", "Runner temporarily unavailable.", root);
+                }
+
+                var policyError = IsPolicyErrorRoot(root)
+                    || (hasResults && results!.Value.EnumerateArray().Any(IsPolicyErrorResult));
+                var compileError = !policyError && (IsCompileErrorRoot(root)
+                    || (hasResults && results!.Value.EnumerateArray().Any(IsCompileErrorResult)));
+                var verdict = allPassed ? "Accepted" : policyError ? "PolicyFailed" : compileError ? "CompileError" : "Rejected";
+                var score = total <= 0 ? 0 : (int)System.Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
+                var policyMessage = policyError ? "\u0420\u0435\u0448\u0435\u043d\u0438\u0435 \u043e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e \u0441\u0438\u0441\u0442\u0435\u043c\u043e\u0439 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438." : null;
+                return new RunnerResult(verdict, score, allPassed, root, results, null, policyMessage, null, compileError);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var safeMessage = FriendlyRunnerText(ex.Message);
+                logger.LogWarning(
+                    ex,
+                    "Runner request for job {JobId} failed on attempt {Attempt}/{Attempts}.",
+                    job.Id, attempt, attempts);
+
+                if (attempt < attempts)
+                {
+                    await DelayRunnerRetryAsync(attempt, ct);
+                    continue;
+                }
+
+                return RunnerResult.Error(
+                    "JudgeUnavailable",
+                    safeMessage,
+                    CloneJson(JsonSerializer.Serialize(new { error = safeMessage }, JsonOptions)));
+            }
         }
-        catch (Exception ex)
-        {
-            var safeMessage = FriendlyRunnerText(ex.Message);
-            return RunnerResult.Error("JudgeUnavailable", safeMessage, CloneJson(JsonSerializer.Serialize(new { error = safeMessage }, JsonOptions)));
-        }
+
+        return RunnerResult.Error("JudgeUnavailable", "Runner temporarily unavailable.");
     }
+
+    private static bool IsTransientRunnerStatus(System.Net.HttpStatusCode statusCode)
+    {
+        var code = (int)statusCode;
+        return code == 408 || code == 429 || code >= 500;
+    }
+
+    private static Task DelayRunnerRetryAsync(int attempt, CancellationToken ct)
+        => Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
 
     private async Task CompleteJobAsync(Guid jobId, CompleteExecutionJobRequest requestBody, CancellationToken ct)
     {

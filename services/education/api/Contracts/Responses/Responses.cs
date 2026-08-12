@@ -13,6 +13,10 @@ public sealed record CourseDto(Guid Id, string Title, string? Description, bool 
 
 public sealed record CourseMetadataDto(Guid Id, Guid CourseId, string Title, string CourseTitle, string? Description, bool IsPublic);
 
+public sealed record CourseGraphImportItemResponse(string Key, Guid Id, string Title, bool Created);
+
+public sealed record CourseGraphImportEnsureResponse(List<CourseGraphImportItemResponse> Courses);
+
 public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules);
 
 public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, int Sort);
