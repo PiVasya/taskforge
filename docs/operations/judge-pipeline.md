@@ -40,6 +40,12 @@ The worker retries a runner request only when the failure is operational and ret
 
 A partial batch must not become `Rejected` when one testcase failed because the runner parent could not start the sandboxed child. Resource failures such as `EMFILE`/`ENFILE` (`Too many open files`) are `JudgeUnavailable` with score `0`. This rule is intentionally recognized by both the C# runner and the worker so rolling deployments remain safe when one side is still on the previous image.
 
+## Verdict finalization and stale replays
+
+The worker publishes the submission verdict before marking the execution job completed. Job completion is retried through `Judge:CompletionAttempts` (`JUDGE_COMPLETION_ATTEMPTS`, default `5`). If completion still fails, the stale-running watchdog may replay the same immutable submission.
+
+`solutions-api` therefore treats terminal verdicts monotonically: an existing deterministic terminal verdict (especially `Accepted`) cannot be downgraded by a later `JudgeUnavailable` from a stale replay. `JudgeUnavailable` itself is weak and may be replaced by a later deterministic verdict after recovery. A runner response that contains only a prefix of the requested tests and marks every returned result as passed is treated as an incomplete infrastructure batch and retried rather than accepted.
+
 ## Queue safety
 
 `execution-api` claims jobs with an atomic status update. Running jobs older than `ExecutionQueue:RunningTimeoutMinutes` can be requeued while `AttemptCount` is below `ExecutionQueue:MaxAttempts`.

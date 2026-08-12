@@ -235,11 +235,15 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 var allPassed = total > 0 && passed == total;
                 var judgeUnavailable = IsJudgeUnavailableRoot(root)
                     || (hasResults && results!.Value.EnumerateArray().Any(IsJudgeUnavailableResult));
+                var incompleteSuccessfulBatch = hasResults
+                    && total > 0
+                    && passed == total
+                    && total < tests.Length;
 
-                if (judgeUnavailable)
+                if (judgeUnavailable || incompleteSuccessfulBatch)
                 {
                     logger.LogWarning(
-                        "Runner for job {JobId} reported an infrastructure failure on attempt {Attempt}/{Attempts}; the submission will not be classified as Rejected.",
+                        "Runner for job {JobId} reported an infrastructure or incomplete-batch failure on attempt {Attempt}/{Attempts}; the submission will not be classified as Rejected.",
                         job.Id, attempt, attempts);
 
                     if (attempt < attempts)
@@ -299,17 +303,41 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
     private async Task CompleteJobAsync(Guid jobId, CompleteExecutionJobRequest requestBody, CancellationToken ct)
     {
-        var client = httpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl("ExecutionApi", "http://execution-api:8080")}/api/internal/execution/jobs/{jobId}/complete")
+        var attempts = System.Math.Clamp(configuration.GetValue("Judge:CompletionAttempts", 5), 1, 10);
+        Exception? lastException = null;
+        string? lastBody = null;
+
+        for (var attempt = 1; attempt <= attempts; attempt++)
         {
-            Content = JsonContent.Create(requestBody, options: JsonOptions)
-        };
-        AddInternalKey(request);
-        using var response = await client.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            logger.LogWarning("Completing execution job {JobId} failed with status {StatusCode}.", jobId, response.StatusCode);
+            var client = httpClientFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl("ExecutionApi", "http://execution-api:8080")}/api/internal/execution/jobs/{jobId}/complete")
+            {
+                Content = JsonContent.Create(requestBody, options: JsonOptions)
+            };
+            AddInternalKey(request);
+
+            try
+            {
+                using var response = await client.SendAsync(request, ct);
+                lastBody = await response.Content.ReadAsStringAsync(ct);
+                if (response.IsSuccessStatusCode) return;
+
+                logger.LogWarning(
+                    "Completing execution job {JobId} failed on attempt {Attempt}/{Attempts} with status {StatusCode}: {Body}",
+                    jobId, attempt, attempts, response.StatusCode, Truncate(lastBody, 500));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastException = ex;
+                logger.LogWarning(ex, "Completing execution job {JobId} failed on attempt {Attempt}/{Attempts}.", jobId, attempt, attempts);
+            }
+
+            if (attempt < attempts) await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
         }
+
+        throw new InvalidOperationException(
+            $"Failed to complete execution job {jobId} after {attempts} attempts. Last body: {Truncate(lastBody, 500)}",
+            lastException);
     }
 
     private async Task PublishVerdictAsync(Guid submissionId, RunnerResult result, CancellationToken ct)

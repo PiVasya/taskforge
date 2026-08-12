@@ -258,6 +258,7 @@ For the Roslyn-based C# runner, keep the live `.env` at or above:
 ```env
 CSHARP_RUNNER_MEM_LIMIT=1024m
 JUDGE_RUNNER_ATTEMPTS=3
+JUDGE_COMPLETION_ATTEMPTS=5
 ```
 
 The C# parent container intentionally has a higher `nofile` limit than the sandboxed submission process. `repair-oj.sh` recreates the runner so Compose-level memory/ulimit changes actually take effect; Watchtower cannot apply those HostConfig changes by replacing only the image.

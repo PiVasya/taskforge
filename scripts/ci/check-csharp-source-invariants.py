@@ -165,7 +165,7 @@ def main() -> int:
 
     if execution_worker_path.exists():
         worker_source = execution_worker_path.read_text(encoding="utf-8")
-        for marker in ("Judge:RunnerAttempts", "IsJudgeUnavailableRoot", "IsJudgeUnavailableResult", "IsTransientRunnerStatus"):
+        for marker in ("Judge:RunnerAttempts", "IsJudgeUnavailableRoot", "IsJudgeUnavailableResult", "IsTransientRunnerStatus", "Judge:CompletionAttempts", "incompleteSuccessfulBatch"):
             if marker not in worker_source:
                 errors.append(f"execution worker runner-recovery marker missing: {marker}")
 

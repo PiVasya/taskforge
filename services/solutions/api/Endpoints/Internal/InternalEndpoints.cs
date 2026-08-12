@@ -59,9 +59,15 @@ internal static partial class SolutionsApiEndpoints
             if (sub == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
 
             var previous = sub.Status;
+            var incomingVerdict = CleanVerdict(request.Verdict);
+            if (!ShouldApplyIncomingVerdict(previous, incomingVerdict))
+            {
+                return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
+            }
+
             var previousScore = sub.Score;
             var isRatingRelevantBefore = AffectsRatingStatus(previous);
-            sub.Status = CleanVerdict(request.Verdict);
+            sub.Status = incomingVerdict;
             sub.Score = System.Math.Clamp(request.Score, 0, 100);
             sub.ResultJson = request.Result.HasValue
                 ? request.Result.Value.GetRawText()

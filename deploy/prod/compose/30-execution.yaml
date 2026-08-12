@@ -98,6 +98,7 @@ services:
       ExecutionQueue__RunningTimeoutMinutes: ${EXECUTION_QUEUE_RUNNING_TIMEOUT_MINUTES:-5}
       Judge__TimeoutSeconds: ${JUDGE_TIMEOUT_SECONDS:-45}
       Judge__RunnerAttempts: ${JUDGE_RUNNER_ATTEMPTS:-3}
+      Judge__CompletionAttempts: ${JUDGE_COMPLETION_ATTEMPTS:-5}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       Runners__Cpp: http://cpp-runner:8080

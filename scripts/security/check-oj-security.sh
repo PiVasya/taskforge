@@ -97,8 +97,23 @@ worker_source = (root / 'services/execution/worker/Worker.cs').read_text()
 worker_sanitization = (root / 'services/execution/worker/Worker.Sanitization.cs').read_text()
 if 'Judge:RunnerAttempts' not in worker_source or 'IsJudgeUnavailableResult' not in worker_source:
     die('execution worker lost bounded runner recovery')
+for marker in ('Judge:CompletionAttempts', 'incompleteSuccessfulBatch', 'Failed to complete execution job'):
+    if marker not in worker_source:
+        die(f'execution worker finalization recovery drift: {marker}')
 if 'Too many open files' not in worker_sanitization or 'EMFILE' not in worker_sanitization:
     die('execution worker lost backward-compatible infrastructure classification')
+
+solutions_results = (root / 'services/solutions/api/Services/Results/SolutionsApiResultsService.cs').read_text()
+solutions_internal = (root / 'services/solutions/api/Endpoints/Internal/InternalEndpoints.cs').read_text()
+if 'ShouldApplyIncomingVerdict' not in solutions_results or 'JudgeUnavailable' not in solutions_results:
+    die('solutions verdict monotonicity guard is missing')
+if '!ShouldApplyIncomingVerdict(previous, incomingVerdict)' not in solutions_internal:
+    die('internal verdict endpoint can overwrite a deterministic terminal verdict during stale execution replay')
+
+analyzer_source = (root / 'services/analyzers/code-analyzer/src/main.rs').read_text()
+for marker in ('find_identifier_sequence_pos', 'task_rule_needs_strings', 'format-string fragments such as `%.2f`'):
+    if marker not in analyzer_source:
+        die(f'code-analyzer task-rule matcher regression: {marker}')
 
 python_a = root / 'services/execution/runners/python-runner/security/python_policy.py'
 python_b = root / 'services/execution/runners/image-python-runner/security/python_policy.py'

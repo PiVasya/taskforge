@@ -114,6 +114,25 @@ internal static class SolutionsApiResultsService
 
     internal static string CleanVerdict(string? value) => string.IsNullOrWhiteSpace(value) ? "Rejected" : value.Trim();
 
+    // A submission can be replayed when the worker already published a verdict but
+    // temporarily failed to mark its execution job completed. Never let that stale replay
+    // downgrade an already deterministic terminal result to JudgeUnavailable.
+    // JudgeUnavailable is intentionally weak and may be replaced by a later real verdict.
+    internal static bool ShouldApplyIncomingVerdict(string? current, string? incoming)
+    {
+        var currentVerdict = CleanVerdict(current);
+        var incomingVerdict = CleanVerdict(incoming);
+
+        if (!IsTerminalVerdict(currentVerdict)) return true;
+        if (string.Equals(currentVerdict, incomingVerdict, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(currentVerdict, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase)) return IsTerminalVerdict(incomingVerdict);
+        if (string.Equals(incomingVerdict, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Same immutable submission + same code/tests should have one deterministic terminal
+        // result. A real rejudge should use a fresh execution/submission flow.
+        return false;
+    }
+
     internal static bool AffectsRatingStatus(string? status)
         => IsTerminalVerdict(status) || string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
 

@@ -44,9 +44,12 @@ struct AnalyzeRequest {
     /// Optional extra forbidden patterns configured per task.
     /// Patterns are matched after stripping comments & string literals.
     extra_forbidden: Option<Vec<ForbiddenPattern>>,
-    /// Optional per-task forbidden function/method calls. Checked on cleaned source (comments/strings stripped).
+    /// Optional per-task author rules. Normal identifiers/calls are checked with comments and
+    /// strings stripped; explicit format-string/literal rules (for example `%.2f`) are checked
+    /// with comments stripped but string literals preserved.
     forbidden_calls: Option<Vec<String>>,
-    /// Optional per-task required calls. Each must appear at least once as a call.
+    /// Optional per-task required author rules. These may be calls, identifiers, token phrases,
+    /// signatures, operators or explicit format-string fragments.
     required_calls: Option<Vec<String>>,
 }
 
@@ -167,26 +170,92 @@ fn find_ws_insensitive_pos(hay: &str, needle: &str) -> Option<usize> {
     Some(0)
 }
 
+fn find_identifier_sequence_pos(source: &str, phrase: &str) -> Option<usize> {
+    let parts: Vec<&str> = phrase.split_whitespace().filter(|part| !part.is_empty()).collect();
+    if parts.len() < 2 || parts.iter().any(|part| !part.chars().all(is_ident_char)) {
+        return None;
+    }
+
+    let first = parts[0];
+    let mut search_from = 0usize;
+    while search_from < source.len() {
+        let relative = source[search_from..].find(first)?;
+        let start = search_from + relative;
+        let before = source[..start].chars().next_back();
+        let after_first = start + first.len();
+        let after = source[after_first..].chars().next();
+        if before.map(is_ident_char).unwrap_or(false) || after.map(is_ident_char).unwrap_or(false) {
+            search_from = after_first;
+            continue;
+        }
+
+        let mut pos = after_first;
+        let mut matched = true;
+        for part in parts.iter().skip(1) {
+            let before_ws = pos;
+            pos = skip_ws(source, pos);
+            if pos == before_ws || !source[pos..].starts_with(part) {
+                matched = false;
+                break;
+            }
+            let part_end = pos + part.len();
+            if source[part_end..].chars().next().map(is_ident_char).unwrap_or(false) {
+                matched = false;
+                break;
+            }
+            pos = part_end;
+        }
+
+        if matched {
+            return Some(start);
+        }
+        search_from = after_first;
+    }
+
+    None
+}
+
+fn task_rule_needs_strings(rule: &str) -> bool {
+    let trimmed = rule.trim();
+    if trimmed.contains('"') || trimmed.contains('\'') {
+        return true;
+    }
+
+    // printf/scanf format fragments such as %.2f, %lld, %05d and %% live inside
+    // string literals. A bare `%` is intentionally excluded because many tasks use it
+    // to require the modulo operator in executable code.
+    trimmed.starts_with('%') && trimmed.len() > 1
+}
+
 /// Match an author-defined task rule without turning every rule into a raw substring.
 /// - call-like rules such as `max(` are matched as calls;
 /// - plain identifiers/keywords such as `while`, `break`, `list` use token boundaries;
-/// - symbolic rules such as `[`, `%`, `sep=` keep whitespace-insensitive matching.
-fn find_task_rule_pos(cleaned: &str, rule: &str) -> Option<usize> {
+/// - multi-token keyword/type phrases such as `long long` or `ref int x` preserve token boundaries;
+/// - format-string fragments such as `%.2f` are matched with comments stripped but strings preserved;
+/// - other symbolic rules such as `[`, `%`, `sep=` keep whitespace-insensitive matching.
+fn find_task_rule_pos(cleaned: &str, no_comments: &str, rule: &str) -> Option<usize> {
     let trimmed = rule.trim();
     if trimmed.is_empty() {
         return None;
     }
 
+    let base = if task_rule_needs_strings(trimmed) { no_comments } else { cleaned };
     let compact = strip_ws(trimmed);
     if compact.ends_with('(') {
-        return find_call_pos(cleaned, trimmed);
+        return find_call_pos(base, trimmed);
+    }
+
+    if trimmed.chars().any(|ch| ch.is_whitespace())
+        && trimmed.chars().filter(|ch| !ch.is_whitespace()).all(is_ident_char)
+    {
+        return find_identifier_sequence_pos(base, trimmed);
     }
 
     if compact.chars().all(is_ident_char) {
-        return find_identifier_pos(cleaned, &compact);
+        return find_identifier_pos(base, &compact);
     }
 
-    find_ws_insensitive_pos(cleaned, trimmed)
+    find_ws_insensitive_pos(base, trimmed)
 }
 
 /// Check for a call of a (possibly dotted) name, allowing whitespace around dots and before '('.
@@ -720,8 +789,10 @@ async fn analyze(
 
 
 
-// ---- Per-task forbidden/required call checks (call = NAME followed by optional spaces and '(' ) ----
-// We run these on `cleaned` (comments & strings stripped) to avoid false positives from string literals.
+// ---- Per-task author-defined structural checks ----
+// The matcher chooses the appropriate source view per rule: ordinary executable constructs use
+// `cleaned`, while explicit format/literal requirements use `no_comments` so quoted formats can
+// be required without allowing comments to satisfy the rule.
 let forbidden_calls = req.forbidden_calls.unwrap_or_default();
 let required_calls = req.required_calls.unwrap_or_default();
 
@@ -732,7 +803,7 @@ if !forbidden_calls.is_empty() || !required_calls.is_empty() {
 for call in &forbidden_calls {
     if call.trim().is_empty() { continue; }
 
-    if let Some(pos) = find_task_rule_pos(&cleaned, call) {
+    if let Some(pos) = find_task_rule_pos(&cleaned, &no_comments, call) {
         let needle = call.trim().to_string();
         let preview = make_preview(&cleaned, pos, needle.len().min(32));
         hits.push(Hit {
@@ -751,7 +822,7 @@ for call in &forbidden_calls {
 
 for call in &required_calls {
     if call.trim().is_empty() { continue; }
-    let ok = find_task_rule_pos(&cleaned, call).is_some();
+    let ok = find_task_rule_pos(&cleaned, &no_comments, call).is_some();
     if !ok {
         errors.push(Violation {
             code: "missing_required_call".to_string(),
@@ -1536,18 +1607,55 @@ mod tests {
 
     #[test]
     fn task_identifier_rules_use_token_boundaries() {
-        assert!(find_task_rule_pos("playlist = 1", "list").is_none());
-        assert!(find_task_rule_pos("diff = 1", "if").is_none());
-        assert!(find_task_rule_pos("values.append(x)", "append").is_some());
-        assert!(find_task_rule_pos("if x > 0:\n    pass", "if").is_some());
+        assert!(find_task_rule_pos("playlist = 1", "playlist = 1", "list").is_none());
+        assert!(find_task_rule_pos("diff = 1", "diff = 1", "if").is_none());
+        assert!(find_task_rule_pos("values.append(x)", "values.append(x)", "append").is_some());
+        assert!(find_task_rule_pos("if x > 0:\n    pass", "if x > 0:\n    pass", "if").is_some());
+    }
+
+
+    #[test]
+    fn task_multi_token_rules_match_real_token_sequences() {
+        assert!(find_task_rule_pos("long long value = 5;", "long long value = 5;", "long long").is_some());
+        assert!(find_task_rule_pos("long\nlong value = 5;", "long\nlong value = 5;", "long long").is_some());
+        assert!(find_task_rule_pos("long longish = 5;", "long longish = 5;", "long long").is_none());
+        assert!(find_task_rule_pos("ref int x", "ref int x", "ref int x").is_some());
     }
 
     #[test]
+    fn task_format_rules_can_match_inside_string_literals_but_not_comments() {
+        let source = "printf(\"%.2f\", 12.5);";
+        let cleaned = strip_comments_and_strings("cpp", source);
+        let no_comments = strip_comments_only("cpp", source);
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "%.2f").is_some());
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "%f").is_none());
+
+        let formats = "printf(\"%05d %lld %%\", 7, value);";
+        let formats_cleaned = strip_comments_and_strings("cpp", formats);
+        let formats_no_comments = strip_comments_only("cpp", formats);
+        assert!(find_task_rule_pos(&formats_cleaned, &formats_no_comments, "%05d").is_some());
+        assert!(find_task_rule_pos(&formats_cleaned, &formats_no_comments, "%lld").is_some());
+        assert!(find_task_rule_pos(&formats_cleaned, &formats_no_comments, "%%").is_some());
+
+        let comment_only = "// %.2f\nprintf(\"%f\", 12.5);";
+        let cleaned = strip_comments_and_strings("cpp", comment_only);
+        let no_comments = strip_comments_only("cpp", comment_only);
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "%.2f").is_none());
+    }
+
+    #[test]
+    fn task_rules_with_string_literals_use_comment_stripped_source() {
+        let source = "string prefix = \"Hello\";";
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "string prefix = \"Hello\"").is_some());
+    }
+    #[test]
     fn task_call_and_symbol_rules_keep_their_intended_shape() {
-        assert!(find_task_rule_pos("m = max(values)", "max (").is_some());
-        assert!(find_task_rule_pos("print(a, b, sep = '-')", "sep=").is_some());
-        assert!(find_task_rule_pos("values = [1, 2]", "[").is_some());
-        assert!(find_task_rule_pos("maximum = 1", "max(").is_none());
+        assert!(find_task_rule_pos("m = max(values)", "m = max(values)", "max (").is_some());
+        assert!(find_task_rule_pos("print(a, b, sep =  )", "print(a, b, sep = '-')", "sep=").is_some());
+        assert!(find_task_rule_pos("values = [1, 2]", "values = [1, 2]", "[").is_some());
+        assert!(find_task_rule_pos("maximum = 1", "maximum = 1", "max(").is_none());
     }
 }
 
