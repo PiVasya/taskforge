@@ -328,9 +328,9 @@ internal static class AssignmentTaskGraphJsonService
             {
                 var rawId = idElement.ValueKind == JsonValueKind.String ? idElement.GetString() : null;
                 if (!Guid.TryParse(rawId, out var id) || id == Guid.Empty)
-                    issues.Add(new ValidationIssue($"{path}.id", "id должен быть корректным GUID существующего задания."));
+                    issues.Add(new ValidationIssue($"{path}.id", "id должен быть корректным непустым GUID."));
                 else if (!ids.Add(id))
-                    issues.Add(new ValidationIssue($"{path}.id", "Одно существующее задание нельзя объявлять дважды."));
+                    issues.Add(new ValidationIssue($"{path}.id", "Один id задания нельзя объявлять дважды."));
             }
 
             tasks.Add(new GraphTask(key, courseRef, taskElement.Clone()));

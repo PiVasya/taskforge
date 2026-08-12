@@ -556,25 +556,7 @@ internal static partial class AssignmentApiEndpoints
             {
                 try
                 {
-                    var req = AssignmentRequestFromJson(sourceItems[i]);
-                    var validationRequest = taskGraph != null && req.Id.HasValue
-                        ? FilterExistingImportRequest(req, importOptions)
-                        : req;
-                    var itemIssues = ValidateImportedAssignment(validationRequest, i + 1).ToList();
-                    if (taskGraph != null && !req.Id.HasValue && !taskGraph.Scopes.Contains("content"))
-                        itemIssues.Add("Для создания нового задания JSON должен содержать scope content и полноценное описание задания.");
-                    if (itemIssues.Count > 0)
-                    {
-                        issues.Add(new
-                        {
-                            index = i + 1,
-                            key = taskGraph?.Tasks[i].Key,
-                            id = req.Id,
-                            title = req.Title,
-                            issues = itemIssues
-                        });
-                    }
-                    requests.Add(req);
+                    requests.Add(AssignmentRequestFromJson(sourceItems[i]));
                 }
                 catch (Exception ex)
                 {
@@ -591,6 +573,35 @@ internal static partial class AssignmentApiEndpoints
             var existingRows = ids.Count == 0
                 ? new List<Assignment>()
                 : await db.Assignments.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            var existingRowById = existingRows.ToDictionary(x => x.Id);
+
+            for (var i = 0; i < requests.Count; i++)
+            {
+                var req = requests[i];
+                var isExisting = req.Id.HasValue && req.Id.Value != Guid.Empty && existingRowById.ContainsKey(req.Id.Value);
+                var validationRequest = taskGraph != null && isExisting
+                    ? FilterExistingImportRequest(req, importOptions)
+                    : isExisting
+                        ? req
+                        : req with { Id = null };
+                var itemIssues = ValidateImportedAssignment(validationRequest, i + 1).ToList();
+                if (taskGraph != null && !isExisting && !taskGraph.Scopes.Contains("content"))
+                    itemIssues.Add("Для создания нового задания JSON должен содержать scope content и полноценное описание задания.");
+                if (itemIssues.Count == 0) continue;
+                issues.Add(new
+                {
+                    index = i + 1,
+                    key = taskGraph?.Tasks[i].Key,
+                    id = req.Id,
+                    title = req.Title,
+                    issues = itemIssues
+                });
+            }
+
+            if (issues.Count > 0)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Импорт остановлен: в JSON есть ошибки.", code = "IMPORT_VALIDATION_FAILED", issues }, statusCode: StatusCodes.Status400BadRequest);
+            }
             var allowedImportCourseIds = taskGraph != null && graphSubtreeCourseIds != null
                 ? graphSubtreeCourseIds
                 : new HashSet<Guid> { courseId };
@@ -601,7 +612,6 @@ internal static partial class AssignmentApiEndpoints
 
             if (taskGraph != null && graphCourseIds != null)
             {
-                var existingRowById = existingRows.ToDictionary(x => x.Id);
                 var idIssues = new List<object>();
                 for (var index = 0; index < taskGraph.Tasks.Count; index++)
                 {
@@ -609,7 +619,9 @@ internal static partial class AssignmentApiEndpoints
                     if (!id.HasValue) continue;
                     if (!existingRowById.TryGetValue(id.Value, out var existingRow))
                     {
-                        idIssues.Add(new { path = $"$.tasks[{index}].id", message = "Задание с таким id не найдено. Для создания уберите id." });
+                        // Свободный UUID разрешён: новое задание будет создано именно с этим id.
+                        // Это делает экспорт/импорт графа детерминированным и позволяет повторный
+                        // импорт того же JSON автоматически превратить create в update.
                         continue;
                     }
                     if (!allowedImportCourseIds.Contains(existingRow.CourseId))
