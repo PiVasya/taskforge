@@ -36,7 +36,7 @@ function ConnectionList({ title, rows, removed = false }) {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={removed ? 'warning' : row.status === 'add' ? 'success' : row.status === 'update' ? 'outline' : row.status === 'missing' ? 'warning' : 'secondary'}>
-                  {removed ? 'Удалить' : row.status === 'add' ? 'Добавить' : row.status === 'update' ? 'Изменить эффекты' : row.status === 'missing' ? 'Связь не найдена' : 'Без изменений'}
+                  {removed ? 'Будет удалена' : row.status === 'add' ? 'Будет добавлена' : row.status === 'update' ? 'Эффекты изменятся' : row.status === 'missing' ? 'Связь не найдена' : 'Без изменений'}
                 </Badge>
                 <EffectBadges row={row} />
               </div>
@@ -90,7 +90,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
         <div className="flex shrink-0 flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xl font-semibold"><GitCompare size={20} /> Проверка импорта</div>
-            <div className="mt-1 text-sm text-neutral-500">Задания и связи будут применены одним импортом.</div>
+            <div className="mt-1 text-sm text-neutral-500">Сначала проверьте, что именно будет создано, обновлено или удалено. Изменения применятся только после подтверждения.</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}><X size={16} /> Назад</Button>
@@ -102,7 +102,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
           <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
-          <div className="mb-2 text-sm font-semibold">Что разрешено заменить</div>
+          <div className="mb-2 text-sm font-semibold">Какие части существующих заданий можно обновить</div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <ImportOption checked={Boolean(importOptions.updateContent && diff.scopes?.includes('content'))} disabled={!diff.scopes?.includes('content')} onChange={(value) => onImportOptionChange?.('updateContent', value)} label="Условия и настройки" />
             <ImportOption checked={Boolean(importOptions.updateChecks && diff.scopes?.includes('checks'))} disabled={!diff.scopes?.includes('checks')} onChange={(value) => onImportOptionChange?.('updateChecks', value)} label="Тесты и ответы" />
@@ -111,14 +111,14 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
             <ImportOption checked={Boolean(importOptions.updateConnectionAccess && diff.scopes?.includes('connectionAccess'))} disabled={!diff.scopes?.includes('connectionAccess')} onChange={(value) => onImportOptionChange?.('updateConnectionAccess', value)} label="Эффекты стрелок" />
             <ImportOption checked={Boolean(importOptions.updateLayout && diff.scopes?.includes('layout'))} disabled={!diff.scopes?.includes('layout')} onChange={(value) => onImportOptionChange?.('updateLayout', value)} label="Позиции и масштаб" />
           </div>
-          <div className="mt-2 text-xs text-neutral-500">ID выбирает существующее задание. Галочки определяют, какие его части действительно изменятся.</div>
+          <div className="mt-2 text-xs text-neutral-500">ID связывает строку JSON с существующим заданием. Галочки определяют, какие его части будут обновлены.</div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
           <Stat label="Заданий" value={diff.total} />
           <Stat label="Курсов" value={diff.courseCount || 0} />
-          <Stat label="Создать" value={diff.createCount} />
-          <Stat label="Обновить" value={diff.updateCount} />
+          <Stat label="Будет создано" value={diff.createCount} />
+          <Stat label="Будет обновлено" value={diff.updateCount} />
           <Stat label="Без изменений" value={diff.unchangedCount} />
           <Stat label="Связей" value={diff.connectionCount} />
           <Stat label="Ошибок" value={diff.validationErrorCount} danger={diff.validationErrorCount > 0} />
@@ -171,7 +171,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={row.action === 'create' ? 'success' : row.action === 'update' ? 'outline' : 'secondary'}>
-                      {row.action === 'create' ? 'Создать' : row.action === 'update' ? 'Обновить' : 'Без изменений'}
+                      {row.action === 'create' ? 'Будет создано' : row.action === 'update' ? 'Будет обновлено' : 'Без изменений'}
                     </Badge>
                     <Badge variant="outline">{row.type}</Badge>
                     {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}

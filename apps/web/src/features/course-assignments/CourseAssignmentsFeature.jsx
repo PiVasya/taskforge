@@ -45,7 +45,8 @@ import {
 import CourseContentGrid from './components/CourseContentGrid';
 import CourseFlowEditor from './components/CourseFlowEditor';
 import CourseLayoutToggle from './components/CourseLayoutToggle';
-import JsonTaskGraphDialog from './components/JsonTaskGraphDialog';
+import JsonTaskGraphExportDialog from './components/JsonTaskGraphExportDialog';
+import JsonTaskGraphImportDialog from './components/JsonTaskGraphImportDialog';
 import JsonTaskGraphDiffModal from './components/JsonTaskGraphDiffModal';
 import {
   TASK_GRAPH_AI_PROMPT,
@@ -181,7 +182,8 @@ export default function CourseAssignmentsPage() {
     }
   });
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [jsonImportDialogOpen, setJsonImportDialogOpen] = useState(false);
+  const [jsonExportDialogOpen, setJsonExportDialogOpen] = useState(false);
   const [jsonDocsOpen, setJsonDocsOpen] = useState(false);
   const [createBusyType, setCreateBusyType] = useState('');
   const [jsonImportText, setJsonImportText] = useState('');
@@ -249,11 +251,17 @@ export default function CourseAssignmentsPage() {
     });
   }, [courseCanEdit, isEditorMode]);
 
-  const openCreateDialog = React.useCallback(() => {
+  const openJsonImportDialog = React.useCallback(() => {
     closeContextMenu();
     closeCreateMenu();
     setJsonDocsOpen(false);
-    setCreateDialogOpen(true);
+    setJsonImportDialogOpen(true);
+  }, [closeContextMenu, closeCreateMenu]);
+
+  const openJsonExportDialog = React.useCallback(() => {
+    closeContextMenu();
+    closeCreateMenu();
+    setJsonExportDialogOpen(true);
   }, [closeContextMenu, closeCreateMenu]);
 
   useEffect(() => {
@@ -712,7 +720,7 @@ export default function CourseAssignmentsPage() {
       const payload = buildDefaultAssignmentPayload(type, orderedAll.length);
       const res = await createAssignment(courseId, payload);
       const id = res && res.id;
-      setCreateDialogOpen(false);
+      setJsonImportDialogOpen(false);
       notify.success("Задание создано");
       if (id) nav(`/assignment/${id}/edit`);
     } catch (e) {
@@ -742,7 +750,7 @@ export default function CourseAssignmentsPage() {
         sort: orderedAll.length,
       });
       const id = res && res.id;
-      setCreateDialogOpen(false);
+      setJsonImportDialogOpen(false);
       notify.success("Вложенный курс создан");
       if (id) navigateToCourseEditor(nav, location, courseId, id);
     } catch (e) {
@@ -808,7 +816,7 @@ export default function CourseAssignmentsPage() {
       setJsonImportDiffOpen(false);
       setJsonImportDiff(null);
       setJsonImportParsed(null);
-      setCreateDialogOpen(false);
+      setJsonImportDialogOpen(false);
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
       const taskGraph = res?.taskGraph || res?.graph;
@@ -912,7 +920,7 @@ export default function CourseAssignmentsPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      handleJsonImportTextChange(text);
+      setJsonExportDialogOpen(false);
       const count = Array.isArray(data?.tasks) ? data.tasks.length : 0;
       const courseCount = Array.isArray(data?.courses) ? data.courses.length : 0;
       const links = Array.isArray(data?.connections) ? data.connections.length : 0;
@@ -994,10 +1002,10 @@ export default function CourseAssignmentsPage() {
           <IfEditor>
             {courseCanEdit ? (
               <>
-                <Button variant="outline" className="w-full sm:w-auto" onClick={() => setCreateDialogOpen(true)} disabled={jsonExportBusy}>
+                <Button variant="outline" className="w-full sm:w-auto" onClick={openJsonExportDialog} disabled={jsonExportBusy}>
                   <Download size={16} /> Экспорт JSON
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openCreateDialog() : openCreateMenu(event)}>
+                <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openJsonImportDialog() : openCreateMenu(event)}>
                   {showFlowLayout ? <FileJson size={16} /> : <Plus size={16} />} {showFlowLayout ? 'Импорт JSON' : 'Создать'}
                 </Button>
               </>
@@ -1043,17 +1051,22 @@ export default function CourseAssignmentsPage() {
         onImportOptionChange={handleJsonImportOptionChange}
       />
 
-      <JsonTaskGraphDialog
-        open={createDialogOpen}
-        busy={jsonImportBusy || Boolean(createBusyType)}
-        exportBusy={jsonExportBusy}
-        preview={jsonImportPreview}
-        text={jsonImportText}
-        docsOpen={jsonDocsOpen}
-        onClose={() => setCreateDialogOpen(false)}
+      <JsonTaskGraphExportDialog
+        open={jsonExportDialogOpen}
+        busy={jsonExportBusy}
+        onClose={() => setJsonExportDialogOpen(false)}
         onExport={handleExportJson}
         exportOptions={jsonExportOptions}
         onExportOptionChange={handleJsonExportOptionChange}
+      />
+
+      <JsonTaskGraphImportDialog
+        open={jsonImportDialogOpen}
+        busy={jsonImportBusy || Boolean(createBusyType)}
+        preview={jsonImportPreview}
+        text={jsonImportText}
+        docsOpen={jsonDocsOpen}
+        onClose={() => setJsonImportDialogOpen(false)}
         onFile={handleJsonFile}
         onCopy={async () => {
           try {
@@ -1103,8 +1116,8 @@ export default function CourseAssignmentsPage() {
           query={q}
           onQueryChange={setQ}
           onShowGrid={isEditorMode && courseCanEdit ? () => setContentLayout('grid') : null}
-          onExportJson={isEditorMode && courseCanEdit ? () => setCreateDialogOpen(true) : null}
-          onImportJson={isEditorMode && courseCanEdit ? openCreateDialog : null}
+          onExportJson={isEditorMode && courseCanEdit ? openJsonExportDialog : null}
+          onImportJson={isEditorMode && courseCanEdit ? openJsonImportDialog : null}
           exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}
           dataRevision={assignmentsQuery.updatedAt || 0}
@@ -1174,7 +1187,7 @@ export default function CourseAssignmentsPage() {
           </ContextMenuItem>
         ))}
         <ContextMenuSeparator />
-        <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>Импорт из JSON</ContextMenuItem>
+        <ContextMenuItem icon={FileJson} onClick={openJsonImportDialog}>Импорт из JSON</ContextMenuItem>
       </ContextMenu>
 
       <ContextMenu
@@ -1240,7 +1253,7 @@ export default function CourseAssignmentsPage() {
               </ContextMenuItem>
             ))}
             <ContextMenuSeparator />
-            <ContextMenuItem icon={FileJson} onClick={openCreateDialog}>Импорт из JSON</ContextMenuItem>
+            <ContextMenuItem icon={FileJson} onClick={openJsonImportDialog}>Импорт из JSON</ContextMenuItem>
           </>
         ) : null}
       </ContextMenu>

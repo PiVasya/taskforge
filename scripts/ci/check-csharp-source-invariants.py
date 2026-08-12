@@ -139,6 +139,25 @@ def main() -> int:
         for marker in ('HasUnlimitedAiTaskAttempts(http, cfg)', 'IgnoreAiTaskAttemptTimeLimits(http, cfg)', 'ignoreTimeLimit ? null : TimeLimitFor'):
             if marker not in task_test_service:
                 errors.append(f"tasks-api test AI no-wait policy marker missing: {marker}")
+        if 'SelectedOptionKeys is { Count: > 0 }' not in task_test_service or 'SelectedOptionKey!' not in task_test_service:
+            errors.append("single-choice API must fall back to selectedOptionKey when selectedOptionKeys is absent or empty")
+
+    assignment_mapping_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Mapping" / "AssignmentApiMappingService.cs"
+    if assignment_mapping_path.exists():
+        assignment_mapping = assignment_mapping_path.read_text(encoding="utf-8")
+        if 'taskConstraints = TaskConstraintsDto(x)' not in assignment_mapping or 'kind = "assignment"' not in assignment_mapping:
+            errors.append("learner assignment DTOs must expose author-defined task constraints separately from platform security policy")
+
+    execution_worker_contracts_path = ROOT / "services" / "execution" / "worker" / "Worker.Contracts.cs"
+    execution_worker_policy_path = ROOT / "services" / "execution" / "worker" / "Worker.Policy.cs"
+    if execution_worker_contracts_path.exists():
+        worker_contracts = execution_worker_contracts_path.read_text(encoding="utf-8")
+        if 'string.IsNullOrWhiteSpace(Stderr)' not in worker_contracts or 'Код не соответствует правилам задания.' not in worker_contracts:
+            errors.append("execution worker must preserve the sanitized task-policy reason in PolicyFailed messages")
+    if execution_worker_policy_path.exists():
+        worker_policy = execution_worker_policy_path.read_text(encoding="utf-8")
+        if 'Код не соответствует правилам задания:' not in worker_policy:
+            errors.append("execution worker task-policy message lost its explicit assignment-rule wording")
 
     if math_service_path.exists():
         math_service = math_service_path.read_text(encoding="utf-8")

@@ -52,6 +52,14 @@ internal static class AssignmentApiMappingService
         }
     }
 
+    private static object TaskConstraintsDto(Assignment x) => new
+    {
+        kind = "assignment",
+        required = ParseStringArrayJson(x.CodeRequiredCallsJson),
+        forbidden = ParseStringArrayJson(x.CodeForbiddenCallsJson),
+        note = "Это правила конкретного задания. Системная политика безопасности платформы в этот список не входит."
+    };
+
     internal static object ToDto(Assignment x, bool includeSensitive = false, bool isSolved = false)
     {
         var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
@@ -74,6 +82,7 @@ internal static class AssignmentApiMappingService
             isHidden = !x.IsVisible,
             isAiDraft = false,
             lifecycleStatus = x.IsVisible ? "published" : "draft",
+            taskConstraints = TaskConstraintsDto(x),
             codeForbiddenCalls = includeSensitive ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
             codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
             imageTestReferenceKey = includeSensitive ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
@@ -107,6 +116,7 @@ internal static class AssignmentApiMappingService
             isHidden = !x.IsVisible,
             isAiDraft = false,
             lifecycleStatus = x.IsVisible ? "published" : "draft",
+            taskConstraints = TaskConstraintsDto(x),
             codeForbiddenCalls = includeSensitive ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
             codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
             analyticsSettings = includeSensitive ? ParseJson(x.AnalyticsSettingsJson) ?? AssignmentAnalyticsSettingsService.ToPublicDto(AssignmentAnalyticsSettingsService.Default()) : null,
@@ -137,6 +147,7 @@ internal static class AssignmentApiMappingService
             tags = x.Tags ?? string.Empty,
             difficulty = x.Difficulty,
             rating = x.Rating,
+            taskConstraints = TaskConstraintsDto(x),
             canEdit = includeSensitive,
             x.UpdatedAt
         };

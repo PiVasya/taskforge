@@ -19,6 +19,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
+import AssignmentTaskConstraints from './components/AssignmentTaskConstraints';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
 import { readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
 import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
@@ -90,7 +91,6 @@ async function recoverRecentCodeSubmission(assignmentId, language, code, submitS
   }
   return null;
 }
-
 
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
@@ -417,7 +417,6 @@ export default function AssignmentSolvePage() {
     });
   }, [a?.id, a?.type, checkedDraftKey, codeSolveLayout, draftStore, queueActivity, result]);
 
-
   useEffect(() => {
     let alive = true;
     const mergeAssignmentPart = (part) => {
@@ -685,7 +684,6 @@ export default function AssignmentSolvePage() {
     setProgressionRevision((value) => value + 1);
   }, []);
 
-
   const resetSolveUi = React.useCallback(() => {
     setResult(null);
     setCheckedDraftKey('');
@@ -694,7 +692,6 @@ export default function AssignmentSolvePage() {
     setImgError('');
     setImgCompare(null);
   }, []);
-
 
   const goNextAssignment = React.useCallback((option = null) => {
     const target = option?.id ? option : nextOptions.find((item) => item?.id && !item.disabled);
@@ -881,7 +878,6 @@ export default function AssignmentSolvePage() {
     );
   };
 
-
   const renderSolutionResultCard = () => {
     if (!result) return null;
 
@@ -1057,7 +1053,6 @@ export default function AssignmentSolvePage() {
     );
   };
 
-
   const revealKey = String(a?.id || assignmentId || '');
   const sequenceStatementBeforeTests = !!a && a.type !== 'test' && a.type !== 'math';
   const titleAnimationDone = !sequenceStatementBeforeTests || (revealFlow.key === revealKey && revealFlow.titleDone);
@@ -1091,7 +1086,6 @@ export default function AssignmentSolvePage() {
       onDone={completeStatementReveal}
     />
   );
-
 
   if (loading && !a) {
     return <AssignmentFirstLoadSkeleton />;
@@ -1127,7 +1121,6 @@ export default function AssignmentSolvePage() {
       </>
     );
   }
-
 
   
   if (a.type === 'math') {
@@ -1198,7 +1191,6 @@ export default function AssignmentSolvePage() {
           payload: { passed: !!normalized.passed, similarityPercent: normalized.similarityPercent ?? null },
           language,
         });
-
 
         if (hasImageResultPayload(resp) && normalized.actualUrl) {
           setImgCompare(normalized);
@@ -1296,7 +1288,6 @@ export default function AssignmentSolvePage() {
           showQuota
         />
 
-
         <div className="grid lg:grid-cols-3 gap-6">
           
           <div className="lg:col-span-2 space-y-5">
@@ -1314,6 +1305,7 @@ export default function AssignmentSolvePage() {
                   </div>
                 )}
                 {renderAssignmentStatement(5, false)}
+                <AssignmentTaskConstraints constraints={a?.taskConstraints} />
               </SolvePart>
             </Card>
 
@@ -1537,7 +1529,6 @@ export default function AssignmentSolvePage() {
         isAdmin={isAdmin}
       />
 
-
       
       {codeSolveLayout !== 'editorTop' ? (
         <div className="grid lg:grid-cols-3 gap-6">
@@ -1557,6 +1548,7 @@ export default function AssignmentSolvePage() {
                   </div>
                 )}
                 {renderAssignmentStatement(5, false)}
+                <AssignmentTaskConstraints constraints={a?.taskConstraints} />
               </SolvePart>
             </Card>
             {renderTestsCard()}
@@ -1671,6 +1663,7 @@ export default function AssignmentSolvePage() {
           <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
             <SolvePart loading={partLoading.statement} delay={90}>
               {renderAssignmentStatement(5, true)}
+              <AssignmentTaskConstraints constraints={a?.taskConstraints} />
             </SolvePart>
           </Card>
             {renderTestsCard()}

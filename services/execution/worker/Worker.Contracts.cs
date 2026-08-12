@@ -23,7 +23,7 @@ public sealed partial class Worker
         {
             "Accepted" => "Все тесты пройдены.",
             "CompileError" => "Ошибка компиляции.",
-            "PolicyFailed" => "Код содержит запрещённые конструкции.",
+            "PolicyFailed" => string.IsNullOrWhiteSpace(Stderr) ? "Код не соответствует правилам задания." : Stderr,
             "NoTestsConfigured" => "Для задания не настроены тесты.",
             "JudgeUnavailable" => "Judge pipeline временно недоступен.",
             _ => "Не все тесты пройдены."

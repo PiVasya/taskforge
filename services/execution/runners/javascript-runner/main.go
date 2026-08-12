@@ -188,6 +188,18 @@ func strValue(v *string) string {
 	return *v
 }
 
+func normalizeOutputForComparison(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		// A trailing ASCII space at the end of an output line is intentionally
+		// ignored. Leading spaces and whitespace inside the line stay significant.
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
 func runnerChildEnvironment() []string {
 	result := []string{
 		"HOME=/tmp",
@@ -757,7 +769,7 @@ func main() {
 					break
 				}
 				run := executeProgramContext(batchContext, kind, program, given, timeMs)
-				passed := run.ExitCode == 0 && strings.TrimRight(run.Stdout, "\r\n") == strings.TrimRight(expected, "\r\n")
+				passed := run.ExitCode == 0 && normalizeOutputForComparison(run.Stdout) == normalizeOutputForComparison(expected)
 				results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: run.Stdout, Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: run.Stderr, CompileStderr: run.CompileStderr, Hidden: t.IsHidden}))
 				if batchContext.Err() != nil {
 					break

@@ -317,7 +317,19 @@ public sealed class RunController : ControllerBase
         };
 
     private static string NormalizeOutput(string value)
-        => value.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd();
+    {
+        var normalized = value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\r", "\n", StringComparison.Ordinal);
+        var lines = normalized.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            // Match the other runners: a trailing ASCII space at the end of a
+            // line is ignored, while leading/internal whitespace stays exact.
+            lines[i] = lines[i].TrimEnd(' ');
+        }
+        return string.Join("\n", lines).TrimEnd('\n');
+    }
 
     private static string FriendlyRunnerError(string? value)
     {

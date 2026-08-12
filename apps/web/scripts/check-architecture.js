@@ -169,6 +169,13 @@ if (/const \[code, setCode\] = useState/.test(assignmentFeature) || /const \[lan
 if (!/SolveDraftEditor/.test(assignmentFeature) || !/getSolveDraftSnapshot/.test(assignmentFeature)) {
   fail('assignment editor is not isolated behind the external draft store');
 }
+const taskConstraintPanel = read('features/assignment-solve/components/AssignmentTaskConstraints.jsx');
+if (!/assignment-solution-requirements/.test(taskConstraintPanel) || !/Требования к решению/.test(taskConstraintPanel)) {
+  fail('learner solve page no longer exposes author-defined task constraints');
+}
+if (!/AssignmentTaskConstraints/.test(assignmentFeature) || !/taskConstraints/.test(assignmentFeature)) {
+  fail('assignment solve feature lost the task-constraint panel');
+}
 
 const taskTest = read('pages/TaskTestSolve.jsx');
 const mathTask = read('pages/MathTaskSolve.jsx');
@@ -309,16 +316,26 @@ if (!/visibilityMode/.test(courseEditPage) || !/value: 'public'/.test(courseEdit
 }
 const taskGraphJson = read('features/course-assignments/courseTaskGraphJson.js');
 const taskGraphImport = read('features/course-assignments/courseTaskGraphImport.js');
-const taskGraphDialog = read('features/course-assignments/components/JsonTaskGraphDialog.jsx');
+const taskGraphExportDialog = read('features/course-assignments/components/JsonTaskGraphExportDialog.jsx');
+const taskGraphImportDialog = read('features/course-assignments/components/JsonTaskGraphImportDialog.jsx');
 const taskGraphDiff = read('features/course-assignments/components/JsonTaskGraphDiffModal.jsx');
 if (!/TASK_GRAPH_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/['"]courses['"]/.test(taskGraphJson) || !/['"]course['"]/.test(taskGraphJson)) {
   fail('canonical JSON graph v4 lost nested-course references');
 }
-if (!/includeLayout/.test(taskGraphDialog) || !/includeIds/.test(taskGraphDialog) || !/updateLayout/.test(taskGraphDiff) || !/updateConnections/.test(taskGraphDiff)) {
+if (!/includeLayout/.test(taskGraphExportDialog) || !/includeIds/.test(taskGraphExportDialog) || !/updateLayout/.test(taskGraphDiff) || !/updateConnections/.test(taskGraphDiff)) {
   fail('selective JSON import/export controls are missing');
 }
-if (!/createPortal/.test(taskGraphDialog) || !/100dvh/.test(taskGraphDialog) || !/min-h-0 flex-1 overflow-y-auto/.test(taskGraphDialog)) {
-  fail('JSON graph editor must stay inside the viewport and scroll internally');
+if (!/Экспорт JSON/.test(taskGraphExportDialog) || /Проверить импорт/.test(taskGraphExportDialog) || !/Скачать JSON/.test(taskGraphExportDialog)) {
+  fail('JSON export must remain a dedicated export-only dialog');
+}
+if (!/Импорт JSON/.test(taskGraphImportDialog) || /Что включить в экспорт/.test(taskGraphImportDialog) || !/Проверить импорт/.test(taskGraphImportDialog)) {
+  fail('JSON import must remain a dedicated import-only dialog');
+}
+if (!/createPortal/.test(taskGraphImportDialog) || !/100dvh/.test(taskGraphImportDialog) || !/min-h-0 flex-1 overflow-y-auto/.test(taskGraphImportDialog)) {
+  fail('JSON import editor must stay inside the viewport and scroll internally');
+}
+if (!/createPortal/.test(taskGraphExportDialog)) {
+  fail('JSON export dialog must render as a modal portal');
 }
 if (!/createPortal/.test(taskGraphDiff) || !/100dvh/.test(taskGraphDiff) || !/min-h-0 flex-1 overflow-y-auto/.test(taskGraphDiff)) {
   fail('JSON import preview must stay inside the viewport and scroll internally');

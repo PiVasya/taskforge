@@ -257,6 +257,8 @@ GET  /api/assignments/{assignmentId}/solve-shell
 GET  /api/assignments/{assignmentId}/statement
 GET  /api/assignments/{assignmentId}/tests
 
+`assignment`, `solve-shell` and `statement` expose `taskConstraints.required` / `taskConstraints.forbidden`. These are author-defined learning rules for the specific assignment; they are intentionally separate from the platform's hidden sandbox/security policy.
+
 POST /api/assignments/{assignmentId}/submit
 GET  /api/me/solutions?assignmentId={assignmentId}
 GET  /api/me/solutions/{solutionId}

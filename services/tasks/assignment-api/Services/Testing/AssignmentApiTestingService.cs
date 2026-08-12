@@ -107,7 +107,18 @@ internal static class AssignmentApiTestingService
     internal static bool IsTestCorrect(TestQuestion q, TestAnswer? a)
     {
         var type = q.Type.ToLowerInvariant();
-        if (type is "single-choice" or "multi-choice") return SetEq(a?.SelectedOptionKeys ?? (a?.SelectedOptionKey == null ? [] : [a.SelectedOptionKey]), q.CorrectOptionKeys);
+        if (type is "single-choice" or "multi-choice")
+        {
+            // Some API clients send the legacy scalar field for single-choice answers,
+            // while others send the list form used by multi-choice. An explicitly empty
+            // list must not erase a valid scalar answer.
+            var selected = a?.SelectedOptionKeys is { Count: > 0 } keys
+                ? keys
+                : string.IsNullOrWhiteSpace(a?.SelectedOptionKey)
+                    ? []
+                    : [a.SelectedOptionKey!];
+            return SetEq(selected, q.CorrectOptionKeys);
+        }
         if (type is "fill" or "text") return TextAccepted(a?.Text, q.AcceptedAnswers, q.CaseSensitive, q.Trim);
         return false;
     }

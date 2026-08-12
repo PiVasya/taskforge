@@ -167,6 +167,28 @@ fn find_ws_insensitive_pos(hay: &str, needle: &str) -> Option<usize> {
     Some(0)
 }
 
+/// Match an author-defined task rule without turning every rule into a raw substring.
+/// - call-like rules such as `max(` are matched as calls;
+/// - plain identifiers/keywords such as `while`, `break`, `list` use token boundaries;
+/// - symbolic rules such as `[`, `%`, `sep=` keep whitespace-insensitive matching.
+fn find_task_rule_pos(cleaned: &str, rule: &str) -> Option<usize> {
+    let trimmed = rule.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let compact = strip_ws(trimmed);
+    if compact.ends_with('(') {
+        return find_call_pos(cleaned, trimmed);
+    }
+
+    if compact.chars().all(is_ident_char) {
+        return find_identifier_pos(cleaned, &compact);
+    }
+
+    find_ws_insensitive_pos(cleaned, trimmed)
+}
+
 /// Check for a call of a (possibly dotted) name, allowing whitespace around dots and before '('.
 /// Example name: "Process.Start" or "__import__" or "solve".
 fn has_call(cleaned: &str, name: &str) -> bool {
@@ -710,12 +732,7 @@ if !forbidden_calls.is_empty() || !required_calls.is_empty() {
 for call in &forbidden_calls {
     if call.trim().is_empty() { continue; }
 
-    // 1) "call-like" check (NAME ... '(' )
-    let call_pos = find_call_pos(&cleaned, call);
-    // 2) substring check (whitespace-insensitive), useful for tokens like '#include' or 'cout'
-    let sub_pos = find_ws_insensitive_pos(&cleaned, call);
-
-    if let Some(pos) = call_pos.or(sub_pos) {
+    if let Some(pos) = find_task_rule_pos(&cleaned, call) {
         let needle = call.trim().to_string();
         let preview = make_preview(&cleaned, pos, needle.len().min(32));
         hits.push(Hit {
@@ -734,7 +751,7 @@ for call in &forbidden_calls {
 
 for call in &required_calls {
     if call.trim().is_empty() { continue; }
-    let ok = find_call_pos(&cleaned, call).is_some() || find_ws_insensitive_pos(&cleaned, call).is_some();
+    let ok = find_task_rule_pos(&cleaned, call).is_some();
     if !ok {
         errors.push(Violation {
             code: "missing_required_call".to_string(),
@@ -1514,6 +1531,23 @@ mod tests {
         let src = "int filesystem = 1; int ecosystem = 2;";
         let hits = c_family_platform_hits(src);
         assert!(!hits.iter().any(|h| h.id == "c.system"));
+    }
+
+
+    #[test]
+    fn task_identifier_rules_use_token_boundaries() {
+        assert!(find_task_rule_pos("playlist = 1", "list").is_none());
+        assert!(find_task_rule_pos("diff = 1", "if").is_none());
+        assert!(find_task_rule_pos("values.append(x)", "append").is_some());
+        assert!(find_task_rule_pos("if x > 0:\n    pass", "if").is_some());
+    }
+
+    #[test]
+    fn task_call_and_symbol_rules_keep_their_intended_shape() {
+        assert!(find_task_rule_pos("m = max(values)", "max (").is_some());
+        assert!(find_task_rule_pos("print(a, b, sep = '-')", "sep=").is_some());
+        assert!(find_task_rule_pos("values = [1, 2]", "[").is_some());
+        assert!(find_task_rule_pos("maximum = 1", "max(").is_none());
     }
 }
 

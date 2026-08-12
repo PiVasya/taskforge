@@ -111,7 +111,8 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                     assignment = $"{root}/api/assignments/{{assignmentId}}",
                     solveShell = $"{root}/api/assignments/{{assignmentId}}/solve-shell",
                     statement = $"{root}/api/assignments/{{assignmentId}}/statement",
-                    tests = $"{root}/api/assignments/{{assignmentId}}/tests"
+                    tests = $"{root}/api/assignments/{{assignmentId}}/tests",
+                    taskConstraints = "Read taskConstraints.required/forbidden from assignment/solve-shell/statement. These are author-defined learning rules and are distinct from hidden platform security policy."
                 },
                 code = new
                 {
@@ -129,7 +130,8 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 {
                     start = $"{root}/api/task-tests/{{assignmentId}}/start",
                     submit = $"{root}/api/task-tests/{{assignmentId}}/submit",
-                    getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}"
+                    getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}",
+                    answerContract = "single-choice accepts selectedOptionKey or a non-empty selectedOptionKeys list; multi-choice uses selectedOptionKeys"
                 },
                 math = new
                 {
@@ -306,7 +308,7 @@ The PNG is the pixel-authoritative visual render. The PDF endpoint is only a com
 ## Authoritative study, submit and recovery APIs
 Browser sessions are best for discovery, navigation, visual inspection and UI-only interactions. When the client can send normal authenticated HTTP requests, use the ordinary TaskForge APIs for reliable serial solving:
 - Study catalog: `GET {{root}}/api/courses`, `GET {{root}}/api/courses/{courseId}/assignments`, and `GET {{root}}/api/courses/{courseId}/learning-map` for progression/access state.
-- Assignment reads: `GET {{root}}/api/assignments/{assignmentId}`, `/solve-shell`, `/statement`, and `/tests` as allowed by the current user's access.
+- Assignment reads: `GET {{root}}/api/assignments/{assignmentId}`, `/solve-shell`, `/statement`, and `/tests` as allowed by the current user's access. Read `taskConstraints.required` / `taskConstraints.forbidden` before solving code tasks; these are explicit author-defined learning rules, not the hidden platform sandbox policy.
 - Code submit: `POST {{root}}/api/assignments/{assignmentId}/submit`; reconcile with `GET {{root}}/api/me/solutions?assignmentId={assignmentId}` and `GET {{root}}/api/me/solutions/{solutionId}`.
 - Test: `POST {{root}}/api/task-tests/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/test-attempts/{attemptId}`.
 - Math: `POST {{root}}/api/math-tasks/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/math-attempts/{attemptId}`.
