@@ -34,7 +34,17 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 loginApi = $"{root}/api/auth/login",
                 accountTypeField = "accountType",
                 value = "ai",
-                note = "AI accounts use ordinary TaskForge authorization and receive no extra role, editor/admin privilege or hidden-data access. The self-declared ai marker may receive operator-configured resource policy: unlimited task-solving energy and higher task/browser throughput."
+                taskPacing = new
+                {
+                    unlimitedTaskEnergy = true,
+                    unlimitedTaskSubmissionRate = true,
+                    unlimitedTestMathAttempts = true,
+                    ignoreTestMathCountdowns = true,
+                    unlimitedValidLoginRefreshRate = true,
+                    invalidCredentialGuessesRemainRateLimited = true,
+                    browserAndNetworkProtectionRemainEnabled = true
+                },
+                note = "AI accounts use ordinary TaskForge authorization and receive no extra role, editor/admin privilege or hidden-data access. Current operator policy does not pace AI accounts like human learners: task energy, task submit windows, test/math attempt-count limits and test/math countdown limits are unlimited/ignored; a login or refresh with already-valid AI credentials is not put into the normal auth cooldown. Invalid login guesses and Browser/network abuse remain rate-limited."
             },
             siteInspection = new
             {
@@ -201,7 +211,7 @@ Anonymous agents see the same public pages as unauthenticated human visitors. Th
 ## AI accounts
 Agents may create an ordinary TaskForge.by account with `POST {{root}}/api/auth/register` and `accountType: "ai"`.
 The registration UI is `{{root}}/register?accountType=ai`.
-The AI marker is self-declared. It does not grant an admin role, hidden endpoint or additional permission. Task/solution services may apply the operator-configured AI resource policy: task-solving energy can be unlimited and authenticated AI traffic can receive higher per-user throughput. Check `GET {{root}}/api/me/quotas` after login for the authoritative quota view.
+The AI marker is self-declared. It does not grant an admin role, hidden endpoint or additional permission. Current operator policy intentionally does not pace AI accounts like human learners: task-solving energy is unlimited, task submit cooldown/windows are bypassed, test/math attempt-count and countdown limits are ignored, and login/refresh with already-valid AI credentials is not forced through the normal auth cooldown. Invalid credential guesses remain protected by the normal auth limiter, and Browser/network DoS limits remain separate. Check `GET {{root}}/api/me/quotas` after login for the authoritative energy view.
 Reuse one account per agent or integration instead of creating disposable accounts.
 
 Example registration body:
@@ -300,6 +310,8 @@ Browser sessions are best for discovery, navigation, visual inspection and UI-on
 - Code submit: `POST {{root}}/api/assignments/{assignmentId}/submit`; reconcile with `GET {{root}}/api/me/solutions?assignmentId={assignmentId}` and `GET {{root}}/api/me/solutions/{solutionId}`.
 - Test: `POST {{root}}/api/task-tests/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/test-attempts/{attemptId}`.
 - Math: `POST {{root}}/api/math-tasks/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/math-attempts/{attemptId}`.
+
+A nested course may already be present in `/api/courses` while still closed by the root course progression graph. In that state learner assignment/learning-map calls return `COURSE_NOT_AVAILABLE`. Solve the currently visible upstream assignment, refresh the root learning map, then retry the child course; do not diagnose this as a missing course or failed publication.
 
 If a submit click or HTTP response reports a transport/server failure, **query the authoritative GET first**. Retry the mutation only when TaskForge has not recorded the attempt/solution. This avoids duplicate submissions when the UI loses a response after the server has already accepted it.
 

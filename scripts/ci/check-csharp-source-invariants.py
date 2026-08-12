@@ -113,7 +113,11 @@ def main() -> int:
     # and never leak the worker's reference solution into learner starter code.
     identity_access_path = ROOT / "services" / "identity" / "api" / "Services" / "Access" / "IdentityApiAccessService.cs"
     tasks_common_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Common" / "AssignmentApiCommonService.cs"
+    task_test_service_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Testing" / "AssignmentApiTestingService.cs"
+    math_service_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Math" / "AssignmentApiMathService.cs"
     solutions_access_path = ROOT / "services" / "solutions" / "api" / "Services" / "Access" / "SolutionsApiAccessService.cs"
+    solutions_common_path = ROOT / "services" / "solutions" / "api" / "Services" / "Common" / "SolutionsApiCommonService.cs"
+    identity_auth_path = ROOT / "services" / "identity" / "api" / "Endpoints" / "Auth" / "AuthEndpoints.cs"
     quota_endpoints_path = ROOT / "services" / "solutions" / "api" / "Endpoints" / "Quotas" / "QuotasEndpoints.cs"
     ai_mapping_path = ROOT / "services" / "ai" / "api" / "Services" / "Mapping" / "AiApiMappingService.cs"
 
@@ -124,21 +128,44 @@ def main() -> int:
 
     if tasks_common_path.exists():
         tasks_common = tasks_common_path.read_text(encoding="utf-8")
-        for marker in ('AiAccounts:UnlimitedTaskEnergy', 'AiAccounts:TaskRateLimitMultiplier', 'TaskForgeRequestSecurity.IsAiAccount(http.User)', 'X-TaskForge-AI-Rate-Multiplier'):
+        for marker in ('AiAccounts:UnlimitedTaskEnergy', 'AiAccounts:UnlimitedTaskRateLimit', 'AiAccounts:UnlimitedTaskAttempts', 'AiAccounts:IgnoreTaskAttemptTimeLimits', 'AiAccounts:TaskRateLimitMultiplier', 'TaskForgeRequestSecurity.IsAiAccount(http.User)', 'X-TaskForge-AI-Task-Rate-Unlimited'):
             if marker not in tasks_common:
                 errors.append(f"tasks-api AI resource policy marker missing: {marker}")
         if 'HasUnlimitedAiTaskEnergy(http, cfg)' not in tasks_common:
             errors.append("tasks-api attempt/image task energy consumption no longer bypasses task energy for configured AI accounts")
 
+    if task_test_service_path.exists():
+        task_test_service = task_test_service_path.read_text(encoding="utf-8")
+        for marker in ('HasUnlimitedAiTaskAttempts(http, cfg)', 'IgnoreAiTaskAttemptTimeLimits(http, cfg)', 'ignoreTimeLimit ? null : TimeLimitFor'):
+            if marker not in task_test_service:
+                errors.append(f"tasks-api test AI no-wait policy marker missing: {marker}")
+
+    if math_service_path.exists():
+        math_service = math_service_path.read_text(encoding="utf-8")
+        for marker in ('HasUnlimitedAiTaskAttempts(http, cfg)', 'IgnoreAiTaskAttemptTimeLimits(http, cfg)', 'ignoreTimeLimit ? null : TimeLimitFor'):
+            if marker not in math_service:
+                errors.append(f"tasks-api math AI no-wait policy marker missing: {marker}")
+
     if solutions_access_path.exists():
         solutions_access = solutions_access_path.read_text(encoding="utf-8")
-        if 'AiAccounts:UnlimitedTaskEnergy' not in solutions_access or 'IsAiAccount(http, cfg)' not in solutions_access:
-            errors.append("solutions-api lost configured AI task-energy bypass")
+        if 'AiAccounts:UnlimitedTaskEnergy' not in solutions_access or 'AiAccounts:UnlimitedTaskRateLimit' not in solutions_access or 'IsAiAccount(http, cfg)' not in solutions_access:
+            errors.append("solutions-api lost configured AI task-energy/rate bypass")
+
+    if solutions_common_path.exists():
+        solutions_common = solutions_common_path.read_text(encoding="utf-8")
+        if 'HasUnlimitedTaskRateLimit(http, cfg)' not in solutions_common or 'X-TaskForge-AI-Task-Rate-Unlimited' not in solutions_common:
+            errors.append("solutions-api AI code-submit limiter bypass is missing")
+
+    if identity_auth_path.exists():
+        identity_auth = identity_auth_path.read_text(encoding="utf-8")
+        for marker in ('AiAccounts:UnlimitedLoginRateLimit', 'passwordValid', 'unlimitedAiRefreshRate'):
+            if marker not in identity_auth:
+                errors.append(f"identity-api valid AI auth cooldown bypass marker missing: {marker}")
 
     if quota_endpoints_path.exists():
         quota_endpoints = quota_endpoints_path.read_text(encoding="utf-8")
-        if 'GetQuotaStatus(db, uid.Value, cfg, HasUnlimitedTaskEnergy(http, cfg), isAdmin' not in quota_endpoints:
-            errors.append("quota status must report AI task energy as unlimited while keeping top/rating unlimited only for admins")
+        if 'GetQuotaStatus(db, uid.Value, cfg, HasUnlimitedTaskEnergy(http, cfg), isAdmin, IsAiAccount(http, cfg)' not in quota_endpoints:
+            errors.append("quota status must report AI task energy/pacing while keeping top/rating unlimited only for admins")
 
     if ai_mapping_path.exists():
         ai_mapping = ai_mapping_path.read_text(encoding="utf-8")
@@ -152,11 +179,27 @@ def main() -> int:
         env_example = ROOT / "deploy" / environment / ".env.example"
         if core_compose.exists():
             compose_text = core_compose.read_text(encoding="utf-8")
-            if compose_text.count("AiAccounts__UnlimitedTaskEnergy:") < 2 or compose_text.count("AiAccounts__TaskRateLimitMultiplier:") < 2:
+            required_compose_markers = (
+                "AiAccounts__UnlimitedTaskEnergy:",
+                "AiAccounts__UnlimitedTaskRateLimit:",
+                "AiAccounts__UnlimitedTaskAttempts:",
+                "AiAccounts__IgnoreTaskAttemptTimeLimits:",
+                "AiAccounts__TaskRateLimitMultiplier:",
+            )
+            if any(compose_text.count(marker) < 2 for marker in required_compose_markers):
                 errors.append(f"{environment} compose must pass AI task resource policy to both tasks-api and solutions-api")
+            if compose_text.count("AiAccounts__UnlimitedLoginRateLimit:") < 1:
+                errors.append(f"{environment} compose must pass AI login no-cooldown policy to identity-api")
         if env_example.exists():
             env_text = env_example.read_text(encoding="utf-8")
-            for marker in ("AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true", "AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20"):
+            for marker in (
+                "AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true",
+                "AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT=true",
+                "AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS=true",
+                "AI_ACCOUNTS_IGNORE_TASK_ATTEMPT_TIME_LIMITS=true",
+                "AI_ACCOUNTS_UNLIMITED_LOGIN_RATE_LIMIT=true",
+                "AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20",
+            ):
                 if marker not in env_text:
                     errors.append(f"{environment} .env.example missing AI resource policy knob: {marker}")
 

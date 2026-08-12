@@ -191,7 +191,7 @@ deploy/prod/compose/
 
 Основные production-пределы задаются переменными `BROWSER_*`: concurrency, число сессий, viewport, full-page pixels, размер кэша и максимальный размер ответа. Не отключайте `BROWSER_RATE_LIMITS_ENABLED`, не добавляйте произвольные origins и не публикуйте порт контейнера.
 
-Для AI-аккаунтов отдельно доступны `AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true`, `AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20`, `BROWSER_EDGE_RATE_RPS=25` и `BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=4`. `BROWSER_EDGE_RATE_RPS` — только грубый IP-потолок gateway и намеренно выше identity-aware лимитов `browser-api`, чтобы Nginx не отменял AI multiplier. GET-compatible remote Chromium оставляет сетевые ограничения `AI_REMOTE_BROWSER_START_LIMIT=60`, `AI_REMOTE_BROWSER_ACTION_LIMIT=300`, `AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60`; это защита публичного capability API, а не пользовательская энергия.
+Для AI-аккаунтов отдельно доступны `AI_ACCOUNTS_UNLIMITED_TASK_ENERGY=true`, `AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT=true`, `AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS=true`, `AI_ACCOUNTS_IGNORE_TASK_ATTEMPT_TIME_LIMITS=true`, `AI_ACCOUNTS_UNLIMITED_LOGIN_RATE_LIMIT=true`, fallback `AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER=20`, `BROWSER_EDGE_RATE_RPS=25` и `BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=4`. `BROWSER_EDGE_RATE_RPS` — только грубый IP-потолок gateway и намеренно выше identity-aware лимитов `browser-api`, чтобы Nginx не отменял AI multiplier. GET-compatible remote Chromium оставляет сетевые ограничения `AI_REMOTE_BROWSER_START_LIMIT=60`, `AI_REMOTE_BROWSER_ACTION_LIMIT=300`, `AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60`; это защита публичного capability API, а не пользовательская энергия.
 
 Проверка после обновления:
 

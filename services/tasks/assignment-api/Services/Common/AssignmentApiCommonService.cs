@@ -25,6 +25,12 @@ internal static class AssignmentApiCommonService
 
     internal static IResult? CheckUserRateLimit(HttpContext http, IConfiguration cfg, string bucket)
     {
+        if (HasUnlimitedAiTaskRateLimit(http, cfg))
+        {
+            http.Response.Headers["X-TaskForge-AI-Task-Rate-Unlimited"] = "true";
+            return null;
+        }
+
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";
@@ -38,6 +44,18 @@ internal static class AssignmentApiCommonService
 
     internal static bool HasUnlimitedAiTaskEnergy(HttpContext http, IConfiguration cfg)
         => cfg.GetValue("AiAccounts:UnlimitedTaskEnergy", true)
+           && TaskForgeRequestSecurity.IsAiAccount(http.User);
+
+    internal static bool HasUnlimitedAiTaskRateLimit(HttpContext http, IConfiguration cfg)
+        => cfg.GetValue("AiAccounts:UnlimitedTaskRateLimit", true)
+           && TaskForgeRequestSecurity.IsAiAccount(http.User);
+
+    internal static bool HasUnlimitedAiTaskAttempts(HttpContext http, IConfiguration cfg)
+        => cfg.GetValue("AiAccounts:UnlimitedTaskAttempts", true)
+           && TaskForgeRequestSecurity.IsAiAccount(http.User);
+
+    internal static bool IgnoreAiTaskAttemptTimeLimits(HttpContext http, IConfiguration cfg)
+        => cfg.GetValue("AiAccounts:IgnoreTaskAttemptTimeLimits", true)
            && TaskForgeRequestSecurity.IsAiAccount(http.User);
 
     internal static string? NodeString(JsonObject o, string name) => o.TryGetPropertyValue(name, out var n) && n is not null ? n.ToString() : null;

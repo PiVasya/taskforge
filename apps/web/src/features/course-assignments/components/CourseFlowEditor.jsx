@@ -2665,6 +2665,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onPaneContextMenu={onPaneContextMenu}
           onPaneClick={() => setUnplacedOpen(false)}
           onNodeContextMenu={onNodeContextMenu}
+          onNodeClick={(event, node) => {
+            if (editorMode || event.defaultPrevented || node.type === 'locked' || node.type === 'course') return;
+            openAssignment(node.entityId);
+          }}
           onNodeDoubleClick={(event, node) => {
             event.preventDefault();
             if (node.type === 'locked') return;

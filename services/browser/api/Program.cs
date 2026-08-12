@@ -391,7 +391,8 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             "After UI mutations request a session snapshot with waitMs=1500..5000 instead of tight polling.",
             "If a submit click reports a transport/server error, reconcile through the authoritative GET attempt/solution API before retrying so an accepted submission is not duplicated.",
             "For code verdicts, poll Preparing/Queued/Running through the returned solution GET with bounded backoff; JudgeUnavailable means infrastructure failed for that submission, so reconcile and back off instead of tight resubmission loops.",
-            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden-data access; operator-configured resource policy may grant unlimited task energy and higher throughput."
+            "A child course listed in the catalog can still be closed by root-graph progression. COURSE_NOT_AVAILABLE means solve the visible upstream gate and refresh the root learning map; it is not COURSE_NOT_FOUND.",
+            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden-data access; current resource policy removes human pacing from task solving (unlimited task energy/rate, unlimited test/math attempts, no test/math countdown, no auth cooldown after already-valid AI credentials) while invalid login guesses and Browser/network abuse stay protected."
         },
         onboarding = new
         {
@@ -399,7 +400,16 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             loginApi = $"{root}/api/auth/login",
             registerUi = $"{root}/register?accountType=ai",
             accountType = "ai",
-            quotaStatusApi = $"{root}/api/me/quotas"
+            quotaStatusApi = $"{root}/api/me/quotas",
+            taskPacing = new
+            {
+                unlimitedTaskEnergy = true,
+                unlimitedTaskSubmissionRate = true,
+                unlimitedTestMathAttempts = true,
+                ignoreTestMathCountdowns = true,
+                unlimitedValidLoginRefreshRate = true,
+                invalidCredentialGuessesRemainRateLimited = true
+            }
         },
         browser = new
         {

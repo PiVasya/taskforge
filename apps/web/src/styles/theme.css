@@ -599,10 +599,10 @@ select.input {
   min-height: 42px;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: 12px;
   background: transparent;
   color: rgb(var(--text));
-  padding: 0.65rem 0.85rem;
+  padding: 0.58rem 0.8rem;
   text-align: left;
   font-weight: 650;
   transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;

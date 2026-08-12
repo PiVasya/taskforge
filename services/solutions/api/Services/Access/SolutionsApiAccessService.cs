@@ -47,6 +47,10 @@ internal static class SolutionsApiAccessService
         => IsAdmin(http, cfg)
            || (cfg.GetValue("AiAccounts:UnlimitedTaskEnergy", true) && IsAiAccount(http, cfg));
 
+    internal static bool HasUnlimitedTaskRateLimit(HttpContext http, IConfiguration cfg)
+        => cfg.GetValue("AiAccounts:UnlimitedTaskRateLimit", true)
+           && IsAiAccount(http, cfg);
+
     internal static bool IsEditor(HttpContext http, IConfiguration cfg)
     {
         var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);

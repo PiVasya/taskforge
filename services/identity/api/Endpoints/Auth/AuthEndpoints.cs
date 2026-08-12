@@ -77,8 +77,6 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg, AiAccessTelemetryClient aiTelemetry) =>
         {
-            if (await CheckAuthRateLimitAsync(http, "login", request.Login ?? request.Email) is { } limited) return limited;
-
             var identity = (request.Login ?? request.Email ?? string.Empty).Trim();
             var identityIsEmail = identity.Contains('@');
             var email = NormalizeOptionalEmail(request.Email);
@@ -95,7 +93,19 @@ internal static partial class IdentityApiEndpoints
                 user = await db.Users.FirstOrDefaultAsync(x => x.Login == login);
             }
 
-            if (user == null || !VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash))
+            var passwordValid = user != null && VerifyPassword(request.Password ?? string.Empty, user.PasswordSalt, user.PasswordHash);
+            var unlimitedAiLoginRate = passwordValid
+                && string.Equals(user!.AccountType, "ai", StringComparison.OrdinalIgnoreCase)
+                && cfg.GetValue("AiAccounts:UnlimitedLoginRateLimit", true);
+
+            // Invalid credentials and human accounts retain the normal brute-force limiter.
+            // A caller that already knows the valid password of an AI account does not gain
+            // any extra authorization by logging in repeatedly, so it may refresh its access
+            // token without an artificial cooldown.
+            if (!unlimitedAiLoginRate
+                && await CheckAuthRateLimitAsync(http, "login", request.Login ?? request.Email) is { } limited) return limited;
+
+            if (user is null || !passwordValid)
             {
                 return Unauthorized("Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь.", "INVALID_CREDENTIALS");
             }
@@ -155,8 +165,11 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
-            if (await CheckAuthRateLimitAsync(http, "refresh") is { } limited) return limited;
             var principal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
+            var unlimitedAiRefreshRate = principal != null
+                && string.Equals(principal.FindFirstValue("account_type"), "ai", StringComparison.OrdinalIgnoreCase)
+                && cfg.GetValue("AiAccounts:UnlimitedLoginRateLimit", true);
+            if (!unlimitedAiRefreshRate && await CheckAuthRateLimitAsync(http, "refresh") is { } limited) return limited;
             var uid = principal == null ? null : TryGetUserId(principal);
             if (uid == null) return Unauthorized("Сессия истекла. Войдите заново.");
             if (!string.Equals(principal!.FindFirstValue("token_type"), "refresh", StringComparison.OrdinalIgnoreCase)) return Unauthorized("Сессия истекла. Войдите заново.");

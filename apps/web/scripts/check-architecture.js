@@ -117,12 +117,20 @@ if (!/useUiBackgroundSettings/.test(persistentBackground) || /useUiAppearance/.t
   fail('PersistentBackground subscribes to settings unrelated to the background');
 }
 const appHeader = read('components/shell/AppHeader.jsx');
-if (!/shell-quick-menu/.test(appHeader) || !/to="\/settings" className="btn-ghost w-full justify-start xl:hidden"/.test(appHeader)) {
+if (!/shell-quick-menu/.test(appHeader) || /to="\/settings" className="btn-ghost w-full justify-start/.test(appHeader)) {
   fail('desktop quick actions can duplicate the primary Settings action again');
 }
 const desktopSidebar = read('components/shell/DesktopSidebar.jsx');
 if (!/createPortal/.test(desktopSidebar) || !/side-nav-rail-tooltip/.test(desktopSidebar) || !/title=\{rail \? undefined : title\}/.test(desktopSidebar)) {
   fail('collapsed desktop navigation lost its visible custom tooltip');
+}
+const courseFlowClickSource = read('features/course-assignments/components/CourseFlowEditor.jsx');
+if (!/onNodeClick=\{\(event, node\) =>/.test(courseFlowClickSource) || !/openAssignment\(node\.entityId\)/.test(courseFlowClickSource)) {
+  fail('learner course-map nodes lost direct single-click navigation');
+}
+const courseMapHoverCss = read('features/course-assignments/course-map.css');
+if (!/Final learner UX hardening/.test(courseMapHoverCss) || !/\.course-map-node-hover[\s\S]{0,180}?width:\s*100%/.test(courseMapHoverCss)) {
+  fail('course-map hover panel can drift away from the node width');
 }
 const neoBrutalCss = read('styles/neobrutal.css');
 if (!/shell-quick-menu \.btn-ghost:hover/.test(neoBrutalCss) || !/settings-nav-item/.test(neoBrutalCss)) {

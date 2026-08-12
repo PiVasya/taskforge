@@ -1980,28 +1980,56 @@ html.neo-brutal .course-map-node--locked {
   cursor: pointer;
 }
 
-/* A LOCK placeholder is informational, not a disabled-looking CTA that turns
-   active on hover. Keep its affordance stable in every appearance mode. */
+/* Final learner UX hardening ------------------------------------------------
+   Hover details are an extension of the node, not a second unrelated card. */
+.course-map-node-hover {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 100%;
+  max-width: none;
+}
+
+/* LOCK is informational. Generic node hover/selection rules must never make it
+   resemble an enabled CTA or wash out its foreground. */
 .course-map-node--locked,
 .course-map-node--locked:hover,
-.course-map-node--locked:focus-within {
+.course-map-node--locked:focus-within,
+.course-map-node--locked.is-selected {
+  transform: none !important;
   cursor: not-allowed;
-  transform: none;
-  border-color: color-mix(in srgb, rgb(var(--text)) 38%, transparent);
-  box-shadow: 0 10px 26px rgba(18, 20, 28, .08);
-  filter: saturate(.55);
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, rgb(var(--text)) 3%, transparent) 0 10px, transparent 10px 20px),
+    rgb(var(--card)) !important;
+  border-color: color-mix(in srgb, rgb(var(--text)) 42%, transparent) !important;
+  border-left-color: color-mix(in srgb, rgb(var(--text)) 58%, transparent) !important;
+  color: rgb(var(--text)) !important;
+  box-shadow: 0 10px 26px rgba(18, 20, 28, .08) !important;
+  filter: none !important;
+}
+
+.course-map-node--locked:hover .course-map-node-heading,
+.course-map-node--locked:focus-within .course-map-node-heading,
+.course-map-node--locked:hover .course-map-locked-requirement,
+.course-map-node--locked:focus-within .course-map-locked-requirement {
+  color: rgb(var(--text)) !important;
 }
 
 html.neo-brutal .course-map-node--locked,
 html.neo-brutal .course-map-node--locked:hover,
 html.neo-brutal .course-map-node--locked:focus-within,
 html.neo-brutal .course-map-node--locked.is-selected {
-  cursor: not-allowed;
-  transform: none;
-  border: 2px dashed rgb(var(--neo-ink));
-  border-left-width: 6px;
-  background: rgb(var(--card));
-  color: rgb(var(--text));
-  box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
-  filter: saturate(.45);
+  transform: none !important;
+  border: 2px dashed rgb(var(--neo-ink)) !important;
+  border-left-width: 6px !important;
+  background: rgb(var(--neo-paper-alt)) !important;
+  color: rgb(var(--neo-ink)) !important;
+  box-shadow: 5px 5px 0 0 rgb(var(--neo-ink)) !important;
+  filter: none !important;
+}
+
+html.neo-brutal .course-map-node--locked .course-map-node-heading,
+html.neo-brutal .course-map-node--locked .course-map-locked-requirement,
+html.neo-brutal .course-map-node--locked:hover .course-map-node-heading,
+html.neo-brutal .course-map-node--locked:hover .course-map-locked-requirement {
+  color: rgb(var(--neo-ink)) !important;
 }

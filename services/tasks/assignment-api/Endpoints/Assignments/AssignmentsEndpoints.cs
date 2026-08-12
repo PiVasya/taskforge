@@ -95,7 +95,7 @@ internal static partial class AssignmentApiEndpoints
                 if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
                 var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
                 if (evaluation == null)
-                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт по прогрессии.", code = "COURSE_NOT_AVAILABLE" });
 
                 var visibleIds = evaluation.VisibleAssignmentIds;
                 var rows = await db.Assignments.AsNoTracking()
@@ -251,7 +251,7 @@ internal static partial class AssignmentApiEndpoints
                 if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
                 var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
                 if (evaluation == null)
-                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+                    return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт по прогрессии.", code = "COURSE_NOT_AVAILABLE" });
 
                 var visibleIds = evaluation.VisibleAssignmentIds;
                 var rows = await db.Assignments.AsNoTracking()

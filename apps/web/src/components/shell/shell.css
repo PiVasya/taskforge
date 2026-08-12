@@ -924,31 +924,76 @@
   pointer-events: none;
 }
 
-/* Unified navigation interaction hierarchy --------------------------------- */
+/* Unified navigation interaction hierarchy ---------------------------------
+   Header actions, sidebar navigation and settings tabs intentionally share
+   the same compact geometry. Their hierarchy comes from placement/state, not
+   unrelated pill shapes. */
+.header-quick-action,
 .side-nav-link.is-compact {
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
+  min-height: 42px;
+  border-radius: 12px;
 }
 
 .header-quick-action {
-  border-radius: 14px;
+  padding: 0.58rem 0.8rem;
+}
+
+.side-nav-link.is-compact {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.side-nav-link.is-compact .side-nav-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+}
+
+.side-nav-link.is-rail {
+  min-height: 44px;
+  padding: 0.25rem;
+}
+
+.side-nav-link.is-rail .side-nav-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.shell-quick-menu .btn-ghost {
+  min-width: 0;
+  min-height: 42px;
+  border-radius: 12px;
 }
 
 .side-nav-rail-tooltip {
   position: fixed;
-  z-index: 120;
-  max-width: min(20rem, calc(100vw - 2rem));
+  z-index: 1000;
+  min-width: max-content;
+  max-width: min(22rem, calc(100vw - 2rem));
   transform: translateY(-50%);
   pointer-events: none;
   border: 1px solid rgba(var(--border) / 0.78);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(var(--card) / 0.98);
-  box-shadow: 0 14px 32px rgba(0 0 0 / 0.18);
+  box-shadow: 0 16px 36px rgba(0 0 0 / 0.22);
   color: rgb(var(--text));
-  padding: 0.55rem 0.72rem;
+  padding: 0.6rem 0.78rem;
   font-size: 0.82rem;
   font-weight: 650;
   line-height: 1.25;
   white-space: normal;
   backdrop-filter: blur(10px);
+}
+
+.side-nav-rail-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  border-left: 1px solid rgba(var(--border) / 0.78);
+  border-bottom: 1px solid rgba(var(--border) / 0.78);
+  background: rgba(var(--card) / 0.98);
+  transform: translateY(-50%) rotate(45deg);
 }

@@ -29,13 +29,15 @@ internal static class AssignmentApiTestingService
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var spec = ReadTaskSpec(assignment);
         if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
+        var unlimitedAttempts = HasUnlimitedAiTaskAttempts(http, cfg);
+        var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
         var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
-        if (active != null) return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(active, spec));
+        if (active != null) return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(active, spec, unlimitedAttempts, ignoreTimeLimit));
         var used = await db.Attempts.CountAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
-        var max = spec.Settings.MaxAttempts <= 0 ? int.MaxValue : spec.Settings.MaxAttempts;
+        var max = unlimitedAttempts || spec.Settings.MaxAttempts <= 0 ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start", ct) is { } quotaProblem) return quotaProblem;
-        var attempt = new TaskAttempt { Kind = "test", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
+        var attempt = new TaskAttempt { Kind = "test", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = ignoreTimeLimit ? null : TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
         attempt.OrderJson = JsonSerializer.Serialize(OrderedIds(spec.Questions.Select(x => x.Id), spec.Settings.ShuffleQuestions, attempt.Id), JsonOptions());
         db.Attempts.Add(attempt);
         try
@@ -47,7 +49,7 @@ internal static class AssignmentApiTestingService
             await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start-failed", CancellationToken.None);
             throw;
         }
-        return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec));
+        return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit));
     }
 
     internal static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
@@ -79,8 +81,10 @@ internal static class AssignmentApiTestingService
             review.Add(TestQuestionReviewNode(q, ans, ok));
         }
         var score = total == 0 ? 0 : (int)System.Math.Floor(correct * 100.0 / total);
+        var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
+        var unlimitedAttempts = HasUnlimitedAiTaskAttempts(http, cfg);
         attempt.SubmittedAt = DateTimeOffset.UtcNow;
-        attempt.TimeExpired = IsTimeExpired(attempt);
+        attempt.TimeExpired = !ignoreTimeLimit && IsTimeExpired(attempt);
         attempt.TotalUnits = total; attempt.CorrectUnits = correct; attempt.TotalScore = total; attempt.EarnedScore = correct;
         attempt.ScorePercent = attempt.TimeExpired ? 0 : score;
         attempt.Passed = !attempt.TimeExpired && attempt.ScorePercent >= spec.Settings.PassPercent;
@@ -89,15 +93,15 @@ internal static class AssignmentApiTestingService
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
-        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }
 
-    internal static object TestStartDto(TaskAttempt attempt, TaskSpec spec)
+    internal static object TestStartDto(TaskAttempt attempt, TaskSpec spec, bool unlimitedAttempts = false, bool ignoreTimeLimit = false)
     {
         var order = ParseGuidList(attempt.OrderJson);
         var map = spec.Questions.ToDictionary(x => x.Id);
         var questions = (order.Count == 0 ? spec.Questions : order.Where(map.ContainsKey).Select(id => map[id])).Select(x => TestQuestionPublicDto(x, spec.Settings.ShuffleAnswers, attempt.Id)).ToList();
-        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
+        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, attemptTimeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
     }
 
     internal static bool IsTestCorrect(TestQuestion q, TestAnswer? a)

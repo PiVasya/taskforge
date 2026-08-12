@@ -948,7 +948,7 @@ html.neo-brutal .side-nav-rail-tooltip {
 
 html.neo-brutal .settings-nav-item {
   border: 2px solid transparent;
-  border-radius: 0.7rem;
+  border-radius: 0.65rem;
   color: rgb(var(--text));
   font-weight: 800;
 }
@@ -965,4 +965,10 @@ html.neo-brutal .settings-nav-item.is-active {
   background: rgb(var(--brand-200));
   color: rgb(20 20 22);
   box-shadow: inset 5px 0 0 rgb(var(--neo-ink)), 4px 4px 0 0 rgb(var(--neo-ink));
+}
+
+
+html.neo-brutal .side-nav-rail-tooltip::before {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--card));
 }

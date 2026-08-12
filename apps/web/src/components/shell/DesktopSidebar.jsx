@@ -15,6 +15,7 @@ const SideNavLink = React.memo(function SideNavLink({
 }) {
   const title = subtitle ? `${label} — ${subtitle}` : label;
   const [tooltip, setTooltip] = React.useState(null);
+  const tooltipId = React.useId();
 
   const showTooltip = React.useCallback((event) => {
     if (!rail || typeof document === 'undefined') return;
@@ -31,6 +32,9 @@ const SideNavLink = React.memo(function SideNavLink({
         className={`side-nav-link ${active ? 'is-active' : ''} is-compact ${rail ? 'is-rail' : ''}`}
         title={rail ? undefined : title}
         aria-label={rail ? title : undefined}
+        aria-describedby={rail && tooltip ? tooltipId : undefined}
+        onPointerEnter={showTooltip}
+        onPointerLeave={hideTooltip}
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}
         onFocus={showTooltip}
@@ -49,6 +53,7 @@ const SideNavLink = React.memo(function SideNavLink({
       {rail && tooltip && typeof document !== 'undefined'
         ? createPortal(
             <div
+              id={tooltipId}
               className="side-nav-rail-tooltip"
               role="tooltip"
               style={{ left: tooltip.left, top: tooltip.top }}

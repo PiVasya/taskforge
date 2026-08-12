@@ -180,6 +180,7 @@ internal static class SolutionsApiResultsService
         IConfiguration cfg,
         bool unlimitedTasks,
         bool unlimitedTop,
+        bool isAiAccount,
         CancellationToken ct = default)
     {
         var taskPolicy = QuotaPolicy(cfg, "tasks");
@@ -200,7 +201,14 @@ internal static class SolutionsApiResultsService
             top,
             buckets = new[] { tasks, top },
             remaining = tasks.remaining,
-            capacity = tasks.capacity
+            capacity = tasks.capacity,
+            aiTaskPacing = new
+            {
+                enabled = isAiAccount,
+                unlimitedTaskRateLimit = isAiAccount && cfg.GetValue("AiAccounts:UnlimitedTaskRateLimit", true),
+                unlimitedTaskAttempts = isAiAccount && cfg.GetValue("AiAccounts:UnlimitedTaskAttempts", true),
+                ignoreTaskAttemptTimeLimits = isAiAccount && cfg.GetValue("AiAccounts:IgnoreTaskAttemptTimeLimits", true)
+            }
         };
     }
 

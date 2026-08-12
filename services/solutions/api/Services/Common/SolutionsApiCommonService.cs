@@ -26,6 +26,12 @@ internal static class SolutionsApiCommonService
     private static long LeaderboardViewFallbackSweepCounter;
     internal static IResult? CheckUserRateLimit(HttpContext http, IConfiguration cfg, string bucket)
     {
+        if (HasUnlimitedTaskRateLimit(http, cfg))
+        {
+            http.Response.Headers["X-TaskForge-AI-Task-Rate-Unlimited"] = "true";
+            return null;
+        }
+
         var userId = http.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User?.FindFirstValue("sub") ?? "anonymous";
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"{bucket}:{userId}:{ip}";

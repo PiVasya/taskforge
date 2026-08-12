@@ -12,6 +12,7 @@ services:
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
       Services__SupportBot: http://support-bot:8080
       AiAccessTelemetry__Enabled: ${AI_ACCESS_TELEMETRY_ENABLED:-true}
+      AiAccounts__UnlimitedLoginRateLimit: ${AI_ACCOUNTS_UNLIMITED_LOGIN_RATE_LIMIT:-true}
       AiAccessTelemetry__SupportBotBaseUrl: http://support-bot:8080
       Telegram__CodeLifetimeMinutes: ${TELEGRAM_LINK_CODE_LIFETIME_MINUTES:-10}
       Telegram__CodeCooldownSeconds: ${TELEGRAM_LINK_CODE_COOLDOWN_SECONDS:-30}
@@ -219,6 +220,9 @@ services:
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
+      AiAccounts__UnlimitedTaskRateLimit: ${AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT:-true}
+      AiAccounts__UnlimitedTaskAttempts: ${AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS:-true}
+      AiAccounts__IgnoreTaskAttemptTimeLimits: ${AI_ACCOUNTS_IGNORE_TASK_ATTEMPT_TIME_LIMITS:-true}
       AiAccounts__TaskRateLimitMultiplier: ${AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER:-20}
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -286,6 +290,9 @@ services:
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
+      AiAccounts__UnlimitedTaskRateLimit: ${AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT:-true}
+      AiAccounts__UnlimitedTaskAttempts: ${AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS:-true}
+      AiAccounts__IgnoreTaskAttemptTimeLimits: ${AI_ACCOUNTS_IGNORE_TASK_ATTEMPT_TIME_LIMITS:-true}
       AiAccounts__TaskRateLimitMultiplier: ${AI_ACCOUNTS_TASK_RATE_LIMIT_MULTIPLIER:-20}
       Quotas__Tasks__Capacity: ${TASKFORGE_TASK_ENERGY_CAPACITY:-10}
       Quotas__Tasks__RefillSeconds: ${TASKFORGE_TASK_ENERGY_REFILL_SECONDS:-90}

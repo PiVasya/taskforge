@@ -238,10 +238,6 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                     <User size={18} />
                     <span className="ml-2">Профиль</span>
                   </Link>
-                  <Link to="/settings" className="btn-ghost w-full justify-start xl:hidden" onClick={() => setQuickOpen(false)}>
-                    <Settings size={18} />
-                    <span className="ml-2">Настройки</span>
-                  </Link>
                   {canEdit && (
                     <button
                       type="button"
