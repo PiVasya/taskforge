@@ -233,12 +233,12 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                 <MoreHorizontal size={18} />
               </button>
               {quickOpen && (
-                <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
+                <div className="shell-quick-menu absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
                   <Link to="/settings?section=profile" className="btn-ghost w-full justify-start" onClick={() => setQuickOpen(false)}>
                     <User size={18} />
                     <span className="ml-2">Профиль</span>
                   </Link>
-                  <Link to="/settings" className="btn-ghost w-full justify-start" onClick={() => setQuickOpen(false)}>
+                  <Link to="/settings" className="btn-ghost w-full justify-start xl:hidden" onClick={() => setQuickOpen(false)}>
                     <Settings size={18} />
                     <span className="ml-2">Настройки</span>
                   </Link>

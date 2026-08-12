@@ -925,3 +925,44 @@ html.neo-brutal .side-nav-link:not(.is-rail).is-active {
   color: rgb(var(--text));
   box-shadow: inset 6px 0 0 rgb(var(--brand-300)), var(--neo-shadow-xs);
 }
+
+/* Shell popovers must keep readable foregrounds against the deliberately
+   bright neo-brutal hover surfaces. */
+html.neo-brutal .shell-quick-menu .btn-ghost {
+  color: rgb(var(--text)) !important;
+}
+
+html.neo-brutal .shell-quick-menu .btn-ghost:hover {
+  background: rgb(var(--brand-200)) !important;
+  color: rgb(20 20 22) !important;
+}
+
+html.neo-brutal .side-nav-rail-tooltip {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 0.65rem;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
+  backdrop-filter: none;
+}
+
+html.neo-brutal .settings-nav-item {
+  border: 2px solid transparent;
+  border-radius: 0.7rem;
+  color: rgb(var(--text));
+  font-weight: 800;
+}
+
+html.neo-brutal .settings-nav-item:hover {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .settings-nav-item.is-active {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--brand-200));
+  color: rgb(20 20 22);
+  box-shadow: inset 5px 0 0 rgb(var(--neo-ink)), 4px 4px 0 0 rgb(var(--neo-ink));
+}

@@ -64,9 +64,7 @@ function SettingsNavigation({ activeSection, onOpen, profile, extra }) {
               key={section.key}
               type="button"
               onClick={() => onOpen(section.key)}
-              className={`w-full rounded-2xl px-4 py-3 text-left font-semibold transition ${activeSection === section.key
-                ? 'bg-[rgba(var(--accent)/0.16)] text-[rgb(var(--accent))]'
-                : 'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800/60'}`}
+              className={`settings-nav-item ${activeSection === section.key ? 'is-active' : ''}`}
             >
               {section.title}
             </button>

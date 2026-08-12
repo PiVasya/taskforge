@@ -923,3 +923,32 @@
   line-height: 1;
   pointer-events: none;
 }
+
+/* Unified navigation interaction hierarchy --------------------------------- */
+.side-nav-link.is-compact {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+.header-quick-action {
+  border-radius: 14px;
+}
+
+.side-nav-rail-tooltip {
+  position: fixed;
+  z-index: 120;
+  max-width: min(20rem, calc(100vw - 2rem));
+  transform: translateY(-50%);
+  pointer-events: none;
+  border: 1px solid rgba(var(--border) / 0.78);
+  border-radius: 12px;
+  background: rgba(var(--card) / 0.98);
+  box-shadow: 0 14px 32px rgba(0 0 0 / 0.18);
+  color: rgb(var(--text));
+  padding: 0.55rem 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: normal;
+  backdrop-filter: blur(10px);
+}

@@ -358,9 +358,9 @@ for marker in (
         die(f'AI remote-browser rate contract marker missing: {marker}')
 
 course_map_primitives = text('apps/web/src/features/course-assignments/nodes/CourseMapNodePrimitives.jsx')
-for marker in ('window.__TASKFORGE_BROWSER_AUTOMATION__ !== true', 'data?.editorMode', 'action();'):
+for marker in ('window.__TASKFORGE_BROWSER_AUTOMATION__ !== true', 'data?.editorMode', 'action();', 'activateCourseMapAssignmentNode', 'interactiveTarget'):
     if marker not in course_map_primitives:
-        die(f'course-map Browser Automation activation guard missing: {marker}')
+        die(f'course-map learner/Browser Automation activation guard missing: {marker}')
 for node_path in (
     'apps/web/src/features/course-assignments/nodes/CodeTestNode.jsx',
     'apps/web/src/features/course-assignments/nodes/TestNode.jsx',
@@ -368,7 +368,7 @@ for node_path in (
     'apps/web/src/features/course-assignments/nodes/ImageCodeNode.jsx',
 ):
     node_source = text(node_path)
-    for marker in ('data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}', 'data-taskforge-agent-action="open-assignment"', 'activateCourseMapNodeForAgent'):
+    for marker in ('data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}', 'data-taskforge-agent-action="open-assignment"', 'activateCourseMapAssignmentNode'):
         if marker not in node_source:
             die(f'{node_path} lost stable Browser Automation navigation marker: {marker}')
 course_node = text('apps/web/src/features/course-assignments/nodes/CourseNode.jsx')

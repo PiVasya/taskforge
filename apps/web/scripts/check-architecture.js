@@ -116,6 +116,18 @@ const persistentBackground = read('components/shell/PersistentBackground.jsx');
 if (!/useUiBackgroundSettings/.test(persistentBackground) || /useUiAppearance/.test(persistentBackground)) {
   fail('PersistentBackground subscribes to settings unrelated to the background');
 }
+const appHeader = read('components/shell/AppHeader.jsx');
+if (!/shell-quick-menu/.test(appHeader) || !/to="\/settings" className="btn-ghost w-full justify-start xl:hidden"/.test(appHeader)) {
+  fail('desktop quick actions can duplicate the primary Settings action again');
+}
+const desktopSidebar = read('components/shell/DesktopSidebar.jsx');
+if (!/createPortal/.test(desktopSidebar) || !/side-nav-rail-tooltip/.test(desktopSidebar) || !/title=\{rail \? undefined : title\}/.test(desktopSidebar)) {
+  fail('collapsed desktop navigation lost its visible custom tooltip');
+}
+const neoBrutalCss = read('styles/neobrutal.css');
+if (!/shell-quick-menu \.btn-ghost:hover/.test(neoBrutalCss) || !/settings-nav-item/.test(neoBrutalCss)) {
+  fail('neo-brutal shell/settings interaction contrast overrides are missing');
+}
 
 const queryClient = read('data/queryClient.js');
 if (!/AbortController/.test(queryClient) || !/entry\.promise/.test(queryClient) || !/isInvalidated/.test(queryClient)) {
@@ -234,6 +246,18 @@ if (!/useNodesInitialized/.test(courseFlowEditor) || !/course-map-node-layout-pe
 const courseMapCss = read('features/course-assignments/course-map.css');
 if (!/course-map-node-layout-pending/.test(courseMapCss) || !/is-layout-pending/.test(courseMapCss)) {
   fail('course-map pending-layout visibility guard is missing');
+}
+const learnerAssignmentNodes = [
+  'features/course-assignments/nodes/CodeTestNode.jsx',
+  'features/course-assignments/nodes/TestNode.jsx',
+  'features/course-assignments/nodes/ImageCodeNode.jsx',
+  'features/course-assignments/nodes/MathNode.jsx',
+].map(read).join('\n');
+if (!/activateCourseMapAssignmentNode/.test(learnerAssignmentNodes) || !/role=\{data\?\.editorMode \? undefined : ["']link["']\}/.test(learnerAssignmentNodes)) {
+  fail('learner course-map assignment cards no longer open directly while editor selection remains isolated');
+}
+if (!/course-map-node--locked:hover/.test(courseMapCss) || !/cursor:\s*not-allowed/.test(courseMapCss)) {
+  fail('locked course-map placeholders can look interactive again');
 }
 if (/\.react-flow__node\.course-map-node-revealed\s*\{/.test(courseMapCss) || !/course-map-node-revealed > \.course-map-node/.test(courseMapCss)) {
   fail('course-map reveal animation must not overwrite the React Flow node wrapper transform');

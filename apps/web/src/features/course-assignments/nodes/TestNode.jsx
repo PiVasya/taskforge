@@ -1,6 +1,6 @@
 import React from 'react';
 import { ListChecks } from 'lucide-react';
-import { activateCourseMapNodeForAgent, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { activateCourseMapAssignmentNode, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 export default function TestNode({ data, selected }) {
   const assignment = data?.entity || {};
@@ -20,7 +20,10 @@ export default function TestNode({ data, selected }) {
       data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-kind="test"
       data-taskforge-agent-action="open-assignment"
-      onClick={(event) => activateCourseMapNodeForAgent(event, data, data?.onOpen)}
+      onClick={(event) => activateCourseMapAssignmentNode(event, data, data?.onOpen)}
+      onKeyDown={(event) => activateCourseMapAssignmentNode(event, data, data?.onOpen)}
+      role={data?.editorMode ? undefined : "link"}
+      tabIndex={data?.editorMode ? undefined : 0}
       aria-label={`Тестовое задание: ${assignment.title || 'Без названия'}`}
     >
       <CourseMapHandles />

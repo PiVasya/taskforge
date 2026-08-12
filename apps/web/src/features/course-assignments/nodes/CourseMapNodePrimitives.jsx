@@ -11,6 +11,21 @@ export function activateCourseMapNodeForAgent(event, data, action) {
   action();
 }
 
+export function activateCourseMapAssignmentNode(event, data, action) {
+  if (data?.editorMode || typeof action !== 'function') return;
+
+  const isKeyboard = event?.type === 'keydown';
+  if (isKeyboard && event?.key !== 'Enter' && event?.key !== ' ') return;
+  if (!isKeyboard && typeof event?.button === 'number' && event.button !== 0) return;
+
+  const interactiveTarget = event?.target?.closest?.('button, a, input, textarea, select, [role="button"], .react-flow__handle');
+  if (interactiveTarget && interactiveTarget !== event?.currentTarget) return;
+
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  action();
+}
+
 export function CourseMapHandles() {
   return (
     <>

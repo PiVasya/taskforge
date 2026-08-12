@@ -59,6 +59,16 @@ import {
   SolveDraftActionDock,
   AssignmentFirstLoadSkeleton,
 } from './components/AssignmentSolvePresentation';
+import {
+  displayRunnerText,
+  isHiddenTestCase,
+  buildImageTaskErrorText,
+  imageReferenceUrlFromAssignment,
+  imageTestCasesFromAssignment,
+  buildImageTaskResponseText,
+  hasImageResultPayload,
+  normalizeImageTaskResult,
+} from './imageTaskModel';
 async function recoverRecentCodeSubmission(assignmentId, language, code, submitStartedAt) {
   const attempts = [0, 300, 900];
   for (const delayMs of attempts) {
@@ -81,16 +91,6 @@ async function recoverRecentCodeSubmission(assignmentId, language, code, submitS
   return null;
 }
 
-import {
-  displayRunnerText,
-  isHiddenTestCase,
-  buildImageTaskErrorText,
-  imageReferenceUrlFromAssignment,
-  imageTestCasesFromAssignment,
-  buildImageTaskResponseText,
-  hasImageResultPayload,
-  normalizeImageTaskResult,
-} from './imageTaskModel';
 
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();

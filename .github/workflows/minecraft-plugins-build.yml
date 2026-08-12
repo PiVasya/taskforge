@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up Java 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
@@ -63,7 +63,7 @@ jobs:
           zip -9 ../taskforge-minecraft-plugins.zip *.jar SHA256SUMS.txt
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: taskforge-minecraft-plugins-${{ github.sha }}
           path: |
