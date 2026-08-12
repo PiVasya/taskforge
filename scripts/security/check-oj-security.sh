@@ -77,6 +77,8 @@ if '_frameworkReferences = CreateFrameworkReferences()' not in csharp_compiler o
 for marker in ('ImplicitUsingsSyntaxTree', 'global using System;', 'syntaxTrees: [ImplicitUsingsSyntaxTree, syntax]'):
     if marker not in csharp_compiler:
         die(f'C# compiler SDK-style implicit using support drift: {marker}')
+if csharp_compiler.count('encoding: Encoding.UTF8') < 2:
+    die('C# compiler syntax-tree encoding drift can reintroduce CS8055 during PDB emit')
 if 'usings:' in csharp_compiler:
     die('C# compiler incorrectly relies on CSharpCompilationOptions.Usings for implicit usings')
 if 'CompilationFailureKind.InfrastructureError' not in csharp_compiler or 'catch (OutOfMemoryException' not in csharp_compiler:

@@ -184,6 +184,8 @@ def main() -> int:
         for marker in ("ImplicitUsingsSyntaxTree", "global using System;", "syntaxTrees: [ImplicitUsingsSyntaxTree, syntax]"):
             if marker not in compiler_source:
                 errors.append(f"C# runner SDK-style implicit using support missing: {marker}")
+        if compiler_source.count("encoding: Encoding.UTF8") < 2:
+            errors.append("C# runner syntax trees must carry UTF-8 encoding so Portable PDB emit cannot fail with CS8055")
         if "usings:" in compiler_source:
             errors.append("C# runner must not rely on CSharpCompilationOptions.Usings for normal-compilation implicit usings")
         if "CompilationFailureKind.InfrastructureError" not in compiler_source or "catch (OutOfMemoryException" not in compiler_source:

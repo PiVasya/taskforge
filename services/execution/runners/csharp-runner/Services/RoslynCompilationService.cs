@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Text;
 
 namespace Runner.Services;
 
@@ -58,8 +59,9 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
         global using System.Linq;
         global using System.Collections.Generic;
         """,
-        ParseOptions,
-        path: "TaskForge.ImplicitUsings.g.cs");
+        options: ParseOptions,
+        path: "TaskForge.ImplicitUsings.g.cs",
+        encoding: Encoding.UTF8);
 
     private readonly MetadataReference[] _frameworkReferences = CreateFrameworkReferences();
 
@@ -69,8 +71,9 @@ public sealed class RoslynCompilationService : IRoslynCompilationService
         {
             var syntax = CSharpSyntaxTree.ParseText(
                 code,
-                ParseOptions,
+                options: ParseOptions,
                 path: "UserSubmission.cs",
+                encoding: Encoding.UTF8,
                 cancellationToken: cancellationToken);
 
             var options = new CSharpCompilationOptions(
