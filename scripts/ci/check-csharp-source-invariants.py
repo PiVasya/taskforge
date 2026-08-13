@@ -45,6 +45,8 @@ def main() -> int:
             errors.append("course-map current projection pointers must be scoped by requested course, not only by root")
         if "LoadNewerCurrentProjectionAsync" not in projection or "replayState" not in projection:
             errors.append("quiet learner-map deltas must replay a newer immutable projection after fast solve/back navigation")
+        if "forceFreshMeta: true" not in projection or "if (forceFresh)" not in projection or "GetMapMetaAsync(requestedCourseId, ct, forceFresh || forceFreshMeta)" not in projection:
+            errors.append("learner map cache revalidation must bypass stale map metadata/snapshot caches when freshness is required")
         if not re.search(r"\bpublic\s+CourseMapProjectionService\s*\(", projection):
             errors.append("CourseMapProjectionService must expose a public constructor so ASP.NET DI can activate it")
 
@@ -74,6 +76,8 @@ def main() -> int:
             errors.append("learner course-map stream/delta endpoints are missing")
         if 'X-Accel-Buffering' not in endpoints:
             errors.append("learner course-map stream no longer disables reverse-proxy buffering")
+        if "bool? fresh" not in endpoints or "fresh == true" not in endpoints:
+            errors.append("learner course-map stream must expose explicit fresh revalidation for persistent browser caches")
 
     if assignment_access_path.exists():
         access_source = assignment_access_path.read_text(encoding="utf-8")

@@ -44,7 +44,7 @@ import {
   wouldCreateCycle,
 } from '../courseMapModel';
 import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
-import { clearCourseMapLocalCache, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../courseMapLocalCache';
+import { clearCourseMapLocalCache, courseMapCacheNeedsFullRevalidation, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../courseMapLocalCache';
 import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { applyTaskGraphImport } from '../courseTaskGraphImport';
@@ -69,6 +69,17 @@ const NODE_TYPES = {
 const EDGE_TYPES = {
   courseMap: CourseMapEdge,
 };
+
+function isBrowserReloadNavigation() {
+  if (typeof window === 'undefined' || typeof performance === 'undefined') return false;
+  try {
+    const navigation = performance.getEntriesByType?.('navigation')?.[0];
+    if (navigation?.type) return navigation.type === 'reload';
+    return Number(performance.navigation?.type) === 1;
+  } catch {
+    return false;
+  }
+}
 
 function userDisplayName(user) {
   return user?.displayName || user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || user?.login || user?.email || 'Пользователь';
@@ -1332,7 +1343,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return true;
   }, [editorMode, mergeLearnerGraph, persistLearnerGraph, setEdges, setNodes, updateLearnerProjectionRecord, viewKey]);
 
-  const streamLearnerMap = React.useCallback(async (requestId, { quiet = false, preserveExisting = false } = {}) => {
+  const streamLearnerMap = React.useCallback(async (requestId, { quiet = false, preserveExisting = false, fresh = false } = {}) => {
     if (editorMode || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
       courseMapConsole('STREAM_SKIP', { reason: 'inactive-learner-view', requestId, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
       return;
@@ -1350,6 +1361,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       viewKey,
       quiet: Boolean(quiet),
       preserveExisting: keepExisting,
+      fresh: Boolean(fresh),
       versionBefore: Number(recordRef.current.version || 0),
       nodes: nodesRef.current,
       edges: edgesRef.current,
@@ -1357,6 +1369,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
     await streamLearningCourseMap(rootId, {
       signal: controller.signal,
+      fresh: Boolean(fresh),
       onMeta: (meta) => {
         if (requestId !== loadRequestRef.current || activeModeRef.current !== 'learner' || activeViewRef.current !== viewKey) {
           courseMapConsole('STREAM_META_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
@@ -1447,6 +1460,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           projectionRevision: Number(done?.projectionRevision || meta?.projectionRevision || 0),
           updatedAt: meta?.updatedAt || recordRef.current.updatedAt || null,
           updatedBy: meta?.updatedBy || recordRef.current.updatedBy || null,
+          fullSyncAt: Date.now(),
         });
         let staleNodeCount = 0;
         let staleEdgeCount = 0;
@@ -1575,6 +1589,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     let restoredFromCache = false;
     let cached = null;
     const started = performance.now();
+    const browserReload = initialForView && isBrowserReloadNavigation();
+    let forceFullRevalidation = false;
 
     courseMapConsoleGraph('LOAD_BEGIN', {
       requestId,
@@ -1583,6 +1599,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       preferSession: Boolean(preferSession),
       quiet: Boolean(quiet),
       initialForView,
+      browserReload,
       sourceBefore: graphSourceRef.current,
       nodes: nodesRef.current,
       edges: edgesRef.current,
@@ -1638,12 +1655,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       }
     }
 
+    if (!editorMode && restoredFromCache) {
+      forceFullRevalidation = courseMapCacheNeedsFullRevalidation(cached, { force: browserReload });
+      courseMapConsole('CACHE_REVALIDATE_POLICY', {
+        requestId,
+        viewKey,
+        browserReload,
+        forceFullRevalidation,
+        fullSyncAt: Number(cached?.fullSyncAt || cached?.mapRecord?.fullSyncAt || 0),
+      });
+    }
+
     if (!quiet && initialForView && !restoredFromCache) setLoading(true);
 
     if (!editorMode) {
       try {
         const token = String(cached?.mapRecord?.projectionToken || projectionTokenRef.current || '');
-        if (restoredFromCache && token) {
+        if (restoredFromCache && token && !forceFullRevalidation) {
           const projectionCourseId = String(cached?.mapRecord?.requestedCourseId || cached?.requestedCourseId || rootId);
           courseMapConsole('DELTA_REQUEST', {
             requestId,
@@ -1683,7 +1711,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }
         await streamLearnerMap(requestId, {
           quiet: restoredFromCache || quiet,
-          preserveExisting: restoredFromCache && !token,
+          preserveExisting: restoredFromCache,
+          fresh: forceFullRevalidation,
         });
         courseMapConsole('LOAD_END', {
           requestId,
@@ -1707,6 +1736,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }, 'error');
         if (requestId === loadRequestRef.current && !restoredFromCache) {
           notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
+        } else if (requestId === loadRequestRef.current && forceFullRevalidation) {
+          notify.warn('Показана сохранённая карта: не удалось проверить свежую версию на сервере.');
         }
       } finally {
         if (requestId === loadRequestRef.current && !restoredFromCache) setLoading(false);

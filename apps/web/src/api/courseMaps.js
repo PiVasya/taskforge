@@ -10,11 +10,12 @@ export async function getLearningCourseMap(courseId) {
   return res.data;
 }
 
-async function openLearningMapStream(courseId, signal, retry = true) {
+async function openLearningMapStream(courseId, signal, retry = true, fresh = false) {
   const headers = { Accept: 'application/x-ndjson' };
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`/api/courses/${courseId}/learning-map/stream`, {
+  const suffix = fresh ? '?fresh=1' : '';
+  const response = await fetch(`/api/courses/${courseId}/learning-map/stream${suffix}`, {
     method: 'GET',
     credentials: 'include',
     headers,
@@ -27,7 +28,7 @@ async function openLearningMapStream(courseId, signal, retry = true) {
     } catch {
       return response;
     }
-    return openLearningMapStream(courseId, signal, false);
+    return openLearningMapStream(courseId, signal, false, fresh);
   }
   return response;
 }
@@ -37,8 +38,9 @@ export async function streamLearningCourseMap(courseId, {
   onMeta,
   onSegment,
   onDone,
+  fresh = false,
 } = {}) {
-  const response = await openLearningMapStream(courseId, signal, true);
+  const response = await openLearningMapStream(courseId, signal, true, fresh);
   if (!response.ok) {
     let message = 'Не удалось загрузить карту курса';
     try {

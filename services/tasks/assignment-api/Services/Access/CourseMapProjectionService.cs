@@ -117,16 +117,18 @@ internal sealed class CourseMapProjectionService
         Guid requestedCourseId,
         Guid userId,
         bool bypassStudentVisibility,
+        bool forceFresh,
         CancellationToken ct)
     {
         var startedAt = DateTimeOffset.UtcNow;
         _logger.LogInformation(
-            "TFDBG MAP SESSION START requested={RequestedCourseId} user={UserId} bypass={Bypass}",
+            "TFDBG MAP SESSION START requested={RequestedCourseId} user={UserId} bypass={Bypass} fresh={Fresh}",
             requestedCourseId,
             userId,
-            bypassStudentVisibility);
+            bypassStudentVisibility,
+            forceFresh);
 
-        var snapshot = await GetSnapshotAsync(requestedCourseId, ct);
+        var snapshot = await GetSnapshotAsync(requestedCourseId, ct, forceFresh: forceFresh);
         if (snapshot is null)
         {
             _logger.LogWarning("TFDBG MAP SESSION MISS requested={RequestedCourseId} user={UserId} stage=snapshot", requestedCourseId, userId);
@@ -213,7 +215,7 @@ internal sealed class CourseMapProjectionService
             return ResetDelta();
         }
 
-        var snapshot = await GetSnapshotAsync(requestedCourseId, ct);
+        var snapshot = await GetSnapshotAsync(requestedCourseId, ct, forceFreshMeta: true);
         if (snapshot is null) return null;
         if (snapshot.RootCourseId != previous.RootCourseId || snapshot.Version != previous.Version)
         {
@@ -532,15 +534,29 @@ internal sealed class CourseMapProjectionService
         return visible ? evaluation : null;
     }
 
-    private async Task<CourseMapSnapshot?> GetSnapshotAsync(Guid requestedCourseId, CancellationToken ct)
+    private async Task<CourseMapSnapshot?> GetSnapshotAsync(
+        Guid requestedCourseId,
+        CancellationToken ct,
+        bool forceFresh = false,
+        bool forceFreshMeta = false)
     {
-        var meta = await GetMapMetaAsync(requestedCourseId, ct);
+        var meta = await GetMapMetaAsync(requestedCourseId, ct, forceFresh || forceFreshMeta);
         if (meta is null || meta.RootCourseId == Guid.Empty)
         {
             _logger.LogWarning("TFDBG MAP SNAPSHOT MISS requested={RequestedCourseId} stage=meta", requestedCourseId);
             return null;
         }
         var key = SnapshotKey(meta.RootCourseId, meta.Version);
+
+        if (forceFresh)
+        {
+            _logger.LogInformation(
+                "TFDBG MAP SNAPSHOT FORCE requested={RequestedCourseId} root={RootCourseId} version={Version}",
+                requestedCourseId,
+                meta.RootCourseId,
+                meta.Version);
+            return await BuildAndCacheSnapshotAsync(meta, key);
+        }
 
         if (_memory.TryGetValue<CourseMapSnapshot>(key, out var memorySnapshot) && memorySnapshot is not null)
         {
@@ -655,10 +671,10 @@ internal sealed class CourseMapProjectionService
         return snapshot;
     }
 
-    private async Task<CourseMapMetaInternalResponse?> GetMapMetaAsync(Guid courseId, CancellationToken ct)
+    private async Task<CourseMapMetaInternalResponse?> GetMapMetaAsync(Guid courseId, CancellationToken ct, bool forceFresh = false)
     {
         var key = $"course-map-meta:{courseId:N}";
-        if (_memory.TryGetValue<CourseMapMetaInternalResponse>(key, out var cached) && cached is not null) return cached;
+        if (!forceFresh && _memory.TryGetValue<CourseMapMetaInternalResponse>(key, out var cached) && cached is not null) return cached;
         var meta = await GetInternalAsync<CourseMapMetaInternalResponse>(
             _clients,
             _cfg,

@@ -291,8 +291,11 @@ const courseMapCache = read('features/course-assignments/courseMapLocalCache.js'
 if (!/indexedDB/.test(courseMapCache) || !/readCourseMapLocalCacheAsync/.test(courseMapCache)) {
   fail('learner course map lost IndexedDB persistence');
 }
-if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache)) {
-  fail('course-map local cache does not separate learner/editor source modes or invalidate polluted v4 entries');
+if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache) || !/fullSyncAt/.test(courseMapCache) || !/courseMapCacheNeedsFullRevalidation/.test(courseMapCache)) {
+  fail('course-map local cache must separate source modes and periodically revalidate persisted learner snapshots');
+}
+if (!/fresh:\s*Boolean\(fresh\)/.test(courseFlowEditor) || !/forceFullRevalidation/.test(courseFlowEditor) || !/isBrowserReloadNavigation/.test(courseFlowEditor)) {
+  fail('persistent learner map cache can become authoritative again instead of stale-while-revalidate');
 }
 if (/\bgetLearningCourseMap\s*\(|\bgetAssignmentsByCourseTree\b/.test(assignmentFeature)) {
   fail('assignment solve returned to full-map/tree refreshes for next-node navigation');

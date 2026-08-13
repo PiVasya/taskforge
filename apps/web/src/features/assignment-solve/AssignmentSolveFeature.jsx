@@ -21,7 +21,7 @@ import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
 import AssignmentTaskConstraints from './components/AssignmentTaskConstraints';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
-import { readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
+import { clearCourseMapLocalCache, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
 import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
 import {
   ALL_LANGS,
@@ -606,7 +606,12 @@ export default function AssignmentSolvePage() {
           cached.mapRecord.projectionToken,
           progressionRevision ? a.id : null,
         );
-        if (!alive || !delta || delta.resetRequired) return;
+        if (!alive || !delta) return;
+        if (delta.resetRequired) {
+          clearCourseMapLocalCache({ courseId: projectionCourseId, editorMode: false, userId: currentUserId });
+          setNextOptions([]);
+          return;
+        }
 
         const currentDocument = cached.mapRecord.document || { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
         const removeNodeIds = new Set((delta.nodeIdsRemoved || []).map(String));

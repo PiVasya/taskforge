@@ -147,6 +147,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/courses/{courseId:guid}/learning-map/stream", async (
             Guid courseId,
+            bool? fresh,
             HttpContext http,
             IConfiguration cfg,
             CourseMapProjectionService projection,
@@ -163,8 +164,8 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var bypass = IsEditor(http, cfg);
-            logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass}", courseId, userId.Value, bypass);
-            var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, ct);
+            logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass} fresh={Fresh}", courseId, userId.Value, bypass, fresh == true);
+            var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, fresh == true, ct);
             if (session is null)
             {
                 http.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -238,6 +239,7 @@ internal static partial class AssignmentApiEndpoints
                 ct);
             if (delta is null)
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
+            http.Response.Headers.CacheControl = "no-store";
             return Microsoft.AspNetCore.Http.Results.Ok(delta);
         });
 

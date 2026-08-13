@@ -1,5 +1,6 @@
 const CACHE_SCHEMA = 5;
 const CACHE_PREFIX = 'taskforge.course-map.cache.v5';
+const CACHE_FULL_REVALIDATE_MS = 60 * 1000;
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_MAX_LOCAL_CHARS = 650_000;
 const IDB_NAME = 'taskforge-course-map-cache-v1';
@@ -156,6 +157,7 @@ function normalize(payload, expectedMode = '') {
     courses: Array.isArray(payload.courses) ? payload.courses.filter(Boolean) : [],
     aliases: Array.isArray(payload.aliases) ? payload.aliases.map(clean).filter(Boolean) : [],
     pendingRevealNodeIds: Array.isArray(payload.pendingRevealNodeIds) ? payload.pendingRevealNodeIds.map(clean).filter(Boolean) : [],
+    fullSyncAt: Number(payload.fullSyncAt || payload.mapRecord?.fullSyncAt || 0),
   };
 }
 
@@ -168,6 +170,13 @@ function readStoredPayload(target, cacheKey, editorMode, userId) {
   return normalize(parsed, expectedMode);
 }
 
+
+export function courseMapCacheNeedsFullRevalidation(payload, { force = false, now = Date.now() } = {}) {
+  if (force) return true;
+  const fullSyncAt = Number(payload?.fullSyncAt || payload?.mapRecord?.fullSyncAt || 0);
+  if (!Number.isFinite(fullSyncAt) || fullSyncAt <= 0) return true;
+  return Math.max(0, Number(now) || Date.now()) - fullSyncAt >= CACHE_FULL_REVALIDATE_MS;
+}
 
 export function readCourseMapLocalCache({ courseId, editorMode = false, userId = '' } = {}) {
   const cacheKey = key(courseId, editorMode, userId);
@@ -245,6 +254,7 @@ export function writeCourseMapLocalCache({
     dirty: dirty === true,
     aliases: Array.from(aliasIds),
     pendingRevealNodeIds: Array.from(new Set((pendingRevealNodeIds || []).map(clean).filter(Boolean))),
+    fullSyncAt: Number(mapRecord?.fullSyncAt || 0),
     mapRecord,
     assignments: assignments.map(assignmentSummary).filter(Boolean),
     courses: courses.map(courseSummary).filter(Boolean),
