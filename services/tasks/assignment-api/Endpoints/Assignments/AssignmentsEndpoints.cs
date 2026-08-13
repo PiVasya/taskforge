@@ -57,6 +57,17 @@ internal static partial class AssignmentApiEndpoints
         };
     }
 
+
+    private static bool ReadFreshMapRequest(HttpContext http)
+    {
+        var raw = http.Request.Query["fresh"].ToString().Trim();
+        if (raw.Length == 0) return false;
+        return raw.Equals("1", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static AssignmentRequest FilterExistingImportRequest(AssignmentRequest request, GraphImportOptions options)
     {
         return request with
@@ -147,7 +158,6 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/courses/{courseId:guid}/learning-map/stream", async (
             Guid courseId,
-            bool? fresh,
             HttpContext http,
             IConfiguration cfg,
             CourseMapProjectionService projection,
@@ -164,8 +174,9 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var bypass = IsEditor(http, cfg);
-            logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass} fresh={Fresh}", courseId, userId.Value, bypass, fresh == true);
-            var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, fresh == true, ct);
+            var fresh = ReadFreshMapRequest(http);
+            logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass} fresh={Fresh}", courseId, userId.Value, bypass, fresh);
+            var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, fresh, ct);
             if (session is null)
             {
                 http.Response.StatusCode = StatusCodes.Status404NotFound;

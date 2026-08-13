@@ -25,6 +25,7 @@ def main() -> int:
             )
     projection_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "CourseMapProjectionService.cs"
     endpoints_path = ROOT / "services" / "tasks" / "assignment-api" / "Endpoints" / "Assignments" / "AssignmentsEndpoints.cs"
+    tasks_security_path = ROOT / "services" / "tasks" / "assignment-api" / "Security" / "TaskForgeRequestSecurity.cs"
     assignment_access_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "AssignmentApiAccessService.cs"
     education_internal_path = ROOT / "services" / "education" / "api" / "Endpoints" / "Internal" / "InternalEndpoints.cs"
     education_map_path = ROOT / "services" / "education" / "api" / "Endpoints" / "CourseMaps" / "CourseMapEndpoints.cs"
@@ -76,8 +77,21 @@ def main() -> int:
             errors.append("learner course-map stream/delta endpoints are missing")
         if 'X-Accel-Buffering' not in endpoints:
             errors.append("learner course-map stream no longer disables reverse-proxy buffering")
-        if "bool? fresh" not in endpoints or "fresh == true" not in endpoints:
-            errors.append("learner course-map stream must expose explicit fresh revalidation for persistent browser caches")
+        if "ReadFreshMapRequest(http)" not in endpoints or "bool? fresh" in endpoints:
+            errors.append("learner course-map stream must parse fresh revalidation explicitly instead of relying on bool model binding")
+        for marker in ('raw.Equals("1"', 'raw.Equals("true"', 'raw.Equals("yes"', 'raw.Equals("on"'):
+            if marker not in endpoints:
+                errors.append(f"learner course-map fresh parser lost rolling-compatible value: {marker}")
+
+    if tasks_security_path.exists():
+        tasks_security = tasks_security_path.read_text(encoding="utf-8")
+        for marker in ('path.EndsWith("/learning-map/delta"', 'HttpMethods.IsPost(method)', 'return Requirement.Authenticated;'):
+            if marker not in tasks_security:
+                errors.append(f"tasks-api learner learning-map delta security exception missing: {marker}")
+        delta_rule_at = tasks_security.find('path.EndsWith("/learning-map/delta"')
+        generic_course_rule_at = tasks_security.find('if (path == "/api/courses" || path.StartsWith("/api/courses/"))')
+        if delta_rule_at < 0 or generic_course_rule_at < 0 or delta_rule_at > generic_course_rule_at:
+            errors.append("learner learning-map delta must be classified Authenticated before generic course writes become Editor-only")
 
     if assignment_access_path.exists():
         access_source = assignment_access_path.read_text(encoding="utf-8")
@@ -219,6 +233,14 @@ def main() -> int:
         solutions_common = solutions_common_path.read_text(encoding="utf-8")
         if 'HasUnlimitedTaskRateLimit(http, cfg)' not in solutions_common or 'X-TaskForge-AI-Task-Rate-Unlimited' not in solutions_common:
             errors.append("solutions-api AI code-submit limiter bypass is missing")
+
+    rating_results_path = ROOT / "services" / "solutions" / "api" / "Services" / "Results" / "SolutionsApiResultsService.cs"
+    if rating_results_path.exists():
+        rating_results = rating_results_path.read_text(encoding="utf-8")
+        if rating_results.count('ON CONFLICT ("UserId") DO UPDATE SET') < 2:
+            errors.append("rating dirty-user writes must remain atomic UPSERTs for both single and batch invalidation")
+        if 'FROM unnest({ids}) AS input("UserId")' not in rating_results:
+            errors.append("rating dirty-user batch invalidation must remain set-based instead of SELECT-then-INSERT")
 
     if identity_auth_path.exists():
         identity_auth = identity_auth_path.read_text(encoding="utf-8")

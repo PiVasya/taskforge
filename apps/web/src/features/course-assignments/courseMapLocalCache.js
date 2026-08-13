@@ -158,6 +158,7 @@ function normalize(payload, expectedMode = '') {
     aliases: Array.isArray(payload.aliases) ? payload.aliases.map(clean).filter(Boolean) : [],
     pendingRevealNodeIds: Array.isArray(payload.pendingRevealNodeIds) ? payload.pendingRevealNodeIds.map(clean).filter(Boolean) : [],
     fullSyncAt: Number(payload.fullSyncAt || payload.mapRecord?.fullSyncAt || 0),
+    verifiedAt: Number(payload.verifiedAt || payload.mapRecord?.verifiedAt || payload.fullSyncAt || payload.mapRecord?.fullSyncAt || 0),
   };
 }
 
@@ -173,9 +174,9 @@ function readStoredPayload(target, cacheKey, editorMode, userId) {
 
 export function courseMapCacheNeedsFullRevalidation(payload, { force = false, now = Date.now() } = {}) {
   if (force) return true;
-  const fullSyncAt = Number(payload?.fullSyncAt || payload?.mapRecord?.fullSyncAt || 0);
-  if (!Number.isFinite(fullSyncAt) || fullSyncAt <= 0) return true;
-  return Math.max(0, Number(now) || Date.now()) - fullSyncAt >= CACHE_FULL_REVALIDATE_MS;
+  const verifiedAt = Number(payload?.verifiedAt || payload?.mapRecord?.verifiedAt || payload?.fullSyncAt || payload?.mapRecord?.fullSyncAt || 0);
+  if (!Number.isFinite(verifiedAt) || verifiedAt <= 0) return true;
+  return Math.max(0, Number(now) || Date.now()) - verifiedAt >= CACHE_FULL_REVALIDATE_MS;
 }
 
 export function readCourseMapLocalCache({ courseId, editorMode = false, userId = '' } = {}) {
@@ -255,6 +256,7 @@ export function writeCourseMapLocalCache({
     aliases: Array.from(aliasIds),
     pendingRevealNodeIds: Array.from(new Set((pendingRevealNodeIds || []).map(clean).filter(Boolean))),
     fullSyncAt: Number(mapRecord?.fullSyncAt || 0),
+    verifiedAt: Number(mapRecord?.verifiedAt || mapRecord?.fullSyncAt || 0),
     mapRecord,
     assignments: assignments.map(assignmentSummary).filter(Boolean),
     courses: courses.map(courseSummary).filter(Boolean),

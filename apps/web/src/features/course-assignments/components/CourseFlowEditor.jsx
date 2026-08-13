@@ -1461,6 +1461,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           updatedAt: meta?.updatedAt || recordRef.current.updatedAt || null,
           updatedBy: meta?.updatedBy || recordRef.current.updatedBy || null,
           fullSyncAt: Date.now(),
+          verifiedAt: Date.now(),
         });
         let staleNodeCount = 0;
         let staleEdgeCount = 0;
@@ -1663,6 +1664,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         browserReload,
         forceFullRevalidation,
         fullSyncAt: Number(cached?.fullSyncAt || cached?.mapRecord?.fullSyncAt || 0),
+        verifiedAt: Number(cached?.verifiedAt || cached?.mapRecord?.verifiedAt || cached?.fullSyncAt || cached?.mapRecord?.fullSyncAt || 0),
       });
     }
 
@@ -1671,48 +1673,74 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (!editorMode) {
       try {
         const token = String(cached?.mapRecord?.projectionToken || projectionTokenRef.current || '');
-        if (restoredFromCache && token && !forceFullRevalidation) {
+        let deltaVerificationFailed = false;
+        if (restoredFromCache && token) {
           const projectionCourseId = String(cached?.mapRecord?.requestedCourseId || cached?.requestedCourseId || rootId);
-          courseMapConsole('DELTA_REQUEST', {
-            requestId,
-            viewKey,
-            projectionCourseId,
-            version: Number(cached?.mapRecord?.version || 0),
-            projectionRevision: Number(cached?.mapRecord?.projectionRevision || 0),
-          });
-          const deltaStarted = performance.now();
-          const delta = await getLearningCourseMapDelta(projectionCourseId, token, null);
-          courseMapConsole('DELTA_RESPONSE', {
-            requestId,
-            viewKey,
-            durationMs: Math.round((performance.now() - deltaStarted) * 10) / 10,
-            resetRequired: Boolean(delta?.resetRequired),
-            version: Number(delta?.version || 0),
-            projectionRevision: Number(delta?.projectionRevision || 0),
-            nodesAdded: (delta?.nodesAdded || []).length,
-            nodesRemoved: (delta?.nodeIdsRemoved || []).length,
-            edgesAdded: (delta?.edgesAdded || []).length,
-            edgesRemoved: (delta?.edgeIdsRemoved || []).length,
-          });
-          if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey) return;
-          if (!delta?.resetRequired) {
-            applyLearnerDelta(delta);
-            courseMapConsole('LOAD_END', {
+          try {
+            courseMapConsole('DELTA_REQUEST', {
               requestId,
               viewKey,
-              path: 'cache+delta',
-              durationMs: Math.round((performance.now() - started) * 10) / 10,
+              projectionCourseId,
+              version: Number(cached?.mapRecord?.version || 0),
+              projectionRevision: Number(cached?.mapRecord?.projectionRevision || 0),
             });
-            return;
+            const deltaStarted = performance.now();
+            const delta = await getLearningCourseMapDelta(projectionCourseId, token, null);
+            courseMapConsole('DELTA_RESPONSE', {
+              requestId,
+              viewKey,
+              durationMs: Math.round((performance.now() - deltaStarted) * 10) / 10,
+              resetRequired: Boolean(delta?.resetRequired),
+              version: Number(delta?.version || 0),
+              projectionRevision: Number(delta?.projectionRevision || 0),
+              nodesAdded: (delta?.nodesAdded || []).length,
+              nodesRemoved: (delta?.nodeIdsRemoved || []).length,
+              edgesAdded: (delta?.edgesAdded || []).length,
+              edgesRemoved: (delta?.edgeIdsRemoved || []).length,
+            });
+            if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey) return;
+            if (!delta?.resetRequired) {
+              applyLearnerDelta(delta);
+              // CreateDeltaAsync always verifies map metadata against education-api with
+              // forceFreshMeta=true. A successful delta therefore proves that the cached
+              // graph version is still authoritative without rebuilding the whole snapshot.
+              updateLearnerProjectionRecord({ verifiedAt: Date.now() });
+              persistLearnerGraph('server-version-verified');
+              courseMapConsole('LOAD_END', {
+                requestId,
+                viewKey,
+                path: forceFullRevalidation ? 'cache+authoritative-delta' : 'cache+delta',
+                durationMs: Math.round((performance.now() - started) * 10) / 10,
+              });
+              return;
+            }
+            resetLearnerClientGraph('delta-reset-required', { clearCache: true });
+            restoredFromCache = false;
+            cached = null;
+            forceFullRevalidation = false;
+          } catch (deltaError) {
+            if (deltaError?.name === 'AbortError') throw deltaError;
+            // Rolling deploys can briefly leave a frontend talking to an older tasks-api
+            // where learner POST /learning-map/delta was classified as Editor-only. Never
+            // strand the user on stale data: fall back to an authoritative fresh stream.
+            deltaVerificationFailed = true;
+            courseMapConsole('DELTA_FALLBACK', {
+              requestId,
+              viewKey,
+              projectionCourseId,
+              status: deltaError?.response?.status || null,
+              message: deltaError?.message || String(deltaError),
+            }, 'warn');
           }
-          resetLearnerClientGraph('delta-reset-required', { clearCache: true });
-          restoredFromCache = false;
-          cached = null;
         }
         await streamLearnerMap(requestId, {
           quiet: restoredFromCache || quiet,
           preserveExisting: restoredFromCache,
-          fresh: forceFullRevalidation,
+          // A version-changing delta reset gives us a new versioned snapshot key, so a
+          // normal stream cannot reuse the old graph. Explicit fresh is reserved for
+          // legacy cache without a token or as a safe fallback when delta verification
+          // could not run (for example during a rolling deployment).
+          fresh: (forceFullRevalidation && !token) || deltaVerificationFailed,
         });
         courseMapConsole('LOAD_END', {
           requestId,

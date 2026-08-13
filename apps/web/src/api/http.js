@@ -230,10 +230,20 @@ api.interceptors.request.use((config) => {
   config.headers = config.headers || {};
   config.metadata = { ...(config.metadata || {}), startedAt: Date.now() };
   const token = accessToken;
-  if (token) {
-    if (!config.headers.Authorization && !config.headers.authorization) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+
+  // Requests retried after /auth/refresh carry the headers of the failed request.
+  // Never preserve an expired Authorization header: the in-memory access token is
+  // the source of truth for this API client. Without this overwrite a 401 could
+  // refresh successfully, retry with the old token, and enter a refresh loop.
+  if (typeof config.headers.set === 'function') {
+    if (token) config.headers.set('Authorization', `Bearer ${token}`);
+    else if (typeof config.headers.delete === 'function') config.headers.delete('Authorization');
+  } else if (token) {
+    delete config.headers.authorization;
+    config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    delete config.headers.Authorization;
+    delete config.headers.authorization;
   }
   return config;
 });
@@ -259,7 +269,11 @@ api.interceptors.response.use(
     const original = error.config || {};
     const status = error?.response?.status;
     const url = (original.url || '').toLowerCase();
-    const refreshableAuthError = status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/refresh') && !original.__skipAuthRefresh;
+    const refreshableAuthError = status === 401
+      && !url.includes('/api/auth/login')
+      && !url.includes('/api/auth/refresh')
+      && !original.__skipAuthRefresh
+      && !original.__authRefreshAttempted;
     if (!refreshableAuthError) trackApiTelemetry(original, status, error);
 
     if (status === 429) {
@@ -295,9 +309,14 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh')) {
+    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh') || original.__authRefreshAttempted) {
       return Promise.reject(error);
     }
+
+    // A single request gets at most one refresh/retry cycle. If the freshly issued
+    // token is rejected as well, surface the 401 instead of hammering /auth/refresh
+    // until its rate limiter answers 429.
+    original.__authRefreshAttempted = true;
 
     if (isRefreshing) {
       return new Promise((resolve, reject) => {

@@ -136,27 +136,26 @@ internal static class SolutionsApiResultsService
     internal static bool AffectsRatingStatus(string? status)
         => IsTerminalVerdict(status) || string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
 
+    private static string CleanDirtyReason(string? reason)
+    {
+        var clean = string.IsNullOrWhiteSpace(reason) ? "changed" : reason.Trim();
+        return clean[..System.Math.Min(clean.Length, 200)];
+    }
+
     internal static async Task MarkRatingDirtyAsync(SolutionsDbContext db, Guid userId, string reason, Guid? assignmentId = null, CancellationToken ct = default)
     {
         if (userId == Guid.Empty) return;
 
+        var cleanReason = CleanDirtyReason(reason);
         var now = DateTimeOffset.UtcNow;
-        var dirty = await db.RatingDirtyUsers.FirstOrDefaultAsync(x => x.UserId == userId, ct);
-        if (dirty == null)
-        {
-            db.RatingDirtyUsers.Add(new RatingDirtyUser
-            {
-                UserId = userId,
-                Reason = string.IsNullOrWhiteSpace(reason) ? "changed" : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)],
-                AssignmentId = assignmentId,
-                MarkedAtUtc = now
-            });
-            return;
-        }
-
-        dirty.Reason = string.IsNullOrWhiteSpace(reason) ? dirty.Reason : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)];
-        dirty.AssignmentId = assignmentId ?? dirty.AssignmentId;
-        dirty.MarkedAtUtc = now;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RatingDirtyUsers" ("UserId", "Reason", "AssignmentId", "MarkedAtUtc")
+            VALUES ({userId}, {cleanReason}, {assignmentId}, {now})
+            ON CONFLICT ("UserId") DO UPDATE SET
+                "Reason" = EXCLUDED."Reason",
+                "AssignmentId" = COALESCE(EXCLUDED."AssignmentId", "RatingDirtyUsers"."AssignmentId"),
+                "MarkedAtUtc" = EXCLUDED."MarkedAtUtc";
+            """, ct);
     }
 
     internal static async Task MarkRatingDirtyAsync(SolutionsDbContext db, IEnumerable<Guid> userIds, string reason, Guid? assignmentId = null, CancellationToken ct = default)
@@ -164,28 +163,19 @@ internal static class SolutionsApiResultsService
         var ids = userIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
         if (ids.Length == 0) return;
 
-        var existing = await db.RatingDirtyUsers.Where(x => ids.Contains(x.UserId)).ToDictionaryAsync(x => x.UserId, ct);
+        var cleanReason = CleanDirtyReason(reason);
         var now = DateTimeOffset.UtcNow;
-        var cleanReason = string.IsNullOrWhiteSpace(reason) ? "changed" : reason.Trim()[..System.Math.Min(reason.Trim().Length, 200)];
-        foreach (var id in ids)
-        {
-            if (existing.TryGetValue(id, out var row))
-            {
-                row.Reason = cleanReason;
-                row.AssignmentId = assignmentId ?? row.AssignmentId;
-                row.MarkedAtUtc = now;
-            }
-            else
-            {
-                db.RatingDirtyUsers.Add(new RatingDirtyUser
-                {
-                    UserId = id,
-                    Reason = cleanReason,
-                    AssignmentId = assignmentId,
-                    MarkedAtUtc = now
-                });
-            }
-        }
+        // One set-based UPSERT keeps the hot rating-dirty path race-free without
+        // turning a course-wide invalidation into thousands of SQL round trips.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RatingDirtyUsers" ("UserId", "Reason", "AssignmentId", "MarkedAtUtc")
+            SELECT "UserId", {cleanReason}, {assignmentId}, {now}
+            FROM unnest({ids}) AS input("UserId")
+            ON CONFLICT ("UserId") DO UPDATE SET
+                "Reason" = EXCLUDED."Reason",
+                "AssignmentId" = COALESCE(EXCLUDED."AssignmentId", "RatingDirtyUsers"."AssignmentId"),
+                "MarkedAtUtc" = EXCLUDED."MarkedAtUtc";
+            """, ct);
     }
 
     internal static async Task AddRating(SolutionsDbContext db, Guid userId, int score, bool accepted)

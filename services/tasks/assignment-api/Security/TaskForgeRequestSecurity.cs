@@ -123,6 +123,13 @@ public static class TaskForgeRequestSecurity
         if (path.StartsWith("/api/learning")) return safeMethod ? Requirement.Public : Requirement.Editor;
         if (path.StartsWith("/api/quiz")) return path.StartsWith("/api/quiz/me") || writeMethod ? Requirement.Authenticated : Requirement.Public;
 
+        // learning-map/delta is a learner-side state refresh, not a course edit.
+        // Keep it authenticated while all other unsafe /api/courses/* operations stay Editor-only.
+        if (string.Equals(service, "tasks", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWith("/api/courses/", StringComparison.OrdinalIgnoreCase)
+            && path.EndsWith("/learning-map/delta", StringComparison.OrdinalIgnoreCase)
+            && HttpMethods.IsPost(method))
+            return Requirement.Authenticated;
         if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Authenticated : Requirement.Editor;
         if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Authenticated : Requirement.Admin;
         if (path == "/api/assignments/course-progress") return Requirement.Authenticated;

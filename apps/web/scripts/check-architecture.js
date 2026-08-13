@@ -291,11 +291,15 @@ const courseMapCache = read('features/course-assignments/courseMapLocalCache.js'
 if (!/indexedDB/.test(courseMapCache) || !/readCourseMapLocalCacheAsync/.test(courseMapCache)) {
   fail('learner course map lost IndexedDB persistence');
 }
-if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache) || !/fullSyncAt/.test(courseMapCache) || !/courseMapCacheNeedsFullRevalidation/.test(courseMapCache)) {
+if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache) || !/fullSyncAt/.test(courseMapCache) || !/verifiedAt/.test(courseMapCache) || !/courseMapCacheNeedsFullRevalidation/.test(courseMapCache)) {
   fail('course-map local cache must separate source modes and periodically revalidate persisted learner snapshots');
 }
-if (!/fresh:\s*Boolean\(fresh\)/.test(courseFlowEditor) || !/forceFullRevalidation/.test(courseFlowEditor) || !/isBrowserReloadNavigation/.test(courseFlowEditor)) {
+if (!/fresh:\s*Boolean\(fresh\)/.test(courseFlowEditor) || !/forceFullRevalidation/.test(courseFlowEditor) || !/isBrowserReloadNavigation/.test(courseFlowEditor) || !/server-version-verified/.test(courseFlowEditor) || !/cache\+authoritative-delta/.test(courseFlowEditor) || !/DELTA_FALLBACK/.test(courseFlowEditor) || !/deltaVerificationFailed/.test(courseFlowEditor) || !/fresh:\s*\(forceFullRevalidation && !token\) \|\| deltaVerificationFailed/.test(courseFlowEditor)) {
   fail('persistent learner map cache can become authoritative again instead of stale-while-revalidate');
+}
+const courseMapApi = read('api/courseMaps.js');
+if (!/\?fresh=true/.test(courseMapApi) || /\?fresh=1/.test(courseMapApi)) {
+  fail('course-map fresh stream query must use a valid boolean value for ASP.NET compatibility');
 }
 if (/\bgetLearningCourseMap\s*\(|\bgetAssignmentsByCourseTree\b/.test(assignmentFeature)) {
   fail('assignment solve returned to full-map/tree refreshes for next-node navigation');
@@ -307,6 +311,9 @@ if (!/retryTransient/.test(authSource) || /catch\s*\{\s*setUser\(null\)/.test(au
 const httpSource = read('api/http.js');
 if (!/API_TELEMETRY_SLOW_MS/.test(httpSource) || /action:\s*isError\s*\?\s*['"]api-error['"]\s*:\s*['"]api-request['"]/.test(httpSource)) {
   fail('per-request success telemetry returned and can amplify API request storms');
+}
+if (!/__authRefreshAttempted/.test(httpSource) || !/config\.headers\.set\(['"]Authorization['"]/.test(httpSource)) {
+  fail('auth retry can reuse an expired bearer token or refresh the same request more than once');
 }
 
 const coursesPage = read('pages/CoursesPage.jsx');

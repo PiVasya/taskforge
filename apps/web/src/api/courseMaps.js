@@ -14,7 +14,7 @@ async function openLearningMapStream(courseId, signal, retry = true, fresh = fal
   const headers = { Accept: 'application/x-ndjson' };
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const suffix = fresh ? '?fresh=1' : '';
+  const suffix = fresh ? '?fresh=true' : '';
   const response = await fetch(`/api/courses/${courseId}/learning-map/stream${suffix}`, {
     method: 'GET',
     credentials: 'include',
