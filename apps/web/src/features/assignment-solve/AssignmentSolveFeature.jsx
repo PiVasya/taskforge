@@ -21,8 +21,9 @@ import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
 import AssignmentTaskConstraints from './components/AssignmentTaskConstraints';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
-import { clearCourseMapLocalCache, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
+import { readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
 import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
+import { refreshCourseNextNavigationProjection } from './courseNextNavigationRefresh';
 import {
   ALL_LANGS,
   normalizeLang,
@@ -608,8 +609,8 @@ export default function AssignmentSolvePage() {
         );
         if (!alive || !delta) return;
         if (delta.resetRequired) {
-          clearCourseMapLocalCache({ courseId: projectionCourseId, editorMode: false, userId: currentUserId });
-          setNextOptions([]);
+          const refreshed = await refreshCourseNextNavigationProjection({ projectionCourseId, courseId: a.courseId, currentUserId, cached });
+          if (alive && refreshed.mapRecord) applyNavigation(refreshed.mapRecord, refreshed.assignments);
           return;
         }
 

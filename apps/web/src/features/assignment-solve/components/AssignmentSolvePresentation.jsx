@@ -313,59 +313,98 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
         <div className="solve-next-menu" role="menu" aria-label="Следующие задания">
           <div className="solve-next-menu-title"><GitBranch size={14} /> Выберите ветку</div>
           <div className="solve-next-menu-list">
-            {rows.map((option) => (
-              <button
-                key={option.key || option.id || option.title}
-                type="button"
-                role="menuitem"
-                className="solve-next-option"
-                disabled={option.disabled}
-                onClick={() => {
-                  if (option.disabled) return;
-                  setOpen(false);
-                  onSelect?.(option);
-                }}
-              >
-                <span className={`solve-next-option-icon${option.disabled ? ' is-locked' : ''}`}>
-                  {option.disabled ? <LockKeyhole size={14} /> : <GitBranch size={14} />}
-                </span>
-                <span className="solve-next-option-copy">
-                  <strong>{option.title || 'Следующее задание'}</strong>
-                  {option.subtitle ? <small>{option.subtitle}</small> : null}
-                </span>
-              </button>
-            ))}
+            {rows.map((option) => {
+              const content = (
+                <>
+                  <span className={`solve-next-option-icon${option.disabled ? ' is-locked' : ''}`}>
+                    {option.disabled ? <LockKeyhole size={14} /> : <GitBranch size={14} />}
+                  </span>
+                  <span className="solve-next-option-copy">
+                    <strong>{option.title || 'Следующее задание'}</strong>
+                    {option.subtitle ? <small>{option.subtitle}</small> : null}
+                  </span>
+                </>
+              );
+
+              if (!option.disabled && option.id) {
+                return (
+                  <Link
+                    key={option.key || option.id || option.title}
+                    to={`/assignment/${option.id}`}
+                    role="menuitem"
+                    className="solve-next-option"
+                    onClick={() => setOpen(false)}
+                  >
+                    {content}
+                  </Link>
+                );
+              }
+
+              return (
+                <button
+                  key={option.key || option.id || option.title}
+                  type="button"
+                  role="menuitem"
+                  className="solve-next-option"
+                  disabled={option.disabled}
+                  onClick={() => {
+                    if (option.disabled) return;
+                    setOpen(false);
+                    onSelect?.(option);
+                  }}
+                >
+                  {content}
+                </button>
+              );
+            })}
           </div>
         </div>
       ) : null}
-      <Button
-        className="solve-action-button solve-next-button"
-        variant="outline"
-        onClick={activate}
-        data-taskforge-automation-id="next-assignment"
-        data-taskforge-agent-role="navigation-action"
-        data-taskforge-agent-action="next-assignment"
-        disabled={isDisabled}
-        title={title}
-        aria-label={`${buttonLabel}${title && title !== buttonLabel ? `. ${title}` : ''}`}
-        aria-expanded={rows.length > 1 ? open : undefined}
-        aria-haspopup={rows.length > 1 ? 'menu' : undefined}
-      >
-        {only?.disabled ? <LockKeyhole size={15} /> : null}
-        <span>{buttonLabel}</span>
-        {rows.length > 1 ? <ChevronDown size={15} className={open ? 'is-open' : ''} /> : null}
-      </Button>
+      {only?.id && !isDisabled ? (
+        <Link
+          className="btn-outline solve-action-button solve-next-button"
+          to={`/assignment/${only.id}`}
+          data-taskforge-automation-id="next-assignment"
+          data-taskforge-agent-role="navigation-action"
+          data-taskforge-agent-action="next-assignment"
+          title={title}
+          aria-label={`${buttonLabel}${title && title !== buttonLabel ? `. ${title}` : ''}`}
+        >
+          <span>{buttonLabel}</span>
+        </Link>
+      ) : (
+        <Button
+          className="solve-action-button solve-next-button"
+          variant="outline"
+          onClick={activate}
+          data-taskforge-automation-id="next-assignment"
+          data-taskforge-agent-role="navigation-action"
+          data-taskforge-agent-action="next-assignment"
+          disabled={isDisabled}
+          title={title}
+          aria-label={`${buttonLabel}${title && title !== buttonLabel ? `. ${title}` : ''}`}
+          aria-expanded={rows.length > 1 ? open : undefined}
+          aria-haspopup={rows.length > 1 ? 'menu' : undefined}
+        >
+          {only?.disabled ? <LockKeyhole size={15} /> : null}
+          <span>{buttonLabel}</span>
+          {rows.length > 1 ? <ChevronDown size={15} className={open ? 'is-open' : ''} /> : null}
+        </Button>
+      )}
     </div>
   );
 });
 
 const NextAssignmentDock = React.memo(function NextAssignmentDock({ nextOptions = [], nextLoading = false, nextDisabled = false, onNext }) {
   return (
-    <div className="solve-action-dock solve-action-dock--navigation-only">
-      <div className="solve-action-dock-panel">
-        <NextAssignmentControl options={nextOptions} loading={nextLoading} disabled={nextDisabled} onSelect={onNext} />
+    <>
+      <div className="solve-action-dock-clearance" aria-hidden="true" />
+      <div className="solve-action-dock solve-action-dock--navigation-only">
+        <div className="solve-action-dock-panel">
+          <NextAssignmentControl options={nextOptions} loading={nextLoading} disabled={nextDisabled} onSelect={onNext} />
+        </div>
       </div>
-    </div>
+    </>
   );
 });
 
@@ -383,45 +422,48 @@ const SolveActionDock = React.memo(function SolveActionDock({
 }) {
   const visibleStatus = String(statusText || '').trim();
   return (
-    <div className="solve-action-dock">
-      {visibleStatus && (
-        <div className="solve-action-floating-status" aria-live="polite">
-          {visibleStatus}
-        </div>
-      )}
-      <div className="solve-action-dock-panel">
-        <NextAssignmentControl
-          options={nextOptions}
-          loading={nextLoading}
-          disabled={nextDisabled}
-          onSelect={onNext}
-        />
-        {secondaryActions.map((action, index) => (
+    <>
+      <div className="solve-action-dock-clearance" aria-hidden="true" />
+      <div className="solve-action-dock">
+        {visibleStatus && (
+          <div className="solve-action-floating-status" aria-live="polite">
+            {visibleStatus}
+          </div>
+        )}
+        <div className="solve-action-dock-panel">
+          <NextAssignmentControl
+            options={nextOptions}
+            loading={nextLoading}
+            disabled={nextDisabled}
+            onSelect={onNext}
+          />
+          {secondaryActions.map((action, index) => (
+            <Button
+              key={action.key || index}
+              className="solve-action-button"
+              variant={action.variant || 'outline'}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              title={action.title || action.label}
+            >
+              {action.icon || null}
+              <span>{action.label}</span>
+            </Button>
+          ))}
           <Button
-            key={action.key || index}
-            className="solve-action-button"
-            variant={action.variant || 'outline'}
-            onClick={action.onClick}
-            disabled={action.disabled}
-            title={action.title || action.label}
+            className="solve-action-button solve-action-button--primary"
+            onClick={onPrimary}
+            data-taskforge-automation-id="submit-code-solution"
+            data-taskforge-agent-role="solution-submit"
+            data-taskforge-agent-action="submit-code-solution"
+            disabled={primaryDisabled}
           >
-            {action.icon || null}
-            <span>{action.label}</span>
+            {PrimaryIcon ? <PrimaryIcon size={16} className="mr-1" /> : null}
+            <span>{primaryLabel}</span>
           </Button>
-        ))}
-        <Button
-          className="solve-action-button solve-action-button--primary"
-          onClick={onPrimary}
-          data-taskforge-automation-id="submit-code-solution"
-          data-taskforge-agent-role="solution-submit"
-          data-taskforge-agent-action="submit-code-solution"
-          disabled={primaryDisabled}
-        >
-          {PrimaryIcon ? <PrimaryIcon size={16} className="mr-1" /> : null}
-          <span>{primaryLabel}</span>
-        </Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 });
 

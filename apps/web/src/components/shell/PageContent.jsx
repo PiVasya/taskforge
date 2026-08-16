@@ -63,8 +63,8 @@ function PageContent({ authenticated = false }) {
 
   const fullWidth = useMemo(() => isFullWidthRoute(pathname), [pathname]);
   const mainClassName = authenticated || fullWidth
-    ? 'w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
-    : 'container-app py-4 sm:py-8 relative z-10';
+    ? 'flex-1 w-full max-w-none px-3 sm:px-5 lg:px-6 xl:px-8 2xl:px-10 py-4 sm:py-8 relative z-10'
+    : 'flex-1 container-app py-4 sm:py-8 relative z-10';
 
   const gridClassName = authenticated
     ? sidebarCollapsed

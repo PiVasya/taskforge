@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import AuthProvider, { useAuth } from '../auth/AuthContext';
 import { NotifyProvider } from '../components/notify/NotifyProvider';
@@ -9,6 +9,33 @@ import { QuotaProvider } from '../contexts/QuotaContext';
 import { UiSettingsProvider } from '../contexts/UiSettingsContext';
 import api from '../api/http';
 import { QueryClientProvider } from '../data/QueryClientProvider';
+
+
+function RouteScrollReset() {
+  const location = useLocation();
+  const previousPathRef = useRef(location.pathname);
+
+  useLayoutEffect(() => {
+    if (location.state?.courseMapOverlay) return;
+
+    const pathChanged = previousPathRef.current !== location.pathname;
+    previousPathRef.current = location.pathname;
+    if (!pathChanged) return;
+
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname, location.state]);
+
+  useEffect(() => {
+    if (!('scrollRestoration' in window.history)) return undefined;
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  return null;
+}
 
 function PageViewTracker() {
   const { access } = useAuth();
@@ -36,8 +63,9 @@ function SessionProviders({ children }) {
   const { access } = useAuth();
   return (
     <QuotaProvider enabled={Boolean(access)}>
-      <div className="min-h-screen relative isolate">
+      <div className="min-h-screen relative isolate flex flex-col">
         <PersistentBackground />
+        <RouteScrollReset />
         <PageViewTracker />
         <SupportNotifier />
         {children}

@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { KeyRound, LogIn } from "lucide-react";
 import { getApiErrorMessage } from "../api/http";
+import { locationToInternalPath, safeInternalPath } from "../auth/authRedirect";
 
 export default function LoginPage() {
   const { login, access } = useAuth();      
@@ -13,7 +14,9 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
-  const from = loc.state?.from?.pathname || "/courses";
+  const requestedNext = new URLSearchParams(loc.search).get("next");
+  const stateNext = locationToInternalPath(loc.state?.from);
+  const from = safeInternalPath(requestedNext || stateNext, "/courses");
 
   useEffect(() => {
     if (loc.state?.login) setLoginName(loc.state.login);
@@ -21,13 +24,26 @@ export default function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setBusy(true);
     setErr("");
 
+    const normalizedLogin = loginName.trim();
+    if (!normalizedLogin && !password) {
+      setErr("Введите логин или email и пароль.");
+      return;
+    }
+    if (!normalizedLogin) {
+      setErr("Введите логин или email.");
+      return;
+    }
+    if (!password) {
+      setErr("Введите пароль.");
+      return;
+    }
+
+    setBusy(true);
+
     try {
-      
-      await login(loginName.trim(), password);
-      
+      await login(normalizedLogin, password);
     } catch (e) {
       setErr(getApiErrorMessage(e, "Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь."));
     } finally {
@@ -54,13 +70,14 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <Field label="Логин или email">
               <Input
                 type="text"
                 value={loginName}
                 onChange={(e) => setLoginName(e.target.value)}
                 required
+                aria-invalid={Boolean(err && !loginName.trim())}
                 autoComplete="username"
                 placeholder="krytoichel или krytoichel@example.com"
                 data-taskforge-automation-id="login-identity"
@@ -75,6 +92,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                aria-invalid={Boolean(err && !password)}
                 autoComplete="current-password"
                 data-taskforge-automation-id="login-password"
                 data-taskforge-agent-role="login-password"

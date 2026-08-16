@@ -299,8 +299,10 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
               className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
               onClick={onOpenMobile}
               title="Меню"
+              aria-label="Открыть меню"
               aria-haspopup="dialog"
               aria-expanded={mobileOpen}
+              aria-controls="taskforge-mobile-navigation"
             >
               <Menu size={20} />
             </button>

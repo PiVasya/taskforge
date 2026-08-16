@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Field, Input, Button, Textarea } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
@@ -7,6 +7,51 @@ import { UserPlus, LogIn, ChevronDown } from "lucide-react";
 import { getApiErrorMessage } from "../api/http";
 
 const LOGIN_RE = /^[a-zA-Z0-9_.-]{3,64}$/;
+
+const EMPTY_REGISTRATION_DRAFT = Object.freeze({
+    login: "",
+    password: "",
+    password2: "",
+    firstName: "",
+    lastName: "",
+    showExtra: false,
+    email: "",
+    phoneNumber: "",
+    studyPlace: "",
+    education: "",
+    skillsText: "",
+    bio: "",
+    acceptedPolicy: false,
+});
+
+const registrationDrafts = new Map();
+
+function getRegistrationDraft(accountType) {
+    if (!registrationDrafts.has(accountType)) {
+        registrationDrafts.set(accountType, { ...EMPTY_REGISTRATION_DRAFT });
+    }
+    return registrationDrafts.get(accountType);
+}
+
+function clearRegistrationDraft(accountType) {
+    registrationDrafts.delete(accountType);
+}
+
+function useRegistrationDraftField(accountType, field) {
+    const [value, setValueState] = useState(() => getRegistrationDraft(accountType)[field]);
+    const valueRef = useRef(value);
+    valueRef.current = value;
+
+    const setValue = useCallback((nextValue) => {
+        const resolvedValue = typeof nextValue === "function" ? nextValue(valueRef.current) : nextValue;
+        valueRef.current = resolvedValue;
+        getRegistrationDraft(accountType)[field] = resolvedValue;
+        setValueState(resolvedValue);
+    }, [accountType, field]);
+
+    return [value, setValue];
+}
+
 
 function buildAdditionalDataJson(fields) {
     const skills = (fields.skillsText || "")
@@ -37,21 +82,21 @@ export default function RegisterPage() {
     const isAiRegistration = requestedAccountType === "ai";
     const { login: signIn, access } = useAuth();
 
-    const [login, setLogin] = useState("");
-    const [password, setPassword] = useState("");
-    const [password2, setPassword2] = useState("");
-    const [firstName, setFirstName] = useState("");
-    const [lastName, setLastName] = useState("");
+    const [login, setLogin] = useRegistrationDraftField(requestedAccountType, "login");
+    const [password, setPassword] = useRegistrationDraftField(requestedAccountType, "password");
+    const [password2, setPassword2] = useRegistrationDraftField(requestedAccountType, "password2");
+    const [firstName, setFirstName] = useRegistrationDraftField(requestedAccountType, "firstName");
+    const [lastName, setLastName] = useRegistrationDraftField(requestedAccountType, "lastName");
 
-    const [showExtra, setShowExtra] = useState(false);
-    const [email, setEmail] = useState("");
-    const [phoneNumber, setPhoneNumber] = useState("");
-    const [studyPlace, setStudyPlace] = useState("");
-    const [education, setEducation] = useState("");
-    const [skillsText, setSkillsText] = useState("");
-    const [bio, setBio] = useState("");
+    const [showExtra, setShowExtra] = useRegistrationDraftField(requestedAccountType, "showExtra");
+    const [email, setEmail] = useRegistrationDraftField(requestedAccountType, "email");
+    const [phoneNumber, setPhoneNumber] = useRegistrationDraftField(requestedAccountType, "phoneNumber");
+    const [studyPlace, setStudyPlace] = useRegistrationDraftField(requestedAccountType, "studyPlace");
+    const [education, setEducation] = useRegistrationDraftField(requestedAccountType, "education");
+    const [skillsText, setSkillsText] = useRegistrationDraftField(requestedAccountType, "skillsText");
+    const [bio, setBio] = useRegistrationDraftField(requestedAccountType, "bio");
 
-    const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+    const [acceptedPolicy, setAcceptedPolicy] = useRegistrationDraftField(requestedAccountType, "acceptedPolicy");
     const [err, setErr] = useState("");
     const [busy, setBusy] = useState(false);
 
@@ -82,6 +127,7 @@ export default function RegisterPage() {
                 additionalDataJson: buildAdditionalDataJson({ studyPlace, education, skillsText, bio }),
                 accountType: requestedAccountType,
             });
+            clearRegistrationDraft(requestedAccountType);
 
             try {
                 await signIn(normalizedLogin, password);
@@ -97,9 +143,10 @@ export default function RegisterPage() {
 
     useEffect(() => {
         if (access) {
+            clearRegistrationDraft(requestedAccountType);
             nav("/courses", { replace: true });
         }
-    }, [access, nav]);
+    }, [access, nav, requestedAccountType]);
 
     return (
         <>

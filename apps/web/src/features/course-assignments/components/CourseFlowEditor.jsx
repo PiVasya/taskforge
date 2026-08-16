@@ -1378,8 +1378,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         const incomingVersion = Number(meta?.version || 0);
         const cachedVersion = Number(recordRef.current.version || 0);
         if (keepExisting && cachedVersion > 0 && incomingVersion > 0 && incomingVersion !== cachedVersion) {
-          courseMapConsole('CACHE_DISCARD', { reason: 'map-version-changed', cachedVersion, incomingVersion, viewKey }, 'warn');
-          keepExisting = false;
+          courseMapConsole('CACHE_REBASE', { reason: 'map-version-changed', cachedVersion, incomingVersion, viewKey }, 'warn');
         }
         graphSourceRef.current = { mode: 'learner', source: 'learner-stream', viewKey };
         modeTransitionRef.current = false;
@@ -1557,32 +1556,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return promise;
   }, [rootId]);
 
-  const resetLearnerClientGraph = React.useCallback((reason, { clearCache = false } = {}) => {
-    courseMapConsoleGraph('LEARNER_RESET_LOCAL', {
-      reason,
-      viewKey,
-      clearCache: Boolean(clearCache),
-      nodes: nodesRef.current,
-      edges: edgesRef.current,
-    }, 'warn');
-    nodesRef.current = [];
-    edgesRef.current = [];
-    assignmentsRef.current = [];
-    mapCoursesRef.current = course?.id ? [course] : [];
-    courseProgressRef.current = new Map();
-    pendingLearnerEdgesRef.current = [];
-    projectionTokenRef.current = '';
-    setNodes([]);
-    setEdges([]);
-    setAssignments([]);
-    setMapCourses(mapCoursesRef.current);
-    setCourseProgressByNode(new Map());
-    graphSourceRef.current = { mode: '', source: `learner-reset:${reason}`, viewKey };
-    modeTransitionRef.current = true;
-    loadedViewRef.current = '';
-    if (clearCache) clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
-  }, [course, currentUserId, rootId, setEdges, setNodes, viewKey]);
-
   const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
     if (!rootId) return;
     const requestId = ++loadRequestRef.current;
@@ -1714,8 +1687,20 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
               });
               return;
             }
-            resetLearnerClientGraph('delta-reset-required', { clearCache: true });
-            restoredFromCache = false;
+            // Projection tokens are intentionally shorter-lived than the local graph cache.
+            // An expired token therefore means "rebase from the server", not "erase the UI".
+            // Keep the currently rendered graph until the fresh stream has replaced/pruned it.
+            projectionTokenRef.current = '';
+            updateLearnerProjectionRecord({ projectionToken: '', projectionRevision: 0 });
+            persistLearnerGraph('delta-reset-token-invalidated');
+            courseMapConsoleGraph('LEARNER_REBASE_REQUIRED', {
+              reason: 'delta-reset-required',
+              viewKey,
+              serverVersion: Number(delta?.version || 0),
+              nodes: nodesRef.current,
+              edges: edgesRef.current,
+            }, 'warn');
+            restoredFromCache = true;
             cached = null;
             forceFullRevalidation = false;
           } catch (deltaError) {
@@ -1822,7 +1807,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     } finally {
       if (requestId === loadRequestRef.current && initialForView && !restoredFromCache) setLoading(false);
     }
-  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, resetLearnerClientGraph, rootId, sessionOptions, streamLearnerMap, viewKey]);
+  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, persistLearnerGraph, rootId, sessionOptions, streamLearnerMap, updateLearnerProjectionRecord, viewKey]);
 
   loadMapRef.current = loadMap;
   React.useEffect(() => {

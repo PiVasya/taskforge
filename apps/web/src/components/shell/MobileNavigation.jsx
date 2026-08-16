@@ -14,6 +14,23 @@ import { useEditorMode } from '../../contexts/EditorModeContext';
 import QuotaStatusBar from '../QuotaStatusBar';
 import { useShellNavigation } from './navigation';
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function getFocusableElements(container) {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter((element) => {
+    if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
+    return element.getClientRects().length > 0;
+  });
+}
+
 function MobileNavigation({ open, onClose }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -22,6 +39,11 @@ function MobileNavigation({ open, onClose }) {
   const { currentViewTitle, primaryNav, adminNav } = useShellNavigation();
 
   const previousPathRef = useRef(pathname);
+  const currentPathRef = useRef(pathname);
+  currentPathRef.current = pathname;
+  const sheetRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const restoreFocusRef = useRef(null);
 
   useEffect(() => {
     if (previousPathRef.current === pathname) return;
@@ -31,17 +53,95 @@ function MobileNavigation({ open, onClose }) {
 
   useEffect(() => {
     if (!open) return undefined;
-    const previousOverflow = document.body.style.overflow;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const lockedPathname = pathname;
+    const scrollY = window.scrollY;
+    const scrollX = window.scrollX;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousHtmlOverscrollBehavior = html.style.overscrollBehavior;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyLeft = body.style.left;
+    const previousBodyRight = body.style.right;
+    const previousBodyWidth = body.style.width;
+
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    html.style.overflow = 'hidden';
+    html.style.overscrollBehavior = 'none';
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = `-${scrollX}px`;
+    body.style.right = '0';
+    body.style.width = '100%';
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus({ preventScroll: true });
+    });
+
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusableElements(sheetRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        sheetRef.current?.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (!sheetRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
     };
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKeyDown);
+
+    document.addEventListener('keydown', onKeyDown, true);
+
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', onKeyDown, true);
+
+      html.style.overflow = previousHtmlOverflow;
+      html.style.overscrollBehavior = previousHtmlOverscrollBehavior;
+      body.style.overflow = previousBodyOverflow;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.left = previousBodyLeft;
+      body.style.right = previousBodyRight;
+      body.style.width = previousBodyWidth;
+
+      const routeChanged = currentPathRef.current !== lockedPathname;
+      if (!routeChanged) {
+        window.scrollTo({ top: scrollY, left: scrollX, behavior: 'auto' });
+
+        const opener = restoreFocusRef.current;
+        if (opener?.isConnected) {
+          window.requestAnimationFrame(() => opener.focus({ preventScroll: true }));
+        }
+      }
     };
-  }, [onClose, open]);
+  }, [onClose, open, pathname]);
 
   const handleLogout = useCallback(async () => {
     onClose();
@@ -54,22 +154,35 @@ function MobileNavigation({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="mobile-nav-overlay xl:hidden" role="dialog" aria-modal="true" aria-label="Меню TaskForge">
-      <button
-        type="button"
+    <div className="mobile-nav-overlay xl:hidden">
+      <div
         className="mobile-nav-backdrop"
-        onClick={onClose}
-        aria-label="Закрыть меню"
+        onPointerDown={onClose}
+        aria-hidden="true"
       />
-      <div className="mobile-nav-sheet">
+      <div
+        id="taskforge-mobile-navigation"
+        ref={sheetRef}
+        className="mobile-nav-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-nav-title"
+        tabIndex={-1}
+      >
         <div className="mobile-nav-sheet__header">
           <div className="min-w-0">
-            <div className="text-lg font-semibold truncate">TaskForge</div>
+            <div id="mobile-nav-title" className="text-lg font-semibold truncate">TaskForge</div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
               {currentViewTitle}
             </div>
           </div>
-          <button type="button" className="mobile-nav-close" onClick={onClose} aria-label="Закрыть меню">
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="mobile-nav-close"
+            onClick={onClose}
+            aria-label="Закрыть меню"
+          >
             <X size={20} />
           </button>
         </div>
