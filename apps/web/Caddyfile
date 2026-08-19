@@ -1,5 +1,7 @@
 :80 {
-	respond /health "ok" 200
+	handle /health {
+		respond "ok" 200
+	}
 
 	root * /usr/share/caddy
 	encode zstd gzip
