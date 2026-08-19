@@ -36,7 +36,7 @@ const pageMetaRules = [
   {
     path: '/technology',
     title: 'технический обзор',
-    description: 'Технический обзор TaskForge: SPA, авторизация, API, клиентский кэш и границы серверной защиты.',
+    description: 'Технический обзор TaskForge: граф курсов, проверка кода, image-test, виртуальная графическая среда, runner-сервисы и хранение файлов.',
   },
   {
     path: '/news/:postId',
