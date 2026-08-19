@@ -5,6 +5,8 @@ name: docker images
 # explicitly asks to build quiet images. A workflow change forces a full rebuild.
 env:
   TASKFORGE_BUILD_DEBUG_LOGS: "1"
+  # Public by request: let browser DevTools resolve the original React sources.
+  TASKFORGE_PUBLIC_SOURCEMAPS: "1"
   # BuildKit GHA cache can occasionally leave a manifest pointing to an expired/missing blob.
   # Bump this value (v3, v4, ...) to force all Docker builds to ignore the old broken cache.
   TF_DOCKER_GHA_CACHE_VERSION: "v2"
@@ -338,6 +340,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
+            TASKFORGE_PUBLIC_SOURCEMAPS=${{ env.TASKFORGE_PUBLIC_SOURCEMAPS }}
           no-cache: true
           cache-to: type=gha,mode=max,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }},ignore-error=true
 
@@ -352,5 +355,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             TASKFORGE_DEBUG_LOGS=${{ github.event.inputs.debug_logs || env.TASKFORGE_BUILD_DEBUG_LOGS }}
+            TASKFORGE_PUBLIC_SOURCEMAPS=${{ env.TASKFORGE_PUBLIC_SOURCEMAPS }}
           cache-from: type=gha,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ env.TF_DOCKER_GHA_CACHE_VERSION }}-${{ matrix.name }},ignore-error=true

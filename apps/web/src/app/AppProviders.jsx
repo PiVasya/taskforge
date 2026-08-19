@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import AuthProvider, { useAuth } from '../auth/AuthContext';
 import { NotifyProvider } from '../components/notify/NotifyProvider';
 import SupportNotifier from '../components/SupportNotifier';
@@ -9,6 +9,8 @@ import { QuotaProvider } from '../contexts/QuotaContext';
 import { UiSettingsProvider } from '../contexts/UiSettingsContext';
 import api from '../api/http';
 import { QueryClientProvider } from '../data/QueryClientProvider';
+import { AUTH_REQUIRED_EVENT } from '../auth/authEvents';
+import { loginPathForLocation } from '../auth/authRedirect';
 
 
 function RouteScrollReset() {
@@ -59,6 +61,25 @@ function PageViewTracker() {
   return null;
 }
 
+function AuthRequiredRedirect() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
+
+  useEffect(() => {
+    const handleAuthRequired = () => {
+      const current = locationRef.current;
+      if (current.pathname === '/login') return;
+      navigate(loginPathForLocation(current), { replace: true, state: { from: current } });
+    };
+    window.addEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+  }, [navigate]);
+
+  return null;
+}
+
 function SessionProviders({ children }) {
   const { access } = useAuth();
   return (
@@ -66,6 +87,7 @@ function SessionProviders({ children }) {
       <div className="min-h-screen relative isolate flex flex-col">
         <PersistentBackground />
         <RouteScrollReset />
+        <AuthRequiredRedirect />
         <PageViewTracker />
         <SupportNotifier />
         {children}

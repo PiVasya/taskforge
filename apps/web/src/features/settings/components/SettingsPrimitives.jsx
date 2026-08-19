@@ -68,7 +68,7 @@ export const ChoiceButton = React.memo(function ChoiceButton({ active, title, de
 export const ReadOnlyValue = React.memo(function ReadOnlyValue({ label, value, hint }) {
   return (
     <div>
-      <label className="text-sm text-neutral-500 dark:text-neutral-400">{label}</label>
+      <div className="text-sm text-neutral-500 dark:text-neutral-400">{label}</div>
       <div className="mt-1 rounded-xl border border-[rgba(var(--border)/0.65)] bg-neutral-100/60 px-3 py-2 text-neutral-500 dark:bg-neutral-950/35 dark:text-neutral-400">{value}</div>
       {hint ? <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{hint}</div> : null}
     </div>
@@ -89,7 +89,7 @@ export const EmailRevealControl = React.memo(function EmailRevealControl({
 }) {
   return (
     <div>
-      <label className="text-sm text-neutral-500 dark:text-neutral-400">Почта</label>
+      <div className="text-sm text-neutral-500 dark:text-neutral-400">Почта</div>
       <div className="mt-1 rounded-xl border border-[rgba(var(--border)/0.65)] bg-neutral-100/60 px-3 py-2 dark:bg-neutral-950/35">
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">{revealedEmail || maskedEmail}</span>
@@ -104,13 +104,15 @@ export const EmailRevealControl = React.memo(function EmailRevealControl({
         </div>
         {open && !revealedEmail ? (
           <div className="mt-3 rounded-2xl border border-[rgba(var(--border)/0.55)] bg-[rgba(var(--card)/0.55)] p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <label htmlFor="settings-email-reveal-password" className="mb-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <LockKeyhole size={14} />
               <span>Текущий пароль</span>
-            </div>
+            </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
+                id="settings-email-reveal-password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 placeholder="Текущий пароль"
                 onChange={(event) => onPasswordChange(event.target.value)}

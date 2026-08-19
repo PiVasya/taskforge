@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Eye,
@@ -56,6 +57,8 @@ function MobileNavigation({ open, onClose }) {
 
     const html = document.documentElement;
     const body = document.body;
+    const appRoot = document.getElementById('root');
+    const rootWasInert = appRoot?.hasAttribute('inert') || false;
     const lockedPathname = pathname;
     const scrollY = window.scrollY;
     const scrollX = window.scrollX;
@@ -68,9 +71,14 @@ function MobileNavigation({ open, onClose }) {
     const previousBodyRight = body.style.right;
     const previousBodyWidth = body.style.width;
 
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const menuOpener = document.querySelector('[aria-controls="taskforge-mobile-navigation"]');
+    restoreFocusRef.current = menuOpener instanceof HTMLElement
+      ? menuOpener
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    if (appRoot) appRoot.setAttribute('inert', '');
 
     html.style.overflow = 'hidden';
     html.style.overscrollBehavior = 'none';
@@ -130,6 +138,7 @@ function MobileNavigation({ open, onClose }) {
       body.style.left = previousBodyLeft;
       body.style.right = previousBodyRight;
       body.style.width = previousBodyWidth;
+      if (appRoot && !rootWasInert) appRoot.removeAttribute('inert');
 
       const routeChanged = currentPathRef.current !== lockedPathname;
       if (!routeChanged) {
@@ -153,7 +162,7 @@ function MobileNavigation({ open, onClose }) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="mobile-nav-overlay xl:hidden">
       <div
         className="mobile-nav-backdrop"
@@ -276,7 +285,8 @@ function MobileNavigation({ open, onClose }) {
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -4,6 +4,7 @@ import { AuthApi } from '../api/auth';
 import { getProfile } from '../api/profile';
 import { clearAllCourseMapLocalCaches } from '../features/course-assignments/courseMapLocalCache';
 import { clearAllCourseMapSessionStates } from '../features/course-assignments/courseMapSessionState';
+import { AUTH_REQUIRED_EVENT } from './authEvents';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
@@ -118,6 +119,15 @@ export default function AuthProvider({ children }) {
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, [access, doRefresh]);
+
+  useEffect(() => {
+    const handleAuthRequired = () => {
+      applyAccess(null);
+      setUser(null);
+    };
+    window.addEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+  }, [applyAccess]);
 
   const value = useMemo(
     () => ({ ready, user, access, login: doLogin, logout: doLogout, refresh: doRefresh }),

@@ -60,7 +60,7 @@ function IntegrationsSettingsSection({ telegram, minecraft }) {
           </div>
         ) : null}
         <div className="space-y-3 border-t border-[rgba(var(--border)/0.45)] pt-4">
-          <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Новый ник на сервере</label><Input placeholder="Player_123" value={minecraft.nick} onChange={(event) => minecraft.setNick(event.target.value)} disabled={minecraft.loading} /></div>
+          <div><label htmlFor="settings-minecraft-nick" className="text-sm text-neutral-500 dark:text-neutral-400">Новый ник на сервере</label><Input id="settings-minecraft-nick" placeholder="Player_123" value={minecraft.nick} onChange={(event) => minecraft.setNick(event.target.value)} disabled={minecraft.loading} /></div>
           <div className="flex flex-wrap gap-2"><Button onClick={minecraft.request} disabled={minecraft.loading}>{minecraft.loading ? 'Отправка…' : 'Отправить код в игру'}</Button><Button variant="outline" onClick={minecraft.refresh} disabled={minecraft.loading}>Обновить</Button></div>
           {minecraft.delivery ? (
             <div className={`rounded-2xl px-3 py-2 text-xs ${minecraft.delivery.delivered ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
@@ -68,7 +68,7 @@ function IntegrationsSettingsSection({ telegram, minecraft }) {
               {minecraft.delivery.delivered && minecraft.expires ? <div className="mt-1 opacity-80">Действует до: {new Date(minecraft.expires).toLocaleString()}</div> : null}
             </div>
           ) : null}
-          <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Код, полученный в игре</label><Input placeholder="ABCD-EFGH" value={minecraft.inputCode} onChange={(event) => minecraft.setInputCode(event.target.value)} disabled={minecraft.loading} /></div>
+          <div><label htmlFor="settings-minecraft-code" className="text-sm text-neutral-500 dark:text-neutral-400">Код, полученный в игре</label><Input id="settings-minecraft-code" placeholder="ABCD-EFGH" value={minecraft.inputCode} onChange={(event) => minecraft.setInputCode(event.target.value)} disabled={minecraft.loading} /></div>
           <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={minecraft.confirm} disabled={minecraft.loading || !minecraft.inputCode}>Подтвердить</Button></div>
         </div>
       </Card>

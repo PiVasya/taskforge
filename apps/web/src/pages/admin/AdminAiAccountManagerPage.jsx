@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Archive,
   Ban,
@@ -187,6 +187,7 @@ function AccountBadges({ account, data, blocked }) {
 }
 
 function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, onBlock, onUnblock, onDelete, busy }) {
+  const navigate = useNavigate();
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0 });
   const groupText = (account.groups || []).map((x) => x.name || x.code).filter(Boolean).join(', ');
   const minecraftText = (account.minecraft || []).map((x) => x.playerName).filter(Boolean).join(', ');
@@ -234,7 +235,7 @@ function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, 
 
       <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu((current) => ({ ...current, open: false }))} ariaLabel="Действия AI-аккаунта">
         <ContextMenuLabel>Аккаунт</ContextMenuLabel>
-        <ContextMenuItem icon={ExternalLink} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); window.location.assign(`/admin/users/${view.userId}`); }}>Открыть пользователя</ContextMenuItem>
+        <ContextMenuItem icon={ExternalLink} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); navigate(`/admin/users/${view.userId}`); }}>Открыть пользователя</ContextMenuItem>
         <ContextMenuSeparator />
         {view.verified ? (
           <ContextMenuItem icon={ShieldOff} disabled={busy} onClick={() => { setContextMenu((current) => ({ ...current, open: false })); void onUnverify(view.userId); }}>Снять «проверен»</ContextMenuItem>

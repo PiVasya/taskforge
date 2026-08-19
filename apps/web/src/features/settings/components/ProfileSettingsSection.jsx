@@ -31,12 +31,12 @@ function ProfileSettingsSection({
           <div className="font-semibold">Основные данные</div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="text-sm text-neutral-500 dark:text-neutral-400">Логин</label>
-              <Input value={profile.login || ''} onChange={(event) => setProfileField('login', event.target.value)} autoComplete="username" placeholder="krytoichel" />
+              <label htmlFor="settings-profile-login" className="text-sm text-neutral-500 dark:text-neutral-400">Логин</label>
+              <Input id="settings-profile-login" value={profile.login || ''} onChange={(event) => setProfileField('login', event.target.value)} autoComplete="username" placeholder="krytoichel" />
               {!profileLoginLooksOk ? <div className="mt-1 text-xs text-red-500">От 3 до 64 символов: латинские буквы, цифры, точка, дефис или подчёркивание.</div> : null}
             </div>
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Имя</label><Input value={profile.firstName || ''} onChange={(event) => setProfileField('firstName', event.target.value)} /></div>
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Фамилия</label><Input value={profile.lastName || ''} onChange={(event) => setProfileField('lastName', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-first-name" className="text-sm text-neutral-500 dark:text-neutral-400">Имя</label><Input id="settings-profile-first-name" autoComplete="given-name" value={profile.firstName || ''} onChange={(event) => setProfileField('firstName', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-last-name" className="text-sm text-neutral-500 dark:text-neutral-400">Фамилия</label><Input id="settings-profile-last-name" autoComplete="family-name" value={profile.lastName || ''} onChange={(event) => setProfileField('lastName', event.target.value)} /></div>
             <EmailRevealControl
               maskedEmail={profile.maskedEmail || maskEmail(profile.email)}
               revealedEmail={emailReveal.revealedEmail}
@@ -49,28 +49,28 @@ function ProfileSettingsSection({
               onPasswordChange={emailReveal.onPasswordChange}
               onReveal={emailReveal.onReveal}
             />
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Телефон</label><Input placeholder="+375 (__) ___-__-__" value={profile.phoneNumber || ''} onChange={(event) => setProfileField('phoneNumber', event.target.value)} /></div>
-            <div className="md:col-span-2"><label className="text-sm text-neutral-500 dark:text-neutral-400">Ссылка на аватар</label><Input placeholder="https://example.com/avatar.jpg" value={profile.profilePictureUrl || ''} onChange={(event) => setProfileField('profilePictureUrl', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-phone" className="text-sm text-neutral-500 dark:text-neutral-400">Телефон</label><Input id="settings-profile-phone" autoComplete="tel" placeholder="+375 (__) ___-__-__" value={profile.phoneNumber || ''} onChange={(event) => setProfileField('phoneNumber', event.target.value)} /></div>
+            <div className="md:col-span-2"><label htmlFor="settings-profile-avatar" className="text-sm text-neutral-500 dark:text-neutral-400">Ссылка на аватар</label><Input id="settings-profile-avatar" type="url" placeholder="https://example.com/avatar.jpg" value={profile.profilePictureUrl || ''} onChange={(event) => setProfileField('profilePictureUrl', event.target.value)} /></div>
             <ReadOnlyValue label="Доступ" value={profileRole(profile)} />
           </div>
         </Card>
 
         <Card className="p-4 space-y-4">
           <div className="font-semibold">Публичный профиль</div>
-          <div><label className="text-sm text-neutral-500 dark:text-neutral-400">О себе</label><Textarea rows={4} placeholder="Например: студент ИТ, люблю C#, делаю проекты на TaskForge…" value={extra.bio} onChange={(event) => setExtraField('bio', event.target.value)} /></div>
+          <div><label htmlFor="settings-profile-bio" className="text-sm text-neutral-500 dark:text-neutral-400">О себе</label><Textarea id="settings-profile-bio" rows={4} placeholder="Например: студент ИТ, люблю C#, делаю проекты на TaskForge…" value={extra.bio} onChange={(event) => setExtraField('bio', event.target.value)} /></div>
           <div className="grid gap-4 md:grid-cols-2">
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Город / место учёбы</label><Input placeholder="Минск, БГУИР, ITD-21" value={extra.location} onChange={(event) => setExtraField('location', event.target.value)} /></div>
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Образование / группа</label><Input placeholder="Факультет АИС, ITD-21" value={extra.education} onChange={(event) => setExtraField('education', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-location" className="text-sm text-neutral-500 dark:text-neutral-400">Город / место учёбы</label><Input id="settings-profile-location" placeholder="Минск, БГУИР, ITD-21" value={extra.location} onChange={(event) => setExtraField('location', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-education" className="text-sm text-neutral-500 dark:text-neutral-400">Образование / группа</label><Input id="settings-profile-education" placeholder="Факультет АИС, ITD-21" value={extra.education} onChange={(event) => setExtraField('education', event.target.value)} /></div>
           </div>
-          <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Навыки</label><Input placeholder="C#, C++, SQL, React" value={extra.skillsText} onChange={(event) => setExtraField('skillsText', event.target.value)} /></div>
+          <div><label htmlFor="settings-profile-skills" className="text-sm text-neutral-500 dark:text-neutral-400">Навыки</label><Input id="settings-profile-skills" placeholder="C#, C++, SQL, React" value={extra.skillsText} onChange={(event) => setExtraField('skillsText', event.target.value)} /></div>
         </Card>
 
         <Card className="p-4 space-y-4">
           <div className="font-semibold">Ссылки</div>
           <div className="grid gap-4 md:grid-cols-2">
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">GitHub</label><Input placeholder="https://github.com/..." value={extra.github} onChange={(event) => setExtraField('github', event.target.value)} /></div>
-            <div><label className="text-sm text-neutral-500 dark:text-neutral-400">Telegram</label><Input placeholder="@username или https://t.me/username" value={extra.telegram} onChange={(event) => setExtraField('telegram', event.target.value)} /></div>
-            <div className="md:col-span-2"><label className="text-sm text-neutral-500 dark:text-neutral-400">Личный сайт / портфолио</label><Input placeholder="https://..." value={extra.website} onChange={(event) => setExtraField('website', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-github" className="text-sm text-neutral-500 dark:text-neutral-400">GitHub</label><Input id="settings-profile-github" type="url" placeholder="https://github.com/..." value={extra.github} onChange={(event) => setExtraField('github', event.target.value)} /></div>
+            <div><label htmlFor="settings-profile-telegram" className="text-sm text-neutral-500 dark:text-neutral-400">Telegram</label><Input id="settings-profile-telegram" placeholder="@username или https://t.me/username" value={extra.telegram} onChange={(event) => setExtraField('telegram', event.target.value)} /></div>
+            <div className="md:col-span-2"><label htmlFor="settings-profile-website" className="text-sm text-neutral-500 dark:text-neutral-400">Личный сайт / портфолио</label><Input id="settings-profile-website" type="url" placeholder="https://..." value={extra.website} onChange={(event) => setExtraField('website', event.target.value)} /></div>
           </div>
         </Card>
 

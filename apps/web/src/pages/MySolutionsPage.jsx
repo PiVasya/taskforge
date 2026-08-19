@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Badge } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { getMySolutions, getMySolutionDetails } from '../api/solutions';
@@ -24,8 +24,11 @@ import {
   getSolutionStatusLabel,
   getSolutionTitle,
 } from '../utils/solutionUi';
+import { useQueryClient } from '../data/QueryClientProvider';
 
 const PAGE_SIZE = 20;
+const MY_SOLUTIONS_PAGE_STATE_KEY = ['page-state', 'my-solutions'];
+const MY_SOLUTIONS_CACHE_STALE_MS = 60_000;
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -167,40 +170,75 @@ function ImageSolutionDetails({ solution, fallbackLanguage }) {
 
 export default function MySolutionsPage() {
   const notify = useNotify();
+  const queryClient = useQueryClient();
+  const cachedStateRef = useRef(queryClient.getQueryData(MY_SOLUTIONS_PAGE_STATE_KEY));
+  const cachedState = cachedStateRef.current || {};
+  const cachedStateFresh = Number(cachedState.savedAt || 0) > 0
+    && Date.now() - Number(cachedState.savedAt) < MY_SOLUTIONS_CACHE_STALE_MS;
+  const filterInitializedRef = useRef(false);
 
-  const [tab, setTab] = useState('code');
-  const [filterDays, setFilterDays] = useState(null);
-  const [loadedTabs, setLoadedTabs] = useState({});
+  const [tab, setTab] = useState(() => cachedState.tab || 'code');
+  const [filterDays, setFilterDays] = useState(() => cachedState.filterDays ?? null);
+  const [loadedTabs, setLoadedTabs] = useState(() => cachedStateFresh ? (cachedState.loadedTabs || {}) : {});
 
-  const [solutions, setSolutions] = useState([]);
+  const [solutions, setSolutions] = useState(() => Array.isArray(cachedState.solutions) ? cachedState.solutions : []);
   const [listLoading, setListLoading] = useState(false);
-  const [solHasMore, setSolHasMore] = useState(true);
-  const [solSkip, setSolSkip] = useState(0);
-  const [details, setDetails] = useState({});
+  const [solHasMore, setSolHasMore] = useState(() => cachedState.solHasMore ?? true);
+  const [solSkip, setSolSkip] = useState(() => Number(cachedState.solSkip || 0));
+  const [details, setDetails] = useState(() => cachedState.details || {});
   const [codeDetailsLoading, setCodeDetailsLoading] = useState({});
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(() => cachedState.expandedId ?? null);
 
-  const [testAttempts, setTestAttempts] = useState([]);
+  const [testAttempts, setTestAttempts] = useState(() => Array.isArray(cachedState.testAttempts) ? cachedState.testAttempts : []);
   const [testListLoading, setTestListLoading] = useState(false);
-  const [testHasMore, setTestHasMore] = useState(true);
-  const [testSkip, setTestSkip] = useState(0);
-  const [testDetails, setTestDetails] = useState({});
-  const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
+  const [testHasMore, setTestHasMore] = useState(() => cachedState.testHasMore ?? true);
+  const [testSkip, setTestSkip] = useState(() => Number(cachedState.testSkip || 0));
+  const [testDetails, setTestDetails] = useState(() => cachedState.testDetails || {});
+  const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(() => cachedState.expandedTestAttemptId ?? null);
 
-  const [imageSolutions, setImageSolutions] = useState([]);
+  const [imageSolutions, setImageSolutions] = useState(() => Array.isArray(cachedState.imageSolutions) ? cachedState.imageSolutions : []);
   const [imageListLoading, setImageListLoading] = useState(false);
-  const [imageHasMore, setImageHasMore] = useState(true);
-  const [imageSkip, setImageSkip] = useState(0);
-  const [imageDetails, setImageDetails] = useState({});
+  const [imageHasMore, setImageHasMore] = useState(() => cachedState.imageHasMore ?? true);
+  const [imageSkip, setImageSkip] = useState(() => Number(cachedState.imageSkip || 0));
+  const [imageDetails, setImageDetails] = useState(() => cachedState.imageDetails || {});
   const [imageDetailsLoading, setImageDetailsLoading] = useState({});
-  const [expandedImageId, setExpandedImageId] = useState(null);
+  const [expandedImageId, setExpandedImageId] = useState(() => cachedState.expandedImageId ?? null);
 
-  const [mathAttempts, setMathAttempts] = useState([]);
+  const [mathAttempts, setMathAttempts] = useState(() => Array.isArray(cachedState.mathAttempts) ? cachedState.mathAttempts : []);
   const [mathListLoading, setMathListLoading] = useState(false);
-  const [mathHasMore, setMathHasMore] = useState(true);
-  const [mathSkip, setMathSkip] = useState(0);
-  const [mathDetails, setMathDetails] = useState({});
-  const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(null);
+  const [mathHasMore, setMathHasMore] = useState(() => cachedState.mathHasMore ?? true);
+  const [mathSkip, setMathSkip] = useState(() => Number(cachedState.mathSkip || 0));
+  const [mathDetails, setMathDetails] = useState(() => cachedState.mathDetails || {});
+  const [expandedMathAttemptId, setExpandedMathAttemptId] = useState(() => cachedState.expandedMathAttemptId ?? null);
+
+  useEffect(() => {
+    queryClient.setQueryData(MY_SOLUTIONS_PAGE_STATE_KEY, {
+      savedAt: Date.now(),
+      tab,
+      filterDays,
+      loadedTabs,
+      solutions,
+      solHasMore,
+      solSkip,
+      details,
+      expandedId,
+      testAttempts,
+      testHasMore,
+      testSkip,
+      testDetails,
+      expandedTestAttemptId,
+      imageSolutions,
+      imageHasMore,
+      imageSkip,
+      imageDetails,
+      expandedImageId,
+      mathAttempts,
+      mathHasMore,
+      mathSkip,
+      mathDetails,
+      expandedMathAttemptId,
+    });
+  }, [details, expandedId, expandedImageId, expandedMathAttemptId, expandedTestAttemptId, filterDays, imageDetails, imageHasMore, imageSkip, imageSolutions, loadedTabs, mathAttempts, mathDetails, mathHasMore, mathSkip, queryClient, solHasMore, solSkip, solutions, tab, testAttempts, testDetails, testHasMore, testSkip]);
 
   const loadSolutions = async ({ reset = false } = {}) => {
     setListLoading(true);
@@ -299,6 +337,11 @@ export default function MySolutionsPage() {
   };
 
   useEffect(() => {
+    if (!filterInitializedRef.current) {
+      filterInitializedRef.current = true;
+      return;
+    }
+
     setSolSkip(0);
     setSolHasMore(true);
     setSolutions([]);

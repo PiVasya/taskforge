@@ -1,4 +1,5 @@
 import { getApiErrorMessage, normalizeApiError, setAccessToken } from '../api/http';
+import { emitAuthRequired } from '../auth/authEvents';
 
 function buildFallbackHowToFix(status, fallbackMessage) {
   if (status === 400 || status === 422) {
@@ -76,10 +77,8 @@ export function handleApiError(err, notifyOrOptions, fallbackMessage) {
 
   if (parsed.status === 401) {
     setAccessToken(null);
+    emitAuthRequired();
     if (notify) notify.warn?.(parsed.primaryMessage || 'Требуется вход в систему');
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.assign('/login');
-    }
     return parsed;
   }
 

@@ -57,7 +57,7 @@ function RouteReadyOutlet() {
 }
 
 function PageContent({ authenticated = false }) {
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const { sidebarCollapsed } = useUiNavigationSettings();
   const { isAdminArea } = useShellNavigation();
 
@@ -79,7 +79,7 @@ function PageContent({ authenticated = false }) {
         <section
           className={`min-w-0 overflow-x-hidden xl:px-1 2xl:px-2 ${isAdminArea ? 'admin-mobile-content' : ''}`}
         >
-          <RouteErrorBoundary resetKey={pathname}>
+          <RouteErrorBoundary resetKey={`${pathname}${search}${hash}`}>
             <Suspense fallback={<RouteLoadingFallback />}>
               <RouteReadyOutlet />
             </Suspense>

@@ -3,7 +3,16 @@
 
 	root * /usr/share/caddy
 	encode zstd gzip
-	try_files {path} /index.html
+
+	# Only real React Router routes receive the SPA shell on a direct request.
+	# Unknown URLs fall through to file_server and therefore keep a real HTTP 404
+	# instead of looking like a successful page to crawlers/monitoring.
+	@spa_routes path_regexp taskforge_spa ^/(?:|login|forgot-password|register|privacy|news(?:/[^/]+)?|courses|compiler|course/[^/]+|assignment/[^/]+(?:/(?:results|image-results|top|edit))?|profile|settings|my/solutions|leaderboard|users/[^/]+|support(?:/(?:new|[^/]+))?|minecraft/chat|courses/[^/]+/edit|admin/(?:solutions|badges|support(?:/[^/]+)?|groups|feature-roles|system-status|ai(?:/(?:account-manager|assistant))?|analytics|activity|users(?:/[^/]+)?|minecraft-links|assignments/[^/]+/insights)|agent|ai)/?$
+	handle @spa_routes {
+		rewrite * /index.html
+		header Cache-Control "no-cache"
+		file_server
+	}
 
 	@assets {
 		path_regexp static ^/static/.+\.(css|js|mjs|png|jpg|jpeg|svg|webp|ico|woff2?)$
@@ -16,5 +25,7 @@
 	}
 	header @non_indexable_routes X-Robots-Tag "noindex, nofollow"
 
-	file_server
+	handle {
+		file_server
+	}
 }

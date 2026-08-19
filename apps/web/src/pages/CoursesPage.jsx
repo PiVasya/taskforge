@@ -9,8 +9,11 @@ import { useNotify } from "../components/notify/NotifyProvider";
 import { handleApiError } from "../utils/handleApiError";
 import { resolveCardDropIntent, resolveGridGapDropIntent, isPointerInsideDndItem } from "../utils/gridDragDrop";
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
+import { useQueryClient } from '../data/QueryClientProvider';
 
 const COURSE_PAGE_SIZE = 50;
+const COURSES_PAGE_STATE_KEY = ['page-state', 'courses'];
+const COURSES_CACHE_STALE_MS = 60_000;
 
 function normalizePagedCourses(payload) {
   if (Array.isArray(payload)) return { items: payload, page: 1, hasMore: false, total: payload.length };
@@ -171,15 +174,21 @@ function CourseCard({
 }
 
 export default function CoursesPage() {
-  const [items, setItems] = useState([]);
-  const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const cachedStateRef = useRef(queryClient.getQueryData(COURSES_PAGE_STATE_KEY));
+  const cachedState = cachedStateRef.current || {};
+  const [items, setItems] = useState(() => Array.isArray(cachedState.items) ? cachedState.items : []);
+  const [q, setQ] = useState(() => String(cachedState.q || ""));
+  const [dataLoadedAt, setDataLoadedAt] = useState(() => Number(cachedState.dataLoadedAt || 0));
+  const [loading, setLoading] = useState(() => !cachedState.dataLoadedAt);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [directProgressByCourseId, setDirectProgressByCourseId] = useState(new Map());
+  const [page, setPage] = useState(() => Number(cachedState.page || 1));
+  const [hasMore, setHasMore] = useState(() => Boolean(cachedState.hasMore));
+  const [total, setTotal] = useState(() => Number(cachedState.total || 0));
+  const [directProgressByCourseId, setDirectProgressByCourseId] = useState(() => cachedState.directProgressByCourseId instanceof Map ? cachedState.directProgressByCourseId : new Map());
+  const [progressLoadedAt, setProgressLoadedAt] = useState(() => Number(cachedState.progressLoadedAt || 0));
+  const [progressIdsKey, setProgressIdsKey] = useState(() => String(cachedState.progressIdsKey || ''));
   const [progressLoading, setProgressLoading] = useState(false);
   const [draggedCourseId, setDraggedCourseId] = useState(null);
   const [dragOverCourseId, setDragOverCourseId] = useState(null);
@@ -252,6 +261,7 @@ export default function CoursesPage() {
       setPage(parsed.page);
       setHasMore(parsed.hasMore);
       setTotal(parsed.total);
+      setDataLoadedAt(Date.now());
     } catch (e) {
       const parsed = handleApiError(e, notify, "Не удалось загрузить курсы");
       setLoadError(parsed?.userMessage || "Не удалось загрузить курсы");
@@ -262,14 +272,45 @@ export default function CoursesPage() {
   };
 
   useEffect(() => {
+    const cacheFresh = dataLoadedAt > 0 && Date.now() - dataLoadedAt < COURSES_CACHE_STALE_MS;
+    if (cacheFresh) {
+      setLoading(false);
+      return;
+    }
     loadCourses({ reset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    queryClient.setQueryData(COURSES_PAGE_STATE_KEY, {
+      items,
+      q,
+      page,
+      hasMore,
+      total,
+      dataLoadedAt,
+      directProgressByCourseId,
+      progressLoadedAt,
+      progressIdsKey,
+    });
+  }, [dataLoadedAt, directProgressByCourseId, hasMore, items, page, progressIdsKey, progressLoadedAt, q, queryClient, total]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!visibleCourseIdsKey) {
-      setDirectProgressByCourseId(new Map());
+      if (directProgressByCourseId.size > 0) setDirectProgressByCourseId(new Map());
+      if (progressIdsKey) setProgressIdsKey('');
+      if (progressLoadedAt) setProgressLoadedAt(0);
+      setProgressLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cachedProgressFresh = progressIdsKey === visibleCourseIdsKey
+      && progressLoadedAt > 0
+      && Date.now() - progressLoadedAt < COURSES_CACHE_STALE_MS;
+    if (cachedProgressFresh) {
       setProgressLoading(false);
       return () => {
         cancelled = true;
@@ -281,6 +322,8 @@ export default function CoursesPage() {
       .then((rows) => {
         if (cancelled) return;
         setDirectProgressByCourseId(normalizeProgressRows(rows));
+        setProgressIdsKey(visibleCourseIdsKey);
+        setProgressLoadedAt(Date.now());
       })
       .catch(() => {
         if (cancelled) return;
@@ -293,7 +336,7 @@ export default function CoursesPage() {
     return () => {
       cancelled = true;
     };
-  }, [visibleCourseIdsKey]);
+  }, [directProgressByCourseId.size, progressIdsKey, progressLoadedAt, visibleCourseIdsKey]);
 
 
   const handleCreate = async () => {

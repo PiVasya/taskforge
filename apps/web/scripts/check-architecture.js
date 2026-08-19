@@ -403,4 +403,6 @@ for (const [relativePath, phrases] of Object.entries(forbiddenLearnerCopy)) {
   }
 }
 
+require('./check-spa-routes');
+
 console.log('Frontend architecture invariants OK');
