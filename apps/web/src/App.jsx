@@ -31,6 +31,7 @@ const PublicProfilePage = lazy(() => import('./pages/PublicProfilePage'));
 const SupportChatPage = lazy(() => import('./pages/SupportChatPage'));
 const AdminSupportPage = lazy(() => import('./pages/AdminSupportPage'));
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'));
+const TechnologyPage = lazy(() => import('./pages/TechnologyPage'));
 const LeaderboardPage = lazy(() => import('./pages/admin/LeaderboardPage'));
 const AdminSolutionsPage = lazy(() => import('./pages/admin/AdminSolutionsPage'));
 const AdminBadgesPage = lazy(() => import('./pages/admin/AdminBadgesPage'));
@@ -45,10 +46,7 @@ const AdminAnalyticsPage = lazy(() => import('./pages/admin/AdminAnalyticsPage')
 const AdminUserActionsPage = lazy(() => import('./pages/admin/AdminUserActionsPage'));
 const MinecraftChatPage = lazy(() => import('./pages/minecraft/MinecraftChatPage'));
 const CompilerPage = lazy(() => import('./pages/CompilerPage'));
-
-function NotFound() {
-  return <div className="py-10">Страница не найдена</div>;
-}
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 function AdminAiRedirect() {
   const location = useLocation();
@@ -70,6 +68,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/technology" element={<TechnologyPage />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/news/:postId" element={<UpdatePostPage />} />
 
@@ -121,7 +120,7 @@ export default function App() {
             </Route>
           </Route>
 
-          <Route path="*" element={<NotFound />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
 

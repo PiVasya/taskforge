@@ -40,29 +40,6 @@
   transform: translateX(1.52rem);
 }
 
-.tf-neobrutal-preview {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-  max-width: 30rem;
-}
-
-.tf-neobrutal-preview__card {
-  display: grid;
-  min-height: 3.4rem;
-  place-items: center;
-  border: 2px solid rgb(24 24 27);
-  border-radius: 0.75rem;
-  box-shadow: 5px 5px 0 0 rgb(24 24 27);
-  color: rgb(24 24 27);
-  font-size: 0.8rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-}
-
-.tf-neobrutal-preview__card--cyan { background: rgb(143 222 239); }
-.tf-neobrutal-preview__card--yellow { background: rgb(255 220 61); }
-.tf-neobrutal-preview__card--pink { background: rgb(249 168 212); }
 
 html.neo-brutal {
   --page-bg: 238 235 250;
@@ -589,15 +566,6 @@ html.neo-brutal .tf-style-switch__thumb {
   html.neo-brutal .page-hero-card,
   html.neo-brutal .page-search-card {
     border-radius: 0.85rem !important;
-  }
-
-  .tf-neobrutal-preview {
-    gap: 0.5rem;
-  }
-
-  .tf-neobrutal-preview__card {
-    min-height: 3rem;
-    box-shadow: 4px 4px 0 0 rgb(24 24 27);
   }
 }
 

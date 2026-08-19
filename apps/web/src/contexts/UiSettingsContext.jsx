@@ -17,7 +17,7 @@ const PALETTES = new Set(['blue', 'pink', 'apple', 'red', 'honey', 'violet']);
 const DEFAULT_SETTINGS = Object.freeze({
   colorTheme: 'pink',
   mode: 'dark',
-  uiStyle: 'default',
+  uiStyle: 'neobrutal',
   bgFx: false,
   fxMode: 'random',
   fxVariant: '2',

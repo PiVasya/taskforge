@@ -15,6 +15,7 @@ import { getApiErrorMessage } from '../api/http';
 import { useEditorMode } from '../contexts/EditorModeContext';
 import { useQueryClient } from '../data/QueryClientProvider';
 import useSaveShortcut from '../hooks/useSaveShortcut';
+import { safeInternalPath } from '../auth/authRedirect';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
@@ -28,10 +29,10 @@ export default function CourseEditPage({ overlay = false }) {
   const { isAdmin } = useEditorMode();
   const queryClient = useQueryClient();
 
-  const returnTo = useMemo(() => {
-    const value = String(searchParams.get('returnTo') || '').trim();
-    return value.startsWith('/') && !value.startsWith('//') ? value : '';
-  }, [searchParams]);
+  const returnTo = useMemo(
+    () => safeInternalPath(searchParams.get('returnTo'), ''),
+    [searchParams],
+  );
 
   const isRouteOverlay = Boolean(overlay || location.state?.courseMapOverlay);
 

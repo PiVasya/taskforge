@@ -738,7 +738,7 @@ export default function MySolutionsPage() {
                 const similarity = getImageSimilarityPercent(item);
                 const threshold = getImageThresholdPercent(item);
                 const openResult = () => {
-                  if (item.assignmentId) window.open(`/assignment/${item.assignmentId}/image-results?solutionId=${id}`, '_blank');
+                  if (item.assignmentId) window.open(`/assignment/${item.assignmentId}/image-results?solutionId=${id}`, '_blank', 'noopener,noreferrer');
                 };
                 return (
                   <div

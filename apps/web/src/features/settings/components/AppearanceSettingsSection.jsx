@@ -31,11 +31,6 @@ function AppearanceSettingsSection({ form, setField }) {
             <StyleSwitch enabled={neobrutal} onChange={(value) => setField('uiStyle', value ? 'neobrutal' : 'default')} />
           </div>
         </div>
-        <div className="tf-neobrutal-preview" aria-hidden="true">
-          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--cyan">TASK</div>
-          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--yellow">RUN</div>
-          <div className="tf-neobrutal-preview__card tf-neobrutal-preview__card--pink">OK!</div>
-        </div>
       </Card>
 
       <Card className="p-4 space-y-4">

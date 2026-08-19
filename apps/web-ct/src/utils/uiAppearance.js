@@ -14,7 +14,7 @@ function normalizeUiSettings(input = {}) {
   const stored = readJsonSettings() || {};
   const colorTheme = input.colorTheme || stored.colorTheme || localStorage.getItem('colorTheme') || 'blue';
   const mode = input.mode || stored.mode || localStorage.getItem('mode') || 'light';
-  const uiStyle = input.uiStyle || stored.uiStyle || localStorage.getItem('uiStyle') || 'default';
+  const uiStyle = input.uiStyle ?? stored.uiStyle ?? localStorage.getItem('uiStyle') ?? 'neobrutal';
 
   return {
     colorTheme: PALETTES.has(colorTheme) ? colorTheme : 'blue',

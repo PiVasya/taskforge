@@ -21,6 +21,7 @@ import { normalizeCodeTestCases, LANGS_BY_TYPE, DEFAULT_ANALYTICS_SETTINGS, ANAL
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import useSaveShortcut from '../../hooks/useSaveShortcut';
+import { safeInternalPath } from '../../auth/authRedirect';
 
 export default function AssignmentEditPage() {
   const { assignmentId } = useParams();
@@ -98,10 +99,10 @@ export default function AssignmentEditPage() {
 
   const [analyticsSettings, setAnalyticsSettings] = useState(DEFAULT_ANALYTICS_SETTINGS);
 
-  const returnTo = useMemo(() => {
-    const raw = String(searchParams.get('returnTo') || '').trim();
-    return raw.startsWith('/') && !raw.startsWith('//') ? raw : '';
-  }, [searchParams]);
+  const returnTo = useMemo(
+    () => safeInternalPath(searchParams.get('returnTo'), ''),
+    [searchParams],
+  );
 
   const returnFromEditor = React.useCallback(() => {
     if (returnTo) nav(returnTo);

@@ -12,6 +12,7 @@ public sealed class SiteRouteCatalog
         new("main", "/forgot-password", "Восстановление пароля", false, "auth"),
         new("main", "/register", "Регистрация", false, "auth", Notes: "Добавьте ?accountType=ai для регистрации AI-аккаунта через интерфейс."),
         new("main", "/privacy", "Политика конфиденциальности", false, "document"),
+        new("main", "/technology", "Технический обзор", false, "hidden"),
         new("main", "/news", "Новости", false),
         new("main", "/news/:postId", "Новость", false, "dynamic"),
 

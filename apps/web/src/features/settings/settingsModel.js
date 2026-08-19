@@ -39,7 +39,7 @@ export function defaultUiSettings() {
   return readLocalUiSettings() || {
     colorTheme: localStorage.getItem('colorTheme') || 'blue',
     mode: localStorage.getItem('mode') || 'light',
-    uiStyle: localStorage.getItem('uiStyle') === 'neobrutal' ? 'neobrutal' : 'default',
+    uiStyle: localStorage.getItem('uiStyle') === 'default' ? 'default' : 'neobrutal',
     bgFx: localStorage.getItem('bgFx') === '1',
     fxMode: localStorage.getItem('fxMode') || 'random',
     fxVariant: localStorage.getItem('fxVariant') || '2',

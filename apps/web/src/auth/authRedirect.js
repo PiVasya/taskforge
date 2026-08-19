@@ -8,7 +8,7 @@ export function locationToInternalPath(location) {
 
 export function safeInternalPath(value, fallback = '/courses') {
   const candidate = String(value || '').trim();
-  if (!candidate.startsWith('/') || candidate.startsWith('//')) return fallback;
+  if (!candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return fallback;
 
   try {
     const base = 'https://taskforge.local';

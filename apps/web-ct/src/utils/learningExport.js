@@ -700,6 +700,7 @@ function openPrintWindow(title) {
   if (!printWindow) {
     throw new Error('Браузер заблокировал окно экспорта. Разреши всплывающие окна для сайта и попробуй ещё раз.');
   }
+  printWindow.opener = null;
   printWindow.document.open();
   printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;margin:32px;line-height:1.5}</style></head><body><h1>${escapeHtml(title)}</h1><p>Готовлю материалы для PDF...</p></body></html>`);
   printWindow.document.close();

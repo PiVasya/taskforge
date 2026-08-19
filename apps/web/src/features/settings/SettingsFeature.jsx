@@ -44,7 +44,7 @@ function normalizeRemoteUiSettings(remote, previous) {
   return {
     colorTheme: remote.colorTheme || previous.colorTheme,
     mode: remote.mode || previous.mode,
-    uiStyle: remote.uiStyle === 'neobrutal' ? 'neobrutal' : (previous.uiStyle || 'default'),
+    uiStyle: remote.uiStyle === 'default' ? 'default' : remote.uiStyle === 'neobrutal' ? 'neobrutal' : (previous.uiStyle || 'neobrutal'),
     bgFx: Boolean(remote.bgFx),
     fxMode: remote.fxMode || previous.fxMode,
     fxVariant: String(remote.fxVariant ?? previous.fxVariant),

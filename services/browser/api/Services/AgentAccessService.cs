@@ -162,7 +162,8 @@ public sealed class AgentAccessService(
     private static bool IsCrawlerLinkable(SiteRouteDto route)
         => !route.RequiresAuthentication
            && !route.Path.Contains(':')
-           && !string.Equals(route.Kind, "redirect", StringComparison.OrdinalIgnoreCase);
+           && !string.Equals(route.Kind, "redirect", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(route.Kind, "hidden", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsFollowablePageHref(string? href)
         => !string.IsNullOrWhiteSpace(href)
