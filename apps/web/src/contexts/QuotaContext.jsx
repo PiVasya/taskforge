@@ -19,6 +19,11 @@ const TopQuotaContext = createContext(null);
 const RawQuotaContext = createContext(null);
 const QuotaActionsContext = createContext(EMPTY_ACTIONS);
 
+TasksQuotaContext.displayName = 'TasksQuotaContext';
+TopQuotaContext.displayName = 'TopQuotaContext';
+RawQuotaContext.displayName = 'RawQuotaContext';
+QuotaActionsContext.displayName = 'QuotaActionsContext';
+
 function toIsoFromRetry(retryAfterSeconds) {
   const retry = Number(retryAfterSeconds);
   if (!Number.isFinite(retry) || retry <= 0) return null;

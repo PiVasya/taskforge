@@ -53,6 +53,7 @@ function hasRoleName(roles, role) {
 }
 
 const Ctx = createContext(null);
+Ctx.displayName = 'EditorModeContext';
 export const useEditorMode = () => useContext(Ctx);
 
 const STORAGE_KEY = "editorMode.v1";

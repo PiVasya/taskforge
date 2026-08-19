@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 const NotifyContext = createContext(null);
+NotifyContext.displayName = 'NotifyContext';
 
 export function useNotify() {
   const ctx = useContext(NotifyContext);

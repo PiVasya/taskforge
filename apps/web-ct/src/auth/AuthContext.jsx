@@ -14,6 +14,7 @@ function takeBrowserInjectedAccessToken() {
 }
 
 const Ctx = createContext(null);
+Ctx.displayName = 'AuthContext';
 export const useAuth = () => useContext(Ctx);
 
 export default function AuthProvider({ children }) {

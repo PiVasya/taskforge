@@ -23,6 +23,7 @@ function getRoles(access) {
     .filter((v, i, a) => v && a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i);
 }
 const Ctx = createContext(null);
+Ctx.displayName = 'EditorModeContext';
 export const useEditorMode = () => useContext(Ctx) || { canEdit: false, isEditorMode: false, setEditorMode: () => {}, toggle: () => {}, roles: [], hasRole: () => false };
 const KEY = 'ctEditorMode.v1';
 export default function EditorModeProvider({ children }) {

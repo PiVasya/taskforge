@@ -34,6 +34,7 @@ async function retryTransient(action, attempts = 3) {
 }
 
 const Ctx = createContext(null);
+Ctx.displayName = 'AuthContext';
 export const useAuth = () => useContext(Ctx);
 
 export default function AuthProvider({ children }) {

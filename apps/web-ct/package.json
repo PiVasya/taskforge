@@ -5,7 +5,7 @@
   "proxy": "http://localhost:8080",
   "scripts": {
     "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
-    "build": "react-scripts build",
+    "build": "react-scripts build --profile",
     "test": "react-scripts test --env=jsdom",
     "eject": "react-scripts eject",
     "prebuild": "node scripts/check-architecture.js",

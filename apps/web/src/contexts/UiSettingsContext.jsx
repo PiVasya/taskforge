@@ -33,6 +33,12 @@ const EditorUiContext = createContext(null);
 const NavigationContext = createContext(null);
 const SettingsActionsContext = createContext(null);
 
+ThemeContext.displayName = 'ThemeContext';
+BackgroundContext.displayName = 'BackgroundContext';
+EditorUiContext.displayName = 'EditorUiContext';
+NavigationContext.displayName = 'NavigationContext';
+SettingsActionsContext.displayName = 'SettingsActionsContext';
+
 function readJsonSettings() {
   try {
     const raw = window.localStorage.getItem(UI_SETTINGS_KEY);

@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { QueryClient } from './queryClient';
 
 const QueryClientContext = createContext(null);
+QueryClientContext.displayName = 'QueryClientContext';
 
 function getSessionKey(access, user) {
   if (!access) return 'public';
