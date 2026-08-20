@@ -39,6 +39,8 @@ jobs:
         run: python3 scripts/ci/check-workflow-integrity.py
       - name: Check C# source invariants
         run: python3 scripts/ci/check-csharp-source-invariants.py
+      - name: Check two-node HA invariants
+        run: bash scripts/ci/check-ha-two-node.sh
 
   minecraft-link-invariants:
     runs-on: ubuntu-latest

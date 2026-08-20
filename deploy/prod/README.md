@@ -270,3 +270,11 @@ Apply OJ changes through the repository scripts:
 ```
 
 Set `WATCHTOWER_OJ_ENABLE=true` only when a release changes binaries without changing environment variables, secrets, mounts, networks, limits, or security options.
+
+## Two-node HA (A/B)
+
+The production bundle now supports an active/passive two-server topology with A preferred, B standby, WireGuard private transport, asynchronous PostgreSQL streaming replication, two-way MinIO bucket replication, automatic failover/failback and Cloudflare readiness.
+
+Do not enable HA by manually changing only `TASKFORGE_NODE_ROLE`. Follow `deploy/ha/FIRST_INSTALL.md`. The HA controller owns PostgreSQL promotion and the `/ha/traffic-ready` marker.
+
+In HA mode `POSTGRES_RESTART_POLICY=no` is intentional: PostgreSQL must not independently restart an old primary timeline after failover. The host `taskforge-ha.service` starts/rejoins it in the correct role.

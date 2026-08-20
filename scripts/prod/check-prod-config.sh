@@ -13,7 +13,7 @@ command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required" >&2; e
 python3 - "$ENV_FILE" "$EXAMPLE" <<'PY'
 from __future__ import annotations
 from pathlib import Path
-import os, re, sys
+import ipaddress, os, re, sys
 
 env_path=Path(sys.argv[1]); example_path=Path(sys.argv[2])
 key_re=re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -77,6 +77,7 @@ for key,n in {
     'POSTGRES_PASSWORD':24, 'RABBITMQ_DEFAULT_PASS':24, 'REDIS_PASSWORD':24,
     'MINIO_ROOT_PASSWORD':24, 'ANALYTICS_IP_HASH_SALT':32,
     'MINECRAFT_PLUGIN_KEY':32, 'MINECRAFT_WEBHOOK_KEY':32,
+    'HA_SHARED_KEY':32, 'HA_REPLICATION_PASSWORD':24,
 }.items(): minlen(key,n)
 for key in ('MINECRAFT_DEATH_COORDINATES_COST','MINECRAFT_DEATH_CHEST_COST',
             'MINECRAFT_DEATH_TELEPORT_COST','MINECRAFT_DEATH_INVENTORY_COST',
@@ -120,6 +121,50 @@ if not env.get('MINECRAFT_WEBHOOK_SEND_CODE_PATH','').startswith('/'):
     errors.append('MINECRAFT_WEBHOOK_SEND_CODE_PATH must start with /')
 if env.get('TASKFORGE_NODE_ROLE','primary') not in {'primary','standby'}:
     errors.append('TASKFORGE_NODE_ROLE must be primary or standby')
+if env.get('HA_ENABLED','false') not in {'true','false'}:
+    errors.append('HA_ENABLED must be true or false')
+if env.get('HA_AUTO_FAILOVER','false') not in {'true','false'}:
+    errors.append('HA_AUTO_FAILOVER must be true or false')
+if env.get('HA_AUTO_FAILBACK','true') not in {'true','false'}:
+    errors.append('HA_AUTO_FAILBACK must be true or false')
+if env.get('HA_ALLOW_UNFENCED_FAILOVER','false') not in {'true','false'}:
+    errors.append('HA_ALLOW_UNFENCED_FAILOVER must be true or false')
+if env.get('HA_ENABLED') == 'true':
+    if env.get('HA_NODE_ID') not in {'A','B'}: errors.append('HA_NODE_ID must be A or B')
+    if env.get('HA_PREFERRED_NODE') not in {'A','B'}: errors.append('HA_PREFERRED_NODE must be A or B')
+    try:
+        local_ip=ipaddress.ip_address(env.get('HA_WG_IP',''))
+        peer_ip=ipaddress.ip_address(env.get('HA_PEER_WG_IP',''))
+        network=ipaddress.ip_network(env.get('HA_WG_CIDR',''), strict=False)
+        if local_ip == peer_ip: errors.append('HA_WG_IP and HA_PEER_WG_IP must differ')
+        if local_ip not in network or peer_ip not in network: errors.append('HA_WG_IP and HA_PEER_WG_IP must be inside HA_WG_CIDR')
+    except ValueError:
+        errors.append('HA_WG_IP/HA_PEER_WG_IP/HA_WG_CIDR must be valid IP values')
+    for key in ('HA_NODE_A_PUBLIC_IP','HA_NODE_B_PUBLIC_IP'):
+        if env.get(key):
+            try: ipaddress.ip_address(env[key])
+            except ValueError: errors.append(f'{key} must be an IP address when set')
+    if env.get('POSTGRES_BIND') != env.get('HA_WG_IP'): errors.append('HA mode requires POSTGRES_BIND=HA_WG_IP')
+    if env.get('MINIO_BIND') != env.get('HA_WG_IP'): errors.append('HA mode requires MINIO_BIND=HA_WG_IP')
+    if env.get('POSTGRES_RESTART_POLICY') != 'no': errors.append('HA mode requires POSTGRES_RESTART_POLICY=no')
+    for key in ('HA_AGENT_PORT','HA_FAILOVER_AFTER_SECONDS','HA_SERVICE_FAILOVER_AFTER_SECONDS','HA_REJOIN_AFTER_SECONDS','HA_LOOP_SECONDS','HA_OPERATION_TIMEOUT_SECONDS','HA_GATEWAY_READY_TIMEOUT_SECONDS','HA_MINIO_DRAIN_TIMEOUT_SECONDS'):
+        positive_int(key)
+    if env.get('HA_AUTO_FAILOVER','false') == 'true' and not env.get('HA_FENCE_SCRIPT','').strip() and env.get('HA_ALLOW_UNFENCED_FAILOVER','false') != 'true':
+        errors.append('HA_AUTO_FAILOVER=true requires HA_FENCE_SCRIPT unless HA_ALLOW_UNFENCED_FAILOVER=true')
+    try:
+        if int(env.get('HA_MINIO_DRAIN_TIMEOUT_SECONDS','300')) < 30:
+            errors.append('HA_MINIO_DRAIN_TIMEOUT_SECONDS must be >= 30')
+        if int(env.get('HA_OPERATION_TIMEOUT_SECONDS','1800')) < int(env.get('HA_MINIO_DRAIN_TIMEOUT_SECONDS','300')) + 120:
+            errors.append('HA_OPERATION_TIMEOUT_SECONDS must be at least HA_MINIO_DRAIN_TIMEOUT_SECONDS + 120')
+    except ValueError:
+        pass
+    for key in ('HA_FENCE_SCRIPT','HA_RECOVER_SCRIPT'):
+        raw=env.get(key,'').strip().strip('\"').strip("'")
+        if raw:
+            hook=Path(raw)
+            if not hook.is_absolute(): hook=Path.cwd()/hook
+            if not hook.is_file(): errors.append(f'{key} does not exist: {hook}')
+            elif not os.access(hook, os.X_OK): errors.append(f'{key} is not executable: {hook}')
 if env.get('BROWSER_RATE_LIMITS_ENABLED')!='true': errors.append('BROWSER_RATE_LIMITS_ENABLED must be true')
 if env.get('BROWSER_IGNORE_HTTPS_ERRORS')!='false': errors.append('BROWSER_IGNORE_HTTPS_ERRORS must be false in production')
 if env.get('BROWSER_REDUCE_MOTION') not in {'true','false'}: errors.append('BROWSER_REDUCE_MOTION must be true or false')

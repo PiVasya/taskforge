@@ -2,7 +2,25 @@ name: ${COMPOSE_PROJECT_NAME:-taskforge-prod}
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-alpine}
-    restart: unless-stopped
+    restart: "${POSTGRES_RESTART_POLICY:-unless-stopped}"
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=${POSTGRES_MAX_WAL_SENDERS:-10}
+      - -c
+      - wal_keep_size=${POSTGRES_WAL_KEEP_SIZE:-4096MB}
+      - -c
+      - hot_standby=on
+      - -c
+      - wal_log_hints=on
+      - -c
+      - synchronous_commit=on
+      - -c
+      - synchronous_standby_names=
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-taskforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}

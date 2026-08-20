@@ -1,57 +1,62 @@
-# Data sync and failover notes
+# TaskForge data sync and two-node failover
 
-For multi-server deployment, API failover is not enough. The data layer must be ready before a server dies.
-
-## Starting point
-
-For the first production check, use one primary PostgreSQL instance and one production compose deployment. After the microservices are verified, add replication.
-
-## Recommended first HA layout
+Production HA for the first two servers is intentionally active/passive.
 
 ```text
-Poland:
-  PostgreSQL primary
-  RabbitMQ primary
-  MinIO primary
-  all APIs/workers/runners
+Cloudflare
+   |
+   +--> A (preferred active)
+   +--> B (standby)
 
-Israel:
-  PostgreSQL standby
-  APIs/workers/runners
-
-RB:
-  APIs/workers/runners
-  optional PostgreSQL standby
+A <---- WireGuard ----> B
 ```
 
-If RB dies, traffic can move to Poland/Israel and the data layer still exists.
+The current implementation is in `deploy/ha/` and is mirrored into the standalone server bundle under `ha/`.
 
-## If primary DB is in RB
+## PostgreSQL
 
-Then Israel/Poland must already have PostgreSQL standby replicas before failover is useful.
+PostgreSQL is the durable source of truth. The active node is writable and streams WAL asynchronously to the standby.
 
 ```text
-RB PostgreSQL primary
-  -> Israel standby
-  -> Poland standby
+A PRIMARY --async WAL--> B STANDBY
 ```
 
-If RB dies:
+TaskForge does not wait for B during a normal transaction. `synchronous_commit=on` keeps the normal local WAL durability guarantee on the active PostgreSQL, while `synchronous_standby_names` is explicitly empty so remote WAN latency is not on the commit path.
 
-1. Remove RB from external load balancer/DNS.
-2. Promote Israel or Poland standby to primary.
-3. Switch service connection strings or internal DB DNS to the new primary.
-4. Restart API/worker services.
-5. Do not let old RB primary rejoin as primary. Rebuild it as a replica from the new primary.
+No permanent replication slot is used. This is deliberate: a dead standby must not fill the primary disk with retained WAL. `wal_keep_size` provides a bounded catch-up window. If a reachable standby loses WAL streaming long enough, the HA agent automatically takes a fresh `pg_basebackup` from the current primary.
 
-## Files and artifacts
+## Failover
 
-Do not store uploads, generated images, AI artifacts, or solution attachments only on a local server disk.
+A reachable-but-unhealthy active node can cooperatively yield to its standby. For a completely unreachable peer, automatic promotion is blocked until the configured provider fencing hook confirms that the old primary cannot write. After successful promotion, an optional provider recovery hook can power the fenced machine back on; it then rejoins as a standby. This separates the safety-critical OFF decision from the later recovery/power-on action.
 
-Use MinIO/S3 through `files-api`. Later add MinIO replication or move to an external S3-compatible provider.
+The system does not auto-resolve a detected dual-primary condition. Both nodes remove traffic readiness and require operator recovery. Choosing A merely because it is preferred can lose writes from B's timeline.
 
-## Queues
+## Automatic failback
 
-Execution and AI jobs should go through RabbitMQ. Workers and runners can exist on multiple servers/regions.
+A is preferred. If B was promoted and A later returns, A is rebuilt from B as a standby. After it is streaming and stably caught up, B performs a controlled yield and A promotes. B then rejoins from A.
 
-For first production, one RabbitMQ is acceptable. For HA, plan RabbitMQ replication/federation or regional queues with a dispatcher.
+## MinIO
+
+The current TaskForge deployment uses one MinIO server per host, not a distributed MinIO deployment. The HA scripts therefore use two-way asynchronous **bucket replication**, not MinIO site replication.
+
+Existing A objects are seeded to an empty B bucket before versioning/replication is enabled. Future writes/deletes replicate both ways. For a cooperative failover or automatic failback, the active node first stops TaskForge application writers and waits for its outgoing MinIO replication backlog to become empty before yielding PostgreSQL. This prevents a planned handoff from moving traffic to a peer that is still missing known file operations. A hard host failure cannot perform this drain and therefore retains the normal asynchronous-replication loss window for the newest files.
+
+## RabbitMQ and Redis
+
+RabbitMQ is local transport per node; it is not stretched as a WAN cluster. Durable job state is retained in PostgreSQL and existing recovery/watchdog paths handle interrupted execution work after promotion.
+
+Redis is a local cache and is intentionally not replicated.
+
+## TLS and ASP.NET key rings
+
+`letsencrypt`, `content-data-protection`, and `quiz-data-protection` Docker volumes are copied from the active node to the standby over SSH through WireGuard by `taskforge-ha-state-sync.timer`. This keeps the standby ready to terminate TLS and use the same framework key material.
+
+## Public routing
+
+Cloudflare monitors the host HA agent on TCP 9187 path `/ha/traffic-ready`. Only the current active node returns 200. Standby returns 503. This separates public traffic selection from PostgreSQL role election/promotion logic.
+
+See:
+
+- `deploy/ha/FIRST_INSTALL.md`
+- `deploy/ha/FENCING.md`
+- `deploy/ha/CLOUDFLARE.md`

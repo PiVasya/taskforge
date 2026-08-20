@@ -4,6 +4,8 @@ set -eu
 DOMAIN="${DOMAIN:-taskforge.example.com}"
 GATEWAY_MODE="${GATEWAY_MODE:-auto}"
 TASKFORGE_NODE_ROLE="${TASKFORGE_NODE_ROLE:-primary}"
+TASKFORGE_HA_DYNAMIC_READY="${TASKFORGE_HA_DYNAMIC_READY:-false}"
+HA_NODE_ID="${HA_NODE_ID:-A}"
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
 BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
 
@@ -17,12 +19,47 @@ fi
 export BROWSER_EDGE_RATE_RPS
 
 if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
-  echo "[taskforge-debug] logs=on service=gateway mode=${GATEWAY_MODE} role=${TASKFORGE_NODE_ROLE} domain=${DOMAIN} ct=${CT_DOMAIN:-}"
+  echo "[taskforge-debug] logs=on service=gateway mode=${GATEWAY_MODE} role=${TASKFORGE_NODE_ROLE} ha_dynamic=${TASKFORGE_HA_DYNAMIC_READY} node=${HA_NODE_ID} domain=${DOMAIN} ct=${CT_DOMAIN:-}"
 else
   echo "[taskforge-debug] logs=off service=gateway"
 fi
 
 render_ha_snippet () {
+  case "$HA_NODE_ID" in
+    A|B) ;;
+    *) echo "[nginx] HA_NODE_ID must be A or B" >&2; exit 1 ;;
+  esac
+
+  if [ "$TASKFORGE_HA_DYNAMIC_READY" = "true" ] || [ "$TASKFORGE_HA_DYNAMIC_READY" = "1" ]; then
+    cat > /etc/nginx/snippets/ha-routes.conf <<EOF
+# Managed HA mode. The host-level taskforge-ha agent owns the marker file.
+location = /ha/primary-ready {
+  default_type application/json;
+  add_header Cache-Control "no-store" always;
+  if (-f /run/taskforge-ha/traffic-ready) {
+    return 200 '{"status":"ready","node":"${HA_NODE_ID}"}';
+  }
+  return 503 '{"status":"standby","node":"${HA_NODE_ID}"}';
+}
+
+location = /ha/traffic-ready {
+  default_type application/json;
+  add_header Cache-Control "no-store" always;
+  if (-f /run/taskforge-ha/traffic-ready) {
+    return 200 '{"status":"ready","node":"${HA_NODE_ID}"}';
+  }
+  return 503 '{"status":"standby","node":"${HA_NODE_ID}"}';
+}
+
+location = /ha/live {
+  default_type application/json;
+  add_header Cache-Control "no-store" always;
+  return 200 '{"status":"ok","service":"gateway","node":"${HA_NODE_ID}"}';
+}
+EOF
+    return
+  fi
+
   if [ "$TASKFORGE_NODE_ROLE" = "primary" ]; then
     TASKFORGE_HA_PRIMARY_READY_STATUS="200"
     TASKFORGE_HA_PRIMARY_READY_BODY='{"status":"ready","role":"primary"}'
