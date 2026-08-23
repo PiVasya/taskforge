@@ -1,5 +1,17 @@
 # Production запуск TaskForge на Ubuntu
 
+### v31 Docker config / no-chmod hardening
+
+- Cluster commands are safe to start as `bash ./cluster.sh ...`; the launcher restores executable bits automatically, so no manual `chmod +x` is required after extraction.
+- Root-run cluster commands use the bundle-local Docker client configuration instead of inheriting `/root/.docker/config.json`.
+
+### v30 adoption fix
+
+- Fixed `set -u` crash during `migrate-local`/`adopt` (`name: unbound variable`) in WireGuard proxy setup.
+- Added a regression invariant for dependent same-line Bash `local` assignments.
+- When an extractor drops executable bits, the first command can be run as `bash ./cluster.sh ...`; the launcher restores executable bits for all bundled shell scripts automatically.
+
+
 ## Live-сервер с каналом develop
 
 Для текущей схемы, где реальные пользователи работают на сервере, а новые изменения
@@ -271,10 +283,22 @@ Apply OJ changes through the repository scripts:
 
 Set `WATCHTOWER_OJ_ENABLE=true` only when a release changes binaries without changing environment variables, secrets, mounts, networks, limits, or security options.
 
-## Two-node HA (A/B)
+## TaskForge Cluster Manager v30
 
-The production bundle now supports an active/passive two-server topology with A preferred, B standby, WireGuard private transport, asynchronous PostgreSQL streaming replication, two-way MinIO bucket replication, automatic failover/failback and Cloudflare readiness.
+The same production bundle is used on A/B/C/D. The normal entrypoint is:
 
-Do not enable HA by manually changing only `TASKFORGE_NODE_ROLE`. Follow `deploy/ha/FIRST_INSTALL.md`. The HA controller owns PostgreSQL promotion and the `/ha/traffic-ready` marker.
+```bash
+bash ./cluster.sh help
+```
 
-In HA mode `POSTGRES_RESTART_POLICY=no` is intentional: PostgreSQL must not independently restart an old primary timeline after failover. The host `taskforge-ha.service` starts/rejoins it in the correct role.
+Host packages are installed automatically by mutating cluster commands. Existing A/B nodes can be migrated with `bash ./cluster.sh migrate-local NODE --from OLD_FOLDER`; no manual `socat`/WireGuard package installation or analyzer-key path rewrite is required.
+
+Two-node `replica` mode keeps A writable and B as an asynchronous PostgreSQL standby without pretending that two machines form a safe quorum. MinIO uses N-way asynchronous bucket replication; RabbitMQ and Redis remain local to each node.
+
+When three independent voters exist, the same public inventory renders the advanced Patroni + etcd configuration for automatic failover. Per-node public and local ports may differ; topology lives outside the shared `.env`.
+
+See:
+
+```bash
+cat deploy/cluster/QUICK_START_RU.md
+```

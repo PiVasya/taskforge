@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "cluster_name": "taskforge-prod",
+  "wireguard_cidr": "10.80.0.0/24",
+  "preferred_primary": "A",
+  "automatic_failback": true,
+  "failback_delay_seconds": 300,
+  "failback_stable_seconds": 60,
+  "maximum_lag_on_failover_bytes": 67108864,
+  "maximum_lag_on_failback_bytes": 16777216,
+  "shared_state_interval_seconds": 60,
+  "etcd_image": "gcr.io/etcd-development/etcd:v3.6.14",
+  "nodes": [
+    {
+      "id": "A",
+      "priority": 100,
+      "platform": "linux",
+      "public_host": "CHANGE_ME_A_STATIC_IP",
+      "dcs_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.1",
+        "listen_port": 51820,
+        "public_key": "CHANGE_ME_A_WIREGUARD_PUBLIC_KEY"
+      },
+      "web": {
+        "http_port": 80,
+        "https_port": 443,
+        "tls_mode": "origin-ca"
+      },
+      "postgres": {
+        "host_port": 5432,
+        "patroni_rest_port": 8008
+      },
+      "etcd": {
+        "client_port": 2379,
+        "peer_port": 2380
+      },
+      "minio": {
+        "api_port": 9000,
+        "console_port": 9001
+      },
+      "health_port": 9187
+    },
+    {
+      "id": "B",
+      "priority": 90,
+      "platform": "linux",
+      "public_host": "CHANGE_ME_B_STATIC_IP",
+      "dcs_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.2",
+        "listen_port": 51820,
+        "public_key": "CHANGE_ME_B_WIREGUARD_PUBLIC_KEY"
+      },
+      "web": {
+        "http_port": 80,
+        "https_port": 443,
+        "tls_mode": "origin-ca"
+      },
+      "postgres": {
+        "host_port": 5432,
+        "patroni_rest_port": 8008
+      },
+      "etcd": {
+        "client_port": 2379,
+        "peer_port": 2380
+      },
+      "minio": {
+        "api_port": 9000,
+        "console_port": 9001
+      },
+      "health_port": 9187
+    },
+    {
+      "id": "C",
+      "priority": 80,
+      "platform": "linux",
+      "public_host": "CHANGE_ME_C_STATIC_IP",
+      "dcs_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.3",
+        "listen_port": 51937,
+        "public_key": "CHANGE_ME_C_WIREGUARD_PUBLIC_KEY"
+      },
+      "web": {
+        "http_port": 8080,
+        "https_port": 8443,
+        "tls_mode": "origin-ca"
+      },
+      "postgres": {
+        "host_port": 55432,
+        "patroni_rest_port": 18008
+      },
+      "etcd": {
+        "client_port": 12379,
+        "peer_port": 12380
+      },
+      "minio": {
+        "api_port": 19000,
+        "console_port": 19001
+      },
+      "health_port": 9187
+    }
+  ]
+}

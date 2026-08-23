@@ -3,6 +3,7 @@ set -euo pipefail
 
 workflow=".github/workflows/develop-build.yml"
 prod_dir="deploy/prod/compose"
+cluster_compose="deploy/cluster/compose.cluster.yaml"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -60,7 +61,7 @@ if [ -n "$extra_in_matrix" ]; then
   fail "matrix Dockerfiles above do not exist in repo"
 fi
 
-grep -Rho 'image:[[:space:]]*\${IMAGE_REPOSITORY[^}]*}/[^:[:space:]]*' "$prod_dir" \
+grep -hEo 'image:[[:space:]]*\$\{IMAGE_REPOSITORY[^}]*}/[^:[:space:]]*' "$prod_dir"/*.y*ml "$cluster_compose" \
   | sed -E 's#.*}/([^:[:space:]]*)#\1#' \
   | sort -u > "$tmp/prod_images"
 

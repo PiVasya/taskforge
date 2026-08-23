@@ -5,7 +5,9 @@ DOMAIN="${DOMAIN:-taskforge.example.com}"
 GATEWAY_MODE="${GATEWAY_MODE:-auto}"
 TASKFORGE_NODE_ROLE="${TASKFORGE_NODE_ROLE:-primary}"
 TASKFORGE_HA_DYNAMIC_READY="${TASKFORGE_HA_DYNAMIC_READY:-false}"
-HA_NODE_ID="${HA_NODE_ID:-A}"
+HA_NODE_ID="${HA_NODE_ID:-node}"
+GATEWAY_TLS_CERT_FILE="${GATEWAY_TLS_CERT_FILE:-/etc/letsencrypt/live/${DOMAIN}/fullchain.pem}"
+GATEWAY_TLS_KEY_FILE="${GATEWAY_TLS_KEY_FILE:-/etc/letsencrypt/live/${DOMAIN}/privkey.pem}"
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
 BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
 
@@ -26,17 +28,16 @@ fi
 
 render_ha_snippet () {
   case "$HA_NODE_ID" in
-    A|B) ;;
-    *) echo "[nginx] HA_NODE_ID must be A or B" >&2; exit 1 ;;
+    *[!A-Za-z0-9_-]*|"") echo "[nginx] HA_NODE_ID contains invalid characters" >&2; exit 1 ;;
   esac
 
   if [ "$TASKFORGE_HA_DYNAMIC_READY" = "true" ] || [ "$TASKFORGE_HA_DYNAMIC_READY" = "1" ]; then
     cat > /etc/nginx/snippets/ha-routes.conf <<EOF
-# Managed HA mode. The host-level taskforge-ha agent owns the marker file.
+# Managed cluster mode. The host-level TaskForge cluster controller owns the marker file.
 location = /ha/primary-ready {
   default_type application/json;
   add_header Cache-Control "no-store" always;
-  if (-f /run/taskforge-ha/traffic-ready) {
+  if (-f /run/taskforge-cluster/traffic-ready) {
     return 200 '{"status":"ready","node":"${HA_NODE_ID}"}';
   }
   return 503 '{"status":"standby","node":"${HA_NODE_ID}"}';
@@ -45,7 +46,7 @@ location = /ha/primary-ready {
 location = /ha/traffic-ready {
   default_type application/json;
   add_header Cache-Control "no-store" always;
-  if (-f /run/taskforge-ha/traffic-ready) {
+  if (-f /run/taskforge-cluster/traffic-ready) {
     return 200 '{"status":"ready","node":"${HA_NODE_ID}"}';
   }
   return 503 '{"status":"standby","node":"${HA_NODE_ID}"}';
@@ -76,7 +77,8 @@ EOF
 
 render_conf () {
   render_ha_snippet
-  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
+  export GATEWAY_TLS_CERT_FILE GATEWAY_TLS_KEY_FILE
+  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     cat > /tmp/taskforge-debug-nginx-prefix.conf <<'EOF'
 log_format taskforge_debug 'TFDBG GATEWAY request_id=$request_id remote=$remote_addr host=$host method=$request_method path="$uri" status=$status bytes=$body_bytes_sent request_time=$request_time upstream="$upstream_addr" upstream_status="$upstream_status" upstream_time="$upstream_response_time" ua="$http_user_agent"';
@@ -97,7 +99,7 @@ elif [ "$GATEWAY_MODE" = "http" ]; then
 elif [ "$GATEWAY_MODE" = "https" ]; then
   echo "[nginx] Using HTTPS production microservices routing"
   render_conf https.conf
-elif [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
+elif [ -f "$GATEWAY_TLS_CERT_FILE" ] && [ -f "$GATEWAY_TLS_KEY_FILE" ]; then
   echo "[nginx] Using HTTPS config for ${DOMAIN}"
   render_conf https.conf
 else

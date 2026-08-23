@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "develop-build.yml"
 FULL_REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "develop-full-rebuild.yml"
 PROD_COMPOSE = ROOT / "deploy" / "prod" / "compose"
+CLUSTER_COMPOSE = ROOT / "deploy" / "cluster" / "compose.cluster.yaml"
 
 
 def norm(path: Path) -> str:
@@ -54,7 +55,10 @@ def project_dockerfiles() -> set[str]:
 
 def prod_images() -> set[str]:
     names: set[str] = set()
-    for path in sorted(PROD_COMPOSE.glob("*.y*ml")):
+    paths = list(sorted(PROD_COMPOSE.glob("*.y*ml")))
+    if CLUSTER_COMPOSE.is_file():
+        paths.append(CLUSTER_COMPOSE)
+    for path in paths:
         text = path.read_text(encoding="utf-8")
         for image in re.findall(r'image:\s*\$\{IMAGE_REPOSITORY[^}]*\}/([^:\s]+):\$\{IMAGE_TAG', text):
             names.add(image)

@@ -54,3 +54,15 @@ Prod использует готовые Docker images из registry и наст
 ## Redis cache
 
 The compose stack includes Redis. Backend services receive `ConnectionStrings__Redis` and cache hot metadata such as user summaries, course metadata and assignment summaries. See `docs/operations/redis-cache.md`.
+
+## N-node production cluster
+
+Production can be converted from standalone mode to an A/B/C Patroni cluster:
+
+```text
+deploy/cluster/
+```
+
+The same topology supports different per-node ports and future D/E nodes. Start with
+`deploy/cluster/QUICK_START_RU.md`.
+

@@ -2,7 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:-taskforge-prod}
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-alpine}
-    restart: "${POSTGRES_RESTART_POLICY:-unless-stopped}"
+    restart: unless-stopped
     command:
       - postgres
       - -c
@@ -10,9 +10,9 @@ services:
       - -c
       - wal_level=replica
       - -c
-      - max_wal_senders=${POSTGRES_MAX_WAL_SENDERS:-10}
+      - max_wal_senders=10
       - -c
-      - wal_keep_size=${POSTGRES_WAL_KEEP_SIZE:-4096MB}
+      - wal_keep_size=4096MB
       - -c
       - hot_standby=on
       - -c
@@ -82,7 +82,7 @@ services:
       retries: 30
       start_period: 10s
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:

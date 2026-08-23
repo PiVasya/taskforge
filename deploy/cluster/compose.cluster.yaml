@@ -1,0 +1,115 @@
+# TaskForge N-node cluster override.
+# PostgreSQL is managed by Patroni. etcd runs only on nodes marked dcs_voter.
+services:
+  postgres:
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/postgres-ha:${IMAGE_TAG:-develop}
+    restart: unless-stopped
+    entrypoint:
+      - /usr/local/bin/taskforge-patroni-entrypoint
+    command:
+      - /run/taskforge-cluster/patroni.yml
+    environment:
+      TASKFORGE_CLUSTER_NODE_ID: ${CLUSTER_NODE_ID:?render cluster node config}
+    volumes:
+      - postgres-cluster-data:/var/lib/postgresql
+      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster:/run/taskforge-cluster:ro
+    ports:
+      - ${CLUSTER_POSTGRES_BIND:?render cluster node config}:${CLUSTER_POSTGRES_PORT:?render cluster node config}:5432
+      - ${CLUSTER_PATRONI_BIND:?render cluster node config}:${CLUSTER_PATRONI_REST_PORT:?render cluster node config}:8008
+    healthcheck:
+      # Deliberately healthy only on the current primary. This prevents an
+      # accidental `compose up` from starting write-capable APIs on a replica.
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8008/primary >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  etcd:
+    image: ${ETCD_IMAGE:?render cluster node config}
+    profiles:
+      - dcs-voter
+    restart: unless-stopped
+    command:
+      - /usr/local/bin/etcd
+      - --name=${CLUSTER_NODE_ID:?render cluster node config}
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://${CLUSTER_WG_IP:?render cluster node config}:${CLUSTER_ETCD_CLIENT_PORT:?render cluster node config}
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://${CLUSTER_WG_IP:?render cluster node config}:${CLUSTER_ETCD_PEER_PORT:?render cluster node config}
+      - --initial-cluster=${CLUSTER_ETCD_INITIAL_CLUSTER:?render cluster node config}
+      - --initial-cluster-state=new
+      - --initial-cluster-token=${CLUSTER_ETCD_TOKEN:?render cluster node config}
+      - --auto-compaction-retention=1h
+      - --snapshot-count=10000
+      - --quota-backend-bytes=2147483648
+    volumes:
+      - etcd-data:/etcd-data
+    ports:
+      - ${CLUSTER_ETCD_BIND:?render cluster node config}:${CLUSTER_ETCD_CLIENT_PORT:?render cluster node config}:2379
+      - ${CLUSTER_ETCD_BIND:?render cluster node config}:${CLUSTER_ETCD_PEER_PORT:?render cluster node config}:2380
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 endpoint health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 15s
+
+  gateway:
+    restart: "no"
+    environment:
+      TASKFORGE_HA_DYNAMIC_READY: "true"
+      HA_NODE_ID: ${CLUSTER_NODE_ID:?render cluster node config}
+      GATEWAY_TLS_CERT_FILE: ${GATEWAY_TLS_CERT_FILE:-/etc/taskforge-origin-tls/fullchain.pem}
+      GATEWAY_TLS_KEY_FILE: ${GATEWAY_TLS_KEY_FILE:-/etc/taskforge-origin-tls/privkey.pem}
+    volumes:
+      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/tls:/etc/taskforge-origin-tls:ro
+      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/readiness:/run/taskforge-cluster:ro
+
+  front: { restart: "no" }
+  front-ct: { restart: "no" }
+  identity-api: { restart: "no" }
+  education-api: { restart: "no" }
+  content-api:
+    restart: "no"
+    volumes:
+      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/shared/content-data-protection:/root/.aspnet/DataProtection-Keys
+  quiz-api:
+    restart: "no"
+    volumes:
+      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/shared/quiz-data-protection:/root/.aspnet/DataProtection-Keys
+  tasks-api: { restart: "no" }
+  solutions-api: { restart: "no" }
+  rating-worker: { restart: "no" }
+  execution-api: { restart: "no" }
+  execution-worker: { restart: "no" }
+  csharp-runner: { restart: "no" }
+  cpp-runner: { restart: "no" }
+  java-runner: { restart: "no" }
+  javascript-runner: { restart: "no" }
+  pascal-runner: { restart: "no" }
+  python-runner: { restart: "no" }
+  image-cpp-runner: { restart: "no" }
+  image-pascal-runner: { restart: "no" }
+  image-python-runner: { restart: "no" }
+  ai-api: { restart: "no" }
+  ai-worker: { restart: "no" }
+  code-analyzer: { restart: "no" }
+  image-analyzer: { restart: "no" }
+  support-api: { restart: "no" }
+  support-bot: { restart: "no" }
+  minecraft-api: { restart: "no" }
+  files-api: { restart: "no" }
+  notifications-api: { restart: "no" }
+  observability-api: { restart: "no" }
+  browser-api: { restart: "no" }
+  telegram-quiz-bot: { restart: "no" }
+
+volumes:
+  postgres-cluster-data:
+  etcd-data:

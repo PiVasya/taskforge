@@ -671,3 +671,12 @@ temp/
 deploy/dev/build-logs/
 # Generated local Monaco Editor files
 apps/web/public/monaco/
+# TaskForge local cluster state and node-specific topology
+.runtime/
+deploy/cluster/cluster.json
+taskforge-cluster-secrets*.enc
+
+# Local/public TaskForge cluster topology and join descriptors.
+deploy/cluster/inventory.json
+taskforge-cluster-topology.json
+taskforge-node-*.json

@@ -1,3 +1,7 @@
+## Cluster manager v30
+
+Production cluster operations now use `deploy/prod/cluster.sh`. A/B use safe asynchronous replica mode; Patroni/etcd is enabled only after three independent voters exist. The current production entrypoint is `deploy/prod/cluster.sh`; see `TASKFORGE_100_CLUSTER_MANAGER_V30.md` and `deploy/cluster/README.md` for the v30 workflow. `TASKFORGE_99_CLUSTER_MANAGER_V28.md` remains as historical design context.
+
 # AI rules for this project
 
 Open this file before changing the project.

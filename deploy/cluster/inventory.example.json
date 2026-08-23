@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "mode": "replica",
+  "cluster_name": "taskforge-prod",
+  "wireguard_cidr": "10.80.0.0/24",
+  "preferred_primary": "A",
+  "nodes": [
+    {
+      "id": "A",
+      "priority": 100,
+      "public_host": "CHANGE_ME_A_STATIC_IP",
+      "quorum_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.1",
+        "listen_port": 51820,
+        "public_key": "CHANGE_ME_A_WIREGUARD_PUBLIC_KEY"
+      },
+      "web": {
+        "http_port": 80,
+        "https_port": 443
+      },
+      "postgres": {
+        "local_port": 5432,
+        "cluster_port": 5432,
+        "patroni_rest_port": 8008
+      },
+      "minio": {
+        "local_port": 9000,
+        "console_port": 9001,
+        "cluster_port": 9000
+      },
+      "health_port": 9187
+    },
+    {
+      "id": "B",
+      "priority": 90,
+      "public_host": "CHANGE_ME_B_STATIC_IP",
+      "quorum_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.2",
+        "listen_port": 51820,
+        "public_key": "CHANGE_ME_B_WIREGUARD_PUBLIC_KEY"
+      },
+      "web": {
+        "http_port": 80,
+        "https_port": 443
+      },
+      "postgres": {
+        "local_port": 5432,
+        "cluster_port": 5432,
+        "patroni_rest_port": 8008
+      },
+      "minio": {
+        "local_port": 9000,
+        "console_port": 9001,
+        "cluster_port": 9000
+      },
+      "health_port": 9187
+    }
+  ]
+}

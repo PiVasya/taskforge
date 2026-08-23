@@ -7,17 +7,20 @@ BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
 export BROWSER_EDGE_RATE_RPS
 TPL_DIR=/etc/nginx/templates
 CONF=/etc/nginx/conf.d/default.conf
-LIVE_DIR="/etc/letsencrypt/live/${DOMAIN}"
+GATEWAY_TLS_CERT_FILE="${GATEWAY_TLS_CERT_FILE:-/etc/letsencrypt/live/${DOMAIN}/fullchain.pem}"
+GATEWAY_TLS_KEY_FILE="${GATEWAY_TLS_KEY_FILE:-/etc/letsencrypt/live/${DOMAIN}/privkey.pem}"
+LIVE_DIR="$(dirname "$GATEWAY_TLS_CERT_FILE")"
+export GATEWAY_TLS_CERT_FILE GATEWAY_TLS_KEY_FILE
 
 render_https() {
-  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS}' < "${TPL_DIR}/https.conf" > "${CONF}"
+  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "${TPL_DIR}/https.conf" > "${CONF}"
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     sed -i '1i error_log /var/log/nginx/error.log info;' "${CONF}"
   fi
 }
 
 ensure_https_config () {
-  if [ -f "${LIVE_DIR}/fullchain.pem" ] && ! grep -q "listen 443 ssl" "${CONF}" 2>/dev/null; then
+  if [ -f "$GATEWAY_TLS_CERT_FILE" ] && [ -f "$GATEWAY_TLS_KEY_FILE" ] && ! grep -q "listen 443 ssl" "${CONF}" 2>/dev/null; then
     echo "[nginx] Certificate present — switching config to HTTPS"
     render_https
     nginx -s reload || true

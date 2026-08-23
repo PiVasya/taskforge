@@ -229,3 +229,21 @@ After editing the plugin configs, a full Minecraft restart is not required:
 - `CustomMobTweaks`: `/cmt reload` (or `/custommobtweaks refresh`). It unregisters the old listeners, cancels tracked Folia tasks, rereads the file and reconstructs every module.
 
 Both commands are OP-only by default. Check the current state with `/tflink status` and `/cmt modules`.
+
+## N-node high availability
+
+TaskForge has an optional production cluster based on WireGuard, etcd, Patroni,
+asynchronous PostgreSQL replication, N-way MinIO replication and Cloudflare
+readiness routing. A/B/C are the initial full nodes; future D/E nodes are added from
+the same `cluster.json` without hardcoding a triangle. Different host ports are
+supported per node. See `deploy/cluster/QUICK_START_RU.md`.
+
+
+
+## Cluster manager v32
+
+See `TASKFORGE_102_CLUSTER_MANAGER_V32.md` for the latest A/B adoption and diagnostics fixes.
+
+### WireGuard diagnostics
+
+`bash ./cluster.sh status` and `bash ./cluster.sh doctor` automatically elevate only the cluster diagnostic process when needed. Linux restricts WireGuard peer/handshake metadata to privileged netlink access; automatic elevation prevents the old false `WireGuard peers expected=N actual=0` result for normal users. No manual `sudo wg ...` command is required.

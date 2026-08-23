@@ -5,20 +5,23 @@ cd "$ROOT_DIR"
 
 scripts/prod/prepare-env.sh
 scripts/prod/check-prod-config.sh
-source deploy/ha/common.sh
-if ha_bool "$(ha_read_env HA_ENABLED)"; then
-  if systemctl is-active --quiet taskforge-ha.service 2>/dev/null; then
-    ./deploy/prod/compose.sh pull
-    ha_agent apply-update
-    ./deploy/ha/status.sh
+
+if [ -f .runtime/cluster/enabled ]; then
+  ./deploy/prod/compose.sh pull
+  if systemctl is-active --quiet taskforge-cluster.service 2>/dev/null; then
+    sudo systemctl restart taskforge-cluster.service
+    ./deploy/cluster/status.sh
   else
-    echo "HA_ENABLED=true but taskforge-ha is not installed yet." >&2
-    echo "Initialize with deploy/ha/setup-primary.sh or deploy/ha/setup-standby.sh." >&2
+    echo "Cluster mode is enabled, but taskforge-cluster.service is not active." >&2
+    echo "Run: sudo ./deploy/cluster/install-service.sh" >&2
     exit 2
   fi
 else
   ./deploy/prod/compose.sh up-logs --pull missing
+  if [ -s .runtime/cluster/node-id ]; then
+    sudo ./deploy/prod/cluster.sh repair "$(cat .runtime/cluster/node-id)"
+  fi
 fi
 
-echo ""
+echo
 echo "TaskForge production deploy command complete."

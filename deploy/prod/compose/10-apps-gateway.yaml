@@ -11,8 +11,8 @@ services:
       BROWSER_EDGE_RATE_RPS: ${BROWSER_EDGE_RATE_RPS:-25}
       GATEWAY_MODE: ${GATEWAY_MODE:-auto}
       TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
-      TASKFORGE_HA_DYNAMIC_READY: ${HA_ENABLED:-false}
-      HA_NODE_ID: ${HA_NODE_ID:-A}
+      TASKFORGE_HA_DYNAMIC_READY: ${TASKFORGE_CLUSTER_ENABLED:-false}
+      HA_NODE_ID: ${CLUSTER_NODE_ID:-node}
       DOMAIN: ${DOMAIN:?set DOMAIN}
       CT_DOMAIN: ${CT_DOMAIN:?set CT_DOMAIN}
     ports:
@@ -27,7 +27,6 @@ services:
       - letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot
       - gateway-ai-telemetry:/var/log/taskforge-ai
-      - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/ha:/run/taskforge-ha:ro
     depends_on:
       front:
         condition: service_healthy
