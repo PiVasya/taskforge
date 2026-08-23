@@ -69,6 +69,7 @@ assert 'minio_script =' not in agent, 'automatic failback must not depend on eve
 assert '/run/taskforge-ha' not in agent
 
 assert not Path('deploy/ha').exists(), 'legacy fixed two-node HA directory must not return'
+assert not Path('scripts/ci/check-ha-two-node.sh').exists(), 'legacy two-node HA CI helper must not return'
 assert Path('deploy/cluster/cleanup-legacy-ha.sh').is_file(), 'legacy HA cleanup helper is required'
 assert Path('deploy/cluster/apply-topology.sh').is_file(), 'topology reload helper is required'
 apply_topology=Path('deploy/cluster/apply-topology.sh').read_text()

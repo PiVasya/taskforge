@@ -240,9 +240,11 @@ supported per node. See `deploy/cluster/QUICK_START_RU.md`.
 
 
 
-## Cluster manager v32
+## Cluster manager v33
 
-See `TASKFORGE_102_CLUSTER_MANAGER_V32.md` for the latest A/B adoption and diagnostics fixes.
+The current cluster manager is the N-node implementation in `deploy/cluster/`.
+Legacy fixed A/B scripts under `deploy/ha/` have been removed and are intentionally forbidden by CI.
+See `trash/TASKFORGE_103_CLUSTER_MANAGER_V33.md` for the latest A/B diagnostics changes.
 
 ### WireGuard diagnostics
 
