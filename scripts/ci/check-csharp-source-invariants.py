@@ -27,6 +27,7 @@ def main() -> int:
     endpoints_path = ROOT / "services" / "tasks" / "assignment-api" / "Endpoints" / "Assignments" / "AssignmentsEndpoints.cs"
     tasks_security_path = ROOT / "services" / "tasks" / "assignment-api" / "Security" / "TaskForgeRequestSecurity.cs"
     assignment_access_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "AssignmentApiAccessService.cs"
+    progression_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Access" / "CourseMapProgressionService.cs"
     education_internal_path = ROOT / "services" / "education" / "api" / "Endpoints" / "Internal" / "InternalEndpoints.cs"
     education_map_path = ROOT / "services" / "education" / "api" / "Endpoints" / "CourseMaps" / "CourseMapEndpoints.cs"
     task_graph_json_path = ROOT / "services" / "tasks" / "assignment-api" / "Services" / "Serialization" / "AssignmentTaskGraphJsonService.cs"
@@ -100,6 +101,15 @@ def main() -> int:
         if hard_access_at < 0 or projection_at < 0 or hard_access_at > projection_at:
             errors.append("direct assignment access must validate current hard course visibility before using cached progression")
 
+    if progression_path.exists():
+        progression_source = progression_path.read_text(encoding="utf-8")
+        if "incoming[edge.Target].All(source => throughComplete.GetValueOrDefault(source))" not in progression_source:
+            errors.append("hidden-start merge gates must wait for every incoming prerequisite of the target, not only the current source branch")
+        hidden_gate_at = progression_source.find("if (state.Hidden && !hiddenPrerequisitesComplete)")
+        visible_add_at = progression_source.find("visibleNodeIds.Add(state.NodeId);")
+        if hidden_gate_at < 0 or visible_add_at < 0 or hidden_gate_at > visible_add_at:
+            errors.append("hidden learner nodes must pass prerequisite gating before being added to visibleNodeIds")
+
     if education_internal_path.exists():
         education_source = education_internal_path.read_text(encoding="utf-8")
         if "request.BypassStudentVisibility" not in education_source or "request.IncludeProgressionRules" not in education_source:
@@ -109,6 +119,8 @@ def main() -> int:
         education_map_source = education_map_path.read_text(encoding="utf-8")
         if "COURSE_MAP_SYNTHETIC_FORBIDDEN" not in education_map_source or 'TryGetProperty("synthetic"' not in education_map_source:
             errors.append("education course-map save must reject learner synthetic nodes/edges")
+        if "var editorDocument = ParseDocumentElement(map.DocumentJson);" in education_map_source and "editorDocument.HasValue" not in education_map_source:
+            errors.append("nullable course-map editor JsonElement must be checked with HasValue before ValueKind/TryGetProperty")
 
     if task_graph_json_path.exists():
         task_graph_source = task_graph_json_path.read_text(encoding="utf-8")

@@ -420,9 +420,38 @@ internal static class CourseMapProgressionService
             var stateKey = $"{state.NodeId}\u001f{(state.Hidden ? 1 : 0)}\u001f{(state.Sequential ? 1 : 0)}";
             if (!seenStates.Add(stateKey))
             {
-                TaskForgeDebugTrace.Map("TRAVERSE_SKIP_SEEN", ("user", diagnosticUserId), ("node", state.NodeId), ("hidden", state.Hidden), ("sequential", state.Sequential));
+                TaskForgeDebugTrace.Map("TRAVERSE_SKIP_SEEN",
+                    ("user", diagnosticUserId),
+                    ("node", state.NodeId),
+                    ("hidden", state.Hidden),
+                    ("sequential", state.Sequential));
                 continue;
             }
+
+            // Full hiding has two distinct phases and they must not be collapsed into one
+            // generic "locked" state:
+            //   1. prerequisites before the current hidden node are not complete -> leak
+            //      absolutely nothing about the continuation, including the node itself;
+            //   2. the current hidden node is already legitimately visible, but is not
+            //      solved yet -> keep the real target hidden, while an active sequential
+            //      mode may safely expose an opaque LOCK placeholder.
+            //
+            // This gate must run before visibleNodeIds.Add and before the leaf fast-path.
+            // Otherwise a hidden merge target (especially a leaf) leaks into the learner
+            // graph before all of its incoming prerequisites are complete.
+            var hiddenPrerequisitesComplete = !state.Hidden
+                || incoming[state.NodeId].All(source => throughComplete.GetValueOrDefault(source));
+            if (state.Hidden && !hiddenPrerequisitesComplete)
+            {
+                TaskForgeDebugTrace.Map("TRAVERSE_BLOCK_HIDDEN_PREREQUISITES",
+                    ("user", diagnosticUserId),
+                    ("node", state.NodeId),
+                    ("entity", nodeById[state.NodeId].EntityId),
+                    ("title", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
+                    ("incoming", string.Join("|", incoming[state.NodeId].Select(source => $"{source}:{(throughComplete.GetValueOrDefault(source) ? 1 : 0)}"))));
+                continue;
+            }
+
             visibleNodeIds.Add(state.NodeId);
             TaskForgeDebugTrace.Map("TRAVERSE_NODE",
                 ("user", diagnosticUserId),
@@ -437,36 +466,14 @@ internal static class CourseMapProgressionService
 
             if (!outgoing.TryGetValue(state.NodeId, out var nextEdges))
             {
-                TaskForgeDebugTrace.Map("TRAVERSE_LEAF", ("user", diagnosticUserId), ("node", state.NodeId));
+                TaskForgeDebugTrace.Map("TRAVERSE_LEAF",
+                    ("user", diagnosticUserId),
+                    ("node", state.NodeId),
+                    ("entity", nodeById[state.NodeId].EntityId));
                 continue;
             }
 
             var selfComplete = SelfComplete(state.NodeId);
-
-            // Full hiding has two distinct phases and they must not be collapsed into one
-            // generic "locked" state:
-            //   1. prerequisites before the current hidden node are not complete -> leak
-            //      absolutely nothing about the continuation;
-            //   2. the current hidden node is already legitimately visible, but is not
-            //      solved yet -> keep the real target hidden, while an active sequential
-            //      mode may safely expose an opaque LOCK placeholder.
-            //
-            // Computing the prerequisite-only part from already memoized throughComplete
-            // values stays linear in the graph size (each incoming edge is inspected at
-            // most for the small, bounded set of traversal states of its target node).
-            var hiddenPrerequisitesComplete = !state.Hidden
-                || incoming[state.NodeId].All(source => throughComplete.GetValueOrDefault(source));
-            if (state.Hidden && !hiddenPrerequisitesComplete)
-            {
-                TaskForgeDebugTrace.Map("TRAVERSE_BLOCK_HIDDEN_PREREQUISITES",
-                    ("user", diagnosticUserId),
-                    ("node", state.NodeId),
-                    ("entity", nodeById[state.NodeId].EntityId),
-                    ("title", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
-                    ("incoming", string.Join("|", incoming[state.NodeId].Select(source => $"{source}:{(throughComplete.GetValueOrDefault(source) ? 1 : 0)}"))));
-                continue;
-            }
-
             var sequentialSourceLocked = state.Sequential && !selfComplete;
             var hiddenCurrentNodeLocked = state.Hidden && !selfComplete;
             if (hiddenCurrentNodeLocked)
@@ -483,7 +490,12 @@ internal static class CourseMapProgressionService
                     foreach (var edge in nextEdges)
                     {
                         blockedSequentialEdges.Add(new BlockedSequentialEdge(edge, state.NodeId, edge.Target));
-                        TaskForgeDebugTrace.Map("EDGE_TO_LOCK", ("user", diagnosticUserId), ("edge", edge.Id), ("sourceNode", state.NodeId), ("targetNode", edge.Target), ("reason", "hidden-current+sequential"));
+                        TaskForgeDebugTrace.Map("EDGE_TO_LOCK",
+                            ("user", diagnosticUserId),
+                            ("edge", edge.Id),
+                            ("sourceNode", state.NodeId),
+                            ("targetNode", edge.Target),
+                            ("reason", "hidden-current+sequential"));
                     }
                 }
                 continue;
@@ -491,11 +503,14 @@ internal static class CourseMapProgressionService
 
             foreach (var edge in nextEdges)
             {
-                // A hidden section begins only after every prerequisite on all incoming
-                // paths to this exact point is complete. This is intentionally stricter
-                // than sequential reveal, which only waits for the currently visible task.
+                // A hidden section that starts on a merge edge belongs to the merge
+                // point, not to one source branch in isolation. Do not reveal any of the
+                // incoming START edges until every prerequisite feeding the target is
+                // complete. Otherwise a three-way AND merge degrades into an accidental
+                // OR: the first solved branch can expose the target while sibling edges
+                // remain missing from the learner projection.
                 if (edge.HiddenEffect == EffectTransition.Start
-                    && !throughComplete.GetValueOrDefault(state.NodeId))
+                    && !incoming[edge.Target].All(source => throughComplete.GetValueOrDefault(source)))
                 {
                     TaskForgeDebugTrace.Map("EDGE_BLOCK_HIDDEN_START",
                         ("user", diagnosticUserId),
@@ -506,7 +521,8 @@ internal static class CourseMapProgressionService
                         ("targetNode", edge.Target),
                         ("targetEntity", nodeById[edge.Target].EntityId),
                         ("targetTitle", ResolveNodeTitle(nodeById[edge.Target], assignmentById, courseById)),
-                        ("sourceThroughComplete", throughComplete.GetValueOrDefault(state.NodeId)));
+                        ("sourceThroughComplete", throughComplete.GetValueOrDefault(state.NodeId)),
+                        ("targetIncoming", string.Join("|", incoming[edge.Target].Select(source => $"{source}:{(throughComplete.GetValueOrDefault(source) ? 1 : 0)}"))));
                     continue;
                 }
 

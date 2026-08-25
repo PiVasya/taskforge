@@ -23,6 +23,10 @@ internal sealed class CourseMapProjectionService
 
     private const int SegmentNodeChunkSize = 160;
     private const int SegmentEdgeChunkSize = 320;
+    // Bump when learner visibility semantics change. Keeping the policy version in
+    // projection keys makes old immutable projections fail closed into a fresh stream
+    // instead of replaying graph geometry produced by an older evaluator.
+    private const int ProgressionPolicyVersion = 2;
 
     private static readonly ConcurrentDictionary<string, Lazy<Task<CourseMapSnapshot?>>> SnapshotBuilds = new();
 
@@ -1375,10 +1379,10 @@ internal sealed class CourseMapProjectionService
         => TaskForgeCache.Key("tasks:course-map-snapshot:v1", rootCourseId, version);
 
     private string ProjectionKey(string token)
-        => TaskForgeCache.Key("tasks:course-map-projection:v1", token);
+        => TaskForgeCache.Key("tasks:course-map-projection:v1", ProgressionPolicyVersion, token);
 
     private string CurrentProjectionPointerKey(Guid userId, Guid rootCourseId, Guid requestedCourseId, int version, bool bypass)
-        => TaskForgeCache.Key("tasks:course-map-projection-current:v2", userId, rootCourseId, requestedCourseId, version, bypass);
+        => TaskForgeCache.Key("tasks:course-map-projection-current:v2", ProgressionPolicyVersion, userId, rootCourseId, requestedCourseId, version, bypass);
 
     private async Task SaveProjectionStateAsync(ProjectionState state, CancellationToken ct)
     {

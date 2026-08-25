@@ -54,8 +54,8 @@ internal static partial class EducationApiEndpoints
             }
 
             var editorDocument = ParseDocumentElement(map.DocumentJson);
-            var editorNodeCount = editorDocument.ValueKind == JsonValueKind.Object && editorDocument.TryGetProperty("nodes", out var editorNodes) && editorNodes.ValueKind == JsonValueKind.Array ? editorNodes.GetArrayLength() : 0;
-            var editorEdgeCount = editorDocument.ValueKind == JsonValueKind.Object && editorDocument.TryGetProperty("edges", out var editorEdges) && editorEdges.ValueKind == JsonValueKind.Array ? editorEdges.GetArrayLength() : 0;
+            var editorNodeCount = editorDocument.HasValue && editorDocument.Value.ValueKind == JsonValueKind.Object && editorDocument.Value.TryGetProperty("nodes", out var editorNodes) && editorNodes.ValueKind == JsonValueKind.Array ? editorNodes.GetArrayLength() : 0;
+            var editorEdgeCount = editorDocument.HasValue && editorDocument.Value.ValueKind == JsonValueKind.Object && editorDocument.Value.TryGetProperty("edges", out var editorEdges) && editorEdges.ValueKind == JsonValueKind.Array ? editorEdges.GetArrayLength() : 0;
             TaskForgeDebugTrace.Map("EDITOR_MAP_GET_END",
                 ("user", access.UserId),
                 ("requestedCourse", courseId),
