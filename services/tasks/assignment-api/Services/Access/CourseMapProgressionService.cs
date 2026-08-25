@@ -61,6 +61,12 @@ internal static class CourseMapProgressionService
     {
         if (requestedCourseId == Guid.Empty || userId == Guid.Empty) return null;
 
+        TaskForgeDebugTrace.Map("LOAD_BEGIN",
+            ("service", "tasks-api"),
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("bypassStudentVisibility", bypassStudentVisibility));
+
         // Always resolve the map first. User access is evaluated in one batch for the
         // complete root tree below, so a separate access request for the requested
         // course here would only duplicate an internal HTTP + DB round trip.
@@ -73,7 +79,20 @@ internal static class CourseMapProgressionService
             ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
             $"/api/internal/courses/{requestedCourseId:D}/map",
             ct);
-        if (map == null || map.RootCourseId == Guid.Empty) return null;
+        if (map == null || map.RootCourseId == Guid.Empty)
+        {
+            TaskForgeDebugTrace.Map("LOAD_MAP_MISS", ("user", userId), ("requestedCourse", requestedCourseId));
+            return null;
+        }
+        TaskForgeDebugTrace.Map("LOAD_MAP",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", map.RootCourseId),
+            ("version", map.Version),
+            ("hasDocument", map.Document.HasValue),
+            ("documentHash", map.Document.HasValue ? TaskForgeDebugTrace.Fingerprint(map.Document.Value.GetRawText()) : "none"),
+            ("updatedAt", map.UpdatedAt),
+            ("updatedBy", map.UpdatedBy));
 
         var tree = await GetInternalAsync<CourseTreeResponse>(
             clients,
@@ -81,13 +100,37 @@ internal static class CourseMapProgressionService
             ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
             $"/api/internal/courses/{map.RootCourseId:D}/tree",
             ct);
-        if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != requestedCourseId)) return null;
+        if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != requestedCourseId))
+        {
+            TaskForgeDebugTrace.Map("LOAD_TREE_MISS",
+                ("user", userId),
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", map.RootCourseId),
+                ("treeCourses", tree?.CourseIds.Length ?? 0));
+            return null;
+        }
+        TaskForgeDebugTrace.Map("LOAD_TREE",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", map.RootCourseId),
+            ("courseCount", tree.CourseIds.Length),
+            ("courseIds", TaskForgeDebugTrace.MapList(tree.CourseIds)));
 
         var allTreeCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
         var accessibleCourseIds = bypassStudentVisibility
             ? allTreeCourseIds.ToHashSet()
             : await LoadAccessibleCourseIdsAsync(allTreeCourseIds, userId, clients, cfg, ct);
-        if (!accessibleCourseIds.Contains(requestedCourseId)) return null;
+        TaskForgeDebugTrace.Map("LOAD_ACCESS",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("bypassStudentVisibility", bypassStudentVisibility),
+            ("accessibleCount", accessibleCourseIds.Count),
+            ("accessibleCourseIds", TaskForgeDebugTrace.MapList(accessibleCourseIds)));
+        if (!accessibleCourseIds.Contains(requestedCourseId))
+        {
+            TaskForgeDebugTrace.Map("LOAD_DENY_COURSE", ("user", userId), ("requestedCourse", requestedCourseId));
+            return null;
+        }
 
         var requestedSubtreeCourseIds = BuildSubtreeCourseIds(requestedCourseId, tree.Courses);
         requestedSubtreeCourseIds.IntersectWith(accessibleCourseIds);
@@ -106,10 +149,26 @@ internal static class CourseMapProgressionService
                 x.Sort))
             .ToListAsync(ct);
 
+        TaskForgeDebugTrace.Map("LOAD_ASSIGNMENTS",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("assignmentCount", assignmentRows.Count),
+            ("assignmentIds", TaskForgeDebugTrace.MapList(assignmentRows.Select(x => x.Id))));
+
         var solvedIds = await LoadSolvedAssignmentIdsAsync(userId, assignmentRows.Select(x => x.Id), db, clients, cfg, ct);
+        TaskForgeDebugTrace.Map("LOAD_SOLVED",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("solvedCount", solvedIds.Count),
+            ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solvedIds)));
 
         if (map.Document is null || map.Document.Value.ValueKind != JsonValueKind.Object)
         {
+            TaskForgeDebugTrace.Map("LOAD_NO_DOCUMENT",
+                ("user", userId),
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", map.RootCourseId),
+                ("version", map.Version));
             return new Evaluation(
                 map.RootCourseId,
                 requestedCourseId,
@@ -134,12 +193,23 @@ internal static class CourseMapProgressionService
             assignmentRows,
             solvedIds,
             map.UpdatedAt,
-            map.UpdatedBy);
+            map.UpdatedBy,
+            userId);
 
         // A course that sits behind an unopened graph branch should behave exactly as
         // absent for a learner. This also prevents direct child-course URLs from being
         // used to jump over an upstream after-prerequisites gate.
-        return evaluation.VisibleCourseIds.Contains(requestedCourseId) ? evaluation : null;
+        var requestedVisible = evaluation.VisibleCourseIds.Contains(requestedCourseId);
+        TaskForgeDebugTrace.Map("LOAD_END",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", evaluation.RootCourseId),
+            ("version", evaluation.Version),
+            ("requestedVisible", requestedVisible),
+            ("visibleCourses", evaluation.VisibleCourseIds.Count),
+            ("visibleAssignments", evaluation.VisibleAssignmentIds.Count),
+            ("solved", evaluation.SolvedAssignmentIds.Count));
+        return requestedVisible ? evaluation : null;
     }
 
     internal static Evaluation EvaluatePrepared(
@@ -152,7 +222,8 @@ internal static class CourseMapProgressionService
         List<AssignmentProgressionRow> assignmentRows,
         HashSet<Guid> solvedIds,
         DateTimeOffset? updatedAt,
-        Guid? updatedBy)
+        Guid? updatedBy,
+        Guid? diagnosticUserId = null)
     {
         var requestedSubtreeCourseIds = BuildSubtreeCourseIds(requestedCourseId, tree.Courses);
         requestedSubtreeCourseIds.IntersectWith(accessibleCourseIds);
@@ -167,7 +238,8 @@ internal static class CourseMapProgressionService
             assignmentRows,
             solvedIds,
             updatedAt,
-            updatedBy);
+            updatedBy,
+            diagnosticUserId);
     }
 
     private static Evaluation EvaluateDocument(
@@ -181,7 +253,8 @@ internal static class CourseMapProgressionService
         List<AssignmentProgressionRow> assignmentRows,
         HashSet<Guid> solvedIds,
         DateTimeOffset? updatedAt,
-        Guid? updatedBy)
+        Guid? updatedBy,
+        Guid? diagnosticUserId)
     {
         var assignmentById = assignmentRows.ToDictionary(x => x.Id);
         var courseById = tree.Courses.ToDictionary(x => x.Id);
@@ -189,6 +262,18 @@ internal static class CourseMapProgressionService
         var nodeById = nodes.ToDictionary(x => x.Id, StringComparer.Ordinal);
         var edges = ParseEdges(document, nodeById.Keys.ToHashSet(StringComparer.Ordinal));
         var edgeById = edges.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        TaskForgeDebugTrace.Map("EVAL_DOCUMENT_BEGIN",
+            ("user", diagnosticUserId),
+            ("rootCourse", rootCourseId),
+            ("requestedCourse", requestedCourseId),
+            ("version", version),
+            ("documentHash", TaskForgeDebugTrace.Fingerprint(document.GetRawText())),
+            ("parsedNodes", nodes.Count),
+            ("parsedEdges", edges.Count),
+            ("assignmentRows", assignmentRows.Count),
+            ("accessibleCourses", accessibleCourseIds.Count),
+            ("solvedCount", solvedIds.Count),
+            ("solvedIds", TaskForgeDebugTrace.MapList(solvedIds)));
 
         bool IsNodeAllowed(MapNode node)
         {
@@ -201,6 +286,14 @@ internal static class CourseMapProgressionService
         var validNodeIds = nodes.Where(IsNodeAllowed).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
         edges = edges.Where(x => validNodeIds.Contains(x.Source) && validNodeIds.Contains(x.Target)).ToList();
         edgeById = edges.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        TaskForgeDebugTrace.Map("EVAL_FILTER",
+            ("user", diagnosticUserId),
+            ("rootCourse", rootCourseId),
+            ("requestedCourse", requestedCourseId),
+            ("validNodes", validNodeIds.Count),
+            ("validNodeIds", TaskForgeDebugTrace.MapList(validNodeIds)),
+            ("validEdges", edges.Count),
+            ("validEdgeIds", TaskForgeDebugTrace.MapList(edges.Select(x => x.Id))));
 
         var incoming = validNodeIds.ToDictionary(x => x, _ => new List<string>(), StringComparer.Ordinal);
         var outgoing = validNodeIds.ToDictionary(x => x, _ => new List<MapEdge>(), StringComparer.Ordinal);
@@ -225,6 +318,11 @@ internal static class CourseMapProgressionService
 
         if (start is null)
         {
+            TaskForgeDebugTrace.Map("EVAL_NO_START",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version));
             return new Evaluation(
                 rootCourseId,
                 requestedCourseId,
@@ -250,6 +348,60 @@ internal static class CourseMapProgressionService
                 reachable.Push(edge.Target);
         }
 
+        TaskForgeDebugTrace.Map("EVAL_REACHABLE",
+            ("user", diagnosticUserId),
+            ("rootCourse", rootCourseId),
+            ("requestedCourse", requestedCourseId),
+            ("startNode", start.Id),
+            ("reachableCount", reachableNodeIds.Count),
+            ("reachableNodeIds", TaskForgeDebugTrace.MapList(reachableNodeIds)));
+
+        foreach (var node in nodes)
+        {
+            var valid = validNodeIds.Contains(node.Id);
+            var incomingRows = valid && incoming.TryGetValue(node.Id, out var incomingSources)
+                ? string.Join("|", incomingSources.Select(source => $"{source}:{(throughComplete.GetValueOrDefault(source) ? 1 : 0)}"))
+                : "-";
+            TaskForgeDebugTrace.Map("NODE_STATE",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version),
+                ("node", node.Id),
+                ("type", node.Type),
+                ("entity", node.EntityId),
+                ("title", ResolveNodeTitle(node, assignmentById, courseById)),
+                ("valid", valid),
+                ("reachable", reachableNodeIds.Contains(node.Id)),
+                ("selfComplete", valid && SelfComplete(node.Id)),
+                ("throughComplete", valid && throughComplete.GetValueOrDefault(node.Id)),
+                ("incoming", incomingRows),
+                ("x", node.X),
+                ("y", node.Y));
+        }
+
+        foreach (var edge in edges)
+        {
+            var source = nodeById[edge.Source];
+            var target = nodeById[edge.Target];
+            TaskForgeDebugTrace.Map("EDGE_STATE",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version),
+                ("edge", edge.Id),
+                ("sourceNode", edge.Source),
+                ("sourceEntity", source.EntityId),
+                ("sourceTitle", ResolveNodeTitle(source, assignmentById, courseById)),
+                ("targetNode", edge.Target),
+                ("targetEntity", target.EntityId),
+                ("targetTitle", ResolveNodeTitle(target, assignmentById, courseById)),
+                ("hiddenEffect", edge.HiddenEffect),
+                ("sequentialEffect", edge.SequentialEffect),
+                ("sourceThroughComplete", throughComplete.GetValueOrDefault(edge.Source)),
+                ("targetThroughComplete", throughComplete.GetValueOrDefault(edge.Target)));
+        }
+
         var visibleNodeIds = new HashSet<string>(StringComparer.Ordinal);
         var visibleEdgeIds = new HashSet<string>(StringComparer.Ordinal);
         var blockedSequentialEdges = new List<BlockedSequentialEdge>();
@@ -266,10 +418,28 @@ internal static class CourseMapProgressionService
             // or both. This keeps traversal linear in the graph size with a small
             // constant even when many branches merge.
             var stateKey = $"{state.NodeId}\u001f{(state.Hidden ? 1 : 0)}\u001f{(state.Sequential ? 1 : 0)}";
-            if (!seenStates.Add(stateKey)) continue;
+            if (!seenStates.Add(stateKey))
+            {
+                TaskForgeDebugTrace.Map("TRAVERSE_SKIP_SEEN", ("user", diagnosticUserId), ("node", state.NodeId), ("hidden", state.Hidden), ("sequential", state.Sequential));
+                continue;
+            }
             visibleNodeIds.Add(state.NodeId);
+            TaskForgeDebugTrace.Map("TRAVERSE_NODE",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("node", state.NodeId),
+                ("entity", nodeById[state.NodeId].EntityId),
+                ("title", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
+                ("hidden", state.Hidden),
+                ("sequential", state.Sequential),
+                ("visibleNow", true));
 
-            if (!outgoing.TryGetValue(state.NodeId, out var nextEdges)) continue;
+            if (!outgoing.TryGetValue(state.NodeId, out var nextEdges))
+            {
+                TaskForgeDebugTrace.Map("TRAVERSE_LEAF", ("user", diagnosticUserId), ("node", state.NodeId));
+                continue;
+            }
 
             var selfComplete = SelfComplete(state.NodeId);
 
@@ -286,16 +456,35 @@ internal static class CourseMapProgressionService
             // most for the small, bounded set of traversal states of its target node).
             var hiddenPrerequisitesComplete = !state.Hidden
                 || incoming[state.NodeId].All(source => throughComplete.GetValueOrDefault(source));
-            if (state.Hidden && !hiddenPrerequisitesComplete) continue;
+            if (state.Hidden && !hiddenPrerequisitesComplete)
+            {
+                TaskForgeDebugTrace.Map("TRAVERSE_BLOCK_HIDDEN_PREREQUISITES",
+                    ("user", diagnosticUserId),
+                    ("node", state.NodeId),
+                    ("entity", nodeById[state.NodeId].EntityId),
+                    ("title", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
+                    ("incoming", string.Join("|", incoming[state.NodeId].Select(source => $"{source}:{(throughComplete.GetValueOrDefault(source) ? 1 : 0)}"))));
+                continue;
+            }
 
             var sequentialSourceLocked = state.Sequential && !selfComplete;
             var hiddenCurrentNodeLocked = state.Hidden && !selfComplete;
             if (hiddenCurrentNodeLocked)
             {
+                TaskForgeDebugTrace.Map("TRAVERSE_BLOCK_HIDDEN_CURRENT",
+                    ("user", diagnosticUserId),
+                    ("node", state.NodeId),
+                    ("entity", nodeById[state.NodeId].EntityId),
+                    ("title", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
+                    ("selfComplete", selfComplete),
+                    ("sequentialSourceLocked", sequentialSourceLocked));
                 if (sequentialSourceLocked)
                 {
                     foreach (var edge in nextEdges)
+                    {
                         blockedSequentialEdges.Add(new BlockedSequentialEdge(edge, state.NodeId, edge.Target));
+                        TaskForgeDebugTrace.Map("EDGE_TO_LOCK", ("user", diagnosticUserId), ("edge", edge.Id), ("sourceNode", state.NodeId), ("targetNode", edge.Target), ("reason", "hidden-current+sequential"));
+                    }
                 }
                 continue;
             }
@@ -308,6 +497,16 @@ internal static class CourseMapProgressionService
                 if (edge.HiddenEffect == EffectTransition.Start
                     && !throughComplete.GetValueOrDefault(state.NodeId))
                 {
+                    TaskForgeDebugTrace.Map("EDGE_BLOCK_HIDDEN_START",
+                        ("user", diagnosticUserId),
+                        ("edge", edge.Id),
+                        ("sourceNode", state.NodeId),
+                        ("sourceEntity", nodeById[state.NodeId].EntityId),
+                        ("sourceTitle", ResolveNodeTitle(nodeById[state.NodeId], assignmentById, courseById)),
+                        ("targetNode", edge.Target),
+                        ("targetEntity", nodeById[edge.Target].EntityId),
+                        ("targetTitle", ResolveNodeTitle(nodeById[edge.Target], assignmentById, courseById)),
+                        ("sourceThroughComplete", throughComplete.GetValueOrDefault(state.NodeId)));
                     continue;
                 }
 
@@ -317,15 +516,30 @@ internal static class CourseMapProgressionService
                     // gate opens. When hiding is already active, the branch itself is no
                     // longer secret; the opaque sequential placeholder is emitted above.
                     if (edge.HiddenEffect != EffectTransition.Start)
+                    {
                         blockedSequentialEdges.Add(new BlockedSequentialEdge(edge, state.NodeId, edge.Target));
+                        TaskForgeDebugTrace.Map("EDGE_TO_LOCK", ("user", diagnosticUserId), ("edge", edge.Id), ("sourceNode", state.NodeId), ("targetNode", edge.Target), ("reason", "sequential-source-unsolved"));
+                    }
+                    else
+                    {
+                        TaskForgeDebugTrace.Map("EDGE_BLOCK_SEQUENTIAL_HIDDEN_START", ("user", diagnosticUserId), ("edge", edge.Id), ("sourceNode", state.NodeId), ("targetNode", edge.Target));
+                    }
                     continue;
                 }
 
                 visibleEdgeIds.Add(edge.Id);
-                states.Enqueue(new TraversalState(
-                    edge.Target,
-                    ApplyEffect(state.Hidden, edge.HiddenEffect),
-                    ApplyEffect(state.Sequential, edge.SequentialEffect)));
+                var nextHidden = ApplyEffect(state.Hidden, edge.HiddenEffect);
+                var nextSequential = ApplyEffect(state.Sequential, edge.SequentialEffect);
+                TaskForgeDebugTrace.Map("EDGE_VISIBLE_ENQUEUE",
+                    ("user", diagnosticUserId),
+                    ("edge", edge.Id),
+                    ("sourceNode", state.NodeId),
+                    ("targetNode", edge.Target),
+                    ("hiddenEffect", edge.HiddenEffect),
+                    ("sequentialEffect", edge.SequentialEffect),
+                    ("nextHidden", nextHidden),
+                    ("nextSequential", nextSequential));
+                states.Enqueue(new TraversalState(edge.Target, nextHidden, nextSequential));
             }
         }
 
@@ -389,7 +603,11 @@ internal static class CourseMapProgressionService
             assignmentById,
             courseById,
             outputNodes,
-            outputEdges);
+            outputEdges,
+            diagnosticUserId,
+            rootCourseId,
+            requestedCourseId,
+            version);
 
         var courseProgress = BuildCourseProgress(
             nodes,
@@ -411,6 +629,53 @@ internal static class CourseMapProgressionService
             nodes = outputNodes,
             edges = outputEdges
         });
+
+        foreach (var node in nodes)
+        {
+            TaskForgeDebugTrace.Map("NODE_FINAL",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version),
+                ("node", node.Id),
+                ("entity", node.EntityId),
+                ("title", ResolveNodeTitle(node, assignmentById, courseById)),
+                ("visible", visibleNodeIds.Contains(node.Id)));
+        }
+        foreach (var edge in edges)
+        {
+            var included = visibleEdgeIds.Contains(edge.Id)
+                && visibleNodeIds.Contains(edge.Source)
+                && visibleNodeIds.Contains(edge.Target);
+            TaskForgeDebugTrace.Map("EDGE_FINAL",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version),
+                ("edge", edge.Id),
+                ("sourceNode", edge.Source),
+                ("sourceEntity", nodeById[edge.Source].EntityId),
+                ("targetNode", edge.Target),
+                ("targetEntity", nodeById[edge.Target].EntityId),
+                ("hiddenEffect", edge.HiddenEffect),
+                ("sequentialEffect", edge.SequentialEffect),
+                ("visibleEdgeSet", visibleEdgeIds.Contains(edge.Id)),
+                ("sourceVisible", visibleNodeIds.Contains(edge.Source)),
+                ("targetVisible", visibleNodeIds.Contains(edge.Target)),
+                ("included", included));
+        }
+        TaskForgeDebugTrace.Map("EVAL_DOCUMENT_END",
+            ("user", diagnosticUserId),
+            ("rootCourse", rootCourseId),
+            ("requestedCourse", requestedCourseId),
+            ("version", version),
+            ("visibleNodeCount", visibleNodeIds.Count),
+            ("visibleNodeIds", TaskForgeDebugTrace.MapList(visibleNodeIds)),
+            ("visibleEdgeCount", outputEdges.Count),
+            ("visibleAssignmentCount", visibleAssignments.Count),
+            ("visibleAssignmentIds", TaskForgeDebugTrace.MapList(visibleAssignments)),
+            ("visibleCourseCount", visibleCourses.Count),
+            ("learningDocumentHash", TaskForgeDebugTrace.Fingerprint(learningDocument.GetRawText())));
 
         return new Evaluation(
             rootCourseId,
@@ -519,7 +784,11 @@ internal static class CourseMapProgressionService
         Dictionary<Guid, AssignmentProgressionRow> assignments,
         Dictionary<Guid, CourseTreeCourseDto> courses,
         List<object> outputNodes,
-        List<object> outputEdges)
+        List<object> outputEdges,
+        Guid? diagnosticUserId,
+        Guid rootCourseId,
+        Guid requestedCourseId,
+        int version)
     {
         // If another route already exposed the target, a lock would be misleading.
         var trulyBlocked = blockedEdges
@@ -557,6 +826,18 @@ internal static class CourseMapProgressionService
             }
 
             var lockId = CreateOpaqueId("locked", group.Key);
+            TaskForgeDebugTrace.Map("LOCK_CREATE",
+                ("user", diagnosticUserId),
+                ("rootCourse", rootCourseId),
+                ("requestedCourse", requestedCourseId),
+                ("version", version),
+                ("lockNode", lockId),
+                ("hiddenTargetNode", group.Key),
+                ("hiddenTargetEntity", target.EntityId),
+                ("hiddenTargetTitle", ResolveNodeTitle(target, assignments, courses)),
+                ("blockedSourceNodes", TaskForgeDebugTrace.MapList(rows.Select(x => x.SourceNodeId))),
+                ("blockedEdgeIds", TaskForgeDebugTrace.MapList(rows.Select(x => x.Edge.Id))),
+                ("requirement", requirement));
             outputNodes.Add(new
             {
                 id = lockId,
@@ -571,9 +852,17 @@ internal static class CourseMapProgressionService
 
             foreach (var row in rows)
             {
+                var lockEdgeId = CreateOpaqueId("locked-edge", $"{row.Edge.Id}\u001f{row.SourceNodeId}\u001f{row.TargetNodeId}");
+                TaskForgeDebugTrace.Map("LOCK_EDGE_CREATE",
+                    ("user", diagnosticUserId),
+                    ("lockEdge", lockEdgeId),
+                    ("originalEdge", row.Edge.Id),
+                    ("sourceNode", row.SourceNodeId),
+                    ("hiddenTargetNode", row.TargetNodeId),
+                    ("lockNode", lockId));
                 outputEdges.Add(new
                 {
-                    id = CreateOpaqueId("locked-edge", $"{row.Edge.Id}\u001f{row.SourceNodeId}\u001f{row.TargetNodeId}"),
+                    id = lockEdgeId,
                     source = row.SourceNodeId,
                     sourceHandle = "out",
                     target = lockId,

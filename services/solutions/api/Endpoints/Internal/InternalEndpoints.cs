@@ -56,12 +56,30 @@ internal static partial class SolutionsApiEndpoints
         app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, CancellationToken ct) =>
         {
             var sub = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
-            if (sub == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            if (sub == null)
+            {
+                TaskForgeDebugTrace.Map("VERDICT_MISS", ("submission", submissionId));
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            }
 
             var previous = sub.Status;
             var incomingVerdict = CleanVerdict(request.Verdict);
+            TaskForgeDebugTrace.Map("VERDICT_RECEIVED",
+                ("submission", submissionId),
+                ("user", sub.UserId),
+                ("assignment", sub.AssignmentId),
+                ("previousVerdict", previous),
+                ("incomingVerdict", incomingVerdict),
+                ("previousScore", sub.Score),
+                ("incomingScore", request.Score));
             if (!ShouldApplyIncomingVerdict(previous, incomingVerdict))
             {
+                TaskForgeDebugTrace.Map("VERDICT_IGNORED",
+                    ("submission", submissionId),
+                    ("user", sub.UserId),
+                    ("assignment", sub.AssignmentId),
+                    ("previousVerdict", previous),
+                    ("incomingVerdict", incomingVerdict));
                 return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
             }
 
@@ -81,6 +99,13 @@ internal static partial class SolutionsApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
+            TaskForgeDebugTrace.Map("VERDICT_SAVED",
+                ("submission", submissionId),
+                ("user", sub.UserId),
+                ("assignment", sub.AssignmentId),
+                ("verdict", sub.Status),
+                ("score", sub.Score),
+                ("accepted", string.Equals(sub.Status, "Accepted", StringComparison.OrdinalIgnoreCase)));
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
         });
 
@@ -291,8 +316,14 @@ internal static partial class SolutionsApiEndpoints
                 .Take(2000)
                 .ToArray();
 
+            TaskForgeDebugTrace.Map("SOLVED_SERVICE_BEGIN",
+                ("user", userId),
+                ("requestedCount", ids.Length),
+                ("requestedAssignmentIds", TaskForgeDebugTrace.MapList(ids)));
+
             if (ids.Length == 0)
             {
+                TaskForgeDebugTrace.Map("SOLVED_SERVICE_END", ("user", userId), ("solvedCount", 0), ("solvedAssignmentIds", "-"));
                 return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, Array.Empty<Guid>()));
             }
 
@@ -307,6 +338,14 @@ internal static partial class SolutionsApiEndpoints
                 .ToListAsync(ct);
 
             var solved = codeSolved.Concat(imageSolved).Distinct().ToArray();
+            TaskForgeDebugTrace.Map("SOLVED_SERVICE_END",
+                ("user", userId),
+                ("codeSolvedCount", codeSolved.Count),
+                ("codeSolvedAssignmentIds", TaskForgeDebugTrace.MapList(codeSolved)),
+                ("imageSolvedCount", imageSolved.Count),
+                ("imageSolvedAssignmentIds", TaskForgeDebugTrace.MapList(imageSolved)),
+                ("solvedCount", solved.Length),
+                ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solved)));
             return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, solved));
         });
 

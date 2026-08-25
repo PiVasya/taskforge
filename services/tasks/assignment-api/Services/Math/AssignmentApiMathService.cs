@@ -93,6 +93,15 @@ internal static class AssignmentApiMathService
         attempt.ReviewJson = new JsonObject { ["blocks"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        TaskForgeDebugTrace.Map("MATH_ATTEMPT_SAVED",
+            ("user", userId.Value),
+            ("assignment", assignmentId),
+            ("attempt", attempt.Id),
+            ("attemptNumber", attempt.AttemptNumber),
+            ("scorePercent", attempt.ScorePercent),
+            ("passed", attempt.Passed),
+            ("timeExpired", attempt.TimeExpired),
+            ("submittedAt", attempt.SubmittedAt));
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "math-attempt-submitted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalScore, earnedScore = earned, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }

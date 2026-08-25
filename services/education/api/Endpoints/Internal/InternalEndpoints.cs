@@ -45,6 +45,7 @@ internal static partial class EducationApiEndpoints
 
         app.MapGet("/api/internal/courses/{courseId:guid}/access/{userId:guid}", async (Guid courseId, Guid userId, EducationDbContext db, CancellationToken ct) =>
         {
+            TaskForgeDebugTrace.Map("EDU_ACCESS_BEGIN", ("user", userId), ("course", courseId), ("mode", "single"));
             var allById = await LoadCoursesWithAncestorsAsync(new[] { courseId }, db, ct);
             if (!allById.TryGetValue(courseId, out var course)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
@@ -56,14 +57,27 @@ internal static partial class EducationApiEndpoints
                 .Select(x => x.DocumentJson)
                 .FirstOrDefaultAsync(ct);
 
+            var canView = CanViewCourseWithAncestors(access, course, allById);
+            var canEdit = CanEditCourse(access, course);
+            var hasProgressionRules = ContainsProgressionRules(mapJson);
+            TaskForgeDebugTrace.Map("EDU_ACCESS_END",
+                ("user", userId),
+                ("course", course.Id),
+                ("rootCourse", rootCourseId),
+                ("canView", canView),
+                ("canEdit", canEdit),
+                ("publicToStudents", course.IsPublic && !course.IsHiddenFromStudents),
+                ("hasProgressionRules", hasProgressionRules),
+                ("groupIds", TaskForgeDebugTrace.MapList(groupIds)),
+                ("mode", "single"));
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseAccessDto(
                 course.Id,
                 userId,
-                CanViewCourseWithAncestors(access, course, allById),
-                CanEditCourse(access, course),
+                canView,
+                canEdit,
                 course.IsPublic && !course.IsHiddenFromStudents,
                 rootCourseId,
-                ContainsProgressionRules(mapJson)));
+                hasProgressionRules));
         });
 
 
@@ -74,6 +88,12 @@ internal static partial class EducationApiEndpoints
                 .Distinct()
                 .Take(2000)
                 .ToArray();
+            TaskForgeDebugTrace.Map("EDU_ACCESS_BATCH_BEGIN",
+                ("user", request.UserId),
+                ("courseCount", courseIds.Length),
+                ("courseIds", TaskForgeDebugTrace.MapList(courseIds)),
+                ("bypassStudentVisibility", request.BypassStudentVisibility),
+                ("includeProgressionRules", request.IncludeProgressionRules));
 
             if (request.UserId == Guid.Empty || courseIds.Length == 0)
             {
@@ -118,6 +138,14 @@ internal static partial class EducationApiEndpoints
                 })
                 .ToArray();
 
+            TaskForgeDebugTrace.Map("EDU_ACCESS_BATCH_END",
+                ("user", request.UserId),
+                ("rowCount", rows.Length),
+                ("visibleCourseIds", TaskForgeDebugTrace.MapList(rows.Where(x => x.CanView).Select(x => x.CourseId))),
+                ("deniedCourseIds", TaskForgeDebugTrace.MapList(rows.Where(x => !x.CanView).Select(x => x.CourseId))),
+                ("rootCourseIds", TaskForgeDebugTrace.MapList(rows.Select(x => x.RootCourseId))),
+                ("groupIds", TaskForgeDebugTrace.MapList(groupIds)),
+                ("bypassStudentVisibility", request.BypassStudentVisibility));
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
@@ -207,19 +235,42 @@ internal static partial class EducationApiEndpoints
 
         app.MapGet("/api/internal/courses/{courseId:guid}/tree", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
+            TaskForgeDebugTrace.Map("EDU_TREE_BEGIN", ("course", courseId));
             var courses = await LoadCourseSubtreeRowsAsync(courseId, db, ct);
-            if (courses.Count == 0) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (courses.Count == 0)
+            {
+                TaskForgeDebugTrace.Map("EDU_TREE_END", ("course", courseId), ("found", false));
+                return Microsoft.AspNetCore.Http.Results.NotFound();
+            }
+            TaskForgeDebugTrace.Map("EDU_TREE_END",
+                ("course", courseId),
+                ("found", true),
+                ("courseCount", courses.Count),
+                ("courseIds", TaskForgeDebugTrace.MapList(courses.Select(x => x.Id))));
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseTreeResponse(courseId, courses.Select(x => x.Id).ToArray(), courses));
         });
 
         app.MapGet("/api/internal/courses/{courseId:guid}/map/meta", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
+            TaskForgeDebugTrace.Map("EDU_MAP_META_BEGIN", ("requestedCourse", courseId));
             var root = await ResolveRootCourseAsync(courseId, db, ct);
-            if (root is null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (root is null)
+            {
+                TaskForgeDebugTrace.Map("EDU_MAP_META_END", ("requestedCourse", courseId), ("found", false), ("reason", "root-missing"));
+                return Microsoft.AspNetCore.Http.Results.NotFound();
+            }
             var map = await db.CourseMaps.AsNoTracking()
                 .Where(x => x.RootCourseId == root.Id)
                 .Select(x => new { x.Version, x.UpdatedAt, x.UpdatedBy })
                 .FirstOrDefaultAsync(ct);
+            TaskForgeDebugTrace.Map("EDU_MAP_META_END",
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("found", true),
+                ("hasStoredMap", map is not null),
+                ("version", map?.Version ?? 0),
+                ("updatedAt", map?.UpdatedAt),
+                ("updatedBy", map?.UpdatedBy));
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapMetaResponse(
                 root.Id,
                 courseId,
@@ -230,14 +281,33 @@ internal static partial class EducationApiEndpoints
 
         app.MapGet("/api/internal/courses/{courseId:guid}/map", async (Guid courseId, EducationDbContext db, CancellationToken ct) =>
         {
+            TaskForgeDebugTrace.Map("EDU_MAP_BEGIN", ("requestedCourse", courseId));
             var root = await ResolveRootCourseAsync(courseId, db, ct);
-            if (root is null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (root is null)
+            {
+                TaskForgeDebugTrace.Map("EDU_MAP_END", ("requestedCourse", courseId), ("found", false), ("reason", "root-missing"));
+                return Microsoft.AspNetCore.Http.Results.NotFound();
+            }
             var map = await db.CourseMaps.AsNoTracking().FirstOrDefaultAsync(x => x.RootCourseId == root.Id, ct);
+            var document = map is null ? (JsonElement?)null : ParseDocumentElement(map.DocumentJson);
+            var nodeCount = document.HasValue && document.Value.ValueKind == JsonValueKind.Object && document.Value.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array ? nodes.GetArrayLength() : 0;
+            var edgeCount = document.HasValue && document.Value.ValueKind == JsonValueKind.Object && document.Value.TryGetProperty("edges", out var edges) && edges.ValueKind == JsonValueKind.Array ? edges.GetArrayLength() : 0;
+            TaskForgeDebugTrace.Map("EDU_MAP_END",
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("found", true),
+                ("hasStoredMap", map is not null),
+                ("version", map?.Version ?? 0),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(map?.DocumentJson)),
+                ("nodeCount", nodeCount),
+                ("edgeCount", edgeCount),
+                ("updatedAt", map?.UpdatedAt),
+                ("updatedBy", map?.UpdatedBy));
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
                 root.Id,
                 courseId,
                 map?.Version ?? 0,
-                map is null ? null : ParseDocumentElement(map.DocumentJson),
+                document,
                 map?.UpdatedAt,
                 map?.UpdatedBy));
         });

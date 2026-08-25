@@ -92,6 +92,15 @@ internal static class AssignmentApiTestingService
         attempt.ReviewJson = new JsonObject { ["questions"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        TaskForgeDebugTrace.Map("TEST_ATTEMPT_SAVED",
+            ("user", userId.Value),
+            ("assignment", assignmentId),
+            ("attempt", attempt.Id),
+            ("attemptNumber", attempt.AttemptNumber),
+            ("scorePercent", attempt.ScorePercent),
+            ("passed", attempt.Passed),
+            ("timeExpired", attempt.TimeExpired),
+            ("submittedAt", attempt.SubmittedAt));
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }

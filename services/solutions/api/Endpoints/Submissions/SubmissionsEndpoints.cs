@@ -59,6 +59,14 @@ internal static partial class SolutionsApiEndpoints
             };
             db.Submissions.Add(sub);
             await db.SaveChangesAsync(ct);
+            TaskForgeDebugTrace.Map("SUBMISSION_CREATED",
+                ("submission", sub.Id),
+                ("user", userId.Value),
+                ("assignment", assignmentId),
+                ("language", language),
+                ("codeHash", TaskForgeDebugTrace.Fingerprint(code)),
+                ("codeLength", code.Length),
+                ("status", sub.Status));
 
             var spec = await LoadJudgeSpecAsync(assignmentId, cfg, httpFactory, ct);
             if (spec == null)
@@ -120,6 +128,13 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
+            TaskForgeDebugTrace.Map("SUBMISSION_ENQUEUE",
+                ("submission", sub.Id),
+                ("user", userId.Value),
+                ("assignment", assignmentId),
+                ("created", enqueue.Created),
+                ("executionJob", enqueue.JobId),
+                ("message", enqueue.Message));
             if (!enqueue.Created)
             {
                 if (!unlimitedTaskEnergy)
@@ -153,7 +168,15 @@ internal static partial class SolutionsApiEndpoints
             await db.SaveChangesAsync(ct);
 
             var final = await WaitForTerminalSubmissionAsync(db, sub.Id, cfg, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(final ?? sub, canRevealHidden));
+            var returned = final ?? sub;
+            TaskForgeDebugTrace.Map("SUBMISSION_RETURN",
+                ("submission", sub.Id),
+                ("user", userId.Value),
+                ("assignment", assignmentId),
+                ("status", returned.Status),
+                ("score", returned.Score),
+                ("terminalObserved", final is not null));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(returned, canRevealHidden));
         });
 
         app.MapGet("/api/assignments/{assignmentId:guid}/top-solutions", async (Guid assignmentId, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, int top = 20, CancellationToken ct = default) =>

@@ -135,6 +135,12 @@ internal static partial class AssignmentApiEndpoints
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
             http.Response.Headers.CacheControl = "no-store";
+            TaskForgeDebugTrace.Map("HTTP_LEARNING_MAP_BEGIN",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("editorBypass", IsEditor(http, cfg)),
+                ("referer", http.Request.Headers["Referer"].FirstOrDefault()),
+                ("userAgent", http.Request.Headers["User-Agent"].FirstOrDefault()));
 
             var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(
                 courseId,
@@ -145,8 +151,19 @@ internal static partial class AssignmentApiEndpoints
                 ct,
                 IsEditor(http, cfg));
             if (evaluation == null)
+            {
+                TaskForgeDebugTrace.Map("HTTP_LEARNING_MAP_END", ("user", userId.Value), ("requestedCourse", courseId), ("status", 404));
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
+            }
 
+            TaskForgeDebugTrace.Map("HTTP_LEARNING_MAP_END",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("rootCourse", evaluation.RootCourseId),
+                ("version", evaluation.Version),
+                ("visibleAssignmentIds", TaskForgeDebugTrace.MapList(evaluation.VisibleAssignmentIds)),
+                ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(evaluation.SolvedAssignmentIds)),
+                ("status", 200));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 rootCourseId = evaluation.RootCourseId,
@@ -178,9 +195,17 @@ internal static partial class AssignmentApiEndpoints
             var bypass = IsEditor(http, cfg);
             var fresh = ReadFreshMapRequest(http);
             logger.LogInformation("TFDBG MAP HTTP STREAM START requested={RequestedCourseId} user={UserId} bypass={Bypass} fresh={Fresh}", courseId, userId.Value, bypass, fresh);
+            TaskForgeDebugTrace.Map("HTTP_STREAM_BEGIN",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("bypassStudentVisibility", bypass),
+                ("fresh", fresh),
+                ("referer", http.Request.Headers["Referer"].FirstOrDefault()),
+                ("userAgent", http.Request.Headers["User-Agent"].FirstOrDefault()));
             var session = await projection.CreateSessionAsync(courseId, userId.Value, bypass, fresh, ct);
             if (session is null)
             {
+                TaskForgeDebugTrace.Map("HTTP_STREAM_END", ("user", userId.Value), ("requestedCourse", courseId), ("status", 404), ("reason", "session-miss"));
                 http.Response.StatusCode = StatusCodes.Status404NotFound;
                 http.Response.ContentType = "application/json; charset=utf-8";
                 await http.Response.WriteAsJsonAsync(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" }, cancellationToken: ct);
@@ -193,6 +218,15 @@ internal static partial class AssignmentApiEndpoints
             http.Response.Headers["X-Accel-Buffering"] = "no";
             var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
+            TaskForgeDebugTrace.Map("HTTP_STREAM_META",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("rootCourse", session.Meta.RootCourseId),
+                ("version", session.Meta.Version),
+                ("projectionToken", session.Meta.ProjectionToken),
+                ("revision", session.Meta.ProjectionRevision),
+                ("visibleNodeCount", session.Meta.VisibleNodeCount),
+                ("visibleEdgeCount", session.Meta.VisibleEdgeCount));
             await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "meta", data = session.Meta }, jsonOptions) + "\n", ct);
             await http.Response.Body.FlushAsync(ct);
             logger.LogInformation(
@@ -208,6 +242,15 @@ internal static partial class AssignmentApiEndpoints
             foreach (var segment in session.Segments)
             {
                 segmentIndex++;
+                TaskForgeDebugTrace.Map("HTTP_STREAM_SEGMENT",
+                    ("user", userId.Value),
+                    ("requestedCourse", courseId),
+                    ("segmentIndex", segmentIndex),
+                    ("segmentCourse", segment.CourseId),
+                    ("nodeIds", TaskForgeDebugTrace.MapList(segment.Nodes.Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null))),
+                    ("edgeIds", TaskForgeDebugTrace.MapList(segment.Edges.Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null))),
+                    ("assignmentIds", TaskForgeDebugTrace.MapList(segment.Assignments.Select(x => x.Id))),
+                    ("courseIds", TaskForgeDebugTrace.MapList(segment.Courses.Select(x => x.Id))));
                 await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "segment", data = segment }, jsonOptions) + "\n", ct);
                 await http.Response.Body.FlushAsync(ct);
                 logger.LogInformation(
@@ -223,6 +266,13 @@ internal static partial class AssignmentApiEndpoints
                     (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
             }
 
+            TaskForgeDebugTrace.Map("HTTP_STREAM_END",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("status", 200),
+                ("segments", segmentIndex),
+                ("projectionToken", session.Meta.ProjectionToken),
+                ("revision", session.Meta.ProjectionRevision));
             await http.Response.WriteAsync(JsonSerializer.Serialize(new { type = "done", data = new { session.Meta.ProjectionToken, session.Meta.ProjectionRevision } }, jsonOptions) + "\n", ct);
             await http.Response.Body.FlushAsync(ct);
             logger.LogInformation(
@@ -244,6 +294,13 @@ internal static partial class AssignmentApiEndpoints
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
+            TaskForgeDebugTrace.Map("HTTP_DELTA_BEGIN",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("projectionToken", request.ProjectionToken),
+                ("changedAssignment", request.ChangedAssignmentId),
+                ("editorBypass", IsEditor(http, cfg)),
+                ("referer", http.Request.Headers["Referer"].FirstOrDefault()));
             var delta = await projection.CreateDeltaAsync(
                 courseId,
                 userId.Value,
@@ -251,7 +308,24 @@ internal static partial class AssignmentApiEndpoints
                 new CourseMapProjectionService.DeltaRequest(request.ProjectionToken, request.ChangedAssignmentId),
                 ct);
             if (delta is null)
+            {
+                TaskForgeDebugTrace.Map("HTTP_DELTA_END", ("user", userId.Value), ("requestedCourse", courseId), ("status", 404));
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден или ещё не открыт.", code = "COURSE_NOT_AVAILABLE" });
+            }
+            TaskForgeDebugTrace.Map("HTTP_DELTA_END",
+                ("user", userId.Value),
+                ("requestedCourse", courseId),
+                ("status", 200),
+                ("resetRequired", delta.ResetRequired),
+                ("projectionToken", delta.ProjectionToken),
+                ("revision", delta.ProjectionRevision),
+                ("version", delta.Version),
+                ("nodeIdsAdded", TaskForgeDebugTrace.MapList(delta.NodesAdded.Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null))),
+                ("nodeIdsRemoved", TaskForgeDebugTrace.MapList(delta.NodeIdsRemoved)),
+                ("edgeIdsAdded", TaskForgeDebugTrace.MapList(delta.EdgesAdded.Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null))),
+                ("edgeIdsRemoved", TaskForgeDebugTrace.MapList(delta.EdgeIdsRemoved)),
+                ("assignmentIdsChanged", TaskForgeDebugTrace.MapList(delta.AssignmentsChanged.Select(x => x.Id))),
+                ("openedCourseIds", TaskForgeDebugTrace.MapList(delta.OpenedCourseIds)));
             http.Response.Headers.CacheControl = "no-store";
             return Microsoft.AspNetCore.Http.Results.Ok(delta);
         });

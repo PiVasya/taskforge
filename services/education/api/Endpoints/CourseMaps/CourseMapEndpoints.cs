@@ -31,6 +31,7 @@ internal static partial class EducationApiEndpoints
             IConfiguration cfg,
             CancellationToken ct) =>
         {
+            TaskForgeDebugTrace.Map("EDITOR_MAP_GET_BEGIN", ("requestedCourse", courseId));
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
@@ -43,14 +44,35 @@ internal static partial class EducationApiEndpoints
             var map = await db.CourseMaps.AsNoTracking().FirstOrDefaultAsync(x => x.RootCourseId == root.Id, ct);
             if (map is null)
             {
+                TaskForgeDebugTrace.Map("EDITOR_MAP_GET_END",
+                    ("user", access.UserId),
+                    ("requestedCourse", courseId),
+                    ("rootCourse", root.Id),
+                    ("version", 0),
+                    ("hasStoredMap", false));
                 return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(root.Id, courseId, 0, null, null, null));
             }
+
+            var editorDocument = ParseDocumentElement(map.DocumentJson);
+            var editorNodeCount = editorDocument.ValueKind == JsonValueKind.Object && editorDocument.TryGetProperty("nodes", out var editorNodes) && editorNodes.ValueKind == JsonValueKind.Array ? editorNodes.GetArrayLength() : 0;
+            var editorEdgeCount = editorDocument.ValueKind == JsonValueKind.Object && editorDocument.TryGetProperty("edges", out var editorEdges) && editorEdges.ValueKind == JsonValueKind.Array ? editorEdges.GetArrayLength() : 0;
+            TaskForgeDebugTrace.Map("EDITOR_MAP_GET_END",
+                ("user", access.UserId),
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("version", map.Version),
+                ("hasStoredMap", true),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(map.DocumentJson)),
+                ("nodeCount", editorNodeCount),
+                ("edgeCount", editorEdgeCount),
+                ("updatedAt", map.UpdatedAt),
+                ("updatedBy", map.UpdatedBy));
 
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
                 root.Id,
                 courseId,
                 map.Version,
-                ParseDocumentElement(map.DocumentJson),
+                editorDocument,
                 map.UpdatedAt,
                 map.UpdatedBy));
         });
@@ -64,6 +86,22 @@ internal static partial class EducationApiEndpoints
             IHubContext<CourseMapPresenceHub> hub,
             CancellationToken ct) =>
         {
+            var incomingNodeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("nodes", out var incomingNodes) && incomingNodes.ValueKind == JsonValueKind.Array ? incomingNodes.GetArrayLength() : 0;
+            var incomingEdgeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("edges", out var incomingEdges) && incomingEdges.ValueKind == JsonValueKind.Array ? incomingEdges.GetArrayLength() : 0;
+            var incomingNodeIds = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("nodes", out var saveNodes) && saveNodes.ValueKind == JsonValueKind.Array
+                ? saveNodes.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null).Where(x => !string.IsNullOrWhiteSpace(x))
+                : Enumerable.Empty<string?>();
+            var incomingEdgeIds = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("edges", out var saveEdges) && saveEdges.ValueKind == JsonValueKind.Array
+                ? saveEdges.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null).Where(x => !string.IsNullOrWhiteSpace(x))
+                : Enumerable.Empty<string?>();
+            TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_BEGIN",
+                ("requestedCourse", courseId),
+                ("expectedVersion", request.ExpectedVersion),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(request.Document.GetRawText())),
+                ("nodeCount", incomingNodeCount),
+                ("edgeCount", incomingEdgeCount),
+                ("nodeIds", TaskForgeDebugTrace.MapList(incomingNodeIds)),
+                ("edgeIds", TaskForgeDebugTrace.MapList(incomingEdgeIds)));
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
 
@@ -80,6 +118,13 @@ internal static partial class EducationApiEndpoints
             var validation = await ValidateCourseMapDocumentAsync(request.Document, root.Id, db, ct);
             if (validation is not null)
             {
+                TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_REJECT",
+                    ("user", access.UserId),
+                    ("requestedCourse", courseId),
+                    ("rootCourse", root.Id),
+                    ("reason", "validation"),
+                    ("code", validation.Value.Code),
+                    ("message", validation.Value.Message));
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = validation.Value.Message, code = validation.Value.Code }, statusCode: StatusCodes.Status400BadRequest);
             }
 
@@ -87,6 +132,13 @@ internal static partial class EducationApiEndpoints
             var now = DateTimeOffset.UtcNow;
             var updatedBy = access.UserId.Value;
             var existing = await db.CourseMaps.AsNoTracking().FirstOrDefaultAsync(x => x.RootCourseId == root.Id, ct);
+            TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_STATE",
+                ("user", updatedBy),
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("expectedVersion", request.ExpectedVersion),
+                ("storedVersion", existing?.Version ?? 0),
+                ("storedDocumentHash", TaskForgeDebugTrace.Fingerprint(existing?.DocumentJson)));
             int nextVersion;
 
             if (existing is null)
@@ -167,6 +219,16 @@ internal static partial class EducationApiEndpoints
                 }
             }
 
+            TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_COMMIT",
+                ("user", updatedBy),
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("previousVersion", existing?.Version ?? 0),
+                ("newVersion", nextVersion),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(normalizedJson)),
+                ("nodeCount", incomingNodeCount),
+                ("edgeCount", incomingEdgeCount));
+
             await hub.Clients.Group(CourseMapPresenceHub.Group(root.Id)).SendAsync("MapSaved", new
             {
                 rootCourseId = root.Id,
@@ -174,6 +236,13 @@ internal static partial class EducationApiEndpoints
                 updatedAt = now,
                 updatedBy
             }, ct);
+
+            TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_END",
+                ("user", updatedBy),
+                ("requestedCourse", courseId),
+                ("rootCourse", root.Id),
+                ("version", nextVersion),
+                ("updatedAt", now));
 
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
                 root.Id,

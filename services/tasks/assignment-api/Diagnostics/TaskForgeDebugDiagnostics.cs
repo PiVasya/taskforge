@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,6 +43,7 @@ internal static class TaskForgeDebugDiagnostics
             var traceId = ExistingTraceId(context) ?? NewTraceId(serviceName);
             context.Response.Headers["X-TaskForge-Trace-Id"] = traceId;
             context.Items["TaskForgeTraceId"] = traceId;
+            using var traceScope = TaskForgeDebugTrace.PushTraceId(traceId);
 
             var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TaskForge.Debug.Inbound");
             var started = Stopwatch.GetTimestamp();
@@ -272,8 +275,8 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var traceId = request.Headers.TryGetValues("X-TaskForge-Trace-Id", out var existing)
-            ? existing.FirstOrDefault() ?? TaskForgeDebugDiagnostics.NewTraceId(_serviceName.Value)
-            : TaskForgeDebugDiagnostics.NewTraceId(_serviceName.Value);
+            ? existing.FirstOrDefault() ?? TaskForgeDebugTrace.CurrentTraceId ?? TaskForgeDebugDiagnostics.NewTraceId(_serviceName.Value)
+            : TaskForgeDebugTrace.CurrentTraceId ?? TaskForgeDebugDiagnostics.NewTraceId(_serviceName.Value);
         request.Headers.Remove("X-TaskForge-Trace-Id");
         request.Headers.TryAddWithoutValidation("X-TaskForge-Trace-Id", traceId);
         request.Headers.TryAddWithoutValidation("X-TaskForge-Caller-Service", _serviceName.Value);
@@ -441,7 +444,85 @@ internal sealed class TaskForgeDebugPayloadSummary
 
 internal static class TaskForgeDebugTrace
 {
+    private static readonly AsyncLocal<string?> TraceIdContext = new();
+
     internal static bool Enabled => TaskForgeDebugDiagnostics.Enabled;
+    internal static string? CurrentTraceId => TraceIdContext.Value;
+
+    internal static IDisposable PushTraceId(string? traceId)
+    {
+        var previous = TraceIdContext.Value;
+        TraceIdContext.Value = string.IsNullOrWhiteSpace(traceId) ? null : traceId.Trim();
+        return new TraceScope(previous);
+    }
+
+    public static void Map(string action, params (string Key, object? Value)[] fields)
+    {
+        if (!Enabled) return;
+        var details = fields.Length == 0
+            ? string.Empty
+            : " " + string.Join(" ", fields.Select(field => $"{MapKey(field.Key)}={MapValue(field.Value)}"));
+        Console.WriteLine($"[TFDBG MAP {MapKey(action)}] trace={MapValue(CurrentTraceId ?? "none")}{details} utc={DateTimeOffset.UtcNow:O}");
+    }
+
+    public static string MapList<T>(IEnumerable<T>? values, int take = 120)
+    {
+        if (values is null) return "-";
+        var rows = values
+            .Select(value => value is null ? null : value.ToString()?.Trim())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .Take(System.Math.Max(1, take) + 1)
+            .ToArray();
+        if (rows.Length == 0) return "-";
+        if (rows.Length <= take) return string.Join("|", rows);
+        return string.Join("|", rows.Take(take)) + $"|...+{rows.Length - take}";
+    }
+
+    public static string Fingerprint(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "none";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant();
+    }
+
+    private static string MapKey(string? value)
+    {
+        var raw = (value ?? string.Empty).Trim();
+        if (raw.Length == 0) return "EVENT";
+        var chars = raw.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? char.ToUpperInvariant(ch) : '_').ToArray();
+        return new string(chars);
+    }
+
+    private static string MapValue(object? value)
+    {
+        if (value is null) return "-";
+        if (value is bool boolean) return boolean ? "true" : "false";
+        if (value is DateTimeOffset dto) return dto.ToString("O");
+        if (value is DateTime dt) return dt.ToUniversalTime().ToString("O");
+        var raw = TaskForgeDebugDiagnostics.Redact(value.ToString()).Trim();
+        if (raw.Length == 0) return "-";
+        if (raw.Length > 1200) raw = raw[..1200] + $"...<trimmed {raw.Length - 1200}>";
+        return raw.Any(char.IsWhiteSpace) || raw.Contains('=') || raw.Contains('"')
+            ? JsonSerializer.Serialize(raw)
+            : raw;
+    }
+
+    private sealed class TraceScope : IDisposable
+    {
+        private readonly string? _previous;
+        private bool _disposed;
+
+        public TraceScope(string? previous) => _previous = previous;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            TraceIdContext.Value = _previous;
+        }
+    }
 
     public static void ServiceBoot(string serviceName)
     {

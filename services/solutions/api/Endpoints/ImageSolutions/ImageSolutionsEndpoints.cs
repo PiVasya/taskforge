@@ -84,6 +84,14 @@ internal static partial class SolutionsApiEndpoints
             db.ImageSolutions.Add(row);
             await MarkRatingDirtyAsync(db, row.UserId, "image-solution", row.AssignmentId, ct);
             await db.SaveChangesAsync(ct);
+            TaskForgeDebugTrace.Map("IMAGE_SOLUTION_SAVED",
+                ("solution", row.Id),
+                ("user", row.UserId),
+                ("assignment", row.AssignmentId),
+                ("language", row.Language),
+                ("passed", row.Passed),
+                ("similarityPercent", row.SimilarityPercent),
+                ("codeHash", TaskForgeDebugTrace.Fingerprint(row.Code)));
             return Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: false));
         });
 

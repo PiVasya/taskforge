@@ -74,19 +74,40 @@ internal static class AssignmentApiResultsService
     {
         var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         var solved = new HashSet<Guid>();
-        if (ids.Length == 0) return solved;
+        TaskForgeDebugTrace.Map("SOLVED_LOOKUP_BEGIN",
+            ("user", userId),
+            ("requestedCount", ids.Length),
+            ("requestedAssignmentIds", TaskForgeDebugTrace.MapList(ids)));
+        if (ids.Length == 0)
+        {
+            TaskForgeDebugTrace.Map("SOLVED_LOOKUP_END", ("user", userId), ("solvedCount", 0), ("solvedAssignmentIds", "-"));
+            return solved;
+        }
 
         // Internal solution lookups intentionally cap one request at 2000 ids. A
         // course map may contain up to 5000 nodes, so truncating here would make
         // progression after the 2000th assignment permanently appear unsolved.
         // Batch instead of imposing a hidden functional limit on large branches.
+        var batchIndex = 0;
         foreach (var batch in ids.Chunk(2000))
         {
+            batchIndex++;
+            TaskForgeDebugTrace.Map("SOLVED_LOOKUP_BATCH_BEGIN",
+                ("user", userId),
+                ("batch", batchIndex),
+                ("batchCount", batch.Length),
+                ("assignmentIds", TaskForgeDebugTrace.MapList(batch)));
+
             var taskSolved = await db.Attempts.AsNoTracking()
                 .Where(x => x.UserId == userId && batch.Contains(x.TaskAssignmentId) && x.Passed)
                 .Select(x => x.TaskAssignmentId)
                 .Distinct()
                 .ToListAsync(ct);
+            TaskForgeDebugTrace.Map("SOLVED_LOOKUP_TASK_ATTEMPTS",
+                ("user", userId),
+                ("batch", batchIndex),
+                ("solvedCount", taskSolved.Count),
+                ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(taskSolved)));
             foreach (var id in taskSolved) solved.Add(id);
 
             var response = await PostInternalAsync<SolvedAssignmentsResponse>(
@@ -97,13 +118,28 @@ internal static class AssignmentApiResultsService
                 new SolvedAssignmentsRequest(batch),
                 ct);
 
-            if (response?.SolvedAssignmentIds == null) continue;
-            foreach (var id in response.SolvedAssignmentIds)
+            var solutionSolved = response?.SolvedAssignmentIds ?? Array.Empty<Guid>();
+            TaskForgeDebugTrace.Map("SOLVED_LOOKUP_SOLUTIONS",
+                ("user", userId),
+                ("batch", batchIndex),
+                ("responsePresent", response is not null),
+                ("solvedCount", solutionSolved.Length),
+                ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solutionSolved)));
+            foreach (var id in solutionSolved)
             {
                 if (id != Guid.Empty) solved.Add(id);
             }
+            TaskForgeDebugTrace.Map("SOLVED_LOOKUP_BATCH_END",
+                ("user", userId),
+                ("batch", batchIndex),
+                ("mergedSolvedCount", solved.Count),
+                ("mergedSolvedAssignmentIds", TaskForgeDebugTrace.MapList(solved)));
         }
 
+        TaskForgeDebugTrace.Map("SOLVED_LOOKUP_END",
+            ("user", userId),
+            ("solvedCount", solved.Count),
+            ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solved)));
         return solved;
     }
 

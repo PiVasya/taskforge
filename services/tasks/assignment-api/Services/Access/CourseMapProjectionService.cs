@@ -127,18 +127,39 @@ internal sealed class CourseMapProjectionService
             userId,
             bypassStudentVisibility,
             forceFresh);
+        TaskForgeDebugTrace.Map("SESSION_BEGIN",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("bypassStudentVisibility", bypassStudentVisibility),
+            ("forceFresh", forceFresh));
 
         var snapshot = await GetSnapshotAsync(requestedCourseId, ct, forceFresh: forceFresh);
         if (snapshot is null)
         {
             _logger.LogWarning("TFDBG MAP SESSION MISS requested={RequestedCourseId} user={UserId} stage=snapshot", requestedCourseId, userId);
+            TaskForgeDebugTrace.Map("SESSION_MISS", ("user", userId), ("requestedCourse", requestedCourseId), ("stage", "snapshot"));
             return null;
         }
+
+        TaskForgeDebugTrace.Map("SESSION_SNAPSHOT",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", snapshot.RootCourseId),
+            ("version", snapshot.Version),
+            ("documentHash", TaskForgeDebugTrace.Fingerprint(snapshot.Document?.GetRawText())),
+            ("treeCourseIds", TaskForgeDebugTrace.MapList(snapshot.Tree.CourseIds)),
+            ("assignmentIds", TaskForgeDebugTrace.MapList(snapshot.Assignments.Select(x => x.Id))));
 
         var evaluation = await EvaluateAsync(snapshot, requestedCourseId, userId, bypassStudentVisibility, solvedIds: null, ct);
         if (evaluation is null)
         {
             _logger.LogWarning("TFDBG MAP SESSION MISS requested={RequestedCourseId} user={UserId} stage=evaluation version={Version}", requestedCourseId, userId, snapshot.Version);
+            TaskForgeDebugTrace.Map("SESSION_MISS",
+                ("user", userId),
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", snapshot.RootCourseId),
+                ("version", snapshot.Version),
+                ("stage", "evaluation"));
             return null;
         }
 
@@ -176,6 +197,13 @@ internal sealed class CourseMapProjectionService
             state.SolvedAssignmentIds.Length,
             (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
 
+        LogProjectionState("SESSION_PROJECTION", state);
+        TaskForgeDebugTrace.Map("SESSION_END",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("projectionToken", state.ProjectionToken),
+            ("revision", state.ProjectionRevision),
+            ("durationMs", (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)));
         return new SessionResult(meta, segments);
     }
 
@@ -195,9 +223,16 @@ internal sealed class CourseMapProjectionService
             bypassStudentVisibility,
             token.Length > 10 ? token[..10] : token,
             request.ChangedAssignmentId);
+        TaskForgeDebugTrace.Map("DELTA_BEGIN",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("bypassStudentVisibility", bypassStudentVisibility),
+            ("projectionToken", token),
+            ("changedAssignment", request.ChangedAssignmentId));
         if (token.Length == 0)
         {
             _logger.LogWarning("TFDBG MAP DELTA RESET requested={RequestedCourseId} user={UserId} reason=missing-token", requestedCourseId, userId);
+            TaskForgeDebugTrace.Map("DELTA_RESET", ("user", userId), ("requestedCourse", requestedCourseId), ("reason", "missing-token"));
             return ResetDelta();
         }
 
@@ -212,11 +247,28 @@ internal sealed class CourseMapProjectionService
                 requestedCourseId,
                 userId,
                 previous is not null);
+            TaskForgeDebugTrace.Map("DELTA_RESET",
+                ("user", userId),
+                ("requestedCourse", requestedCourseId),
+                ("reason", "projection-state-mismatch"),
+                ("projectionFound", previous is not null),
+                ("projectionToken", token),
+                ("stateUser", previous?.UserId),
+                ("stateRequestedCourse", previous?.RequestedCourseId),
+                ("stateBypass", previous?.BypassStudentVisibility));
             return ResetDelta();
         }
 
+        LogProjectionState("DELTA_PREVIOUS", previous);
+
         var snapshot = await GetSnapshotAsync(requestedCourseId, ct, forceFreshMeta: true);
         if (snapshot is null) return null;
+        TaskForgeDebugTrace.Map("DELTA_SNAPSHOT",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", snapshot.RootCourseId),
+            ("version", snapshot.Version),
+            ("documentHash", TaskForgeDebugTrace.Fingerprint(snapshot.Document?.GetRawText())));
         if (snapshot.RootCourseId != previous.RootCourseId || snapshot.Version != previous.Version)
         {
             _logger.LogWarning(
@@ -227,6 +279,15 @@ internal sealed class CourseMapProjectionService
                 snapshot.RootCourseId,
                 previous.Version,
                 snapshot.Version);
+            TaskForgeDebugTrace.Map("DELTA_RESET",
+                ("user", userId),
+                ("requestedCourse", requestedCourseId),
+                ("reason", "map-version-changed"),
+                ("projectionToken", token),
+                ("previousRootCourse", previous.RootCourseId),
+                ("nextRootCourse", snapshot.RootCourseId),
+                ("previousVersion", previous.Version),
+                ("nextVersion", snapshot.Version));
             return ResetDelta(snapshot.Version);
         }
 
@@ -234,6 +295,13 @@ internal sealed class CourseMapProjectionService
         var replayState = hasChangedAssignment
             ? null
             : await LoadNewerCurrentProjectionAsync(previous, ct);
+        TaskForgeDebugTrace.Map("DELTA_REPLAY_CANDIDATE",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("hasChangedAssignment", hasChangedAssignment),
+            ("candidatePresent", replayState is not null),
+            ("candidateToken", replayState?.ProjectionToken),
+            ("candidateRevision", replayState?.ProjectionRevision));
 
         // Progress can change immediately after a successful solution while the
         // browser is navigating back to the course. Neither a recently verified
@@ -258,6 +326,15 @@ internal sealed class CourseMapProjectionService
             var authoritativeSolved = await LoadSolvedAssignmentIdsAsync(userId, relevantAssignmentIds, _db, _clients, _cfg, ct);
             var replayMatches = authoritativeAccessibleCourseIds.SetEquals(replayState.AccessibleCourseIds)
                 && authoritativeSolved.SetEquals(replayState.SolvedAssignmentIds);
+            TaskForgeDebugTrace.Map("DELTA_REPLAY_VERIFY",
+                ("user", userId),
+                ("candidateToken", replayState.ProjectionToken),
+                ("candidateRevision", replayState.ProjectionRevision),
+                ("replayMatches", replayMatches),
+                ("candidateAccessibleCourseIds", TaskForgeDebugTrace.MapList(replayState.AccessibleCourseIds)),
+                ("authoritativeAccessibleCourseIds", TaskForgeDebugTrace.MapList(authoritativeAccessibleCourseIds)),
+                ("candidateSolvedAssignmentIds", TaskForgeDebugTrace.MapList(replayState.SolvedAssignmentIds)),
+                ("authoritativeSolvedAssignmentIds", TaskForgeDebugTrace.MapList(authoritativeSolved)));
 
             if (replayMatches)
             {
@@ -271,6 +348,12 @@ internal sealed class CourseMapProjectionService
                     requestedCourseId,
                     userId,
                     replayState.ProjectionRevision);
+                TaskForgeDebugTrace.Map("DELTA_REPLAY_REJECT",
+                    ("user", userId),
+                    ("requestedCourse", requestedCourseId),
+                    ("candidateToken", replayState.ProjectionToken),
+                    ("candidateRevision", replayState.ProjectionRevision),
+                    ("reason", "authoritative-progress-changed"));
                 replayState = null;
                 solved = authoritativeSolved;
                 knownAccessibleCourseIds = authoritativeAccessibleCourseIds;
@@ -283,6 +366,12 @@ internal sealed class CourseMapProjectionService
             solved = previous.SolvedAssignmentIds.ToHashSet();
             var changedId = request.ChangedAssignmentId.Value;
             var authoritative = await LoadChangedAssignmentSolvedStateAsync(userId, changedId, ct);
+            TaskForgeDebugTrace.Map("DELTA_CHANGED_ASSIGNMENT",
+                ("user", userId),
+                ("assignment", changedId),
+                ("solved", authoritative.Contains(changedId)),
+                ("previousSolved", previous.SolvedAssignmentIds.Contains(changedId)),
+                ("authoritativeSolvedIds", TaskForgeDebugTrace.MapList(authoritative)));
             if (authoritative.Contains(changedId)) solved.Add(changedId);
             else solved.Remove(changedId);
             knownAccessibleCourseIds = previous.AccessibleCourseIds.ToHashSet();
@@ -300,6 +389,8 @@ internal sealed class CourseMapProjectionService
             ProjectionRevision = replayState?.ProjectionRevision
                 ?? System.Math.Max(previous.ProjectionRevision + 1, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
         };
+
+        LogProjectionState("DELTA_NEXT", next);
 
         var oldNodeIds = previous.VisibleNodeIds.ToHashSet(StringComparer.Ordinal);
         var oldEdgeIds = previous.VisibleEdgeIds.ToHashSet(StringComparer.Ordinal);
@@ -342,6 +433,16 @@ internal sealed class CourseMapProjectionService
             .Where(x => !previous.CourseProgress.TryGetValue(x.Key, out var oldValue) || oldValue != x.Value)
             .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
 
+        TaskForgeDebugTrace.Map("DELTA_DIFF",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("nodesAdded", TaskForgeDebugTrace.MapList(nodesAddedIds)),
+            ("nodesRemoved", TaskForgeDebugTrace.MapList(nodeIdsRemoved)),
+            ("edgesAdded", TaskForgeDebugTrace.MapList(edgesAddedIds)),
+            ("edgesRemoved", TaskForgeDebugTrace.MapList(edgeIdsRemoved)),
+            ("solvedChanged", TaskForgeDebugTrace.MapList(solvedChangedIds)),
+            ("openedCourses", TaskForgeDebugTrace.MapList(openedCourseIds)));
+
         if (replayState is null)
         {
             await SaveProjectionStateAsync(next, ct);
@@ -364,6 +465,15 @@ internal sealed class CourseMapProjectionService
             openedCourseIds.Length,
             (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
 
+        TaskForgeDebugTrace.Map("DELTA_END",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("replay", replayState is not null),
+            ("projectionToken", next.ProjectionToken),
+            ("revision", next.ProjectionRevision),
+            ("version", next.Version),
+            ("durationMs", (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)));
+
         return new DeltaResult(
             false,
             next.ProjectionToken,
@@ -383,11 +493,19 @@ internal sealed class CourseMapProjectionService
     {
         HashSet<Guid> solved = [];
         var retryDelaysMs = new[] { 0, 45, 120 };
-        foreach (var delayMs in retryDelaysMs)
+        for (var attempt = 0; attempt < retryDelaysMs.Length; attempt++)
         {
+            var delayMs = retryDelaysMs[attempt];
             if (delayMs > 0) await Task.Delay(delayMs, ct);
             solved = await LoadSolvedAssignmentIdsAsync(userId, new[] { assignmentId }, _db, _clients, _cfg, ct);
-            if (solved.Contains(assignmentId)) break;
+            var isSolved = solved.Contains(assignmentId);
+            TaskForgeDebugTrace.Map("CHANGED_ASSIGNMENT_CHECK",
+                ("user", userId),
+                ("assignment", assignmentId),
+                ("attempt", attempt + 1),
+                ("delayMs", delayMs),
+                ("solved", isSolved));
+            if (isSolved) break;
         }
         return solved;
     }
@@ -401,8 +519,16 @@ internal sealed class CourseMapProjectionService
             previous.Version,
             previous.BypassStudentVisibility);
         var tokenBytes = await SafeGetAsync(pointerKey, ct);
-        if (tokenBytes is null || tokenBytes.Length == 0) return null;
+        if (tokenBytes is null || tokenBytes.Length == 0)
+        {
+            TaskForgeDebugTrace.Map("POINTER_REPLAY_MISS", ("pointerKey", pointerKey), ("previousToken", previous.ProjectionToken));
+            return null;
+        }
         var token = Encoding.UTF8.GetString(tokenBytes);
+        TaskForgeDebugTrace.Map("POINTER_REPLAY_READ",
+            ("pointerKey", pointerKey),
+            ("previousToken", previous.ProjectionToken),
+            ("currentToken", token));
         if (string.Equals(token, previous.ProjectionToken, StringComparison.Ordinal)) return null;
         var state = await LoadProjectionStateAsync(token, ct);
         if (state is null
@@ -425,8 +551,22 @@ internal sealed class CourseMapProjectionService
         bool bypassStudentVisibility,
         CancellationToken ct)
     {
+        TaskForgeDebugTrace.Map("CACHED_ACCESS_BEGIN",
+            ("user", userId),
+            ("assignment", assignmentId),
+            ("assignmentCourse", assignmentCourseId),
+            ("bypassStudentVisibility", bypassStudentVisibility));
         var meta = await GetMapMetaAsync(assignmentCourseId, ct);
-        if (meta is null || meta.RootCourseId == Guid.Empty) return null;
+        if (meta is null || meta.RootCourseId == Guid.Empty)
+        {
+            TaskForgeDebugTrace.Map("CACHED_ACCESS_END", ("user", userId), ("assignment", assignmentId), ("result", "miss"), ("reason", "map-meta-miss"));
+            return null;
+        }
+        TaskForgeDebugTrace.Map("CACHED_ACCESS_META",
+            ("user", userId),
+            ("assignment", assignmentId),
+            ("rootCourse", meta.RootCourseId),
+            ("version", meta.Version));
 
         var pointerKeys = new[]
         {
@@ -438,8 +578,15 @@ internal sealed class CourseMapProjectionService
         foreach (var pointerKey in pointerKeys)
         {
             var tokenBytes = await SafeGetAsync(pointerKey, ct);
-            if (tokenBytes is null || tokenBytes.Length == 0) continue;
-            var state = await LoadProjectionStateAsync(Encoding.UTF8.GetString(tokenBytes), ct);
+            var pointerToken = tokenBytes is null || tokenBytes.Length == 0 ? null : Encoding.UTF8.GetString(tokenBytes);
+            TaskForgeDebugTrace.Map("CACHED_ACCESS_POINTER",
+                ("user", userId),
+                ("assignment", assignmentId),
+                ("pointerKey", pointerKey),
+                ("projectionToken", pointerToken),
+                ("found", pointerToken is not null));
+            if (pointerToken is null) continue;
+            var state = await LoadProjectionStateAsync(pointerToken, ct);
             if (state is null
                 || state.UserId != userId
                 || state.RootCourseId != meta.RootCourseId
@@ -451,7 +598,15 @@ internal sealed class CourseMapProjectionService
             if (newest is null || state.ProjectionRevision > newest.ProjectionRevision) newest = state;
         }
 
-        return newest is null ? null : newest.VisibleAssignmentIds.Contains(assignmentId);
+        var result = newest is null ? (bool?)null : newest.VisibleAssignmentIds.Contains(assignmentId);
+        if (newest is not null) LogProjectionState("CACHED_ACCESS_PROJECTION", newest);
+        TaskForgeDebugTrace.Map("CACHED_ACCESS_END",
+            ("user", userId),
+            ("assignment", assignmentId),
+            ("result", result.HasValue ? result.Value : "miss"),
+            ("projectionToken", newest?.ProjectionToken),
+            ("revision", newest?.ProjectionRevision));
+        return result;
     }
 
     private async Task<CourseMapProgressionService.Evaluation?> EvaluateAsync(
@@ -473,11 +628,23 @@ internal sealed class CourseMapProjectionService
             bypassStudentVisibility,
             knownAccessibleCourseIds?.Count,
             solvedIds?.Count);
+        TaskForgeDebugTrace.Map("PROJECTION_EVAL_BEGIN",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", snapshot.RootCourseId),
+            ("version", snapshot.Version),
+            ("bypassStudentVisibility", bypassStudentVisibility),
+            ("knownAccessibleCourseIds", TaskForgeDebugTrace.MapList(knownAccessibleCourseIds)),
+            ("suppliedSolvedIds", TaskForgeDebugTrace.MapList(solvedIds)));
         var allCourseIds = snapshot.Tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         var accessibleCourseIds = knownAccessibleCourseIds ?? (bypassStudentVisibility
             ? allCourseIds.ToHashSet()
             : await LoadAccessibleCourseIdsAsync(allCourseIds, userId, _clients, _cfg, ct));
 
+        TaskForgeDebugTrace.Map("PROJECTION_EVAL_ACCESS",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("accessibleCourseIds", TaskForgeDebugTrace.MapList(accessibleCourseIds)));
         if (!accessibleCourseIds.Contains(requestedCourseId))
         {
             _logger.LogWarning(
@@ -493,6 +660,11 @@ internal sealed class CourseMapProjectionService
             .Where(x => accessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
             .ToList();
         solvedIds ??= await LoadSolvedAssignmentIdsAsync(userId, assignments.Select(x => x.Id), _db, _clients, _cfg, ct);
+        TaskForgeDebugTrace.Map("PROJECTION_EVAL_INPUT",
+            ("user", userId),
+            ("requestedCourse", requestedCourseId),
+            ("assignmentIds", TaskForgeDebugTrace.MapList(assignments.Select(x => x.Id))),
+            ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solvedIds)));
 
         if (snapshot.Document is null || snapshot.Document.Value.ValueKind != JsonValueKind.Object)
         {
@@ -507,7 +679,8 @@ internal sealed class CourseMapProjectionService
                 assignments,
                 solvedIds,
                 snapshot.UpdatedAt,
-                snapshot.UpdatedBy);
+                snapshot.UpdatedBy,
+                userId);
             _logger.LogInformation(
                 "TFDBG MAP EVAL END requested={RequestedCourseId} user={UserId} fallback=true accessibleCourses={AccessibleCourses} assignments={Assignments} solved={Solved} visibleCourses={VisibleCourses} visibleAssignments={VisibleAssignments} durationMs={DurationMs:F2}",
                 requestedCourseId,
@@ -531,7 +704,8 @@ internal sealed class CourseMapProjectionService
             assignments,
             solvedIds,
             snapshot.UpdatedAt,
-            snapshot.UpdatedBy);
+            snapshot.UpdatedBy,
+            userId);
 
         var visible = evaluation.VisibleCourseIds.Contains(requestedCourseId);
         _logger.LogInformation(
@@ -558,6 +732,7 @@ internal sealed class CourseMapProjectionService
         if (meta is null || meta.RootCourseId == Guid.Empty)
         {
             _logger.LogWarning("TFDBG MAP SNAPSHOT MISS requested={RequestedCourseId} stage=meta", requestedCourseId);
+            TaskForgeDebugTrace.Map("SNAPSHOT_MISS", ("requestedCourse", requestedCourseId), ("stage", "meta"));
             return null;
         }
         var key = SnapshotKey(meta.RootCourseId, meta.Version);
@@ -569,12 +744,24 @@ internal sealed class CourseMapProjectionService
                 requestedCourseId,
                 meta.RootCourseId,
                 meta.Version);
+            TaskForgeDebugTrace.Map("SNAPSHOT_FORCE",
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", meta.RootCourseId),
+                ("version", meta.Version),
+                ("cacheKey", key));
             return await BuildAndCacheSnapshotAsync(meta, key);
         }
 
         if (_memory.TryGetValue<CourseMapSnapshot>(key, out var memorySnapshot) && memorySnapshot is not null)
         {
             _logger.LogInformation("TFDBG MAP SNAPSHOT HIT requested={RequestedCourseId} root={RootCourseId} version={Version} layer=memory", requestedCourseId, meta.RootCourseId, meta.Version);
+            TaskForgeDebugTrace.Map("SNAPSHOT_HIT",
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", meta.RootCourseId),
+                ("version", meta.Version),
+                ("layer", "memory"),
+                ("cacheKey", key),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(memorySnapshot.Document?.GetRawText())));
             return memorySnapshot;
         }
 
@@ -583,6 +770,13 @@ internal sealed class CourseMapProjectionService
         {
             _memory.Set(key, cached, TimeSpan.FromSeconds(20));
             _logger.LogInformation("TFDBG MAP SNAPSHOT HIT requested={RequestedCourseId} root={RootCourseId} version={Version} layer=redis", requestedCourseId, meta.RootCourseId, meta.Version);
+            TaskForgeDebugTrace.Map("SNAPSHOT_HIT",
+                ("requestedCourse", requestedCourseId),
+                ("rootCourse", meta.RootCourseId),
+                ("version", meta.Version),
+                ("layer", "redis"),
+                ("cacheKey", key),
+                ("documentHash", TaskForgeDebugTrace.Fingerprint(cached.Document?.GetRawText())));
             return cached;
         }
 
@@ -596,6 +790,12 @@ internal sealed class CourseMapProjectionService
             requestedCourseId,
             meta.RootCourseId,
             meta.Version);
+        TaskForgeDebugTrace.Map("SNAPSHOT_BUILD_REQUEST",
+            ("requestedCourse", requestedCourseId),
+            ("rootCourse", meta.RootCourseId),
+            ("version", meta.Version),
+            ("action", ReferenceEquals(lazy, candidate) ? "build" : "join"),
+            ("cacheKey", key));
         var buildTask = lazy.Value;
         _ = buildTask.ContinueWith(
             completedTask =>
@@ -627,6 +827,7 @@ internal sealed class CourseMapProjectionService
     {
         var startedAt = DateTimeOffset.UtcNow;
         _logger.LogInformation("TFDBG MAP SNAPSHOT BUILD START root={RootCourseId} version={Version}", meta.RootCourseId, meta.Version);
+        TaskForgeDebugTrace.Map("SNAPSHOT_BUILD_BEGIN", ("rootCourse", meta.RootCourseId), ("version", meta.Version));
         var mapTask = GetInternalAsync<CourseMapInternalResponse>(
             _clients,
             _cfg,
@@ -682,13 +883,25 @@ internal sealed class CourseMapProjectionService
             tree.CourseIds.Length,
             assignments.Count,
             (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+        TaskForgeDebugTrace.Map("SNAPSHOT_BUILD_END",
+            ("rootCourse", map.RootCourseId),
+            ("version", map.Version),
+            ("documentHash", TaskForgeDebugTrace.Fingerprint(map.Document?.GetRawText())),
+            ("courseIds", TaskForgeDebugTrace.MapList(tree.CourseIds)),
+            ("assignmentIds", TaskForgeDebugTrace.MapList(assignments.Select(x => x.Id))),
+            ("durationMs", (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)));
         return snapshot;
     }
 
     private async Task<CourseMapMetaInternalResponse?> GetMapMetaAsync(Guid courseId, CancellationToken ct, bool forceFresh = false)
     {
         var key = $"course-map-meta:{courseId:N}";
-        if (!forceFresh && _memory.TryGetValue<CourseMapMetaInternalResponse>(key, out var cached) && cached is not null) return cached;
+        if (!forceFresh && _memory.TryGetValue<CourseMapMetaInternalResponse>(key, out var cached) && cached is not null)
+        {
+            TaskForgeDebugTrace.Map("MAP_META", ("course", courseId), ("layer", "memory"), ("rootCourse", cached.RootCourseId), ("version", cached.Version), ("forceFresh", false));
+            return cached;
+        }
+        TaskForgeDebugTrace.Map("MAP_META_FETCH", ("course", courseId), ("forceFresh", forceFresh));
         var meta = await GetInternalAsync<CourseMapMetaInternalResponse>(
             _clients,
             _cfg,
@@ -696,6 +909,13 @@ internal sealed class CourseMapProjectionService
             $"/api/internal/courses/{courseId:D}/map/meta",
             ct);
         if (meta is not null) _memory.Set(key, meta, TimeSpan.FromSeconds(5));
+        TaskForgeDebugTrace.Map("MAP_META",
+            ("course", courseId),
+            ("layer", "education-api"),
+            ("found", meta is not null),
+            ("rootCourse", meta?.RootCourseId),
+            ("version", meta?.Version),
+            ("forceFresh", forceFresh));
         return meta;
     }
 
@@ -1117,6 +1337,25 @@ internal sealed class CourseMapProjectionService
         return Guid.TryParse(raw, out var parsed) ? parsed : null;
     }
 
+    private static void LogProjectionState(string action, ProjectionState state)
+    {
+        TaskForgeDebugTrace.Map(action,
+            ("projectionToken", state.ProjectionToken),
+            ("user", state.UserId),
+            ("rootCourse", state.RootCourseId),
+            ("requestedCourse", state.RequestedCourseId),
+            ("version", state.Version),
+            ("revision", state.ProjectionRevision),
+            ("bypassStudentVisibility", state.BypassStudentVisibility),
+            ("verifiedAt", state.VerifiedAt),
+            ("accessibleCourseIds", TaskForgeDebugTrace.MapList(state.AccessibleCourseIds)),
+            ("visibleCourseIds", TaskForgeDebugTrace.MapList(state.VisibleCourseIds)),
+            ("visibleAssignmentIds", TaskForgeDebugTrace.MapList(state.VisibleAssignmentIds)),
+            ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(state.SolvedAssignmentIds)),
+            ("visibleNodeIds", TaskForgeDebugTrace.MapList(state.VisibleNodeIds)),
+            ("visibleEdgeIds", TaskForgeDebugTrace.MapList(state.VisibleEdgeIds)));
+    }
+
     private DeltaResult ResetDelta(int version = 0)
         => new(
             true,
@@ -1144,12 +1383,15 @@ internal sealed class CourseMapProjectionService
     private async Task SaveProjectionStateAsync(ProjectionState state, CancellationToken ct)
     {
         var key = ProjectionKey(state.ProjectionToken);
+        TaskForgeDebugTrace.Map("PROJECTION_SAVE_BEGIN", ("cacheKey", key));
+        LogProjectionState("PROJECTION_SAVE_STATE", state);
         _memory.Set(key, state, TimeSpan.FromSeconds(30));
         await WriteCompressedAsync(
             key,
             state,
             TaskForgeCache.Ttl(_cfg, "CourseMapProjection", 1800),
             ct);
+        TaskForgeDebugTrace.Map("PROJECTION_SAVE_END", ("cacheKey", key), ("projectionToken", state.ProjectionToken));
     }
 
     private async Task SaveCurrentProjectionPointerAsync(ProjectionState state, CancellationToken ct)
@@ -1163,6 +1405,14 @@ internal sealed class CourseMapProjectionService
         try
         {
             var tokenBytes = Encoding.UTF8.GetBytes(state.ProjectionToken);
+            TaskForgeDebugTrace.Map("POINTER_SAVE_BEGIN",
+                ("cacheKey", key),
+                ("projectionToken", state.ProjectionToken),
+                ("revision", state.ProjectionRevision),
+                ("user", state.UserId),
+                ("rootCourse", state.RootCourseId),
+                ("requestedCourse", state.RequestedCourseId),
+                ("version", state.Version));
             _memory.Set(key, tokenBytes, TimeSpan.FromSeconds(30));
             await _cache.SetAsync(
                 key,
@@ -1172,6 +1422,7 @@ internal sealed class CourseMapProjectionService
                     AbsoluteExpirationRelativeToNow = TaskForgeCache.Ttl(_cfg, "CourseMapProjection", 1800)
                 },
                 ct);
+            TaskForgeDebugTrace.Map("POINTER_SAVE_END", ("cacheKey", key), ("projectionToken", state.ProjectionToken));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1186,9 +1437,16 @@ internal sealed class CourseMapProjectionService
     private async Task<ProjectionState?> LoadProjectionStateAsync(string token, CancellationToken ct)
     {
         var key = ProjectionKey(token);
-        if (_memory.TryGetValue<ProjectionState>(key, out var cached) && cached is not null) return cached;
+        if (_memory.TryGetValue<ProjectionState>(key, out var cached) && cached is not null)
+        {
+            TaskForgeDebugTrace.Map("PROJECTION_LOAD", ("cacheKey", key), ("projectionToken", token), ("layer", "memory"), ("found", true));
+            LogProjectionState("PROJECTION_LOAD_STATE", cached);
+            return cached;
+        }
         var state = await ReadCompressedAsync<ProjectionState>(key, ct);
         if (state is not null) _memory.Set(key, state, TimeSpan.FromSeconds(30));
+        TaskForgeDebugTrace.Map("PROJECTION_LOAD", ("cacheKey", key), ("projectionToken", token), ("layer", "redis"), ("found", state is not null));
+        if (state is not null) LogProjectionState("PROJECTION_LOAD_STATE", state);
         return state;
     }
 
@@ -1240,18 +1498,20 @@ internal sealed class CourseMapProjectionService
 
     private async Task<byte[]?> SafeGetAsync(string key, CancellationToken ct)
     {
-        // These keys are mutable "current projection" pointers shared by every
-        // assignment-api instance. Reading the per-process memory cache first can
-        // hide a pointer written by another node for up to 30 seconds. Prefer the
-        // distributed cache and use memory only as a degraded fallback.
         try
         {
             var value = await _cache.GetAsync(key, ct);
             if (value is not null)
             {
                 _memory.Set(key, value, TimeSpan.FromSeconds(30));
+                TaskForgeDebugTrace.Map("POINTER_READ",
+                    ("cacheKey", key),
+                    ("layer", "redis"),
+                    ("found", true),
+                    ("projectionToken", Encoding.UTF8.GetString(value)));
                 return value;
             }
+            TaskForgeDebugTrace.Map("POINTER_READ", ("cacheKey", key), ("layer", "redis"), ("found", false));
             return null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -1261,7 +1521,15 @@ internal sealed class CourseMapProjectionService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Course-map cache pointer read failed for {CacheKey}", key);
-            return _memory.TryGetValue<byte[]>(key, out var cached) ? cached : null;
+            var fallback = _memory.TryGetValue<byte[]>(key, out var cached) ? cached : null;
+            TaskForgeDebugTrace.Map("POINTER_READ_FALLBACK",
+                ("cacheKey", key),
+                ("layer", "memory"),
+                ("found", fallback is not null),
+                ("projectionToken", fallback is null ? null : Encoding.UTF8.GetString(fallback)),
+                ("exception", ex.GetType().Name),
+                ("message", ex.Message));
+            return fallback;
         }
     }
 
