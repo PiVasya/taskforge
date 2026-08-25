@@ -235,60 +235,61 @@ internal sealed class CourseMapProjectionService
             ? null
             : await LoadNewerCurrentProjectionAsync(previous, ct);
 
-        if (!hasChangedAssignment
-            && replayState is null
-            && DateTimeOffset.UtcNow - previous.VerifiedAt <= TimeSpan.FromSeconds(45))
-        {
-            _logger.LogInformation(
-                "TFDBG MAP DELTA EMPTY requested={RequestedCourseId} user={UserId} reason=recently-verified revision={Revision} durationMs={DurationMs:F2}",
-                requestedCourseId,
-                userId,
-                previous.ProjectionRevision,
-                (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
-            return new DeltaResult(
-                false,
-                previous.ProjectionToken,
-                previous.ProjectionRevision,
-                previous.Version,
-                Array.Empty<JsonElement>(),
-                Array.Empty<string>(),
-                Array.Empty<JsonElement>(),
-                Array.Empty<string>(),
-                Array.Empty<AssignmentCard>(),
-                Array.Empty<CourseCard>(),
-                new Dictionary<string, CourseProgressCard>(),
-                Array.Empty<Guid>());
-        }
+        // Progress can change immediately after a successful solution while the
+        // browser is navigating back to the course. Neither a recently verified
+        // projection nor a merely newer projection pointer proves that learner
+        // progress is current: either may have been built just before the solve.
+        HashSet<Guid>? solved = null;
+        HashSet<Guid>? knownAccessibleCourseIds = null;
 
-        HashSet<Guid> solved;
-        HashSet<Guid>? knownAccessibleCourseIds;
         if (replayState is not null)
         {
-            solved = replayState.SolvedAssignmentIds.ToHashSet();
-            knownAccessibleCourseIds = replayState.AccessibleCourseIds.ToHashSet();
-        }
-        else
-        {
-            solved = previous.SolvedAssignmentIds.ToHashSet();
-            if (hasChangedAssignment)
+            // Preserve immutable projection replay, but only after validating that
+            // the replay candidate still matches authoritative access + solved state.
+            // This keeps fast multi-tab/back navigation without replaying stale progress.
+            var allCourseIds = snapshot.Tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
+            var authoritativeAccessibleCourseIds = bypassStudentVisibility
+                ? allCourseIds.ToHashSet()
+                : await LoadAccessibleCourseIdsAsync(allCourseIds, userId, _clients, _cfg, ct);
+            var relevantAssignmentIds = snapshot.Assignments
+                .Where(x => authoritativeAccessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
+                .Select(x => x.Id)
+                .ToArray();
+            var authoritativeSolved = await LoadSolvedAssignmentIdsAsync(userId, relevantAssignmentIds, _db, _clients, _cfg, ct);
+            var replayMatches = authoritativeAccessibleCourseIds.SetEquals(replayState.AccessibleCourseIds)
+                && authoritativeSolved.SetEquals(replayState.SolvedAssignmentIds);
+
+            if (replayMatches)
             {
-                var changedId = request.ChangedAssignmentId.Value;
-                var authoritative = await LoadSolvedAssignmentIdsAsync(userId, new[] { changedId }, _db, _clients, _cfg, ct);
-                if (authoritative.Contains(changedId)) solved.Add(changedId);
-                else solved.Remove(changedId);
-                knownAccessibleCourseIds = previous.AccessibleCourseIds.ToHashSet();
+                solved = replayState.SolvedAssignmentIds.ToHashSet();
+                knownAccessibleCourseIds = replayState.AccessibleCourseIds.ToHashSet();
             }
             else
             {
-                var accessibleIds = previous.AccessibleCourseIds.ToHashSet();
-                var allRelevantAssignments = snapshot.Assignments
-                    .Where(x => accessibleIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
-                    .Select(x => x.Id)
-                    .ToArray();
-                solved = await LoadSolvedAssignmentIdsAsync(userId, allRelevantAssignments, _db, _clients, _cfg, ct);
-                knownAccessibleCourseIds = null;
+                _logger.LogInformation(
+                    "TFDBG MAP DELTA REPLAY REJECT requested={RequestedCourseId} user={UserId} revision={Revision} reason=authoritative-progress-changed",
+                    requestedCourseId,
+                    userId,
+                    replayState.ProjectionRevision);
+                replayState = null;
+                solved = authoritativeSolved;
+                knownAccessibleCourseIds = authoritativeAccessibleCourseIds;
             }
         }
+        else if (hasChangedAssignment)
+        {
+            // The solve page tells us exactly which assignment changed. Verify only
+            // that id so the common solve -> next/course path stays cheap and fresh.
+            solved = previous.SolvedAssignmentIds.ToHashSet();
+            var changedId = request.ChangedAssignmentId.Value;
+            var authoritative = await LoadSolvedAssignmentIdsAsync(userId, new[] { changedId }, _db, _clients, _cfg, ct);
+            if (authoritative.Contains(changedId)) solved.Add(changedId);
+            else solved.Remove(changedId);
+            knownAccessibleCourseIds = previous.AccessibleCourseIds.ToHashSet();
+        }
+        // No explicit change and no replay candidate: EvaluateAsync must reload the
+        // complete authoritative access + solved state. There is deliberately no
+        // time-based "recently verified" shortcut here.
 
         var evaluation = await EvaluateAsync(snapshot, requestedCourseId, userId, bypassStudentVisibility, solved, ct, knownAccessibleCourseIds);
         if (evaluation is null) return null;
@@ -1226,12 +1227,19 @@ internal sealed class CourseMapProjectionService
 
     private async Task<byte[]?> SafeGetAsync(string key, CancellationToken ct)
     {
-        if (_memory.TryGetValue<byte[]>(key, out var cached) && cached is not null) return cached;
+        // These keys are mutable "current projection" pointers shared by every
+        // assignment-api instance. Reading the per-process memory cache first can
+        // hide a pointer written by another node for up to 30 seconds. Prefer the
+        // distributed cache and use memory only as a degraded fallback.
         try
         {
             var value = await _cache.GetAsync(key, ct);
-            if (value is not null) _memory.Set(key, value, TimeSpan.FromSeconds(30));
-            return value;
+            if (value is not null)
+            {
+                _memory.Set(key, value, TimeSpan.FromSeconds(30));
+                return value;
+            }
+            return null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1240,7 +1248,7 @@ internal sealed class CourseMapProjectionService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Course-map cache pointer read failed for {CacheKey}", key);
-            return null;
+            return _memory.TryGetValue<byte[]>(key, out var cached) ? cached : null;
         }
     }
 

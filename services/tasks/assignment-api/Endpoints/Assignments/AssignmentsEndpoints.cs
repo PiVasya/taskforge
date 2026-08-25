@@ -103,6 +103,7 @@ internal static partial class AssignmentApiEndpoints
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!includeHidden)
             {
+                http.Response.Headers.CacheControl = "no-store";
                 if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
                 var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
                 if (evaluation == null)
@@ -133,6 +134,7 @@ internal static partial class AssignmentApiEndpoints
         {
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+            http.Response.Headers.CacheControl = "no-store";
 
             var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(
                 courseId,
@@ -261,6 +263,7 @@ internal static partial class AssignmentApiEndpoints
             var userId = TaskForgeRequestSecurity.UserId(http, cfg);
             if (!includeHidden)
             {
+                http.Response.Headers.CacheControl = "no-store";
                 if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
                 var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(courseId, userId.Value, db, clients, cfg, ct);
                 if (evaluation == null)
@@ -301,6 +304,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapPost("/api/assignments/course-progress", async (CourseIdsRequest request, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var requestedIds = (request.CourseIds ?? Array.Empty<Guid>())
                 .Where(x => x != Guid.Empty)
                 .Distinct()
@@ -836,6 +840,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/assignments/{assignmentId:guid}/solve-shell", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
@@ -851,6 +856,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/assignments/{assignmentId:guid}/statement", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
@@ -860,6 +866,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/assignments/{assignmentId:guid}/tests", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);
@@ -869,6 +876,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = IsEditor(http, cfg);

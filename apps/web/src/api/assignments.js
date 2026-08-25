@@ -1,7 +1,5 @@
 import api from './http';
 
-const courseProgressRequests = new Map();
-
 
 export async function getAssignmentsByCourse(courseId) {
   const res = await api.get(`/api/courses/${courseId}/assignments`);
@@ -14,19 +12,8 @@ export async function getCourseProgressByCourses(courseIds) {
     .sort();
   if (ids.length === 0) return [];
 
-  const key = ids.join(',');
-  const existing = courseProgressRequests.get(key);
-  if (existing) return existing;
-
-  const request = api
-    .post('/api/assignments/course-progress', { courseIds: ids })
-    .then((res) => res.data)
-    .finally(() => {
-      if (courseProgressRequests.get(key) === request) courseProgressRequests.delete(key);
-    });
-
-  courseProgressRequests.set(key, request);
-  return request;
+  const res = await api.post('/api/assignments/course-progress', { courseIds: ids });
+  return res.data;
 }
 
 

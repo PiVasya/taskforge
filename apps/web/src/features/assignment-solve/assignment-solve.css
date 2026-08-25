@@ -150,7 +150,31 @@
 }
 
 .solve-action-dock--navigation-only {
-  width: min(19rem, calc(100vw - 2.5rem));
+  width: auto;
+  max-width: calc(100vw - 2.5rem);
+}
+
+.solve-action-dock--navigation-only .solve-action-dock-panel {
+  width: max-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.solve-action-dock--navigation-only .solve-action-dock-panel:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.solve-action-dock--navigation-only .solve-next-button {
+  background: rgba(var(--card) / 0.92);
+  box-shadow: 0 12px 30px rgba(0 0 0 / 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .solve-action-dock-panel {
@@ -238,6 +262,15 @@
   }
 
   .solve-action-button {
+    width: 100%;
+  }
+
+  .solve-next-control {
+    width: 100%;
+  }
+
+  .solve-action-dock--navigation-only,
+  .solve-action-dock--navigation-only .solve-action-dock-panel {
     width: 100%;
   }
 
@@ -343,19 +376,24 @@
 .solve-next-control {
   position: relative;
   z-index: 1;
-  flex: 1 1 14rem;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
 }
 
 .solve-next-button {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  gap: 0.4rem;
+  padding-inline: 0.95rem;
 }
 
 .solve-next-button > span {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }

@@ -45,7 +45,11 @@ internal static class AssignmentApiAccessService
                 userId.Value,
                 bypassStudentVisibility: false,
                 ct);
-            if (cached.HasValue) return cached.Value;
+            // A cached positive access decision is safe to reuse. A cached negative
+            // decision is not: solving a prerequisite can unlock the assignment
+            // before the projection cache has been refreshed. Fall through to an
+            // authoritative progression evaluation for cached false.
+            if (cached == true) return true;
         }
 
         var evaluation = await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId.Value, db, clients, cfg, ct);

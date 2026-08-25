@@ -18,6 +18,7 @@ async function openLearningMapStream(courseId, signal, retry = true, fresh = fal
   const response = await fetch(`/api/courses/${courseId}/learning-map/stream${suffix}`, {
     method: 'GET',
     credentials: 'include',
+    cache: 'no-store',
     headers,
     signal,
   });

@@ -10,6 +10,12 @@ import { handleApiError } from "../utils/handleApiError";
 import { resolveCardDropIntent, resolveGridGapDropIntent, isPointerInsideDndItem } from "../utils/gridDragDrop";
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
 import { useQueryClient } from '../data/QueryClientProvider';
+import { useAuth } from '../auth/AuthContext';
+import {
+  COURSE_PROGRESSION_CHANGED_EVENT,
+  COURSE_PROGRESSION_STORAGE_KEY,
+  getCourseProgressionRevision,
+} from '../features/course-assignments/courseProgressionFreshness';
 
 const COURSE_PAGE_SIZE = 50;
 const COURSES_PAGE_STATE_KEY = ['page-state', 'courses'];
@@ -175,6 +181,8 @@ function CourseCard({
 
 export default function CoursesPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
   const cachedStateRef = useRef(queryClient.getQueryData(COURSES_PAGE_STATE_KEY));
   const cachedState = cachedStateRef.current || {};
   const [items, setItems] = useState(() => Array.isArray(cachedState.items) ? cachedState.items : []);
@@ -189,6 +197,8 @@ export default function CoursesPage() {
   const [directProgressByCourseId, setDirectProgressByCourseId] = useState(() => cachedState.directProgressByCourseId instanceof Map ? cachedState.directProgressByCourseId : new Map());
   const [progressLoadedAt, setProgressLoadedAt] = useState(() => Number(cachedState.progressLoadedAt || 0));
   const [progressIdsKey, setProgressIdsKey] = useState(() => String(cachedState.progressIdsKey || ''));
+  const [progressionRevisionSeen, setProgressionRevisionSeen] = useState(() => Number(cachedState.progressionRevisionSeen || 0));
+  const [progressionRevision, setProgressionRevision] = useState(() => getCourseProgressionRevision(currentUserId));
   const [progressLoading, setProgressLoading] = useState(false);
   const [draggedCourseId, setDraggedCourseId] = useState(null);
   const [dragOverCourseId, setDragOverCourseId] = useState(null);
@@ -196,6 +206,7 @@ export default function CoursesPage() {
   const [dragOverEdge, setDragOverEdge] = useState("top");
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, course: null });
   const dragStartedRef = useRef(false);
+  const progressMountRefreshRef = useRef(true);
 
   const nav = useNavigate();
   const notify = useNotify();
@@ -292,8 +303,25 @@ export default function CoursesPage() {
       directProgressByCourseId,
       progressLoadedAt,
       progressIdsKey,
+      progressionRevisionSeen,
     });
-  }, [dataLoadedAt, directProgressByCourseId, hasMore, items, page, progressIdsKey, progressLoadedAt, q, queryClient, total]);
+  }, [dataLoadedAt, directProgressByCourseId, hasMore, items, page, progressIdsKey, progressLoadedAt, progressionRevisionSeen, q, queryClient, total]);
+
+  useEffect(() => {
+    const syncProgressionRevision = () => {
+      setProgressionRevision(getCourseProgressionRevision(currentUserId));
+    };
+    syncProgressionRevision();
+    const onStorage = (event) => {
+      if (event?.key === COURSE_PROGRESSION_STORAGE_KEY) syncProgressionRevision();
+    };
+    window.addEventListener(COURSE_PROGRESSION_CHANGED_EVENT, syncProgressionRevision);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(COURSE_PROGRESSION_CHANGED_EVENT, syncProgressionRevision);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,14 +337,16 @@ export default function CoursesPage() {
 
     const cachedProgressFresh = progressIdsKey === visibleCourseIdsKey
       && progressLoadedAt > 0
+      && progressionRevisionSeen >= progressionRevision
       && Date.now() - progressLoadedAt < COURSES_CACHE_STALE_MS;
-    if (cachedProgressFresh) {
+    if (cachedProgressFresh && !progressMountRefreshRef.current) {
       setProgressLoading(false);
       return () => {
         cancelled = true;
       };
     }
 
+    progressMountRefreshRef.current = false;
     setProgressLoading(true);
     getCourseProgressByCourses(visibleCourseIdsKey.split(','))
       .then((rows) => {
@@ -324,6 +354,7 @@ export default function CoursesPage() {
         setDirectProgressByCourseId(normalizeProgressRows(rows));
         setProgressIdsKey(visibleCourseIdsKey);
         setProgressLoadedAt(Date.now());
+        setProgressionRevisionSeen(progressionRevision);
       })
       .catch(() => {
         if (cancelled) return;
@@ -336,7 +367,7 @@ export default function CoursesPage() {
     return () => {
       cancelled = true;
     };
-  }, [directProgressByCourseId.size, progressIdsKey, progressLoadedAt, visibleCourseIdsKey]);
+  }, [directProgressByCourseId.size, progressionRevision, progressionRevisionSeen, progressIdsKey, progressLoadedAt, visibleCourseIdsKey]);
 
 
   const handleCreate = async () => {

@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-
 import { Card, Button, Badge } from '../../components/ui';
 import TaskTestSolve from '../../pages/TaskTestSolve';
 import MathTaskSolve from '../../pages/MathTaskSolve';
-
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../../api/assignments';
 import { listMySolutions, submitSolution } from '../../api/solutions';
@@ -12,10 +10,10 @@ import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
 import { getLearningCourseMapDelta } from '../../api/courseMaps';
-
 import { Play, CheckCircle2, XCircle } from 'lucide-react';
 import { useRoleFlags } from '../../contexts/EditorModeContext';
 import { useAuth } from '../../auth/AuthContext';
+import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
@@ -24,6 +22,7 @@ import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releas
 import { readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
 import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
 import { refreshCourseNextNavigationProjection } from './courseNextNavigationRefresh';
+import { clearPendingCourseProgressionChange, markAssignmentProgressionCompleted } from '../course-assignments/courseProgressionFreshness';
 import {
   ALL_LANGS,
   normalizeLang,
@@ -92,14 +91,13 @@ async function recoverRecentCodeSubmission(assignmentId, language, code, submitS
   }
   return null;
 }
-
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
-
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { codeSolveLayout } = useEditorUiSettings();
 
   const [a, setA] = useState(null);
@@ -610,7 +608,10 @@ export default function AssignmentSolvePage() {
         if (!alive || !delta) return;
         if (delta.resetRequired) {
           const refreshed = await refreshCourseNextNavigationProjection({ projectionCourseId, courseId: a.courseId, currentUserId, cached });
-          if (alive && refreshed.mapRecord) applyNavigation(refreshed.mapRecord, refreshed.assignments);
+          if (alive && refreshed.mapRecord) {
+            applyNavigation(refreshed.mapRecord, refreshed.assignments);
+            if (progressionRevision) clearPendingCourseProgressionChange({ assignmentId: a.id, userId: currentUserId });
+          }
           return;
         }
 
@@ -675,6 +676,7 @@ export default function AssignmentSolvePage() {
           courses,
           pendingRevealNodeIds: (delta.nodesAdded || []).map((node) => String(node?.id || '')).filter(Boolean),
         });
+        if (progressionRevision) clearPendingCourseProgressionChange({ assignmentId: a.id, userId: currentUserId });
         applyNavigation(mapRecord, assignments);
       } catch {
         if (!cached?.mapRecord && alive) setNextOptions([]);
@@ -687,8 +689,9 @@ export default function AssignmentSolvePage() {
   }, [a?.courseId, a?.id, progressionRevision, user?.id, user?.userId, user?.uuid]);
 
   const refreshProgression = React.useCallback(() => {
+    markAssignmentProgressionCompleted({ queryClient, courseId: a?.courseId, assignmentId: a?.id || assignmentId, userId: String(user?.id || user?.userId || user?.uuid || '') });
     setProgressionRevision((value) => value + 1);
-  }, []);
+  }, [a?.courseId, a?.id, assignmentId, queryClient, user?.id, user?.userId, user?.uuid]);
 
   const resetSolveUi = React.useCallback(() => {
     setResult(null);
