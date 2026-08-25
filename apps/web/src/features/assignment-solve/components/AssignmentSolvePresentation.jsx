@@ -5,7 +5,7 @@ import QuotaPill from '../../../components/QuotaPill';
 import { Card, Button } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import StatementViewer from '../../../components/tiptap/StatementViewer';
-import { ArrowLeft, BarChart3, ChevronDown, GitBranch, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, BarChart3, ChevronDown, GitBranch, LoaderCircle, LockKeyhole } from 'lucide-react';
 import { useSolveDraft } from '../solveDraftStore';
 
 function displayText(value) {
@@ -288,10 +288,10 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
   }, [rows.length]);
 
   const title = loading
-    ? 'Загружаю продолжение'
+    ? 'Открываю продолжение'
     : only?.subtitle || only?.title || (rows.length ? 'Выбрать следующую ветку' : 'Продолжения нет');
   const buttonLabel = loading
-    ? 'Загружаю продолжение…'
+    ? 'Открываю продолжение…'
     : only?.disabled
       ? 'Продолжение закрыто'
       : rows.length === 0
@@ -386,9 +386,9 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
           aria-expanded={rows.length > 1 ? open : undefined}
           aria-haspopup={rows.length > 1 ? 'menu' : undefined}
         >
-          {only?.disabled ? <LockKeyhole size={15} /> : null}
+          {loading ? <LoaderCircle size={15} className="animate-spin" /> : only?.disabled ? <LockKeyhole size={15} /> : null}
           <span>{buttonLabel}</span>
-          {rows.length > 1 ? <ChevronDown size={15} className={open ? 'is-open' : ''} /> : null}
+          {!loading && rows.length > 1 ? <ChevronDown size={15} className={open ? 'is-open' : ''} /> : null}
         </Button>
       )}
     </div>

@@ -129,3 +129,14 @@ export function clearPendingCourseProgressionChangesForCourses({ courseIds = [],
   state.users[key] = { ...current, entries };
   writeState(state);
 }
+
+export function isAssignmentProgressionConfirmed(rows, assignmentId) {
+  const id = clean(assignmentId);
+  if (!id) return false;
+  const row = (Array.isArray(rows) ? rows : []).find((item) => clean(item?.id) === id);
+  if (!row) return false;
+  return row.solvedByCurrentUser === true
+    || row.isSolved === true
+    || clean(row.progressStatus).toLowerCase() === 'solved'
+    || row.passed === true;
+}

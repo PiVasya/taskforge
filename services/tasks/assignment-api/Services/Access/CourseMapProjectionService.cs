@@ -282,7 +282,7 @@ internal sealed class CourseMapProjectionService
             // that id so the common solve -> next/course path stays cheap and fresh.
             solved = previous.SolvedAssignmentIds.ToHashSet();
             var changedId = request.ChangedAssignmentId.Value;
-            var authoritative = await LoadSolvedAssignmentIdsAsync(userId, new[] { changedId }, _db, _clients, _cfg, ct);
+            var authoritative = await LoadChangedAssignmentSolvedStateAsync(userId, changedId, ct);
             if (authoritative.Contains(changedId)) solved.Add(changedId);
             else solved.Remove(changedId);
             knownAccessibleCourseIds = previous.AccessibleCourseIds.ToHashSet();
@@ -377,6 +377,19 @@ internal sealed class CourseMapProjectionService
             courseCards,
             progress,
             openedCourseIds);
+    }
+
+    private async Task<HashSet<Guid>> LoadChangedAssignmentSolvedStateAsync(Guid userId, Guid assignmentId, CancellationToken ct)
+    {
+        HashSet<Guid> solved = [];
+        var retryDelaysMs = new[] { 0, 45, 120 };
+        foreach (var delayMs in retryDelaysMs)
+        {
+            if (delayMs > 0) await Task.Delay(delayMs, ct);
+            solved = await LoadSolvedAssignmentIdsAsync(userId, new[] { assignmentId }, _db, _clients, _cfg, ct);
+            if (solved.Contains(assignmentId)) break;
+        }
+        return solved;
     }
 
     private async Task<ProjectionState?> LoadNewerCurrentProjectionAsync(ProjectionState previous, CancellationToken ct)

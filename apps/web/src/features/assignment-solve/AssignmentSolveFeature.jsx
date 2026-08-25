@@ -4,25 +4,19 @@ import { Card, Button, Badge } from '../../components/ui';
 import TaskTestSolve from '../../pages/TaskTestSolve';
 import MathTaskSolve from '../../pages/MathTaskSolve';
 import { useNotify } from '../../components/notify/NotifyProvider';
-import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests, getAssignmentsByCourse } from '../../api/assignments';
+import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests } from '../../api/assignments';
 import { listMySolutions, submitSolution } from '../../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
-import { getLearningCourseMapDelta } from '../../api/courseMaps';
 import { Play, CheckCircle2, XCircle } from 'lucide-react';
 import { useRoleFlags } from '../../contexts/EditorModeContext';
-import { useAuth } from '../../auth/AuthContext';
-import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
+import { useAssignmentNextNavigation } from './useAssignmentNextNavigation';
 import AssignmentTaskConstraints from './components/AssignmentTaskConstraints';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
-import { readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../course-assignments/courseMapLocalCache';
-import { buildNextNodeOptions, buildSortedFallbackNext, courseMapContainsAssignment } from '../course-assignments/courseMapNextNodes';
-import { refreshCourseNextNavigationProjection } from './courseNextNavigationRefresh';
-import { clearPendingCourseProgressionChange, markAssignmentProgressionCompleted } from '../course-assignments/courseProgressionFreshness';
 import {
   ALL_LANGS,
   normalizeLang,
@@ -96,8 +90,6 @@ export default function AssignmentSolvePage() {
   const nav = useNavigate();
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
   const { codeSolveLayout } = useEditorUiSettings();
 
   const [a, setA] = useState(null);
@@ -107,9 +99,6 @@ export default function AssignmentSolvePage() {
   const [revealFlow, setRevealFlow] = useState({ key: '', titleDone: false, statementDone: false });
 
   
-  const [nextOptions, setNextOptions] = useState([]);
-  const [nextNavigationLoading, setNextNavigationLoading] = useState(false);
-  const [progressionRevision, setProgressionRevision] = useState(0);
 
   const draftStore = useMemo(() => getSolveDraftStore(assignmentId), [assignmentId]);
   const readDraft = React.useCallback(() => getSolveDraftSnapshot(assignmentId), [assignmentId]);
@@ -552,146 +541,12 @@ export default function AssignmentSolvePage() {
 
   useEffect(() => () => releaseSolveDraftStore(assignmentId), [assignmentId]);
 
-  
-  
-  useEffect(() => {
-    let alive = true;
-    if (!a?.courseId || !a?.id) {
-      setNextOptions([]);
-      setNextNavigationLoading(false);
-      return () => { alive = false; };
-    }
-
-    const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
-    const applyNavigation = (mapRecord, rows) => {
-      if (!alive) return;
-      const assignments = Array.isArray(rows) ? rows : [];
-      if (mapRecord?.document) {
-        setNextOptions(courseMapContainsAssignment(mapRecord.document, a.id)
-          ? buildNextNodeOptions(mapRecord.document, a.id, assignments)
-          : []);
-        return;
-      }
-      setNextOptions(buildSortedFallbackNext(assignments, a.id));
-    };
-
-    let cached = readCourseMapLocalCache({ courseId: a.courseId, editorMode: false, userId: currentUserId });
-    if (cached?.mapRecord) applyNavigation(cached.mapRecord, cached.assignments);
-    setNextNavigationLoading(Boolean(progressionRevision) && Boolean(cached?.mapRecord?.projectionToken));
-
-    (async () => {
-      if (!cached) {
-        cached = await readCourseMapLocalCacheAsync({ courseId: a.courseId, editorMode: false, userId: currentUserId });
-        if (!alive) return;
-        if (cached?.mapRecord) applyNavigation(cached.mapRecord, cached.assignments);
-      }
-      if (progressionRevision && cached?.mapRecord?.projectionToken) setNextNavigationLoading(true);
-      if (!cached?.mapRecord?.projectionToken) {
-        if (!cached?.mapRecord) {
-          try {
-            const rows = await getAssignmentsByCourse(a.courseId);
-            if (alive) applyNavigation(null, rows);
-          } catch {
-            if (alive) setNextOptions([]);
-          }
-        }
-        return;
-      }
-
-      try {
-        const projectionCourseId = cached.mapRecord.requestedCourseId || cached.requestedCourseId || a.courseId;
-        const delta = await getLearningCourseMapDelta(
-          projectionCourseId,
-          cached.mapRecord.projectionToken,
-          progressionRevision ? a.id : null,
-        );
-        if (!alive || !delta) return;
-        if (delta.resetRequired) {
-          const refreshed = await refreshCourseNextNavigationProjection({ projectionCourseId, courseId: a.courseId, currentUserId, cached });
-          if (alive && refreshed.mapRecord) {
-            applyNavigation(refreshed.mapRecord, refreshed.assignments);
-            if (progressionRevision) clearPendingCourseProgressionChange({ assignmentId: a.id, userId: currentUserId });
-          }
-          return;
-        }
-
-        const currentDocument = cached.mapRecord.document || { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        const removeNodeIds = new Set((delta.nodeIdsRemoved || []).map(String));
-        const removeEdgeIds = new Set((delta.edgeIdsRemoved || []).map(String));
-        const nodeById = new Map((currentDocument.nodes || [])
-          .filter((node) => !removeNodeIds.has(String(node?.id)))
-          .map((node) => [String(node.id), node]));
-        for (const node of delta.nodesAdded || []) {
-          if (node?.id) nodeById.set(String(node.id), node);
-        }
-        const edgeById = new Map((currentDocument.edges || [])
-          .filter((edge) => !removeEdgeIds.has(String(edge?.id)) && !removeNodeIds.has(String(edge?.source)) && !removeNodeIds.has(String(edge?.target)))
-          .map((edge) => [String(edge.id), edge]));
-        for (const edge of delta.edgesAdded || []) {
-          if (edge?.id) edgeById.set(String(edge.id), edge);
-        }
-
-        const assignmentById = new Map((cached.assignments || []).map((item) => [String(item?.id || ''), item]));
-        for (const item of delta.assignmentsChanged || []) {
-          if (!item?.id) continue;
-          const previous = assignmentById.get(String(item.id)) || {};
-          assignmentById.set(String(item.id), {
-            ...previous,
-            ...item,
-            isSolved: item.solvedByCurrentUser === true,
-            progressStatus: item.solvedByCurrentUser === true ? 'solved' : 'not-started',
-          });
-        }
-
-        const courseProgress = { ...(currentDocument.courseProgress || {}), ...(delta.courseProgress || {}) };
-        const mapRecord = {
-          ...cached.mapRecord,
-          version: Number(delta.version || cached.mapRecord.version || 0),
-          projectionToken: delta.projectionToken || cached.mapRecord.projectionToken,
-          projectionRevision: Number(delta.projectionRevision || cached.mapRecord.projectionRevision || 0),
-          document: {
-            ...currentDocument,
-            courseProgressVersion: 1,
-            courseProgress,
-            nodes: Array.from(nodeById.values()),
-            edges: Array.from(edgeById.values()),
-          },
-        };
-        const assignments = Array.from(assignmentById.values());
-        const courseById = new Map((cached.courses || []).map((item) => [String(item?.id || ''), item]));
-        for (const item of delta.coursesChanged || []) {
-          if (!item?.id) continue;
-          const previous = courseById.get(String(item.id)) || {};
-          courseById.set(String(item.id), { ...previous, ...item });
-        }
-        const courses = Array.from(courseById.values());
-        writeCourseMapLocalCache({
-          courseId: projectionCourseId,
-          rootCourseId: mapRecord.rootCourseId || cached.rootCourseId || projectionCourseId,
-          aliases: cached.aliases || [a.courseId],
-          editorMode: false,
-          userId: currentUserId,
-          mapRecord,
-          assignments,
-          courses,
-          pendingRevealNodeIds: (delta.nodesAdded || []).map((node) => String(node?.id || '')).filter(Boolean),
-        });
-        if (progressionRevision) clearPendingCourseProgressionChange({ assignmentId: a.id, userId: currentUserId });
-        applyNavigation(mapRecord, assignments);
-      } catch {
-        if (!cached?.mapRecord && alive) setNextOptions([]);
-      } finally {
-        if (alive) setNextNavigationLoading(false);
-      }
-    })();
-
-    return () => { alive = false; };
-  }, [a?.courseId, a?.id, progressionRevision, user?.id, user?.userId, user?.uuid]);
-
-  const refreshProgression = React.useCallback(() => {
-    markAssignmentProgressionCompleted({ queryClient, courseId: a?.courseId, assignmentId: a?.id || assignmentId, userId: String(user?.id || user?.userId || user?.uuid || '') });
-    setProgressionRevision((value) => value + 1);
-  }, [a?.courseId, a?.id, assignmentId, queryClient, user?.id, user?.userId, user?.uuid]);
+  const {
+    nextOptions,
+    nextNavigationLoading,
+    refreshProgression,
+    goNextAssignment,
+  } = useAssignmentNextNavigation({ assignment: a, assignmentId });
 
   const resetSolveUi = React.useCallback(() => {
     setResult(null);
@@ -701,12 +556,6 @@ export default function AssignmentSolvePage() {
     setImgError('');
     setImgCompare(null);
   }, []);
-
-  const goNextAssignment = React.useCallback((option = null) => {
-    const target = option?.id ? option : nextOptions.find((item) => item?.id && !item.disabled);
-    if (!target?.id) return;
-    nav(`/assignment/${target.id}`);
-  }, [nav, nextOptions]);
 
   
   

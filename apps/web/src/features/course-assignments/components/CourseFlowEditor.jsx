@@ -49,7 +49,7 @@ import {
   COURSE_PROGRESSION_CHANGED_EVENT,
   COURSE_PROGRESSION_STORAGE_KEY,
   clearPendingCourseProgressionChange,
-  clearPendingCourseProgressionChangesForCourses,
+  isAssignmentProgressionConfirmed,
   listPendingCourseProgressionChanges,
 } from '../courseProgressionFreshness';
 import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
@@ -351,6 +351,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const unplacedDebugRef = React.useRef('');
   const learnerEntryFocusRef = React.useRef({ viewKey: '', lastTargetId: '', fallbackCentered: false, completed: false });
   const learnerProjectionSettledRef = React.useRef(false);
+  const progressionRetryRef = React.useRef({ viewKey: '', attempts: 0, timer: null });
 
   const rootId = String(course?.id || '');
   const modeName = courseMapMode(editorMode);
@@ -403,6 +404,34 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const entityIndex = React.useMemo(() => buildEntityIndex(visibleCourses, assignments), [assignments, visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
   const cacheCourseIds = React.useMemo(() => visibleCourses.map((item) => String(item?.id || '')).filter(Boolean), [visibleCourses]);
+  const clearProgressionRetry = React.useCallback(() => {
+    if (progressionRetryRef.current.timer && typeof window !== 'undefined') {
+      window.clearTimeout(progressionRetryRef.current.timer);
+    }
+    progressionRetryRef.current.timer = null;
+  }, []);
+
+  const resetProgressionRetry = React.useCallback(() => {
+    clearProgressionRetry();
+    progressionRetryRef.current = { viewKey, attempts: 0, timer: null };
+  }, [clearProgressionRetry, viewKey]);
+
+  const scheduleProgressionRetry = React.useCallback((reason) => {
+    if (editorMode || !rootId || typeof window === 'undefined') return;
+    if (progressionRetryRef.current.viewKey !== viewKey) {
+      progressionRetryRef.current = { viewKey, attempts: 0, timer: null };
+    }
+    const delays = [120, 240, 460, 820, 1400, 2400];
+    const attempt = progressionRetryRef.current.attempts;
+    if (attempt >= delays.length || progressionRetryRef.current.timer) return;
+    progressionRetryRef.current.attempts = attempt + 1;
+    progressionRetryRef.current.timer = window.setTimeout(() => {
+      progressionRetryRef.current.timer = null;
+      courseMapConsole('PROGRESSION_RETRY', { viewKey, reason, attempt: attempt + 1 });
+      void loadMapRef.current?.({ preferSession: true, quiet: true });
+    }, delays[attempt]);
+  }, [editorMode, rootId, viewKey]);
+
   const sessionOptions = React.useMemo(() => ({
     scope: editorMode ? 'editor' : 'learner',
     userId: currentUserId || 'anonymous',
@@ -1714,18 +1743,32 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey) return;
             if (!delta?.resetRequired) {
               applyLearnerDelta(delta);
-              if (pendingChangedAssignmentId) {
+              const progressionConfirmed = !pendingChangedAssignmentId
+                || isAssignmentProgressionConfirmed(assignmentsRef.current, pendingChangedAssignmentId);
+              if (pendingChangedAssignmentId && progressionConfirmed) {
                 clearPendingCourseProgressionChange({ assignmentId: pendingChangedAssignmentId, userId: currentUserId });
+                resetProgressionRetry();
               }
               // CreateDeltaAsync always verifies map metadata against education-api with
               // forceFreshMeta=true. A successful delta therefore proves that the cached
               // graph version is still authoritative without rebuilding the whole snapshot.
               updateLearnerProjectionRecord({ verifiedAt: Date.now() });
               persistLearnerGraph('server-version-verified');
+              if (pendingChangedAssignmentId && !progressionConfirmed) {
+                courseMapConsole('PROGRESSION_UNCONFIRMED', {
+                  requestId,
+                  viewKey,
+                  assignmentId: pendingChangedAssignmentId,
+                  source: 'delta',
+                }, 'warn');
+                scheduleProgressionRetry('delta-unconfirmed');
+              }
               courseMapConsole('LOAD_END', {
                 requestId,
                 viewKey,
-                path: forceFullRevalidation ? 'cache+authoritative-delta' : 'cache+delta',
+                path: pendingChangedAssignmentId && !progressionConfirmed
+                  ? 'cache+delta-awaiting-progression'
+                  : forceFullRevalidation ? 'cache+authoritative-delta' : 'cache+delta',
                 durationMs: Math.round((performance.now() - started) * 10) / 10,
               });
               return;
@@ -1770,14 +1813,24 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           // could not run (for example during a rolling deployment).
           fresh: (forceFullRevalidation && !token) || deltaVerificationFailed,
         });
-        clearPendingCourseProgressionChangesForCourses({
-          courseIds: [
-            rootId,
-            ...mapCoursesRef.current.map((item) => String(item?.id || '')),
-            ...assignmentsRef.current.map((item) => String(item?.courseId || '')),
-          ].filter(Boolean),
-          userId: currentUserId,
-        });
+        const unresolvedProgressionChanges = pendingProgressionChanges.filter((change) =>
+          !isAssignmentProgressionConfirmed(assignmentsRef.current, change.assignmentId));
+        for (const change of pendingProgressionChanges) {
+          if (!unresolvedProgressionChanges.some((item) => item.assignmentId === change.assignmentId)) {
+            clearPendingCourseProgressionChange({ assignmentId: change.assignmentId, userId: currentUserId });
+          }
+        }
+        if (pendingProgressionChanges.length && unresolvedProgressionChanges.length === 0) {
+          resetProgressionRetry();
+        } else if (unresolvedProgressionChanges.length) {
+          courseMapConsole('PROGRESSION_UNCONFIRMED', {
+            requestId,
+            viewKey,
+            assignmentIds: unresolvedProgressionChanges.map((item) => item.assignmentId),
+            source: 'stream',
+          }, 'warn');
+          scheduleProgressionRetry('stream-unconfirmed');
+        }
         courseMapConsole('LOAD_END', {
           requestId,
           viewKey,
@@ -1858,9 +1911,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     } finally {
       if (requestId === loadRequestRef.current && initialForView && !restoredFromCache) setLoading(false);
     }
-  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, persistLearnerGraph, rootId, sessionOptions, streamLearnerMap, updateLearnerProjectionRecord, viewKey]);
+  }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, persistLearnerGraph, resetProgressionRetry, rootId, scheduleProgressionRetry, sessionOptions, streamLearnerMap, updateLearnerProjectionRecord, viewKey]);
 
   loadMapRef.current = loadMap;
+  React.useEffect(() => {
+    resetProgressionRetry();
+    return () => clearProgressionRetry();
+  }, [clearProgressionRetry, resetProgressionRetry]);
+
   React.useEffect(() => {
     if (!rootId) return;
     const alreadyLoaded = loadedViewRef.current === viewKey;
