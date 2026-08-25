@@ -1,3 +1,5 @@
+import { clearLearnerCourseMapSessionStates } from './courseMapSessionState';
+
 export const COURSE_PROGRESSION_STORAGE_KEY = 'taskforge.course-progression.freshness.v1';
 const STORAGE_KEY = COURSE_PROGRESSION_STORAGE_KEY;
 export const COURSE_PROGRESSION_CHANGED_EVENT = 'taskforge:course-progression-changed';
@@ -83,6 +85,7 @@ export function markCourseProgressionChanged({ courseId = '', assignmentId = '',
 }
 
 export function markAssignmentProgressionCompleted({ queryClient, courseId = '', assignmentId = '', userId = '' } = {}) {
+  clearLearnerCourseMapSessionStates(userId);
   markCourseProgressionChanged({ courseId, assignmentId, userId });
   queryClient?.setQueryData(['page-state', 'courses'], (previous) => previous ? ({
     ...previous,

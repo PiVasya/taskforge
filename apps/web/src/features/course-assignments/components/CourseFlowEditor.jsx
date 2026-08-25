@@ -43,7 +43,7 @@ import {
   serializeCourseMap,
   wouldCreateCycle,
 } from '../courseMapModel';
-import { clearCourseMapSessionState, getCourseMapSessionState, setCourseMapSessionState } from '../courseMapSessionState';
+import { clearCourseMapSessionState, getCourseMapSessionState, learnerCourseMapSessionMatchesProjection, setCourseMapSessionState } from '../courseMapSessionState';
 import { clearCourseMapLocalCache, courseMapCacheNeedsFullRevalidation, readCourseMapLocalCache, readCourseMapLocalCacheAsync, writeCourseMapLocalCache } from '../courseMapLocalCache';
 import {
   COURSE_PROGRESSION_CHANGED_EVENT,
@@ -673,6 +673,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     };
     setCourseMapSessionState(rootId, {
       version: recordRef.current.version || 0,
+      projectionToken: editorMode ? '' : (projectionTokenRef.current || recordRef.current.projectionToken || ''),
+      projectionRevision: editorMode ? 0 : Number(recordRef.current.projectionRevision || 0),
       dirty: dirtyValue,
       aliases: cacheCourseIds,
       sourceMode: modeName,
@@ -868,6 +870,20 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
     const suppliedCourseProgress = editorMode ? new Map() : readCourseProgress(mapRecord?.document);
     let session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
+    if (!editorMode && session?.document && !learnerCourseMapSessionMatchesProjection(session, mapRecord)) {
+      courseMapConsole('SESSION_DISCARD', {
+        reason: 'learner-projection-mismatch',
+        rootCourseId: rootId,
+        sessionVersion: Number(session?.version || 0),
+        serverVersion: Number(mapRecord?.version || 0),
+        sessionProjectionRevision: Number(session?.projectionRevision || 0),
+        recordProjectionRevision: Number(mapRecord?.projectionRevision || 0),
+        sessionHasProjectionToken: Boolean(session?.projectionToken),
+        recordHasProjectionToken: Boolean(mapRecord?.projectionToken),
+      }, 'warn');
+      clearCourseMapSessionState(rootId, sessionOptions);
+      session = null;
+    }
     if (editorMode && session?.document && documentHasLearnerSyntheticArtifacts(session.document)) {
       courseMapConsoleGraph('SYNTHETIC_GUARD', {
         reason: 'discard-editor-session',
@@ -1001,6 +1017,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
     setCourseMapSessionState(rootId, {
       version: Number(expectedRecord.version || 0),
+      projectionToken: editorMode ? '' : String(expectedRecord.projectionToken || mapRecord?.projectionToken || ''),
+      projectionRevision: editorMode ? 0 : Number(expectedRecord.projectionRevision || mapRecord?.projectionRevision || 0),
       dirty: Boolean(isDirty),
       aliases: cacheCourseIds,
       sourceMode: modeName,
@@ -1297,6 +1315,16 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     };
     recordRef.current = mapRecord;
     setRecord(mapRecord);
+    setCourseMapSessionState(rootId, {
+      version: Number(mapRecord.version || 0),
+      projectionToken: String(mapRecord.projectionToken || ''),
+      projectionRevision: Number(mapRecord.projectionRevision || 0),
+      dirty: false,
+      aliases: mapCoursesRef.current.map((item) => String(item?.id || '')).filter(Boolean),
+      sourceMode: 'learner',
+      source: source.source,
+      document,
+    }, sessionOptions);
     writeCourseMapLocalCache({
       courseId: rootId,
       rootCourseId: mapRecord.rootCourseId,
@@ -1319,7 +1347,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       edges: edgesRef.current,
     });
     return true;
-  }, [currentUserId, editorMode, rootId, viewKey]);
+  }, [currentUserId, editorMode, rootId, sessionOptions, viewKey]);
 
   persistLearnerGraphRef.current = persistLearnerGraph;
 
@@ -1646,12 +1674,24 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         clearCourseMapSessionState(rootId, sessionOptions);
         cached = null;
       } else if (cached?.mapRecord && cacheHasProgress) {
+        const cacheProgressionChanges = editorMode ? [] : listPendingCourseProgressionChanges({
+          courseIds: [rootId, ...(cached?.aliases || [])].filter(Boolean),
+          userId: currentUserId,
+        });
         const applied = applyMapPayload(cached.mapRecord, cached.assignments, {
-          preferSession: true,
+          preferSession: cacheProgressionChanges.length === 0,
           fromCache: true,
           cachedState: cached,
           source: `${modeName}-cache:${cacheLayer}`,
         });
+        if (cacheProgressionChanges.length) {
+          courseMapConsole('SESSION_BYPASS', {
+            requestId,
+            viewKey,
+            reason: 'pending-progression',
+            assignmentIds: cacheProgressionChanges.map((item) => item.assignmentId),
+          });
+        }
         restoredFromCache = applied === true;
         if (restoredFromCache && !editorMode) {
           projectionTokenRef.current = String(cached.mapRecord?.projectionToken || '');

@@ -246,6 +246,17 @@ if (!/activeViewRef/.test(courseFlowEditor) || !/modeTransitionRef/.test(courseF
 if (!/SYNTHETIC_GUARD/.test(courseFlowEditor) || !/hasLearnerSyntheticArtifacts/.test(courseFlowEditor)) {
   fail('editor course map lost the learner synthetic-node guard');
 }
+const courseMapSessionState = read('features/course-assignments/courseMapSessionState.js');
+const courseProgressionFreshness = read('features/course-assignments/courseProgressionFreshness.js');
+if (!/learnerCourseMapSessionMatchesProjection/.test(courseMapSessionState)
+  || !/projectionToken/.test(courseMapSessionState)
+  || !/projectionRevision/.test(courseMapSessionState)
+  || !/learnerCourseMapSessionMatchesProjection/.test(courseFlowEditor)) {
+  fail('learner course-map session can override a newer progression projection');
+}
+if (!/clearLearnerCourseMapSessionStates/.test(courseProgressionFreshness)) {
+  fail('accepted assignments no longer invalidate stale learner course-map sessions');
+}
 if (/loadedRootRef/.test(courseFlowEditor)) {
   fail('course map load identity regressed to root-only state and can mix learner/editor graphs');
 }
