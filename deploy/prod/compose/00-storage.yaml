@@ -27,7 +27,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - postgres-data:/var/lib/postgresql
-      - ../../../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ${TASKFORGE_POSTGRES_INIT_DIR:?set TASKFORGE_POSTGRES_INIT_DIR}:/docker-entrypoint-initdb.d:ro
     ports:
       - ${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432
     healthcheck:

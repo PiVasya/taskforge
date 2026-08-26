@@ -9,6 +9,7 @@ services:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       GATEWAY_AI_TELEMETRY_LOG_RETENTION_SECONDS: ${GATEWAY_AI_TELEMETRY_LOG_RETENTION_SECONDS:-21600}
       BROWSER_EDGE_RATE_RPS: ${BROWSER_EDGE_RATE_RPS:-25}
+      BROWSER_API_UPSTREAM: ${BROWSER_API_UPSTREAM:-browser-api:8080}
       GATEWAY_MODE: ${GATEWAY_MODE:-auto}
       TASKFORGE_NODE_ROLE: ${TASKFORGE_NODE_ROLE:-primary}
       TASKFORGE_HA_DYNAMIC_READY: ${TASKFORGE_CLUSTER_ENABLED:-false}
@@ -57,8 +58,6 @@ services:
       notifications-api:
         condition: service_healthy
       observability-api:
-        condition: service_healthy
-      browser-api:
         condition: service_healthy
     healthcheck:
       test:

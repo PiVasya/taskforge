@@ -171,11 +171,11 @@ export function useShellNavigation() {
             active: active('/admin/minecraft-links'),
           },
           {
-            to: '/admin/system-status',
-            label: 'Статус',
-            subtitle: 'Компоненты и раннеры',
+            to: '/admin/cluster',
+            label: 'Кластер',
+            subtitle: 'Серверы и контейнеры',
             icon: Activity,
-            active: active('/admin/system-status'),
+            active: active('/admin/cluster'),
           },
           {
             to: '/admin/feature-roles',

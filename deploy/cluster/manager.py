@@ -30,6 +30,15 @@ DEFAULT_INVENTORY = HERE / "inventory.json"
 NODE_ID_FILE = RUNTIME / "node-id"
 
 
+
+def atomic_write_text(path: Path, text: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
+    tmp.write_text(text, encoding="utf-8")
+    if mode is not None:
+        os.chmod(tmp, mode)
+    tmp.replace(path)
+
 def fail(message: str) -> NoReturn:
     raise SystemExit(f"error: {message}")
 
@@ -260,6 +269,13 @@ def descriptor_from_args(args: argparse.Namespace, public_key: str) -> dict[str,
         "priority": args.priority,
         "public_host": args.public_ip,
         "quorum_voter": bool(args.quorum_voter),
+        "app": {
+            "profile": args.app_profile,
+            "can_be_primary": bool(args.can_be_primary),
+            "assist_on_failover": bool(args.assist_on_failover),
+            "exclude_services": [x for x in args.exclude_service if x],
+            "assist_exclude_services": [x for x in args.assist_exclude_service if x],
+        },
         "wireguard": {"ip": args.wg_ip, "listen_port": args.wg_port, "public_key": public_key},
         "web": {"http_port": args.http_port, "https_port": args.https_port},
         "postgres": {"local_port": args.postgres_port, "cluster_port": 5432, "patroni_rest_port": args.patroni_port},
@@ -273,15 +289,39 @@ def render_quorum(inv: dict[str, Any], output: Path) -> None:
     if len(voters) < 3 or len(voters) % 2 == 0:
         fail("need an odd number of at least three quorum_voter nodes")
     nodes = []
+    ranked = sorted(inv["nodes"], key=lambda item: int(item.get("priority", 0)), reverse=True)
+    rank_by_id = {str(item["id"]): idx for idx, item in enumerate(ranked)}
     for n in inv["nodes"]:
         pg = n["postgres"]
         mi = n["minio"]
+        app = n.get("app") if isinstance(n.get("app"), dict) else None
+        if app is None:
+            # Backward-compatible v39 -> v40 default: two strongest nodes are
+            # full failover candidates, the remaining voters keep a lite copy
+            # and assist only after a real failover.
+            if rank_by_id[str(n["id"])] < 2:
+                app = {
+                    "profile": "full",
+                    "can_be_primary": True,
+                    "assist_on_failover": False,
+                    "exclude_services": [],
+                    "assist_exclude_services": [],
+                }
+            else:
+                app = {
+                    "profile": "lite",
+                    "can_be_primary": False,
+                    "assist_on_failover": True,
+                    "exclude_services": ["browser-api", "image-analyzer"],
+                    "assist_exclude_services": ["support-bot", "telegram-quiz-bot", "rating-worker"],
+                }
         nodes.append({
             "id": n["id"],
             "priority": n["priority"],
             "platform": "linux",
             "public_host": n["public_host"],
             "dcs_voter": bool(n.get("quorum_voter", False)),
+            "app": app,
             "wireguard": n["wireguard"],
             "web": {**n["web"], "tls_mode": "origin-ca"},
             "postgres": {"host_port": int(pg.get("cluster_port", 5432)), "patroni_rest_port": int(pg.get("patroni_rest_port", 8008))},
@@ -321,7 +361,13 @@ def main() -> int:
     p.add_argument("--http-port", type=int, default=80); p.add_argument("--https-port", type=int, default=443)
     p.add_argument("--postgres-port", type=int, default=5432); p.add_argument("--patroni-port", type=int, default=8008)
     p.add_argument("--minio-port", type=int, default=9000); p.add_argument("--minio-console-port", type=int, default=9001)
-    p.add_argument("--health-port", type=int, default=9187); p.add_argument("--quorum-voter", action="store_true"); p.add_argument("--output", required=True)
+    p.add_argument("--health-port", type=int, default=9187); p.add_argument("--quorum-voter", action="store_true")
+    p.add_argument("--app-profile", choices=("full", "lite", "none"), default="full")
+    p.add_argument("--can-be-primary", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--assist-on-failover", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--exclude-service", action="append", default=[])
+    p.add_argument("--assist-exclude-service", action="append", default=[])
+    p.add_argument("--output", required=True)
     p = sub.add_parser("add-node"); p.add_argument("descriptor")
     p = sub.add_parser("render-quorum"); p.add_argument("--output", default=str(HERE / "cluster.json"))
     sub.add_parser("cloudflare")
@@ -340,7 +386,7 @@ def main() -> int:
     if args.command == "set-node":
         node_by_id(inv, args.node)
         RUNTIME.mkdir(parents=True, exist_ok=True)
-        NODE_ID_FILE.write_text(args.node + "\n", encoding="utf-8")
+        atomic_write_text(NODE_ID_FILE, args.node + "\n", 0o600)
         os.chmod(NODE_ID_FILE, 0o600); chown_deployment_owner(NODE_ID_FILE)
         print(args.node)
     elif args.command == "node-info":
@@ -350,7 +396,7 @@ def main() -> int:
     elif args.command == "render-wireguard":
         node = node_by_id(inv, current_node(args.node))
         private = Path(args.private_key_file).read_text(encoding="utf-8").strip()
-        Path(args.output).write_text(wireguard_config(inv, node, private), encoding="utf-8")
+        atomic_write_text(Path(args.output), wireguard_config(inv, node, private), 0o600)
         os.chmod(args.output, 0o600)
         print(args.output)
     elif args.command == "add-node":
@@ -368,7 +414,19 @@ def main() -> int:
         print(json.dumps({
             "traffic_steering": "off",
             "origins": [
-                {"node": n["id"], "address": n["public_host"], "http_port": n["web"]["http_port"], "https_port": n["web"]["https_port"], "health_path": "/ha/traffic-ready", "health_port": n.get("health_port", 9187)}
+                {
+                    "node": n["id"],
+                    "address": n["public_host"],
+                    "http_port": n["web"]["http_port"],
+                    "https_port": n["web"]["https_port"],
+                    # External load balancers must probe the public web origin.
+                    # The dedicated 9187 controller endpoint binds to WireGuard
+                    # and is intentionally not exposed through the host firewall.
+                    "health_path": "/ha/traffic-ready",
+                    "health_port": n["web"]["https_port"],
+                    "health_protocol": "https",
+                    "internal_cluster_health_port": n.get("health_port", 9187),
+                }
                 for n in sorted(inv["nodes"], key=lambda x: int(x["priority"]), reverse=True)
             ],
         }, ensure_ascii=False, indent=2))

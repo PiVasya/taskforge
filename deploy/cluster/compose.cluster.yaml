@@ -17,11 +17,12 @@ services:
       - ${CLUSTER_POSTGRES_BIND:?render cluster node config}:${CLUSTER_POSTGRES_PORT:?render cluster node config}:5432
       - ${CLUSTER_PATRONI_BIND:?render cluster node config}:${CLUSTER_PATRONI_REST_PORT:?render cluster node config}:8008
     healthcheck:
-      # Deliberately healthy only on the current primary. This prevents an
-      # accidental `compose up` from starting write-capable APIs on a replica.
+      # Docker health describes PostgreSQL process readiness on both primary
+      # and standby. Patroni /primary + the host Node Agent are the authority
+      # that gates write-capable TaskForge application startup.
       test:
         - CMD-SHELL
-        - curl -fsS http://127.0.0.1:8008/primary >/dev/null
+        - pg_isready -U ${POSTGRES_USER:-taskforge} -d postgres
       interval: 5s
       timeout: 3s
       retries: 3
@@ -61,7 +62,7 @@ services:
       start_period: 15s
 
   gateway:
-    restart: "no"
+    restart: "on-failure:5"
     environment:
       TASKFORGE_HA_DYNAMIC_READY: "true"
       HA_NODE_ID: ${CLUSTER_NODE_ID:?render cluster node config}
@@ -71,44 +72,50 @@ services:
       - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/tls:/etc/taskforge-origin-tls:ro
       - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/readiness:/run/taskforge-cluster:ro
 
-  front: { restart: "no" }
-  front-ct: { restart: "no" }
-  identity-api: { restart: "no" }
-  education-api: { restart: "no" }
+  front: { restart: "on-failure:5" }
+  front-ct: { restart: "on-failure:5" }
+  identity-api: { restart: "on-failure:5" }
+  education-api: { restart: "on-failure:5" }
   content-api:
-    restart: "no"
+    restart: "on-failure:5"
     volumes:
       - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/shared/content-data-protection:/root/.aspnet/DataProtection-Keys
   quiz-api:
-    restart: "no"
+    restart: "on-failure:5"
     volumes:
       - ${TASKFORGE_ROOT:?set TASKFORGE_ROOT}/.runtime/cluster/shared/quiz-data-protection:/root/.aspnet/DataProtection-Keys
-  tasks-api: { restart: "no" }
-  solutions-api: { restart: "no" }
-  rating-worker: { restart: "no" }
-  execution-api: { restart: "no" }
-  execution-worker: { restart: "no" }
-  csharp-runner: { restart: "no" }
-  cpp-runner: { restart: "no" }
-  java-runner: { restart: "no" }
-  javascript-runner: { restart: "no" }
-  pascal-runner: { restart: "no" }
-  python-runner: { restart: "no" }
-  image-cpp-runner: { restart: "no" }
-  image-pascal-runner: { restart: "no" }
-  image-python-runner: { restart: "no" }
-  ai-api: { restart: "no" }
-  ai-worker: { restart: "no" }
-  code-analyzer: { restart: "no" }
-  image-analyzer: { restart: "no" }
-  support-api: { restart: "no" }
-  support-bot: { restart: "no" }
-  minecraft-api: { restart: "no" }
-  files-api: { restart: "no" }
-  notifications-api: { restart: "no" }
-  observability-api: { restart: "no" }
-  browser-api: { restart: "no" }
-  telegram-quiz-bot: { restart: "no" }
+  tasks-api: { restart: "on-failure:5" }
+  solutions-api: { restart: "on-failure:5" }
+  rating-worker: { restart: "on-failure:5" }
+  execution-api: { restart: "on-failure:5" }
+  execution-worker: { restart: "on-failure:5" }
+  csharp-runner: { restart: "on-failure:5" }
+  cpp-runner: { restart: "on-failure:5" }
+  java-runner: { restart: "on-failure:5" }
+  javascript-runner: { restart: "on-failure:5" }
+  pascal-runner: { restart: "on-failure:5" }
+  python-runner: { restart: "on-failure:5" }
+  image-cpp-runner: { restart: "on-failure:5" }
+  image-pascal-runner: { restart: "on-failure:5" }
+  image-python-runner: { restart: "on-failure:5" }
+  ai-api: { restart: "on-failure:5" }
+  ai-worker: { restart: "on-failure:5" }
+  code-analyzer: { restart: "on-failure:5" }
+  image-analyzer:
+    restart: "on-failure:5"
+    ports:
+      - ${CLUSTER_WG_IP:?render cluster node config}:${TASKFORGE_IMAGE_ANALYZER_CLUSTER_PORT:-18090}:8080
+  support-api: { restart: "on-failure:5" }
+  support-bot: { restart: "on-failure:5" }
+  minecraft-api: { restart: "on-failure:5" }
+  files-api: { restart: "on-failure:5" }
+  notifications-api: { restart: "on-failure:5" }
+  observability-api: { restart: "on-failure:5" }
+  browser-api:
+    restart: "on-failure:5"
+    ports:
+      - ${CLUSTER_WG_IP:?render cluster node config}:${TASKFORGE_BROWSER_CLUSTER_PORT:-18080}:8080
+  telegram-quiz-bot: { restart: "on-failure:5" }
 
 volumes:
   postgres-cluster-data:

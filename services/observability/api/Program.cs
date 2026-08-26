@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Observability.Api.Data;
 using TaskForge.Observability.Api.Domain;
+using TaskForge.Observability.Api.Services.Cluster;
 
 using TaskForge.Observability.Api.Endpoints;
 using static TaskForge.Observability.Api.Services.Common.ObservabilityApiCommonService;
@@ -17,6 +18,8 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<ClusterTelemetryService>();
+builder.Services.AddHostedService<ClusterTelemetryService>(sp => sp.GetRequiredService<ClusterTelemetryService>());
 builder.Services.AddDbContext<ObservabilityDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
 

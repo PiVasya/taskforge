@@ -15,7 +15,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
       Services__SupportBot: http://support-bot:8080
@@ -45,8 +45,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -86,7 +86,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
@@ -98,8 +98,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -139,7 +139,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
@@ -151,8 +151,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -194,7 +194,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
@@ -206,8 +206,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -241,6 +241,7 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      Services__ImageAnalyzer: http://${IMAGE_ANALYZER_UPSTREAM:-image-analyzer:8080}
       AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
       AiAccounts__UnlimitedTaskRateLimit: ${AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT:-true}
       AiAccounts__UnlimitedTaskAttempts: ${AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS:-true}
@@ -254,7 +255,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       Services__IdentityApi: http://identity-api:8080
       Services__EducationApi: http://education-api:8080
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -270,8 +271,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -334,7 +335,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       Services__IdentityApi: http://identity-api:8080
       Services__EducationApi: http://education-api:8080
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -350,8 +351,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -385,7 +386,7 @@ services:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=taskforge_solutions;Username=${POSTGRES_USER:-taskforge};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}
@@ -393,8 +394,8 @@ services:
       Rating__DirtyIntervalMinutes: ${RATING_DIRTY_INTERVAL_MINUTES:-10}
       Rating__FullRebuildIntervalHours: ${RATING_FULL_REBUILD_INTERVAL_HOURS:-24}
       Rating__DirtyBatchSize: ${RATING_DIRTY_BATCH_SIZE:-500}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}

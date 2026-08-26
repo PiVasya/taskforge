@@ -105,7 +105,8 @@ export default function App() {
               <Route path="/admin/support/:ticketId" element={<SupportChatPage />} />
               <Route path="/admin/groups" element={<AdminGroupsPage />} />
               <Route path="/admin/feature-roles" element={<AdminFeatureRolesPage />} />
-              <Route path="/admin/system-status" element={<AdminSystemStatusPage />} />
+              <Route path="/admin/cluster" element={<AdminSystemStatusPage />} />
+              <Route path="/admin/system-status" element={<Navigate to="/admin/cluster" replace />} />
               <Route path="/admin/ai" element={<Navigate to="/admin/ai/account-manager" replace />} />
               <Route path="/admin/ai/account-manager" element={<AdminAiAccountManagerPage />} />
               <Route path="/admin/ai/assistant" element={<AgentPage />} />

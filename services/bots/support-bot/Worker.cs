@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -15,8 +16,36 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     private TelegramBotClient? _bot;
     private long _supportGroupId;
     private long _aiAccessChatId;
+    private readonly ConcurrentDictionary<string, byte> _deliveredClusterEvents = new(StringComparer.Ordinal);
 
     public bool TelegramReady => _bot != null;
+
+    public async Task<bool> SendClusterEventAsync(ClusterEventNotification evt, CancellationToken ct)
+    {
+        if (_bot == null || _supportGroupId == 0) return false;
+        var eventId = evt.Id?.Trim() ?? string.Empty;
+        if (eventId.Length > 0 && _deliveredClusterEvents.ContainsKey(eventId)) return true;
+
+        var icon = evt.Severity?.ToLowerInvariant() switch
+        {
+            "error" => "🔴",
+            "warning" => "⚠️",
+            "success" => "🟢",
+            _ => "ℹ️"
+        };
+        var title = string.IsNullOrWhiteSpace(evt.Title) ? "TaskForge cluster" : evt.Title.Trim();
+        var node = string.IsNullOrWhiteSpace(evt.Node) ? string.Empty : $"\nНода: {evt.Node.Trim()}";
+        var message = string.IsNullOrWhiteSpace(evt.Message) ? string.Empty : $"\n{evt.Message.Trim()}";
+        var text = $"{icon} <b>{WebUtility.HtmlEncode(title)}</b>{WebUtility.HtmlEncode(node)}{WebUtility.HtmlEncode(message)}";
+        await _bot.SendTextMessageAsync(_supportGroupId, text, parseMode: ParseMode.Html, cancellationToken: ct);
+
+        if (eventId.Length > 0)
+        {
+            _deliveredClusterEvents.TryAdd(eventId, 0);
+            if (_deliveredClusterEvents.Count > 5000) _deliveredClusterEvents.Clear();
+        }
+        return true;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

@@ -142,6 +142,33 @@ class Node:
         return bool(self.raw.get("dcs_voter", False))
 
     @property
+    def app_profile(self) -> str:
+        app = self.raw.get("app", {})
+        return str(app.get("profile", "full")) if isinstance(app, dict) else "full"
+
+    @property
+    def can_be_primary(self) -> bool:
+        app = self.raw.get("app", {})
+        return bool(app.get("can_be_primary", True)) if isinstance(app, dict) else True
+
+    @property
+    def assist_on_failover(self) -> bool:
+        app = self.raw.get("app", {})
+        return bool(app.get("assist_on_failover", False)) if isinstance(app, dict) else False
+
+    @property
+    def app_exclude_services(self) -> tuple[str, ...]:
+        app = self.raw.get("app", {})
+        raw = app.get("exclude_services", []) if isinstance(app, dict) else []
+        return tuple(str(x) for x in raw if str(x).strip()) if isinstance(raw, list) else ()
+
+    @property
+    def assist_exclude_services(self) -> tuple[str, ...]:
+        app = self.raw.get("app", {})
+        raw = app.get("assist_exclude_services", []) if isinstance(app, dict) else []
+        return tuple(str(x) for x in raw if str(x).strip()) if isinstance(raw, list) else ()
+
+    @property
     def wg_ip(self) -> str:
         return str(self.raw["wireguard"]["ip"])
 
@@ -278,6 +305,22 @@ class Cluster:
                 errors.append(f"{label}.platform must be linux or windows-hyperv-vm")
             if not isinstance(doc.get("dcs_voter", False), bool):
                 errors.append(f"{label}.dcs_voter must be true or false")
+            app_cfg = doc.get("app", {})
+            if not isinstance(app_cfg, dict):
+                errors.append(f"{label}.app must be an object")
+                app_cfg = {}
+            app_profile = str(app_cfg.get("profile", "full"))
+            if app_profile not in {"full", "lite", "none"}:
+                errors.append(f"{label}.app.profile must be full, lite or none")
+            for bool_key in ("can_be_primary", "assist_on_failover"):
+                if not isinstance(app_cfg.get(bool_key, bool_key == "can_be_primary"), bool):
+                    errors.append(f"{label}.app.{bool_key} must be true or false")
+            for list_key in ("exclude_services", "assist_exclude_services"):
+                value = app_cfg.get(list_key, [])
+                if not isinstance(value, list) or any(not isinstance(x, str) or not x.strip() for x in value):
+                    errors.append(f"{label}.app.{list_key} must be an array of non-empty service names")
+            if app_cfg.get("assist_on_failover", False) and app_profile == "none":
+                errors.append(f"{label}.app.assist_on_failover requires a full or lite app profile")
             host = str(doc.get("public_host", ""))
             if not host or "://" in host or not HOST_RE.fullmatch(host):
                 errors.append(f"{label}.public_host must be an IP/DNS name without a URL scheme")
@@ -389,6 +432,13 @@ class Cluster:
         voters = [n for n in nodes if n.dcs_voter]
         if len(voters) < 3 or len(voters) % 2 == 0:
             errors.append("dcs_voter count must be an odd number of at least three")
+        primary_candidates = [n for n in nodes if n.can_be_primary]
+        if len(primary_candidates) < 2:
+            errors.append("at least two nodes must have app.can_be_primary=true for automatic failover")
+        if preferred in ids:
+            preferred_candidate = next((n for n in nodes if n.id == preferred), None)
+            if preferred_candidate is not None and not preferred_candidate.can_be_primary:
+                errors.append("preferred_primary must have app.can_be_primary=true")
         for key in (
             "failback_delay_seconds", "failback_stable_seconds",
             "maximum_lag_on_failover_bytes", "maximum_lag_on_failback_bytes",
@@ -421,7 +471,7 @@ def current_node_id(explicit: str | None = None) -> str:
         return value
     if NODE_ID_FILE.is_file():
         return NODE_ID_FILE.read_text(encoding="utf-8").strip()
-    raise ValueError("local node id is not set; run sudo cluster/set-node.sh NODE_ID")
+    raise ValueError("local node id is not set; run sudo cluster/ops/quorum/set-node.sh NODE_ID")
 
 
 def env_line(key: str, value: Any) -> str:
@@ -458,6 +508,11 @@ def render(cluster: Cluster, node: Node, env_file: Path) -> dict[str, Path]:
         env_line("HA_NODE_ID", node.id),
         env_line("CLUSTER_NODE_PRIORITY", node.priority),
         env_line("CLUSTER_DCS_VOTER", str(node.dcs_voter).lower()),
+        env_line("CLUSTER_APP_PROFILE", node.app_profile),
+        env_line("CLUSTER_CAN_BE_PRIMARY", str(node.can_be_primary).lower()),
+        env_line("CLUSTER_ASSIST_ON_FAILOVER", str(node.assist_on_failover).lower()),
+        env_line("CLUSTER_APP_EXCLUDE_SERVICES", ",".join(node.app_exclude_services)),
+        env_line("CLUSTER_ASSIST_EXCLUDE_SERVICES", ",".join(node.assist_exclude_services)),
         env_line("CLUSTER_WG_IP", node.wg_ip),
         env_line("CLUSTER_POSTGRES_BIND", node.wg_ip),
         env_line("CLUSTER_POSTGRES_PORT", node.postgres_port),
@@ -478,8 +533,15 @@ def render(cluster: Cluster, node: Node, env_file: Path) -> dict[str, Path]:
         env_line("MINIO_PORT", node.minio_port),
         env_line("MINIO_CONSOLE_BIND", node.wg_ip),
         env_line("MINIO_CONSOLE_PORT", node.minio_console_port),
+        env_line("RABBITMQ_BIND", node.wg_ip),
+        env_line("RABBITMQ_PORT", 5672),
+        env_line("REDIS_BIND", node.wg_ip),
+        env_line("REDIS_PORT", 6379),
         env_line("CLUSTER_HEALTH_BIND", node.wg_ip),
         env_line("CLUSTER_HEALTH_PORT", node.health_port),
+        env_line("TASKFORGE_CLUSTER_AGENT_URLS", ";".join(f"http://{endpoint_host(n.wg_ip)}:{n.health_port}" for n in cluster.nodes if n.id != node.id)),
+        env_line("TASKFORGE_BROWSER_CLUSTER_PORT", 18080),
+        env_line("TASKFORGE_IMAGE_ANALYZER_CLUSTER_PORT", 18090),
         env_line("GATEWAY_MODE", gateway_mode),
         env_line("GATEWAY_TLS_CERT_FILE", "/etc/taskforge-origin-tls/fullchain.pem"),
         env_line("GATEWAY_TLS_KEY_FILE", "/etc/taskforge-origin-tls/privkey.pem"),
@@ -497,6 +559,16 @@ def render(cluster: Cluster, node: Node, env_file: Path) -> dict[str, Path]:
         "scope": cluster.name,
         "namespace": "/taskforge/patroni/",
         "name": node.id,
+        "tags": {
+            # Keep all Patroni member tags in ONE mapping. A duplicate `tags`
+            # key used to overwrite nofailover/nosync later in this literal,
+            # which could accidentally make witness/lite C promotable.
+            "nofailover": not node.can_be_primary,
+            "noloadbalance": not node.can_be_primary,
+            "clonefrom": False,
+            "nosync": True,
+            "failover_priority": node.priority,
+        },
         "restapi": {
             "listen": "0.0.0.0:8008",
             "connect_address": f"{node.wg_ip}:{node.patroni_port}",
@@ -556,10 +628,6 @@ def render(cluster: Cluster, node: Node, env_file: Path) -> dict[str, Path]:
             "create_replica_methods": ["basebackup"],
             "basebackup": {"max-rate": "200M", "checkpoint": "fast"},
             "parameters": {"unix_socket_directories": "/var/run/postgresql"},
-        },
-        "tags": {
-            "failover_priority": node.priority,
-            "noloadbalance": False,
         },
         "watchdog": {"mode": "off"},
     }

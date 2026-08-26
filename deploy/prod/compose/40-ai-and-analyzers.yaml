@@ -15,7 +15,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-TaskForge}
       Jwt__Audience: ${JWT_AUDIENCE:-TaskForge}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
@@ -43,8 +43,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}
@@ -89,13 +89,13 @@ services:
       TaskForgeAgent__MaxAgentStateCharacters: ${TASKFORGE_AI_MAX_STATE_CHARS:-64000}
       TaskForgeAgent__MaxAgentActionsPerStep: ${TASKFORGE_AI_MAX_ACTIONS_PER_STEP:-8}
       TaskForgeAgent__MaxPatchOperationsPerRun: ${TASKFORGE_AI_MAX_PATCH_OPERATIONS:-200}
-      RabbitMq__Host: rabbitmq
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       OpenAI__Model: ${OPENAI_MODEL:-}
-      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
-      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
+      Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
       Cache__DefaultTtlSeconds: ${CACHE_DEFAULT_TTL_SECONDS:-300}
       Cache__MetadataTtlSeconds: ${CACHE_METADATA_TTL_SECONDS:-300}

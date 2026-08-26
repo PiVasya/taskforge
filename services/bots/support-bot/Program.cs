@@ -81,6 +81,26 @@ app.MapPost("/api/internal/password-recovery/send", async (
     }, statusCode: statusCode);
 });
 
+app.MapPost("/api/internal/cluster/events", async (
+    ClusterEventNotification request,
+    HttpContext http,
+    IConfiguration cfg,
+    Worker worker,
+    CancellationToken ct) =>
+{
+    if (!InternalRequestAuthorized(http, cfg))
+    {
+        return Results.NotFound(new { status = 404, code = "NOT_FOUND", message = "Ресурс не найден.", severity = "warning" });
+    }
+    if (string.IsNullOrWhiteSpace(request.Title) && string.IsNullOrWhiteSpace(request.Message))
+    {
+        return Results.BadRequest(new { delivered = false, code = "INVALID_CLUSTER_EVENT" });
+    }
+    var delivered = await worker.SendClusterEventAsync(request, ct);
+    if (delivered) return Results.Ok(new { delivered = true });
+    return Results.Json(new { delivered = false, code = "TELEGRAM_NOT_READY" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
 app.MapPost("/api/internal/ai-access/events", (
     AiAccessEventBatch batch,
     HttpContext http,
@@ -141,3 +161,4 @@ static bool InternalRequestAuthorized(HttpContext http, IConfiguration cfg)
 
 static string? FirstNonEmpty(params string?[] values)
     => values.Select(value => (value ?? string.Empty).Trim()).FirstOrDefault(value => value.Length > 0);
+

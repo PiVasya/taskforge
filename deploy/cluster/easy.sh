@@ -2,11 +2,11 @@
 set -Eeuo pipefail
 
 CLUSTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -x "$CLUSTER_DIR/../compose.sh" ]; then
+if [ -f "$CLUSTER_DIR/../compose.sh" ]; then
   ROOT="$(cd "$CLUSTER_DIR/.." && pwd)"
   COMPOSE="$ROOT/compose.sh"
   CHECK="$ROOT/check.sh"
-  BACKUP="$ROOT/backup.sh"
+  BACKUP="$ROOT/scripts/maintenance/backup.sh"
   ENV_FILE="${TASKFORGE_ENV_FILE:-$ROOT/.env}"
 else
   ROOT="$(cd "$CLUSTER_DIR/../.." && pwd)"
@@ -16,7 +16,16 @@ else
   ENV_FILE="${TASKFORGE_ENV_FILE:-$ROOT/deploy/prod/.env}"
 fi
 MANAGER="$CLUSTER_DIR/manager.py"
-ENSURE_HOST="$CLUSTER_DIR/ensure-host.sh"
+ENSURE_HOST="$CLUSTER_DIR/ops/host/ensure-host.sh"
+MINIO_REPL_LIB="$CLUSTER_DIR/lib/minio-replication.sh"
+PROXY_LIB="$CLUSTER_DIR/lib/proxy.sh"
+FIREWALL_LIB="$CLUSTER_DIR/lib/firewall.sh"
+[ -r "$MINIO_REPL_LIB" ] || { echo "error: missing $MINIO_REPL_LIB" >&2; exit 2; }
+[ -r "$PROXY_LIB" ] || { echo "error: missing $PROXY_LIB" >&2; exit 2; }
+[ -r "$FIREWALL_LIB" ] || { echo "error: missing $FIREWALL_LIB" >&2; exit 2; }
+source "$MINIO_REPL_LIB"
+source "$PROXY_LIB"
+source "$FIREWALL_LIB"
 INVENTORY="${TASKFORGE_INVENTORY:-$CLUSTER_DIR/inventory.json}"
 RUNTIME="$ROOT/.runtime/cluster"
 EASY_RUNTIME="$RUNTIME/easy"
@@ -32,6 +41,12 @@ owner_group(){ stat -c '%G' "$ROOT"; }
 owner_pair(){ echo "$(owner_user):$(owner_group)"; }
 fix_owner(){ [ ! -e "$1" ] || chown -R "$(owner_pair)" "$1"; }
 prepare_runtime(){ mkdir -p "$RUNTIME" "$EASY_RUNTIME" "$RUNTIME/bin"; chmod 700 "$RUNTIME" "$EASY_RUNTIME" "$RUNTIME/bin" 2>/dev/null || true; [ "$(id -u)" -ne 0 ] || fix_owner "$RUNTIME"; }
+acquire_operation_lock(){
+  prepare_runtime
+  command -v flock >/dev/null 2>&1 || die 'flock is required; run bash ./cluster.sh bootstrap'
+  exec 9>"$EASY_RUNTIME/operation.lock"
+  flock -n 9 || die 'another TaskForge cluster mutation is already running on this node'
+}
 need_env(){ [ -s "$ENV_FILE" ] || die "missing $ENV_FILE; import secrets or copy the shared .env first"; }
 prepare_inventory(){
   if [ ! -s "$INVENTORY" ]; then
@@ -66,6 +81,22 @@ import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8'))['preferred_primary'])
 PY
 }
+current_primary_id(){
+  if [ -f "$RUNTIME/enabled" ] && [ -s "$RUNTIME/agent-state.json" ]; then
+    local current
+    current="$(python3 - "$RUNTIME/agent-state.json" "$INVENTORY" <<'PY' 2>/dev/null || true
+import json,sys
+state=json.load(open(sys.argv[1],encoding='utf-8'))
+inv=json.load(open(sys.argv[2],encoding='utf-8'))
+leader=str(state.get('leader') or '')
+known={str(n.get('id')) for n in inv.get('nodes',[])}
+print(leader if leader in known else '')
+PY
+)"
+    [ -z "$current" ] || { printf '%s\n' "$current"; return 0; }
+  fi
+  primary_id
+}
 node_field(){ local node="$1" expr="$2"; mgr node-info --node "$node" | python3 -c "import json,sys; d=json.load(sys.stdin); print($expr)"; }
 wait_health(){
   local name="$1" timeout="${2:-180}" deadline status
@@ -92,6 +123,27 @@ pg_scalar(){
 pg_fields(){
   local pg="$1" sql="$2"
   docker exec "$pg" sh -lc 'exec psql -X -U "$POSTGRES_USER" -d postgres -AtF "|" -c "$1"' _ "$sql"
+}
+pg_actual_role(){
+  local pg="${1:-$(pg_container)}" recovery
+  docker inspect "$pg" >/dev/null 2>&1 || { echo unknown; return 0; }
+  recovery="$(pg_scalar "$pg" 'select pg_is_in_recovery()' 2>/dev/null || true)"
+  case "$recovery" in
+    f) echo primary;;
+    t) echo standby;;
+    *) echo unknown;;
+  esac
+}
+role_effective(){
+  local marker actual
+  marker="$(role_get)"
+  actual="$(pg_actual_role 2>/dev/null || echo unknown)"
+  case "$actual" in primary|standby) echo "$actual";; *) echo "$marker";; esac
+}
+sync_role_marker_from_postgres(){
+  local actual
+  actual="$(pg_actual_role 2>/dev/null || echo unknown)"
+  case "$actual" in primary|standby) role_set "$actual";; esac
 }
 
 # Never inherit root's Docker client configuration. Mutating cluster commands are
@@ -197,80 +249,149 @@ cmd_import_topology(){
 }
 
 apply_wireguard(){
-  local node="$1" actual expected
+  local node="$1" actual expected expected_ip deadline
   ensure_wg_key
   actual="$(cat /etc/wireguard/taskforge-public.key)"; expected="$(node_field "$node" 'd["wireguard"]["public_key"]')"
+  expected_ip="$(node_field "$node" 'd["wireguard"]["ip"]')"
   [ "$actual" = "$expected" ] || die "WireGuard key mismatch for $node. inventory=$expected local=$actual"
   mgr render-wireguard --node "$node" --private-key-file /etc/wireguard/taskforge-private.key --output /etc/wireguard/wg-taskforge.conf >/dev/null
   chmod 600 /etc/wireguard/wg-taskforge.conf
   systemctl enable wg-quick@wg-taskforge >/dev/null
   systemctl restart wg-quick@wg-taskforge
+  deadline=$((SECONDS+10))
+  while [ "$SECONDS" -le "$deadline" ]; do
+    if systemctl is-active --quiet wg-quick@wg-taskforge       && ip -o addr show dev wg-taskforge 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fxq "$expected_ip"; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  systemctl --no-pager --full status wg-quick@wg-taskforge >&2 || true
+  ip -br addr show wg-taskforge >&2 || true
+  die "WireGuard wg-taskforge did not become ready with $expected_ip"
 }
 
 apply_firewall(){
-  local node="$1" local_ip local_wg_port pg_port minio_port health
-  command -v ufw >/dev/null 2>&1 || { warn 'ufw not installed; firewall automation skipped'; return; }
-  ufw status | head -1 | grep -q active || { warn 'ufw inactive; firewall rules not changed'; return; }
-  local_ip="$(node_field "$node" 'd["wireguard"]["ip"]')"; local_wg_port="$(node_field "$node" 'd["wireguard"]["listen_port"]')"
-  pg_port="$(node_field "$node" 'd["postgres"].get("cluster_port",5432)')"; minio_port="$(node_field "$node" 'd["minio"].get("cluster_port",9000)')"; health="$(node_field "$node" 'd.get("health_port",9187)')"
+  local node="$1" local_ip local_wg_port pg_port minio_port health http_port https_port patroni_port etcd_client_port etcd_peer_port
+  local rabbitmq_port redis_port browser_cluster_port image_analyzer_cluster_port
+  local peer public_host peer_ip public_ip
+
+  command -v ufw >/dev/null 2>&1 || die 'ufw is required; host bootstrap should install it automatically'
+
+  local_ip="$(node_field "$node" 'd["wireguard"]["ip"]')"
+  local_wg_port="$(node_field "$node" 'd["wireguard"]["listen_port"]')"
+  pg_port="$(node_field "$node" 'd["postgres"].get("cluster_port",5432)')"
+  minio_port="$(node_field "$node" 'd["minio"].get("cluster_port",9000)')"
+  health="$(node_field "$node" 'd.get("health_port",9187)')"
+  patroni_port="$(node_field "$node" 'd["postgres"].get("patroni_rest_port",8008)')"
+  etcd_client_port="$(node_field "$node" 'd.get("etcd",{}).get("client_port",2379)')"
+  etcd_peer_port="$(node_field "$node" 'd.get("etcd",{}).get("peer_port",2380)')"
+  http_port="$(node_field "$node" 'd["web"]["http_port"]')"
+  https_port="$(node_field "$node" 'd["web"]["https_port"]')"
+  rabbitmq_port="$(node_field "$node" 'd.get("rabbitmq_port",5672)')"
+  redis_port="$(node_field "$node" 'd.get("redis_port",6379)')"
+  browser_cluster_port="$(node_field "$node" 'd.get("browser_cluster_port",18080)')"
+  image_analyzer_cluster_port="$(node_field "$node" 'd.get("image_analyzer_cluster_port",18090)')"
+
+  # Stage SSH and public web rules *before* enabling UFW. This makes first
+  # deployment safe over SSH and prevents the C-node situation where UFW was
+  # left disabled forever merely because it started inactive.
+  firewall_allow_ssh || die 'cannot stage SSH firewall rules; refusing to enable UFW'
+  firewall_allow_public_web "$http_port" "$https_port" || die 'cannot stage public web firewall rules'
+
   while IFS='|' read -r peer public_host peer_ip; do
     [ -n "$peer" ] || continue
-    public_ip="$public_host"; [[ "$public_ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || public_ip="$(getent ahostsv4 "$public_host" | awk 'NR==1{print $1}')"
+    public_ip="$public_host"
+    [[ "$public_ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || public_ip="$(getent ahostsv4 "$public_host" | awk 'NR==1{print $1}')"
     [ -n "$public_ip" ] || die "cannot resolve $public_host"
     ufw allow from "$public_ip" to any port "$local_wg_port" proto udp comment "TaskForge WG $peer" >/dev/null
     ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$pg_port" proto tcp comment "TaskForge PostgreSQL $peer" >/dev/null
     ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$minio_port" proto tcp comment "TaskForge MinIO $peer" >/dev/null
     ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$health" proto tcp comment "TaskForge health $peer" >/dev/null
-  done < <(python3 - "$INVENTORY" "$node" <<'PY'
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$patroni_port" proto tcp comment "TaskForge Patroni $peer" >/dev/null
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$etcd_client_port" proto tcp comment "TaskForge etcd client $peer" >/dev/null
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$etcd_peer_port" proto tcp comment "TaskForge etcd peer $peer" >/dev/null
+    # Warm/lite application nodes use the active node's stateful services and
+    # may proxy heavy services to it. Keep these ports private to WireGuard peers.
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$rabbitmq_port" proto tcp comment "TaskForge RabbitMQ $peer" >/dev/null
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$redis_port" proto tcp comment "TaskForge Redis $peer" >/dev/null
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$browser_cluster_port" proto tcp comment "TaskForge browser upstream $peer" >/dev/null
+    ufw allow in on wg-taskforge from "$peer_ip" to "$local_ip" port "$image_analyzer_cluster_port" proto tcp comment "TaskForge image analyzer upstream $peer" >/dev/null
+  done < <(python3 - "$INVENTORY" "$node" <<'PY_FW_PEERS'
 import json,sys
 cfg=json.load(open(sys.argv[1],encoding='utf-8'))
 for n in cfg['nodes']:
-    if n['id'] != sys.argv[2]: print(f"{n['id']}|{n['public_host']}|{n['wireguard']['ip']}")
-PY
+    if n['id'] != sys.argv[2]:
+        print(f"{n['id']}|{n['public_host']}|{n['wireguard']['ip']}")
+PY_FW_PEERS
 )
+
+  firewall_enable_if_needed || die 'failed to enable UFW safely'
+  if firewall_is_active; then
+    info "UFW active; SSH preserved, web source=$TASKFORGE_FIREWALL_WEB_SOURCE, WireGuard/data rules applied"
+  else
+    warn 'UFW remains inactive because automatic enable was explicitly disabled'
+  fi
+}
+
+cluster_endpoint_ready(){
+  local name="$1" bind_ip="$2" cluster_port="$3"
+  case "$name" in
+    postgres)
+      timeout 4 bash -c "</dev/tcp/$bind_ip/$cluster_port" >/dev/null 2>&1
+      ;;
+    minio)
+      curl -fsS --connect-timeout 3 --max-time 5         "http://$bind_ip:$cluster_port/minio/health/ready" >/dev/null 2>&1
+      ;;
+    *) return 2 ;;
+  esac
 }
 
 install_proxy(){
-  local name bind_ip cluster_port local_port unit
+  local name bind_ip cluster_port local_port result
   name="$1"
   bind_ip="$2"
   cluster_port="$3"
   local_port="$4"
-  unit="taskforge-${name}-wg-proxy.service"
-  if ss -H -ltn | awk '{print $4}' | grep -Fqx "$bind_ip:$cluster_port"; then
-    systemctl disable --now "$unit" >/dev/null 2>&1 || true; rm -f "/etc/systemd/system/$unit"
-    info "$name already listens directly on $bind_ip:$cluster_port"
-    return
+  if ! result="$(proxy_reconcile "$name" "$bind_ip" "$cluster_port" "$local_port")"; then
+    warn "cannot reconcile $name cluster endpoint $bind_ip:$cluster_port"
+    return 1
   fi
-  cat > "/etc/systemd/system/$unit" <<EOF
-[Unit]
-Description=TaskForge $name WireGuard TCP proxy
-After=network-online.target wg-quick@wg-taskforge.service docker.service
-Wants=network-online.target wg-quick@wg-taskforge.service
-[Service]
-ExecStart=/usr/bin/socat TCP-LISTEN:${cluster_port},bind=${bind_ip},reuseaddr,fork TCP:127.0.0.1:${local_port}
-Restart=always
-RestartSec=2
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-[Install]
-WantedBy=multi-user.target
-EOF
-  systemctl daemon-reload; systemctl enable --now "$unit" >/dev/null
-  info "$name proxy $bind_ip:$cluster_port -> 127.0.0.1:$local_port"
+  case "$result" in
+    managed-existing)
+      info "$name proxy already active on $bind_ip:$cluster_port -> 127.0.0.1:$local_port"
+      ;;
+    managed-created)
+      info "$name proxy $bind_ip:$cluster_port -> 127.0.0.1:$local_port"
+      ;;
+    direct)
+      info "$name direct listener preserved on $bind_ip:$cluster_port"
+      ;;
+    *)
+      warn "unexpected $name proxy reconciliation result: ${result:-<empty>}"
+      return 1
+      ;;
+  esac
+  if ! cluster_endpoint_ready "$name" "$bind_ip" "$cluster_port"; then
+    warn "$name endpoint is listening but failed service readiness check at $bind_ip:$cluster_port"
+    "$TASKFORGE_SS" -lntp 2>/dev/null | grep -F "$bind_ip:$cluster_port" >&2 || true
+    return 1
+  fi
 }
 
 apply_proxies(){
-  local node="$1" ip pg_local pg_cluster mi_local mi_cluster
+  local node="$1" ip pg_local pg_cluster mi_local mi_cluster failures=0
   ip="$(node_field "$node" 'd["wireguard"]["ip"]')"
   pg_local="$(node_field "$node" 'd["postgres"]["local_port"]')"
   pg_cluster="$(node_field "$node" 'd["postgres"].get("cluster_port",5432)')"
   mi_local="$(node_field "$node" 'd["minio"]["local_port"]')"
   mi_cluster="$(node_field "$node" 'd["minio"].get("cluster_port",9000)')"
-  install_proxy postgres "$ip" "$pg_cluster" "$pg_local"
-  install_proxy minio "$ip" "$mi_cluster" "$mi_local"
+
+  # Reconcile both endpoints even when one fails. v36 aborted immediately on a
+  # transient PostgreSQL readiness race and therefore never recreated MinIO,
+  # leaving a half-repaired node. v37 always attempts the complete pair first.
+  install_proxy postgres "$ip" "$pg_cluster" "$pg_local" || failures=$((failures+1))
+  install_proxy minio "$ip" "$mi_cluster" "$mi_local" || failures=$((failures+1))
+  [ "$failures" -eq 0 ] || die "cannot reconcile $failures cluster endpoint(s) on node $node; inspect systemctl status taskforge-*-wg-proxy.service"
 }
 
 cmd_apply(){
@@ -278,6 +399,13 @@ cmd_apply(){
   local node="${1:-}"; [ -n "$node" ] || die 'usage: apply NODE_ID'
   mgr set-node "$node" >/dev/null; mgr render-local --node "$node" >/dev/null; cmd_cpu_profile --write >/dev/null
   apply_wireguard "$node"; apply_firewall "$node"; apply_proxies "$node"
+  # Existing PostgreSQL nodes must immediately trust every peer from the
+  # updated inventory for physical replication. This is what makes adding a
+  # new C/D node truly one-command: after A/B import the topology and run
+  # apply, the new standby can pg_basebackup without a manual pg_hba.conf edit.
+  if docker inspect "$(pg_container)" >/dev/null 2>&1; then
+    configure_local_hba "$node"
+  fi
   prepare_runtime; fix_owner "$ROOT/.runtime"
   sudo -u "$(owner_user)" "$CHECK"
   echo "Node $node applied. No volume was created, deleted or promoted."
@@ -329,7 +457,12 @@ cmd_init_primary(){
   need_root; need_env; prepare_inventory
   local node="${1:-$(primary_id)}"; [ "$node" = "$(primary_id)" ] || die "initial primary must be $(primary_id)"
   cmd_apply "$node"
-  if [ -x "$BACKUP" ]; then sudo -u "$(owner_user)" "$BACKUP" --metadata; docker inspect "$(pg_container)" >/dev/null 2>&1 && sudo -u "$(owner_user)" "$BACKUP" --database || true; fi
+  if [ -x "$BACKUP" ]; then
+    sudo -u "$(owner_user)" "$BACKUP" --metadata
+    if docker inspect "$(pg_container)" >/dev/null 2>&1; then
+      sudo -u "$(owner_user)" "$BACKUP" --database
+    fi
+  fi
   compose up -d --no-deps postgres; wait_health "$(pg_container)" 240
   recovery="$(docker exec "$(pg_container)" sh -lc 'psql -X -U "$POSTGRES_USER" -d postgres -Atc "select pg_is_in_recovery()"')"; [ "$recovery" = f ] || die 'preferred PostgreSQL is not primary'
   configure_local_hba "$node"
@@ -344,58 +477,136 @@ cmd_init_primary(){
 }
 
 install_mc(){
-  [ -x "$RUNTIME/bin/mc" ] || "$CLUSTER_DIR/install-mc.sh" >/dev/null
+  [ -x "$RUNTIME/bin/mc" ] || "$CLUSTER_DIR/ops/host/install-mc.sh" >/dev/null
   if [ "$(id -u)" -eq 0 ]; then chown "$(owner_pair)" "$RUNTIME/bin/mc"; fi
   chmod 700 "$RUNTIME/bin/mc"
 }
 minio_prepare_local(){
-  local node="$1" user pass bucket port mc
+  local node="$1" user pass data_bucket state_bucket bucket port mc
+  local -a local_buckets
   install_mc; mc="$RUNTIME/bin/mc"; export MC_CONFIG_DIR="$RUNTIME/mc-easy"; mkdir -p "$MC_CONFIG_DIR"; chmod 700 "$MC_CONFIG_DIR"; [ "$(id -u)" -ne 0 ] || fix_owner "$MC_CONFIG_DIR"
-  user="$(env_get MINIO_ROOT_USER)"; user="${user:-taskforge}"; pass="$(env_get MINIO_ROOT_PASSWORD)"; bucket="$(env_get S3_BUCKET)"; bucket="${bucket:-taskforge-files}"; port="$(node_field "$node" 'd["minio"]["local_port"]')"
+  user="$(env_get MINIO_ROOT_USER)"; user="${user:-taskforge}"; pass="$(env_get MINIO_ROOT_PASSWORD)"
+  data_bucket="$(env_get S3_BUCKET)"; data_bucket="${data_bucket:-taskforge-files}"
+  state_bucket='taskforge-cluster-state'
+  port="$(node_field "$node" 'd["minio"]["local_port"]')"
   "$mc" alias set local "http://127.0.0.1:$port" "$user" "$pass" >/dev/null
-  "$mc" mb --ignore-existing --with-versioning "local/$bucket" >/dev/null || true; "$mc" version enable "local/$bucket" >/dev/null
+  local_buckets=("$data_bucket" "$state_bucket")
+  for bucket in "${local_buckets[@]}"; do
+    "$mc" mb --ignore-existing --with-versioning "local/$bucket" >/dev/null
+    "$mc" version enable "local/$bucket" >/dev/null
+  done
 }
 
 cmd_sync_minio(){
   need_env; prepare_inventory
-  local assume=0 test_rules=1; while [ $# -gt 0 ]; do case "$1" in --yes) assume=1;; --no-test) test_rules=0;; *) die 'usage: sync-minio --yes [--no-test]';; esac; shift; done
+  local assume=0 test_rules=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes) assume=1;;
+      --no-test) test_rules=0;;
+      *) die 'usage: sync-minio --yes [--no-test]';;
+    esac
+    shift
+  done
   [ "$assume" -eq 1 ] || die 'add --yes after all configured MinIO nodes are reachable'
-  install_mc; local mc="$RUNTIME/bin/mc" user pass bucket primary local_id target stamp key tmp current target_label out
-  export MC_CONFIG_DIR="$RUNTIME/mc-easy"; mkdir -p "$MC_CONFIG_DIR"; chmod 700 "$MC_CONFIG_DIR"; [ "$(id -u)" -ne 0 ] || fix_owner "$MC_CONFIG_DIR"
-  user="$(env_get MINIO_ROOT_USER)"; user="${user:-taskforge}"; pass="$(env_get MINIO_ROOT_PASSWORD)"; bucket="$(env_get S3_BUCKET)"; bucket="${bucket:-taskforge-files}"; primary="$(primary_id)"
-  mapfile -t rows < <(python3 - "$INVENTORY" <<'PY'
+
+  install_mc
+  local mc="$RUNTIME/bin/mc" user pass data_bucket state_bucket primary
+  local id ip port priority source target target_ip target_port target_priority
+  local source_row target_row target_label result replicate_features bucket
+  local tmp stamp key needle probe_prefix cleanup_id cleanup_bucket
+  export MC_CONFIG_DIR="$RUNTIME/mc-easy"
+  mkdir -p "$MC_CONFIG_DIR"; chmod 700 "$MC_CONFIG_DIR"; [ "$(id -u)" -ne 0 ] || fix_owner "$MC_CONFIG_DIR"
+  user="$(env_get MINIO_ROOT_USER)"; user="${user:-taskforge}"
+  pass="$(env_get MINIO_ROOT_PASSWORD)"
+  data_bucket="$(env_get S3_BUCKET)"; data_bucket="${data_bucket:-taskforge-files}"
+  state_bucket='taskforge-cluster-state'
+  primary="$(primary_id)"
+  replicate_features='delete,delete-marker,existing-objects,metadata-sync'
+  buckets=("$data_bucket" "$state_bucket")
+
+  mapfile -t rows < <(python3 - "$INVENTORY" <<'PY_ROWS'
 import json,sys
 for n in json.load(open(sys.argv[1],encoding='utf-8'))['nodes']:
-    print(f"{n['id']}|{n['wireguard']['ip']}|{n['minio'].get('cluster_port',9000)}")
-PY
+    print(f"{n['id']}|{n['wireguard']['ip']}|{n['minio'].get('cluster_port',9000)}|{int(n['priority'])}")
+PY_ROWS
 )
   ids=()
-  for row in "${rows[@]}"; do IFS='|' read -r id ip port <<<"$row"; ids+=("$id"); "$mc" alias set "tf-$id" "http://$ip:$port" "$user" "$pass" >/dev/null; "$mc" admin info "tf-$id" >/dev/null || die "MinIO $id unreachable at $ip:$port"; "$mc" mb --ignore-existing --with-versioning "tf-$id/$bucket" >/dev/null || true; "$mc" version enable "tf-$id/$bucket" >/dev/null; done
-  for id in "${ids[@]}"; do [ "$id" = "$primary" ] && continue; if ! "$mc" ls --recursive "tf-$id/$bucket" 2>/dev/null | grep -q .; then "$mc" mirror --overwrite "tf-$primary/$bucket" "tf-$id/$bucket" >/dev/null; fi; done
-  for source_row in "${rows[@]}"; do
-    IFS='|' read -r source _ _ <<<"$source_row"; current="$("$mc" replicate ls "tf-$source/$bucket" 2>&1 || true)"
-    for target_row in "${rows[@]}"; do
-      IFS='|' read -r target target_ip target_port <<<"$target_row"; [ "$source" = "$target" ] && continue; target_label="$target_ip:$target_port/$bucket"
-      if ! grep -Fq "Remote Bucket: $target_label" <<<"$current"; then
-        set +e; out="$("$mc" replicate add "tf-$source/$bucket" --remote-bucket "tf-$target/$bucket" --replicate 'delete,delete-marker,existing-objects' 2>&1)"; rc=$?; set -e
-        if [ "$rc" -ne 0 ] && ! grep -Eqi 'already|exists|duplicate|same rule' <<<"$out"; then echo "$out" >&2; die "cannot add MinIO rule $source -> $target"; fi
-        info "MinIO rule $source -> $target configured"; current="$("$mc" replicate ls "tf-$source/$bucket" 2>&1 || true)"
+  for row in "${rows[@]}"; do
+    IFS='|' read -r id ip port priority <<<"$row"
+    ids+=("$id")
+    "$mc" alias set "tf-$id" "http://$ip:$port" "$user" "$pass" >/dev/null
+    "$mc" admin info "tf-$id" >/dev/null || die "MinIO $id unreachable at $ip:$port"
+    for bucket in "${buckets[@]}"; do
+      "$mc" mb --ignore-existing --with-versioning "tf-$id/$bucket" >/dev/null
+      "$mc" version enable "tf-$id/$bucket" >/dev/null
+    done
+  done
+
+  # Seed only an empty replica. Never auto-merge independent histories.
+  for bucket in "${buckets[@]}"; do
+    for id in "${ids[@]}"; do
+      [ "$id" = "$primary" ] && continue
+      if ! "$mc" ls --recursive "tf-$id/$bucket" 2>/dev/null | grep -q .; then
+        "$mc" mirror --overwrite "tf-$primary/$bucket" "tf-$id/$bucket" >/dev/null
       fi
     done
   done
-  if [ "$test_rules" -eq 1 ] && [ "${#ids[@]}" -ge 2 ]; then
-    local_id="$(node_id 2>/dev/null || echo "$primary")"; target=''; for id in "${ids[@]}"; do [ "$id" = "$local_id" ] || { target="$id"; break; }; done
-    tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
-    for pair in "$local_id:$target" "$target:$local_id"; do
-      source_id="${pair%%:*}"; target_id="${pair##*:}"; stamp="$(date -u +%Y%m%d%H%M%S)-$$-$source_id"; key="__cluster_probe__/$stamp.txt"; echo "$stamp" > "$tmp"
-      "$mc" cp "$tmp" "tf-$source_id/$bucket/$key" >/dev/null; ok=0
-      for _ in $(seq 1 30); do "$mc" stat "tf-$target_id/$bucket/$key" >/dev/null 2>&1 && { ok=1; break; }; sleep 1; done
-      [ "$ok" -eq 1 ] || die "MinIO probe $source_id -> $target_id failed"
-      "$mc" rm "tf-$source_id/$bucket/$key" >/dev/null; info "MinIO probe $source_id -> $target_id passed"
+
+  # Each source bucket requires unique rule priorities. The target node priority
+  # is deterministic and already validated by the inventory manager.
+  for bucket in "${buckets[@]}"; do
+    for source_row in "${rows[@]}"; do
+      IFS='|' read -r source _ _ _ <<<"$source_row"
+      for target_row in "${rows[@]}"; do
+        IFS='|' read -r target target_ip target_port target_priority <<<"$target_row"
+        [ "$source" = "$target" ] && continue
+        target_label="$target_ip:$target_port/$bucket"
+        if ! result="$(minio_add_rule_verified "$mc" "tf-$source/$bucket" "tf-$target/$bucket" "$target_label" "$target_priority" "$replicate_features")"; then
+          die "cannot configure verified MinIO rule $source -> $target bucket=$bucket (priority=$target_priority)"
+        fi
+        if [ "$result" = created ]; then
+          info "MinIO rule $source -> $target bucket=$bucket configured priority=$target_priority"
+        else
+          info "MinIO rule $source -> $target bucket=$bucket already present"
+        fi
+      done
     done
+  done
+
+  if [ "$test_rules" -eq 1 ] && [ "${#ids[@]}" -ge 2 ]; then
+    tmp="$(mktemp)"
+    probe_prefix="__cluster_probe__"
+    cleanup_minio_probe(){
+      rm -f "$tmp"
+      for cleanup_id in "${ids[@]}"; do
+        for cleanup_bucket in "${buckets[@]}"; do
+          "$mc" rm --recursive --force --versions \
+            "tf-$cleanup_id/$cleanup_bucket/$probe_prefix/" >/dev/null 2>&1 || true
+        done
+      done
+    }
+    trap cleanup_minio_probe RETURN
+    stamp="$(date +%s)-$$"
+    printf 'TaskForge replication probe %s\n' "$stamp" > "$tmp"
+    for bucket in "${buckets[@]}"; do
+      for source in "${ids[@]}"; do
+        key="$probe_prefix/$stamp-$bucket-$source.txt"
+        needle="$(basename "$key")"
+        "$mc" cp "$tmp" "tf-$source/$bucket/$key" >/dev/null
+        for target in "${ids[@]}"; do
+          [ "$source" = "$target" ] && continue
+          if minio_wait_local_object "$mc" "tf-$target/$bucket/$probe_prefix/" "$needle" 60; then
+            info "MinIO probe $source -> $target bucket=$bucket passed"
+          else
+            die "MinIO probe $source -> $target bucket=$bucket failed"
+          fi
+        done
+      done
+    done
+    cleanup_minio_probe
+    trap - RETURN
   fi
-  prepare_runtime; printf 'configured %s nodes=%s\n' "$(date -u +%FT%TZ)" "${ids[*]}" > "$EASY_RUNTIME/minio-synced"; chmod 600 "$EASY_RUNTIME/minio-synced"; [ "$(id -u)" -ne 0 ] || fix_owner "$EASY_RUNTIME/minio-synced"
-  echo 'MinIO N-way asynchronous replication is ready.'
 }
 
 cmd_join(){
@@ -434,9 +645,11 @@ PY
     compose up -d --no-deps postgres; wait_health "$pg" 300
   fi
   recovery="$(docker exec "$pg" sh -lc 'psql -X -U "$POSTGRES_USER" -d postgres -Atc "select pg_is_in_recovery()"')"; receiver="$(pg_scalar "$pg" 'select status from pg_stat_wal_receiver limit 1')"; [ "$recovery" = t ] && [ "$receiver" = streaming ] || die 'PostgreSQL is not a streaming standby'
+  # PostgreSQL role is factual state, not a reward for finishing MinIO setup.
+  role_set standby
   compose up -d --no-deps minio rabbitmq redis; wait_health "$(minio_container)" 240; wait_health "$(container rabbitmq)" 180; wait_health "$(container redis)" 120
   cmd_sync_minio --yes
-  role_set standby; printf 'joined %s primary=%s slot=%s\n' "$(date -u +%FT%TZ)" "$primary" "$slot" > "$EASY_RUNTIME/joined"; chmod 600 "$EASY_RUNTIME/joined"; fix_owner "$EASY_RUNTIME/joined"
+  printf 'joined %s primary=%s slot=%s\n' "$(date -u +%FT%TZ)" "$primary" "$slot" > "$EASY_RUNTIME/joined"; chmod 600 "$EASY_RUNTIME/joined"; fix_owner "$EASY_RUNTIME/joined"
   echo "NODE $node READY AS PASSIVE REPLICA"
 }
 
@@ -485,6 +698,18 @@ PY2
   cp -a "$private_src" "$ROOT/.runtime/code-analyzer-keys/code-analyzer-private.pem"
   cp -a "$public_src" "$ROOT/.runtime/code-analyzer-keys/code-analyzer-public.pem"
 
+  # HA application startup depends on node-local Origin CA material and shared
+  # ASP.NET DataProtection keys. Versioned server folders have independent
+  # .runtime trees, so migrate these deliberately instead of discovering the
+  # omission only when a standby is promoted.
+  mkdir -p "$ROOT/.runtime/cluster/tls" "$ROOT/.runtime/cluster/shared"
+  if [ -d "$from/.runtime/cluster/tls" ]; then
+    cp -a "$from/.runtime/cluster/tls/." "$ROOT/.runtime/cluster/tls/"
+  fi
+  if [ -d "$from/.runtime/cluster/shared" ]; then
+    cp -a "$from/.runtime/cluster/shared/." "$ROOT/.runtime/cluster/shared/"
+  fi
+
   python3 - "$ENV_FILE" "$ROOT" <<'PY2'
 from pathlib import Path
 import sys
@@ -508,15 +733,321 @@ PY2
   chown "$owner:$group" "$ENV_FILE"; chmod 600 "$ENV_FILE"
   [ ! -f "$ROOT/config.json" ] || { chown "$owner:$group" "$ROOT/config.json"; chmod 600 "$ROOT/config.json"; }
   chown -R "$owner:$group" "$ROOT/.runtime"
-  chmod 700 "$ROOT/.runtime" "$ROOT/.runtime/code-analyzer-keys"
+  chmod 700 "$ROOT/.runtime" "$ROOT/.runtime/code-analyzer-keys" "$ROOT/.runtime/cluster" "$ROOT/.runtime/cluster/tls" 2>/dev/null || true
   chmod 600 "$ROOT/.runtime/code-analyzer-keys/code-analyzer-private.pem"
   chmod 644 "$ROOT/.runtime/code-analyzer-keys/code-analyzer-public.pem"
+  chmod 600 "$ROOT/.runtime/cluster/tls/privkey.pem" 2>/dev/null || true
+  chmod 644 "$ROOT/.runtime/cluster/tls/fullchain.pem" 2>/dev/null || true
 
   sudo -u "$owner" "$CHECK"
   info "local migration complete; adopting existing node $node"
   cmd_adopt "$node"
 }
 
+
+cmd_upgrade_v34(){
+  need_root; auto_host_deps
+  local node='' from='' topology='' candidate
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) shift; from="${1:-}";;
+      *) [ -z "$node" ] && node="$1" || die "unknown upgrade-v34 option $1";;
+    esac
+    shift
+  done
+  [ -n "$node" ] && [ -n "$from" ] || die 'usage: upgrade-v34 NODE_ID --from /path/to/v34-folder'
+  from="$(cd "$from" 2>/dev/null && pwd)" || die "source folder does not exist: $from"
+  [ "$from" != "$ROOT" ] || die 'upgrade-v34 source and destination folders must differ'
+
+  for candidate in "$from/cluster/inventory.json" "$from/taskforge-cluster-topology.json"; do
+    if [ -s "$candidate" ] && python3 "$MANAGER" --inventory "$candidate" validate >/dev/null 2>&1; then
+      topology="$candidate"; break
+    fi
+  done
+  [ -n "$topology" ] || die 'no valid v34 cluster topology found (cluster/inventory.json or taskforge-cluster-topology.json)'
+
+  info "importing v34 topology from $topology"
+  cp -a "$topology" "$INVENTORY"; chmod 600 "$INVENTORY"; fix_owner "$INVENTORY"
+  cp -a "$topology" "$ROOT/taskforge-cluster-topology.json"; chmod 600 "$ROOT/taskforge-cluster-topology.json"; fix_owner "$ROOT/taskforge-cluster-topology.json"
+
+  cmd_migrate_local "$node" --from "$from"
+  prepare_runtime
+  printf 'upgraded-v34 %s node=%s source=%s\n' "$(date -u +%FT%TZ)" "$node" "$from" > "$EASY_RUNTIME/upgraded-v34-to-v39"
+  chmod 600 "$EASY_RUNTIME/upgraded-v34-to-v39"; fix_owner "$EASY_RUNTIME/upgraded-v34-to-v39"
+  echo 'v34 -> v39 local upgrade complete. No PostgreSQL basebackup and no Docker data volume recreation was performed.'
+  echo 'Replica-mode WireGuard PostgreSQL/MinIO endpoints were reconciled idempotently.'
+  echo 'After every node uses v39, run once if topology/MinIO rules need reconciliation: bash ./cluster.sh finalize-v39 --yes'
+}
+
+cmd_upgrade_v35(){
+  need_root; auto_host_deps
+  local node='' from='' topology='' candidate
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) shift; from="${1:-}";;
+      *) [ -z "$node" ] && node="$1" || die "unknown upgrade-v35 option $1";;
+    esac
+    shift
+  done
+  [ -n "$node" ] && [ -n "$from" ] || die 'usage: upgrade-v35 NODE_ID --from /path/to/v35-folder'
+  from="$(cd "$from" 2>/dev/null && pwd)" || die "source folder does not exist: $from"
+  [ "$from" != "$ROOT" ] || die 'upgrade-v35 source and destination folders must differ'
+
+  for candidate in "$from/cluster/inventory.json" "$from/taskforge-cluster-topology.json"; do
+    if [ -s "$candidate" ] && python3 "$MANAGER" --inventory "$candidate" validate >/dev/null 2>&1; then
+      topology="$candidate"; break
+    fi
+  done
+  [ -n "$topology" ] || die 'no valid v35 cluster topology found (cluster/inventory.json or taskforge-cluster-topology.json)'
+
+  info "importing v35 topology from $topology"
+  cp -a "$topology" "$INVENTORY"; chmod 600 "$INVENTORY"; fix_owner "$INVENTORY"
+  cp -a "$topology" "$ROOT/taskforge-cluster-topology.json"; chmod 600 "$ROOT/taskforge-cluster-topology.json"; fix_owner "$ROOT/taskforge-cluster-topology.json"
+
+  cmd_migrate_local "$node" --from "$from"
+  prepare_runtime
+  printf 'upgraded-v35 %s node=%s source=%s\n' "$(date -u +%FT%TZ)" "$node" "$from" > "$EASY_RUNTIME/upgraded-v35-to-v39"
+  chmod 600 "$EASY_RUNTIME/upgraded-v35-to-v39"; fix_owner "$EASY_RUNTIME/upgraded-v35-to-v39"
+  echo 'v35 -> v39 local upgrade complete. Existing PostgreSQL/MinIO data volumes were preserved.'
+  echo 'The replica-mode WireGuard PostgreSQL/MinIO endpoints were reconciled idempotently.'
+  echo 'After every node uses v39, run once if topology/MinIO rules need reconciliation: bash ./cluster.sh finalize-v39 --yes'
+}
+
+cmd_upgrade_v36(){
+  need_root; auto_host_deps
+  local node='' from='' topology='' candidate
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) shift; from="${1:-}";;
+      *) [ -z "$node" ] && node="$1" || die "unknown upgrade-v36 option $1";;
+    esac
+    shift
+  done
+  [ -n "$node" ] && [ -n "$from" ] || die 'usage: upgrade-v36 NODE_ID --from /path/to/v36-folder'
+  from="$(cd "$from" 2>/dev/null && pwd)" || die "source folder does not exist: $from"
+  [ "$from" != "$ROOT" ] || die 'upgrade-v36 source and destination folders must differ'
+
+  for candidate in "$from/cluster/inventory.json" "$from/taskforge-cluster-topology.json"; do
+    if [ -s "$candidate" ] && python3 "$MANAGER" --inventory "$candidate" validate >/dev/null 2>&1; then
+      topology="$candidate"; break
+    fi
+  done
+  [ -n "$topology" ] || die 'no valid v36 cluster topology found (cluster/inventory.json or taskforge-cluster-topology.json)'
+
+  info "importing v36 topology from $topology"
+  cp -a "$topology" "$INVENTORY"; chmod 600 "$INVENTORY"; fix_owner "$INVENTORY"
+  cp -a "$topology" "$ROOT/taskforge-cluster-topology.json"; chmod 600 "$ROOT/taskforge-cluster-topology.json"; fix_owner "$ROOT/taskforge-cluster-topology.json"
+
+  cmd_migrate_local "$node" --from "$from"
+  prepare_runtime
+  printf 'upgraded-v36 %s node=%s source=%s\n' "$(date -u +%FT%TZ)" "$node" "$from" > "$EASY_RUNTIME/upgraded-v36-to-v39"
+  chmod 600 "$EASY_RUNTIME/upgraded-v36-to-v39"; fix_owner "$EASY_RUNTIME/upgraded-v36-to-v39"
+  echo 'v36 -> v39 local upgrade complete. Existing PostgreSQL/MinIO data volumes were preserved.'
+  echo 'Audited endpoint reconciliation waits for real readiness and always attempts both PostgreSQL and MinIO endpoints.'
+  echo 'After every node uses v39, run once if topology/MinIO rules need reconciliation: bash ./cluster.sh finalize-v39 --yes'
+}
+
+validate_v40_app_material(){
+  local node="$1" profile tls_mode
+  profile="$(node_field "$node" '((d.get("app") or {}).get("profile","full"))')"
+  tls_mode="$(node_field "$node" 'd.get("web",{}).get("tls_mode","origin-ca")')"
+  if [ "$profile" != none ] && [ "$tls_mode" = origin-ca ]; then
+    [ -s "$ROOT/.runtime/cluster/tls/fullchain.pem" ] \
+      || die "node $node app profile=$profile requires Origin TLS certificate: missing .runtime/cluster/tls/fullchain.pem"
+    [ -s "$ROOT/.runtime/cluster/tls/privkey.pem" ] \
+      || die "node $node app profile=$profile requires Origin TLS private key: missing .runtime/cluster/tls/privkey.pem"
+  fi
+}
+
+normalize_v40_app_profiles(){
+  python3 - "$INVENTORY" <<'PY_V40_PROFILES'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+cfg=json.loads(p.read_text(encoding='utf-8'))
+ranked=sorted(cfg.get('nodes',[]), key=lambda n:int(n.get('priority',0)), reverse=True)
+rank={str(n['id']):i for i,n in enumerate(ranked)}
+voters=[n for n in cfg.get('nodes',[]) if n.get('quorum_voter',False)]
+if len(voters) < 3 or len(voters) % 2 == 0:
+    # v40's default A/B/C design uses the three highest-priority nodes as the
+    # consensus voters. Extra future nodes stay non-voters until explicitly
+    # promoted into the DCS topology.
+    for n in cfg.get('nodes',[]):
+        n['quorum_voter'] = rank[str(n['id'])] < 3
+for n in cfg.get('nodes',[]):
+    if isinstance(n.get('app'),dict):
+        continue
+    if rank[str(n['id'])] < 2:
+        n['app']={
+            'profile':'full',
+            'can_be_primary':True,
+            'assist_on_failover':False,
+            'exclude_services':[],
+            'assist_exclude_services':[],
+        }
+    else:
+        n['app']={
+            'profile':'lite',
+            'can_be_primary':False,
+            'assist_on_failover':True,
+            'exclude_services':['browser-api','image-analyzer'],
+            'assist_exclude_services':['support-bot','telegram-quiz-bot','rating-worker'],
+        }
+p.write_text(json.dumps(cfg,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+PY_V40_PROFILES
+  chmod 600 "$INVENTORY"
+  fix_owner "$INVENTORY"
+}
+
+cmd_upgrade_v39(){
+  need_root; auto_host_deps
+  local node='' from='' topology='' candidate
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) shift; from="${1:-}";;
+      *) [ -z "$node" ] && node="$1" || die "unknown upgrade-v39 option $1";;
+    esac
+    shift
+  done
+  [ -n "$node" ] && [ -n "$from" ] || die 'usage: upgrade-v39 NODE_ID --from /path/to/v39-folder'
+  from="$(cd "$from" 2>/dev/null && pwd)" || die "source folder does not exist: $from"
+  [ "$from" != "$ROOT" ] || die 'upgrade-v39 source and destination folders must differ'
+
+  for candidate in "$from/cluster/inventory.json" "$from/taskforge-cluster-topology.json"; do
+    if [ -s "$candidate" ] && python3 "$MANAGER" --inventory "$candidate" validate >/dev/null 2>&1; then
+      topology="$candidate"; break
+    fi
+  done
+  [ -n "$topology" ] || die 'no valid v39 cluster topology found (cluster/inventory.json or taskforge-cluster-topology.json)'
+
+  info "importing v39 topology from $topology"
+  cp -a "$topology" "$INVENTORY"; chmod 600 "$INVENTORY"; fix_owner "$INVENTORY"
+  normalize_v40_app_profiles
+  cp -a "$INVENTORY" "$ROOT/taskforge-cluster-topology.json"; chmod 600 "$ROOT/taskforge-cluster-topology.json"; fix_owner "$ROOT/taskforge-cluster-topology.json"
+
+  cmd_migrate_local "$node" --from "$from"
+  validate_v40_app_material "$node"
+
+  # Build the v40 application/telemetry topology even before the PostgreSQL
+  # quorum migration. The node agent then runs in safe replica-monitor mode:
+  # A is observed, B/C keep only their assigned images warm, and no automatic
+  # promotion is attempted until the explicit Patroni/etcd transition.
+  mgr render-quorum --output "$CLUSTER_DIR/cluster.json" >/dev/null
+  chmod 600 "$CLUSTER_DIR/cluster.json"; fix_owner "$CLUSTER_DIR/cluster.json"
+  "$CLUSTER_DIR/ops/quorum/install-service.sh" >/dev/null
+  local_ip="$(node_field "$node" 'd["wireguard"]["ip"]')"
+  health_port="$(node_field "$node" 'd.get("health_port",9187)')"
+  cluster_wait_deadline=$((SECONDS+45))
+  while [ "$SECONDS" -lt "$cluster_wait_deadline" ]; do
+    if curl -fsS --connect-timeout 2 --max-time 3 "http://$local_ip:$health_port/ha/live" >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  curl -fsS --connect-timeout 2 --max-time 3 "http://$local_ip:$health_port/ha/live" >/dev/null 2>&1 \
+    || die "v40 node agent did not become ready at $local_ip:$health_port"
+
+  # Apply the new routing/telemetry environment to the currently active node.
+  # This is a small targeted recreate, not a full deployment. Standby nodes have
+  # no application containers yet and will receive the same environment when
+  # the HA agent starts their assigned profile.
+  if [ "$(pg_actual_role 2>/dev/null || echo unknown)" = primary ]; then
+    info 'refreshing gateway/tasks/observability runtime environment on the active node'
+    compose up -d --no-deps gateway tasks-api observability-api
+  fi
+
+  prepare_runtime
+  printf 'upgraded-v39 %s node=%s source=%s\n' "$(date -u +%FT%TZ)" "$node" "$from" > "$EASY_RUNTIME/upgraded-v39-to-v40"
+  chmod 600 "$EASY_RUNTIME/upgraded-v39-to-v40"; fix_owner "$EASY_RUNTIME/upgraded-v39-to-v40"
+  echo 'v39 -> v40 local upgrade complete. PostgreSQL/MinIO data volumes were preserved.'
+  echo 'Node telemetry is active immediately. In replica mode B/C PREPARE/STOP their assigned app profile and Watchtower continuously updates those stopped containers.'
+  echo 'Automatic promotion/application failover remains disabled until the explicit quorum migration is completed.'
+}
+
+cmd_upgrade_v38(){
+  need_root; auto_host_deps
+  local node='' from='' topology='' candidate
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) shift; from="${1:-}";;
+      *) [ -z "$node" ] && node="$1" || die "unknown upgrade-v38 option $1";;
+    esac
+    shift
+  done
+  [ -n "$node" ] && [ -n "$from" ] || die 'usage: upgrade-v38 NODE_ID --from /path/to/v38-folder'
+  from="$(cd "$from" 2>/dev/null && pwd)" || die "source folder does not exist: $from"
+  [ "$from" != "$ROOT" ] || die 'upgrade-v38 source and destination folders must differ'
+
+  for candidate in "$from/cluster/inventory.json" "$from/taskforge-cluster-topology.json"; do
+    if [ -s "$candidate" ] && python3 "$MANAGER" --inventory "$candidate" validate >/dev/null 2>&1; then
+      topology="$candidate"; break
+    fi
+  done
+  [ -n "$topology" ] || die 'no valid v38 cluster topology found (cluster/inventory.json or taskforge-cluster-topology.json)'
+
+  info "importing v38 topology from $topology"
+  cp -a "$topology" "$INVENTORY"; chmod 600 "$INVENTORY"; fix_owner "$INVENTORY"
+  cp -a "$topology" "$ROOT/taskforge-cluster-topology.json"; chmod 600 "$ROOT/taskforge-cluster-topology.json"; fix_owner "$ROOT/taskforge-cluster-topology.json"
+
+  cmd_migrate_local "$node" --from "$from"
+  prepare_runtime
+  printf 'upgraded-v38 %s node=%s source=%s\n' "$(date -u +%FT%TZ)" "$node" "$from" > "$EASY_RUNTIME/upgraded-v38-to-v39"
+  chmod 600 "$EASY_RUNTIME/upgraded-v38-to-v39"; fix_owner "$EASY_RUNTIME/upgraded-v38-to-v39"
+  echo 'v38 -> v39 local upgrade complete. Existing PostgreSQL/MinIO data volumes were preserved.'
+  echo 'UFW rules were staged safely and UFW was enabled automatically unless TASKFORGE_FIREWALL_AUTO_ENABLE=0.'
+  echo 'No PostgreSQL basebackup, promotion, or Docker data-volume recreation was performed.'
+}
+
+cmd_finalize_v39(){
+  need_root; need_env; prepare_inventory
+  local assume=0 id ip pg_port minio_port
+  while [ $# -gt 0 ]; do
+    case "$1" in --yes) assume=1;; *) die 'usage: finalize-v39 --yes';; esac
+    shift
+  done
+  [ "$assume" -eq 1 ] || die 'add --yes after all nodes have been upgraded/repaired to v39 and are reachable'
+
+  # Fail fast with an explicit endpoint error before invoking mc. This makes a
+  # broken WireGuard proxy obvious instead of surfacing as an opaque alias error.
+  while IFS='|' read -r id ip pg_port minio_port; do
+    [ -n "$id" ] || continue
+    timeout 4 bash -c "</dev/tcp/$ip/$pg_port" 2>/dev/null || die "PostgreSQL cluster endpoint $id unreachable at $ip:$pg_port; run v39 upgrade/repair on $id"
+    curl -fsS --connect-timeout 3 --max-time 5 "http://$ip:$minio_port/minio/health/ready" >/dev/null 2>&1 || die "MinIO cluster endpoint $id unreachable/not-ready at $ip:$minio_port; run v39 upgrade/repair on $id"
+    info "cluster endpoints $id reachable (PostgreSQL $ip:$pg_port, MinIO $ip:$minio_port)"
+  done < <(python3 - "$INVENTORY" <<'PY_ENDPOINTS'
+import json,sys
+for n in json.load(open(sys.argv[1],encoding='utf-8'))['nodes']:
+    print(f"{n['id']}|{n['wireguard']['ip']}|{n['postgres'].get('cluster_port',5432)}|{n['minio'].get('cluster_port',9000)}")
+PY_ENDPOINTS
+)
+
+  sync_role_marker_from_postgres
+  cmd_sync_minio --yes
+  prepare_runtime
+  printf 'finalized-v39 %s node=%s\n' "$(date -u +%FT%TZ)" "$(node_id)" > "$EASY_RUNTIME/finalized-v39"
+  chmod 600 "$EASY_RUNTIME/finalized-v39"; fix_owner "$EASY_RUNTIME/finalized-v39"
+  echo 'v39 cluster finalization complete. Cluster endpoints, both MinIO buckets, and every directed replication path were verified.'
+}
+
+cmd_finalize_v40(){
+  cmd_finalize_v39 "$@"
+}
+
+# Compatibility aliases. v40 keeps the proven MinIO finalization implementation.
+cmd_finalize_v38(){
+  warn 'finalize-v38 is a compatibility alias in v39; running finalize-v39'
+  cmd_finalize_v39 "$@"
+}
+cmd_finalize_v37(){
+  warn 'finalize-v37 is deprecated; running finalize-v39'
+  cmd_finalize_v39 "$@"
+}
+cmd_finalize_v36(){
+  warn 'finalize-v36 is deprecated; running finalize-v39'
+  cmd_finalize_v39 "$@"
+}
+cmd_finalize_v35(){
+  warn 'finalize-v35 is deprecated; running finalize-v39'
+  cmd_finalize_v39 "$@"
+}
 
 cmd_promote(){
   need_root; auto_host_deps; need_env; prepare_inventory
@@ -558,10 +1089,19 @@ import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8')).get('mode','replica'))
 PY
 )"
-  echo "TASKFORGE CLUSTER node=$node mode=$mode role=$(role_get) preferred=$(primary_id)"
+  echo "TASKFORGE CLUSTER node=$node mode=$mode role=$(role_effective) preferred=$(primary_id)"
   echo "Docker: $(docker --version 2>/dev/null || echo unavailable)"
   echo "WireGuard: $(systemctl is-active wg-quick@wg-taskforge 2>/dev/null || echo inactive)"
   wg show wg-taskforge latest-handshakes 2>/dev/null | awk '{printf "  peer %s handshake_epoch=%s\n",$1,$2}' || true
+  if [ "$node" != unset ]; then
+    local cluster_ip cluster_pg_port cluster_minio_port pg_listener=missing minio_listener=missing
+    cluster_ip="$(node_field "$node" 'd["wireguard"]["ip"]')"
+    cluster_pg_port="$(node_field "$node" 'd["postgres"].get("cluster_port",5432)')"
+    cluster_minio_port="$(node_field "$node" 'd["minio"].get("cluster_port",9000)')"
+    proxy_listener_present "$cluster_ip" "$cluster_pg_port" && pg_listener=listening
+    proxy_listener_present "$cluster_ip" "$cluster_minio_port" && minio_listener=listening
+    echo "Cluster endpoints: postgres=$cluster_ip:$cluster_pg_port($pg_listener) minio=$cluster_ip:$cluster_minio_port($minio_listener)"
+  fi
 
   pg="$(pg_container)"
   if docker inspect "$pg" >/dev/null 2>&1; then
@@ -601,12 +1141,24 @@ PY
   done
   running="$(compose ps -q 2>/dev/null | wc -l | tr -d ' ')"
   echo "Compose containers: $running"
+  if [ "$node" != unset ] && systemctl is-active --quiet taskforge-cluster.service 2>/dev/null; then
+    local agent_json agent_profile agent_mode agent_ready agent_hot_ready agent_images_ready agent_images_total agent_prepared agent_update
+    agent_json="$(curl -fsS --connect-timeout 2 --max-time 4 "http://$cluster_ip:$(node_field "$node" 'd.get("health_port",9187)')/ha/telemetry" 2>/dev/null || true)"
+    if [ -n "$agent_json" ]; then
+      IFS='|' read -r agent_profile agent_mode agent_ready agent_hot_ready agent_images_ready agent_images_total agent_prepared agent_update < <(python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s|%s|%s|%s|%s|%s|%s|%s"%(d.get("node",{}).get("app_profile","?"),d.get("ha",{}).get("app_mode","?"),str(d.get("ha",{}).get("traffic_ready",False)).lower(),str(d.get("ha",{}).get("hot_start_ready",False)).lower(),d.get("docker",{}).get("images_ready",0),d.get("docker",{}).get("assigned_app_count",0),d.get("docker",{}).get("prepared_app_count",0),d.get("update",{}).get("status","?")))' <<<"$agent_json")
+      echo "Node agent: active profile=$agent_profile app_mode=$agent_mode traffic_ready=$agent_ready hot_ready=$agent_hot_ready images=$agent_images_ready/$agent_images_total prepared=$agent_prepared/$agent_images_total update=$agent_update"
+    else
+      echo 'Node agent: active but telemetry unavailable'
+    fi
+  elif [ -f "$CLUSTER_DIR/cluster.json" ]; then
+    echo 'Node agent: inactive'
+  fi
 }
 
 cmd_doctor(){
   # doctor is diagnostic: one failed probe must not abort the remaining checks.
   set +e
-  local issues=0 node peers_expected peers_actual pg health recovery receiver minio c row sender_host sender_port slot replay_gap expected_primary_ip replica_rows replica_count expected_replicas state sync lag
+  local issues=0 node peers_expected peers_actual pg health recovery receiver minio c row sender_host sender_port slot replay_gap expected_primary_ip replica_rows replica_count expected_replicas state sync lag actual_role role_marker local_ip local_pg_port local_minio_port sensitive_ports exposed_ports port
   ok(){ echo "OK   $*"; }
   bad(){ echo "FAIL $*" >&2; issues=$((issues+1)); }
   warn_d(){ echo "WARN $*" >&2; }
@@ -635,12 +1187,81 @@ PY
     bad 'node id not set'
   fi
 
-  if ss -H -lnt 2>/dev/null | awk '{print $4}' | grep -Eq '^(0\.0\.0\.0|\[::\]):(5432|9000)$'; then
-    bad 'data port globally exposed'
-  else
-    ok 'data ports not globally exposed'
+  sensitive_ports='5432 9000 9001 9187 8008 2379 2380 5672 6379 18080 18090'
+  if [ -n "${node:-}" ]; then
+    sensitive_ports="$(node_field "$node" '[d["postgres"].get("local_port",5432),d["postgres"].get("cluster_port",5432),d["postgres"].get("patroni_rest_port",8008),d["minio"].get("local_port",9000),d["minio"].get("cluster_port",9000),d["minio"].get("console_port",9001),d.get("health_port",9187),d.get("rabbitmq_port",5672),d.get("redis_port",6379),d.get("browser_cluster_port",18080),d.get("image_analyzer_cluster_port",18090)]' 2>/dev/null | tr -d '[],' || true) 2379 2380"
   fi
-  systemctl is-active --quiet ufw 2>/dev/null && ok 'UFW active' || warn_d 'UFW service not active/unknown'
+  exposed_ports=''
+  for port in $sensitive_ports; do
+    [[ "$port" =~ ^[0-9]+$ ]] || continue
+    if ss -H -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "^(0\.0\.0\.0|\[::\]):${port}$"; then
+      exposed_ports="${exposed_ports}${exposed_ports:+,}${port}"
+    fi
+  done
+  if [ -n "$exposed_ports" ]; then
+    bad "sensitive port(s) globally exposed: $exposed_ports"
+  else
+    ok 'sensitive data/control ports not globally exposed'
+  fi
+  if [ -n "${node:-}" ]; then
+    local_ip="$(node_field "$node" 'd["wireguard"]["ip"]' 2>/dev/null)"
+    local_pg_port="$(node_field "$node" 'd["postgres"].get("cluster_port",5432)' 2>/dev/null)"
+    local_minio_port="$(node_field "$node" 'd["minio"].get("cluster_port",9000)' 2>/dev/null)"
+    if proxy_listener_present "$local_ip" "$local_pg_port"; then
+      ok "PostgreSQL cluster endpoint listening $local_ip:$local_pg_port"
+    else
+      bad "PostgreSQL cluster endpoint NOT listening $local_ip:$local_pg_port"
+    fi
+    if proxy_listener_present "$local_ip" "$local_minio_port"; then
+      ok "MinIO cluster endpoint listening $local_ip:$local_minio_port"
+      if curl -fsS --connect-timeout 2 --max-time 4 "http://$local_ip:$local_minio_port/minio/health/ready" >/dev/null 2>&1; then
+        ok "MinIO cluster endpoint ready $local_ip:$local_minio_port"
+      else
+        bad "MinIO cluster endpoint not forwarding/ready $local_ip:$local_minio_port"
+      fi
+    else
+      bad "MinIO cluster endpoint NOT listening $local_ip:$local_minio_port"
+    fi
+  fi
+  if ! command -v ufw >/dev/null 2>&1; then
+    bad 'UFW not installed'
+  elif firewall_is_active; then
+    ok 'UFW active'
+  else
+    bad 'UFW inactive (v40 repair/apply enables it safely after staging SSH rules)'
+  fi
+
+  if [ -f "$CLUSTER_DIR/cluster.json" ]; then
+    if systemctl is-active --quiet taskforge-cluster.service 2>/dev/null; then
+      ok 'Node Agent active'
+      if [ -n "${local_ip:-}" ]; then
+        local agent_doctor_json agent_doctor_row agent_profile agent_mode agent_traffic agent_hot agent_watchtower agent_blockers
+        agent_doctor_json="$(curl -fsS --connect-timeout 2 --max-time 4 "http://$local_ip:$(node_field "$node" 'd.get("health_port",9187)' 2>/dev/null)/ha/telemetry" 2>/dev/null)"
+        if [ -n "$agent_doctor_json" ]; then
+          ok 'Node Agent telemetry reachable'
+          agent_doctor_row="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print("|".join([str(d.get("node",{}).get("app_profile","none")),str(d.get("ha",{}).get("app_mode","off")),str(bool(d.get("ha",{}).get("traffic_ready",False))).lower(),str(bool(d.get("ha",{}).get("hot_start_ready",False))).lower(),str(bool(d.get("update",{}).get("watchtower_running",False))).lower(),",".join(d.get("ha",{}).get("hot_start_blockers",[]) or [])]))' <<<"$agent_doctor_json")"
+          IFS='|' read -r agent_profile agent_mode agent_traffic agent_hot agent_watchtower agent_blockers <<<"$agent_doctor_row"
+          if [ "$agent_profile" != none ]; then
+            [ "$agent_watchtower" = true ] && ok 'Watchtower active for application profile' || bad 'Watchtower inactive for application profile'
+            case "$agent_mode" in
+              primary|primary-existing|assist)
+                [ "$agent_traffic" = true ] && ok "application traffic ready mode=$agent_mode" || bad "application not traffic-ready mode=$agent_mode"
+                ;;
+              warm-standby)
+                [ "$agent_hot" = true ] && ok 'application hot standby ready' || bad "application hot standby NOT ready blockers=${agent_blockers:-unknown}"
+                ;;
+            esac
+          fi
+        else
+          bad 'Node Agent telemetry unreachable'
+        fi
+      else
+        bad 'Node Agent telemetry unreachable'
+      fi
+    else
+      bad 'Node Agent inactive'
+    fi
+  fi
 
   pg="$(pg_container)"
   if docker inspect "$pg" >/dev/null 2>&1; then
@@ -657,7 +1278,7 @@ PY
       fi
       replay_gap="$(pg_scalar "$pg" 'select coalesce(pg_wal_lsn_diff(pg_last_wal_receive_lsn(),pg_last_wal_replay_lsn()),0)::bigint' 2>/dev/null)"
       [ -n "$replay_gap" ] && ok "standby replay gap=${replay_gap} bytes" || warn_d 'standby replay gap unavailable'
-      expected_primary_ip="$(node_field "$(primary_id)" 'd["wireguard"]["ip"]' 2>/dev/null)"
+      expected_primary_ip="$(node_field "$(current_primary_id)" 'd["wireguard"]["ip"]' 2>/dev/null)"
       [ -z "$expected_primary_ip" ] || [ "$sender_host" = "$expected_primary_ip" ] && ok "standby source=$sender_host" || bad "standby source expected=$expected_primary_ip actual=${sender_host:-none}"
     elif [ "$recovery" = f ]; then
       ok 'primary writable'
@@ -679,6 +1300,19 @@ PY
       [ "$replica_count" -ge "${expected_replicas:-0}" ] && ok "primary replicas=$replica_count" || bad "primary replicas expected=${expected_replicas:-?} actual=$replica_count"
     else
       bad 'PostgreSQL role unknown'
+    fi
+    actual_role="$(pg_actual_role "$pg" 2>/dev/null || echo unknown)"
+    role_marker="$(role_get)"
+    if [ -f "$RUNTIME/enabled" ]; then
+      # Patroni/etcd are authoritative after quorum mode is enabled; the legacy
+      # replica-mode role marker is intentionally not rewritten on every failover.
+      ok "PostgreSQL role=$actual_role (Patroni authoritative)"
+    elif [ "$actual_role" = "$role_marker" ]; then
+      ok "role marker=$role_marker"
+    elif [ "$role_marker" = unknown ] || [ "$role_marker" = unconfigured ]; then
+      warn_d "role marker=$role_marker actual=$actual_role (repair/adopt will fix marker)"
+    else
+      bad "role marker mismatch marker=$role_marker actual=$actual_role"
     fi
   else
     warn_d 'PostgreSQL not started'
@@ -704,24 +1338,37 @@ PY
   done
 
   if [ -x "$RUNTIME/bin/mc" ] && [ -n "${node:-}" ]; then
-    local mc="$RUNTIME/bin/mc" user pass bucket tmp_mc id ip port rules target_label
+    local mc="$RUNTIME/bin/mc" user pass bucket data_bucket tmp_mc id ip port rules target_label
+    local -a doctor_buckets
     user="$(env_get MINIO_ROOT_USER)"; user="${user:-taskforge}"
     pass="$(env_get MINIO_ROOT_PASSWORD)"
-    bucket="$(env_get S3_BUCKET)"; bucket="${bucket:-taskforge-files}"
+    data_bucket="$(env_get S3_BUCKET)"; data_bucket="${data_bucket:-taskforge-files}"
+    doctor_buckets=("$data_bucket" taskforge-cluster-state)
     tmp_mc="$(mktemp -d)"
     MC_CONFIG_DIR="$tmp_mc" "$mc" alias set local "http://127.0.0.1:$(node_field "$node" 'd["minio"]["local_port"]')" "$user" "$pass" >/dev/null 2>&1
-    if MC_CONFIG_DIR="$tmp_mc" "$mc" version info "local/$bucket" 2>/dev/null | grep -qi enabled; then ok 'MinIO bucket versioning enabled'; else bad 'MinIO bucket versioning not enabled'; fi
-    rules="$(MC_CONFIG_DIR="$tmp_mc" "$mc" replicate ls "local/$bucket" 2>/dev/null)"
-    while IFS='|' read -r id ip port; do
-      [ "$id" = "$node" ] && continue
-      target_label="$ip:$port/$bucket"
-      grep -Fq "Remote Bucket: $target_label" <<<"$rules" && ok "MinIO replication rule $node->$id" || bad "MinIO replication rule missing $node->$id"
-    done < <(python3 - "$INVENTORY" <<'PY' 2>/dev/null
+    for bucket in "${doctor_buckets[@]}"; do
+      if MC_CONFIG_DIR="$tmp_mc" "$mc" version info "local/$bucket" 2>/dev/null | grep -qi enabled; then
+        ok "MinIO bucket versioning enabled bucket=$bucket"
+      else
+        bad "MinIO bucket versioning not enabled bucket=$bucket"
+        continue
+      fi
+      rules="$(MC_CONFIG_DIR="$tmp_mc" "$mc" replicate ls "local/$bucket" 2>/dev/null || true)"
+      while IFS='|' read -r id ip port; do
+        [ "$id" = "$node" ] && continue
+        target_label="$ip:$port/$bucket"
+        if minio_rule_present_in_text "$rules" "$target_label"; then
+          ok "MinIO replication rule $node->$id bucket=$bucket"
+        else
+          bad "MinIO replication rule missing $node->$id bucket=$bucket"
+        fi
+      done < <(python3 - "$INVENTORY" <<'PY_DOCTOR_NODES' 2>/dev/null
 import json,sys
 for n in json.load(open(sys.argv[1],encoding='utf-8'))['nodes']:
     print(f"{n['id']}|{n['wireguard']['ip']}|{n['minio'].get('cluster_port',9000)}")
-PY
+PY_DOCTOR_NODES
 )
+    done
     rm -rf "$tmp_mc"
   else
     warn_d 'MinIO replication-rule check unavailable until node adoption installs mc'
@@ -738,14 +1385,15 @@ PY
 
 cmd_repair(){
   need_root; need_env; prepare_inventory
-  [ ! -f "$RUNTIME/enabled" ] || die 'advanced quorum mode is enabled; use ./cluster/status.sh and Patroni recovery tools'
+  [ ! -f "$RUNTIME/enabled" ] || die 'advanced quorum mode is enabled; use ./cluster/ops/quorum/status.sh and Patroni recovery tools'
   local node="${1:-$(node_id)}" owner group
   owner="$(owner_user)"; group="$(owner_group)"; find "$ROOT" -type f -name '*.sh' -exec chmod +x {} +; mkdir -p "$ROOT/.runtime"; chown -R "$owner:$group" "$ROOT/.runtime"; chmod 700 "$ROOT/.runtime"; [ ! -f "$ROOT/.env" ] || { chown "$owner:$group" "$ROOT/.env"; chmod 600 "$ROOT/.env"; }; [ ! -f "$ROOT/config.json" ] || { chown "$owner:$group" "$ROOT/config.json"; chmod 600 "$ROOT/config.json"; }
   cmd_apply "$node"
   if docker inspect "$(pg_container)" >/dev/null 2>&1; then compose up -d --no-deps postgres; wait_health "$(pg_container)" 240; fi
   if docker inspect "$(minio_container)" >/dev/null 2>&1; then compose up -d --no-deps minio; wait_health "$(minio_container)" 240; fi
   apply_proxies "$node"
-  echo 'Safe repairs applied. No data volume was deleted.'
+  sync_role_marker_from_postgres
+  echo 'Safe repairs applied. Role marker reconciled. No data volume was deleted.'
 }
 
 cmd_quorum(){
@@ -755,22 +1403,36 @@ cmd_quorum(){
     prepare)
       mgr render-quorum --output "$CLUSTER_DIR/cluster.json" >/dev/null
       python3 "$CLUSTER_DIR/clusterctl.py" --config "$CLUSTER_DIR/cluster.json" --env-file "$ENV_FILE" validate
-      "$CLUSTER_DIR/set-node.sh" "$node"; apply_wireguard "$node"
-      # Patroni/MinIO bind directly to WireGuard addresses in quorum mode.
-      # Remove replica-mode TCP proxies before those listeners start.
-      systemctl disable --now taskforge-postgres-wg-proxy.service taskforge-minio-wg-proxy.service >/dev/null 2>&1 || true
+      "$CLUSTER_DIR/ops/quorum/set-node.sh" "$node"; apply_wireguard "$node"; apply_firewall "$node"
+      # Preparation must be non-disruptive. Replica-mode PostgreSQL/MinIO WG
+      # proxies stay alive until the exact standalone -> Patroni handoff in
+      # migrate-primary/join-node. Removing them here used to make C unreachable
+      # while operators were still preparing the remaining voters.
       voter="$(python3 - "$INVENTORY" "$node" <<'PY'
 import json,sys
 cfg=json.load(open(sys.argv[1],encoding='utf-8')); print(str(next(n for n in cfg['nodes'] if n['id']==sys.argv[2]).get('quorum_voter',False)).lower())
 PY
-)"; [ "$voter" != true ] || { "$CLUSTER_DIR/start-dcs.sh"; "$CLUSTER_DIR/wait-dcs.sh" 300; }
-      echo "Quorum prepared on $node. Repeat on all voters."
+)"
+      if [ "$voter" = true ]; then
+        "$CLUSTER_DIR/ops/quorum/start-dcs.sh"
+        if ! "$CLUSTER_DIR/ops/quorum/dcs-status.sh" >/dev/null 2>&1; then
+          warn "local etcd started; full quorum will become healthy after the other voters are prepared"
+        fi
+      fi
+      echo "Quorum prepared on $node without interrupting existing data endpoints. Repeat on all voters."
       ;;
-    enable-primary) [ "$node" = "$(primary_id)" ] || die "run on $(primary_id)"; "$CLUSTER_DIR/migrate-primary.sh" --yes;;
-    join) "$CLUSTER_DIR/join-node.sh" --yes;;
+    enable-primary) [ "$node" = "$(primary_id)" ] || die "run on $(primary_id)"; "$CLUSTER_DIR/ops/quorum/migrate-primary.sh" --yes;;
+    join) "$CLUSTER_DIR/ops/quorum/join-node.sh" --yes;;
     *) die 'usage: quorum prepare|enable-primary|join';;
   esac
 }
+
+command_name="${1:-}"
+case "$command_name" in
+  prepare-node|add-node|import-topology|apply|adopt|init-primary|join|migrate-local|upgrade-v34|upgrade-v35|upgrade-v36|upgrade-v38|upgrade-v39|finalize-v35|finalize-v36|finalize-v37|finalize-v38|finalize-v39|finalize-v40|sync-minio|promote|repair|quorum)
+    acquire_operation_lock
+    ;;
+esac
 
 case "${1:-}" in
   cpu-profile) shift; cmd_cpu_profile "$@";;
@@ -782,6 +1444,17 @@ case "${1:-}" in
   init-primary) shift; cmd_init_primary "$@";;
   join) shift; cmd_join "$@";;
   migrate-local) shift; cmd_migrate_local "$@";;
+  upgrade-v34) shift; cmd_upgrade_v34 "$@";;
+  upgrade-v35) shift; cmd_upgrade_v35 "$@";;
+  upgrade-v36) shift; cmd_upgrade_v36 "$@";;
+  upgrade-v38) shift; cmd_upgrade_v38 "$@";;
+  upgrade-v39) shift; cmd_upgrade_v39 "$@";;
+  finalize-v35) shift; cmd_finalize_v35 "$@";;
+  finalize-v36) shift; cmd_finalize_v36 "$@";;
+  finalize-v37) shift; cmd_finalize_v37 "$@";;
+  finalize-v38) shift; cmd_finalize_v38 "$@";;
+  finalize-v39) shift; cmd_finalize_v39 "$@";;
+  finalize-v40) shift; cmd_finalize_v40 "$@";;
   sync-minio) shift; cmd_sync_minio "$@";;
   promote) shift; cmd_promote "$@";;
   status) shift; cmd_status "$@";;

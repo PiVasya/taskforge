@@ -39,7 +39,14 @@
         "api_port": 9000,
         "console_port": 9001
       },
-      "health_port": 9187
+      "health_port": 9187,
+      "app": {
+        "profile": "full",
+        "can_be_primary": true,
+        "assist_on_failover": false,
+        "exclude_services": [],
+        "assist_exclude_services": []
+      }
     },
     {
       "id": "B",
@@ -69,37 +76,58 @@
         "api_port": 9000,
         "console_port": 9001
       },
-      "health_port": 9187
+      "health_port": 9187,
+      "app": {
+        "profile": "full",
+        "can_be_primary": true,
+        "assist_on_failover": false,
+        "exclude_services": [],
+        "assist_exclude_services": []
+      }
     },
     {
       "id": "C",
       "priority": 80,
       "platform": "linux",
-      "public_host": "CHANGE_ME_C_STATIC_IP",
+      "public_host": "13.143.176.160",
       "dcs_voter": true,
       "wireguard": {
         "ip": "10.80.0.3",
-        "listen_port": 51937,
-        "public_key": "CHANGE_ME_C_WIREGUARD_PUBLIC_KEY"
+        "listen_port": 51820,
+        "public_key": "5weg7lvxaRIFaU02F3iVfrEd2H3dOOyNUs0TOcR9QAA="
       },
       "web": {
-        "http_port": 8080,
-        "https_port": 8443,
+        "http_port": 80,
+        "https_port": 443,
         "tls_mode": "origin-ca"
       },
       "postgres": {
-        "host_port": 55432,
-        "patroni_rest_port": 18008
+        "host_port": 5432,
+        "patroni_rest_port": 8008
       },
       "etcd": {
-        "client_port": 12379,
-        "peer_port": 12380
+        "client_port": 2379,
+        "peer_port": 2380
       },
       "minio": {
-        "api_port": 19000,
-        "console_port": 19001
+        "api_port": 9000,
+        "console_port": 9001
       },
-      "health_port": 9187
+      "health_port": 9187,
+      "app": {
+        "profile": "lite",
+        "can_be_primary": false,
+        "assist_on_failover": true,
+        "exclude_services": [
+          "browser-api",
+          "image-analyzer"
+        ],
+        "assist_exclude_services": [
+          "support-bot",
+          "telegram-quiz-bot",
+          "rating-worker"
+        ]
+      }
     }
   ]
 }

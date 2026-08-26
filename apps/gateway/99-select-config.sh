@@ -10,6 +10,8 @@ GATEWAY_TLS_CERT_FILE="${GATEWAY_TLS_CERT_FILE:-/etc/letsencrypt/live/${DOMAIN}/
 GATEWAY_TLS_KEY_FILE="${GATEWAY_TLS_KEY_FILE:-/etc/letsencrypt/live/${DOMAIN}/privkey.pem}"
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
 BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
+BROWSER_API_UPSTREAM="${BROWSER_API_UPSTREAM:-browser-api:8080}"
+export BROWSER_API_UPSTREAM
 
 case "$BROWSER_EDGE_RATE_RPS" in
   ''|*[!0-9]*) echo "[nginx] BROWSER_EDGE_RATE_RPS must be an integer" >&2; exit 1 ;;
@@ -77,6 +79,9 @@ EOF
 
 render_conf () {
   render_ha_snippet
+  envsubst '${BROWSER_API_UPSTREAM}' \
+    < /etc/nginx/snippets/api-routes.conf \
+    > /etc/nginx/snippets/api-routes.rendered.conf
   export GATEWAY_TLS_CERT_FILE GATEWAY_TLS_KEY_FILE
   envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then

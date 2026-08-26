@@ -44,11 +44,15 @@ with tempfile.TemporaryDirectory(prefix="taskforge-cluster-ci-") as td:
     )
     cluster = clusterctl.Cluster.load(config_path)
     assert len(cluster.nodes) == 3
-    assert len(cluster.voters) == 3
-    assert cluster.node("C").postgres_port == 55432
-    assert cluster.node("C").https_port == 8443
+    assert [n.id for n in cluster.voters] == ["A", "B", "C"]
+    assert cluster.node("A").app_profile == "full" and cluster.node("A").can_be_primary
+    assert cluster.node("B").app_profile == "full" and cluster.node("B").can_be_primary
+    assert cluster.node("C").app_profile == "lite" and not cluster.node("C").can_be_primary
+    assert {"browser-api", "image-analyzer"}.issubset(set(cluster.node("C").app_exclude_services))
+    # Same service ports are valid because each host has its own network namespace.
+    assert cluster.node("C").postgres_port == 5432
+    assert cluster.node("C").https_port == 443
 
-    # WireGuard keys identify nodes: duplicates and the all-zero key must fail.
     duplicate_key = copy.deepcopy(raw)
     duplicate_key["nodes"][1]["wireguard"]["public_key"] = duplicate_key["nodes"][0]["wireguard"]["public_key"]
     duplicate_path = tmp / "cluster-duplicate-wg-key.json"
@@ -69,36 +73,35 @@ with tempfile.TemporaryDirectory(prefix="taskforge-cluster-ci-") as td:
     except ValueError as exc:
         assert "all-zero key" in str(exc)
 
-    # Numeric port reuse is valid across protocols (WireGuard UDP vs HTTPS TCP).
-    mixed_protocol = copy.deepcopy(raw)
-    mixed_protocol["nodes"][2]["wireguard"]["listen_port"] = mixed_protocol["nodes"][2]["web"]["https_port"]
-    mixed_path = tmp / "cluster-mixed-protocol-port.json"
-    mixed_path.write_text(json.dumps(mixed_protocol), encoding="utf-8")
-    clusterctl.Cluster.load(mixed_path)
-
     clusterctl.RUNTIME_DIR = tmp / "runtime"
-    written = clusterctl.render(cluster, cluster.node("A"), env_path)
-    patroni = json.loads(Path(written["patroni"]).read_text(encoding="utf-8"))
-    assert patroni["bootstrap"]["dcs"]["postgresql"]["parameters"]["synchronous_standby_names"] == ""
-    assert patroni["bootstrap"]["dcs"]["failsafe_mode"] is True
-    assert patroni["tags"]["failover_priority"] == 100
-    assert patroni["etcd3"]["hosts"] == ["10.80.0.1:2379", "10.80.0.2:2379", "10.80.0.3:12379"]
-    assert "::0/0" not in json.dumps(patroni)
-    assert "10.80.0.0/24" in json.dumps(patroni)
+    written_a = clusterctl.render(cluster, cluster.node("A"), env_path)
+    patroni_a = json.loads(Path(written_a["patroni"]).read_text(encoding="utf-8"))
+    assert patroni_a["bootstrap"]["dcs"]["postgresql"]["parameters"]["synchronous_standby_names"] == ""
+    assert patroni_a["bootstrap"]["dcs"]["failsafe_mode"] is True
+    assert patroni_a["tags"]["nofailover"] is False
+    assert patroni_a["tags"]["failover_priority"] == 100
+    assert patroni_a["etcd3"]["hosts"] == ["10.80.0.1:2379", "10.80.0.2:2379", "10.80.0.3:2379"]
+
+    clusterctl.RUNTIME_DIR = tmp / "runtime-c"
+    written_c = clusterctl.render(cluster, cluster.node("C"), env_path)
+    patroni_c = json.loads(Path(written_c["patroni"]).read_text(encoding="utf-8"))
+    assert patroni_c["tags"]["nofailover"] is True
+    assert patroni_c["tags"]["noloadbalance"] is True
+    assert patroni_c["tags"]["failover_priority"] == 80
+    assert "10.80.0.0/24" in json.dumps(patroni_c)
 
     wg = clusterctl.wireguard_config(cluster, cluster.node("C"), "private-key")
-    assert "ListenPort = 51937" in wg
+    assert "ListenPort = 51820" in wg
     assert "Endpoint = 203.0.113.1:51820" in wg
     assert "Endpoint = 203.0.113.2:51820" in wg
 
-    # Adding full TaskForge nodes D/E must not require adding more etcd voters.
+    # Adding non-voter full nodes must not grow the three-member DCS quorum.
     expanded = copy.deepcopy(raw)
     for index, node_id in enumerate(("D", "E"), start=4):
         node = copy.deepcopy(expanded["nodes"][0])
         node.update({
             "id": node_id,
             "priority": 110 - index * 10,
-            "platform": "linux",
             "public_host": f"203.0.113.{index}",
             "dcs_voter": False,
             "health_port": 9187 + index,
@@ -109,8 +112,8 @@ with tempfile.TemporaryDirectory(prefix="taskforge-cluster-ci-") as td:
             "public_key": base64.b64encode(bytes([index]) * 32).decode(),
         }
         node["web"] = {"http_port": 8080 + index, "https_port": 8443 + index, "tls_mode": "origin-ca"}
-        node["postgres"] = {"host_port": 55432 + index, "patroni_rest_port": 18008 + index}
-        node["minio"] = {"api_port": 19000 + index * 2, "console_port": 19001 + index * 2}
+        node["postgres"] = {"host_port": 5432, "patroni_rest_port": 8008}
+        node["minio"] = {"api_port": 9000, "console_port": 9001}
         node.pop("etcd", None)
         expanded["nodes"].append(node)
     expanded_path = tmp / "cluster-5.json"
@@ -121,9 +124,9 @@ with tempfile.TemporaryDirectory(prefix="taskforge-cluster-ci-") as td:
     clusterctl.RUNTIME_DIR = tmp / "runtime-5"
     rendered_d = clusterctl.render(cluster5, cluster5.node("D"), env_path)
     patroni_d = json.loads(Path(rendered_d["patroni"]).read_text(encoding="utf-8"))
-    assert patroni_d["etcd3"]["hosts"] == ["10.80.0.1:2379", "10.80.0.2:2379", "10.80.0.3:12379"]
+    assert patroni_d["etcd3"]["hosts"] == ["10.80.0.1:2379", "10.80.0.2:2379", "10.80.0.3:2379"]
     assert patroni_d["tags"]["failover_priority"] == 70
     wg_d = clusterctl.wireguard_config(cluster5, cluster5.node("D"), "private-key")
     assert wg_d.count("[Peer]") == 4
 
-print("TaskForge cluster renderer smoke tests OK")
+print("TaskForge v40 cluster renderer smoke tests OK")

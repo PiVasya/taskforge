@@ -8,12 +8,12 @@
     {
       "id": "A",
       "priority": 100,
-      "public_host": "CHANGE_ME_A_STATIC_IP",
+      "public_host": "91.149.153.106",
       "quorum_voter": true,
       "wireguard": {
         "ip": "10.80.0.1",
         "listen_port": 51820,
-        "public_key": "CHANGE_ME_A_WIREGUARD_PUBLIC_KEY"
+        "public_key": "+bcTVxTqeA5vY5zSinoRIKSO2DXD0BoSj+SK3U00yRc="
       },
       "web": {
         "http_port": 80,
@@ -29,17 +29,24 @@
         "console_port": 9001,
         "cluster_port": 9000
       },
-      "health_port": 9187
+      "health_port": 9187,
+      "app": {
+        "profile": "full",
+        "can_be_primary": true,
+        "assist_on_failover": false,
+        "exclude_services": [],
+        "assist_exclude_services": []
+      }
     },
     {
       "id": "B",
       "priority": 90,
-      "public_host": "CHANGE_ME_B_STATIC_IP",
+      "public_host": "176.118.198.46",
       "quorum_voter": true,
       "wireguard": {
         "ip": "10.80.0.2",
         "listen_port": 51820,
-        "public_key": "CHANGE_ME_B_WIREGUARD_PUBLIC_KEY"
+        "public_key": "KKYhXB3LzeAIU3IIouE61Yfyv5eTzvkDjW6090MkkDc="
       },
       "web": {
         "http_port": 80,
@@ -55,7 +62,54 @@
         "console_port": 9001,
         "cluster_port": 9000
       },
-      "health_port": 9187
+      "health_port": 9187,
+      "app": {
+        "profile": "full",
+        "can_be_primary": true,
+        "assist_on_failover": false,
+        "exclude_services": [],
+        "assist_exclude_services": []
+      }
+    },
+    {
+      "id": "C",
+      "priority": 80,
+      "public_host": "13.143.176.160",
+      "quorum_voter": true,
+      "wireguard": {
+        "ip": "10.80.0.3",
+        "listen_port": 51820,
+        "public_key": "5weg7lvxaRIFaU02F3iVfrEd2H3dOOyNUs0TOcR9QAA="
+      },
+      "web": {
+        "http_port": 80,
+        "https_port": 443
+      },
+      "postgres": {
+        "local_port": 5432,
+        "cluster_port": 5432,
+        "patroni_rest_port": 8008
+      },
+      "minio": {
+        "local_port": 9000,
+        "console_port": 9001,
+        "cluster_port": 9000
+      },
+      "health_port": 9187,
+      "app": {
+        "profile": "lite",
+        "can_be_primary": false,
+        "assist_on_failover": true,
+        "exclude_services": [
+          "browser-api",
+          "image-analyzer"
+        ],
+        "assist_exclude_services": [
+          "support-bot",
+          "telegram-quiz-bot",
+          "rating-worker"
+        ]
+      }
     }
   ]
 }

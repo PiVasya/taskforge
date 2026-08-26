@@ -184,9 +184,9 @@ const pageMetaRules = [
     description: 'Управление дополнительными ролями и доступом к функциям TaskForge.',
   },
   {
-    path: '/admin/system-status',
-    title: 'админ · статус системы',
-    description: 'Статус компонентов TaskForge и техническое состояние платформы.',
+    path: '/admin/cluster',
+    title: 'админ · кластер',
+    description: 'Состояние серверов, контейнеров, образов и HA-кластера TaskForge.',
   },
   {
     path: '/admin/minecraft-links',

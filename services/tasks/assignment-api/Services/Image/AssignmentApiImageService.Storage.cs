@@ -134,7 +134,7 @@ internal static partial class AssignmentApiImageService
             var actualPart = new ByteArrayContent(actualMs.ToArray());
             actualPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(string.IsNullOrWhiteSpace(actual.ContentType) ? "application/octet-stream" : actual.ContentType);
             mp.Add(actualPart, "actual", actual.FileName);
-            var response = await client.PostAsync($"http://image-analyzer:8080/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
+            var response = await client.PostAsync($"{ServiceUrl(cfg, "ImageAnalyzer", "http://image-analyzer:8080")}/compare?threshold={threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}", mp);
             var raw = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
