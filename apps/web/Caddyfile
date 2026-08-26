@@ -9,7 +9,7 @@
 	# Only real React Router routes receive the SPA shell on a direct request.
 	# Unknown URLs fall through to file_server and therefore keep a real HTTP 404
 	# instead of looking like a successful page to crawlers/monitoring.
-	@spa_routes path_regexp taskforge_spa ^/(?:|login|forgot-password|register|privacy|technology|news(?:/[^/]+)?|courses|compiler|course/[^/]+|assignment/[^/]+(?:/(?:results|image-results|top|edit))?|profile|settings|my/solutions|leaderboard|users/[^/]+|support(?:/(?:new|[^/]+))?|minecraft/chat|courses/[^/]+/edit|admin/(?:solutions|badges|support(?:/[^/]+)?|groups|feature-roles|system-status|ai(?:/(?:account-manager|assistant))?|analytics|activity|users(?:/[^/]+)?|minecraft-links|assignments/[^/]+/insights)|agent|ai)/?$
+	@spa_routes path_regexp taskforge_spa ^/(?:|login|forgot-password|register|privacy|technology|news(?:/[^/]+)?|courses|compiler|course/[^/]+|assignment/[^/]+(?:/(?:results|image-results|top|edit))?|profile|settings|my/solutions|leaderboard|users/[^/]+|support(?:/(?:new|[^/]+))?|minecraft/chat|courses/[^/]+/edit|admin/(?:solutions|badges|support(?:/[^/]+)?|groups|feature-roles|cluster|system-status|ai(?:/(?:account-manager|assistant))?|analytics|activity|users(?:/[^/]+)?|minecraft-links|assignments/[^/]+/insights)|agent|ai)/?$
 	handle @spa_routes {
 		rewrite * /index.html
 		header Cache-Control "no-cache"
