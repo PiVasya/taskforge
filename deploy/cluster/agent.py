@@ -1494,8 +1494,43 @@ class Controller:
         return telemetry
 
     def telemetry_snapshot(self) -> dict[str, Any]:
-        with self.lock:
-            return self.refresh_telemetry(force=False)
+        # HTTP readers must never wait for the HA control lock. tick() already
+        # refreshes telemetry periodically; serving that completed snapshot keeps
+        # /ha/telemetry cheap even while Docker/PostgreSQL reconciliation is busy.
+        snapshot = self._telemetry_cache
+        if snapshot:
+            return snapshot
+        try:
+            payload = json.loads(TELEMETRY_FILE.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            pass
+        return {
+            "schema_version": 1,
+            "generated_at": utc_now(),
+            "cluster": self.cluster.name,
+            "node": {
+                "id": self.node.id,
+                "priority": self.node.priority,
+                "preferred": self.node.id == self.cluster.preferred_primary,
+                "dcs_voter": self.node.dcs_voter,
+                "can_be_primary": self.node.can_be_primary,
+                "app_profile": self.node.app_profile,
+            },
+            "topology": [],
+            "ha": {
+                "role": self.local_role,
+                "leader": self.leader,
+                "app_mode": self.app_mode,
+                "applications_active": self.app_active,
+                "traffic_ready": self.ready,
+                "hot_start_ready": False,
+                "hot_start_blockers": ["telemetry-warming-up"],
+                "last_error": self.last_error,
+            },
+            "events": [],
+        }
 
 
 class Handler(http.server.BaseHTTPRequestHandler):

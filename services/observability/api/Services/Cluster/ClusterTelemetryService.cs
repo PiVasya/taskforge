@@ -10,9 +10,16 @@ public sealed class ClusterTelemetryService(
     IConfiguration configuration,
     ILogger<ClusterTelemetryService> logger) : BackgroundService
 {
-    private sealed record AgentState(string NodeId, string Url, JsonObject? Payload, DateTimeOffset LastSuccessUtc, string? Error);
+    private sealed record AgentState(
+        string NodeId,
+        string Url,
+        JsonObject? Payload,
+        DateTimeOffset LastTelemetrySuccessUtc,
+        DateTimeOffset LastLiveSuccessUtc,
+        string? Error);
 
     private readonly ConcurrentDictionary<string, AgentState> _agents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastTelemetryAttemptUtc = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _seenEventIds = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _seenEventOrder = new();
     private readonly ConcurrentQueue<JsonObject> _controlEvents = new();
@@ -31,7 +38,13 @@ public sealed class ClusterTelemetryService(
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
+    // Lightweight liveness stays frequent. Heavy /ha/telemetry is sampled much
+    // less often and never decides whether a node is online.
     private int PollSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:PollSeconds", 5), 2, 60);
+    private int TelemetryPollSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:TelemetryPollSeconds", 30), 10, 300);
+    private int DownAfterSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:DownAfterSeconds", 60), 30, 600);
+    private int LiveTimeoutSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:LiveTimeoutSeconds", 2), 1, 10);
+    private int TelemetryTimeoutSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:TelemetryTimeoutSeconds", 8), 3, 30);
 
     private string LocalTelemetryPath => configuration["ClusterTelemetry:LocalTelemetryPath"] ?? string.Empty;
 
@@ -60,7 +73,17 @@ public sealed class ClusterTelemetryService(
     {
         await PollLocalTelemetryAsync(ct);
         var urls = AgentUrls;
-        if (urls.Length > 0) await Task.WhenAll(urls.Select(url => PollOneAsync(url, ct)));
+        if (urls.Length > 0)
+        {
+            // Availability is intentionally based on /ha/live. A slow Docker or
+            // PostgreSQL telemetry collection must not masquerade as a dead node.
+            await Task.WhenAll(urls.Select(url => PollLiveAsync(url, ct)));
+
+            var now = DateTimeOffset.UtcNow;
+            var due = urls.Where(url => TelemetryPollDue(url, now)).ToArray();
+            if (due.Length > 0)
+                await Task.WhenAll(due.Select(url => PollTelemetryAsync(url, ct)));
+        }
         TrackAvailability();
         await FlushControlNotificationsAsync(ct);
     }
@@ -74,7 +97,16 @@ public sealed class ClusterTelemetryService(
             var payload = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new JsonException("local telemetry is not an object");
             var nodeId = payload["node"]?["id"]?.GetValue<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(nodeId)) return;
-            _agents[nodeId] = new AgentState(nodeId, "local-file", payload, DateTimeOffset.UtcNow, null);
+
+            var observedAt = ReadTelemetryTimestamp(payload) ?? File.GetLastWriteTimeUtc(path);
+            var previous = _agents.TryGetValue(nodeId, out var current) ? current : null;
+            _agents[nodeId] = new AgentState(
+                nodeId,
+                "local-file",
+                payload,
+                observedAt,
+                observedAt,
+                previous?.Error);
             SeedExpectedAgents(payload, nodeId);
             await ProcessEventsAsync(nodeId, payload, ct);
         }
@@ -84,6 +116,14 @@ public sealed class ClusterTelemetryService(
         }
     }
 
+    private static DateTimeOffset? ReadTelemetryTimestamp(JsonObject payload)
+    {
+        var raw = payload["generated_at"]?.GetValue<string>();
+        if (!DateTimeOffset.TryParse(raw, out var generatedAt)) return null;
+        var now = DateTimeOffset.UtcNow;
+        if (generatedAt > now.AddSeconds(30)) return now;
+        return generatedAt;
+    }
 
     private void SeedExpectedAgents(JsonObject localPayload, string localNodeId)
     {
@@ -93,14 +133,73 @@ public sealed class ClusterTelemetryService(
             var nodeId = entry["id"]?.GetValue<string>()?.Trim() ?? string.Empty;
             var url = entry["agent_url"]?.GetValue<string>()?.TrimEnd('/') ?? string.Empty;
             if (nodeId.Length == 0 || url.Length == 0 || string.Equals(nodeId, localNodeId, StringComparison.OrdinalIgnoreCase)) continue;
-            _agents.TryAdd(nodeId, new AgentState(nodeId, url, null, DateTimeOffset.MinValue, "Node Agent ещё не ответил"));
+            _agents.TryAdd(nodeId, new AgentState(
+                nodeId,
+                url,
+                null,
+                DateTimeOffset.MinValue,
+                DateTimeOffset.MinValue,
+                "Node Agent ещё не ответил"));
         }
     }
 
-    private async Task PollOneAsync(string baseUrl, CancellationToken ct)
+    private async Task PollLiveAsync(string baseUrl, CancellationToken ct)
     {
         var client = httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(4);
+        client.Timeout = TimeSpan.FromSeconds(LiveTimeoutSeconds);
+        try
+        {
+            using var response = await client.GetAsync(baseUrl + "/ha/live", ct);
+            response.EnsureSuccessStatusCode();
+            var raw = await response.Content.ReadAsStringAsync(ct);
+            var nodeId = TryReadLiveNodeId(raw) ?? FindNodeIdByUrl(baseUrl);
+            if (string.IsNullOrWhiteSpace(nodeId)) return;
+
+            _agents.TryRemove("url:" + baseUrl, out _);
+            var now = DateTimeOffset.UtcNow;
+            if (_agents.TryGetValue(nodeId, out var current))
+                _agents[nodeId] = current with { Url = baseUrl, LastLiveSuccessUtc = now, Error = null };
+            else
+                _agents[nodeId] = new AgentState(nodeId, baseUrl, null, DateTimeOffset.MinValue, now, null);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            RecordLiveFailure(baseUrl, "Node Agent live timeout");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            RecordLiveFailure(baseUrl, ex.Message);
+        }
+    }
+
+    private static string? TryReadLiveNodeId(string raw)
+    {
+        try
+        {
+            var payload = JsonNode.Parse(raw) as JsonObject;
+            if (payload?["node"] is JsonValue value && value.TryGetValue<string>(out var nodeId))
+                return nodeId?.Trim();
+            return payload?["node"]?["id"]?.GetValue<string>()?.Trim();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private bool TelemetryPollDue(string baseUrl, DateTimeOffset now)
+    {
+        if (_lastTelemetryAttemptUtc.TryGetValue(baseUrl, out var last)
+            && now - last < TimeSpan.FromSeconds(TelemetryPollSeconds))
+            return false;
+        _lastTelemetryAttemptUtc[baseUrl] = now;
+        return true;
+    }
+
+    private async Task PollTelemetryAsync(string baseUrl, CancellationToken ct)
+    {
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(TelemetryTimeoutSeconds);
         try
         {
             using var response = await client.GetAsync(baseUrl + "/ha/telemetry", ct);
@@ -110,36 +209,57 @@ public sealed class ClusterTelemetryService(
             var nodeId = payload["node"]?["id"]?.GetValue<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(nodeId)) throw new JsonException("node agent payload has no node.id");
             _agents.TryRemove("url:" + baseUrl, out _);
-            _agents[nodeId] = new AgentState(nodeId, baseUrl, payload, DateTimeOffset.UtcNow, null);
+            var now = DateTimeOffset.UtcNow;
+            _agents[nodeId] = new AgentState(
+                nodeId,
+                baseUrl,
+                payload,
+                now,
+                now,
+                null);
             await ProcessEventsAsync(nodeId, payload, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            RecordAgentFailure(baseUrl, "Node Agent timeout");
+            logger.LogDebug("Node Agent telemetry timed out for {AgentUrl}; liveness is tracked separately.", baseUrl);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            RecordAgentFailure(baseUrl, ex.Message);
+            logger.LogDebug(ex, "Node Agent telemetry failed for {AgentUrl}; liveness is tracked separately.", baseUrl);
         }
     }
 
-    private void RecordAgentFailure(string baseUrl, string error)
+    private void RecordLiveFailure(string baseUrl, string error)
     {
         var existing = _agents.FirstOrDefault(x => string.Equals(x.Value.Url, baseUrl, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(existing.Key))
             _agents[existing.Key] = existing.Value with { Error = error };
         else
-            _agents["url:" + baseUrl] = new AgentState("url:" + baseUrl, baseUrl, null, DateTimeOffset.MinValue, error);
+            _agents["url:" + baseUrl] = new AgentState(
+                "url:" + baseUrl,
+                baseUrl,
+                null,
+                DateTimeOffset.MinValue,
+                DateTimeOffset.MinValue,
+                error);
+    }
+
+    private string? FindNodeIdByUrl(string baseUrl)
+    {
+        var existing = _agents.FirstOrDefault(x => string.Equals(x.Value.Url, baseUrl, StringComparison.OrdinalIgnoreCase));
+        return string.IsNullOrWhiteSpace(existing.Key) || existing.Key.StartsWith("url:", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : existing.Key;
     }
 
     private void TrackAvailability()
     {
         var now = DateTimeOffset.UtcNow;
-        var staleAfter = TimeSpan.FromSeconds(Math.Max(15, PollSeconds * 3));
+        var downAfter = TimeSpan.FromSeconds(DownAfterSeconds);
         foreach (var state in _agents.Values)
         {
             if (state.NodeId.StartsWith("url:", StringComparison.OrdinalIgnoreCase)) continue;
-            var live = state.Payload is not null && now - state.LastSuccessUtc <= staleAfter;
+            var live = state.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - state.LastLiveSuccessUtc <= downAfter;
             if (live)
             {
                 _everLive.TryAdd(state.NodeId, 0);
@@ -158,7 +278,7 @@ public sealed class ClusterTelemetryService(
                 continue;
             }
             if (_availability.TryGetValue(state.NodeId, out var wasLive) && wasLive)
-                QueueControlEvent(state.NodeId, "cluster.node_down", "Нода недоступна", $"Node Agent {state.NodeId} перестал отвечать.", "error");
+                QueueControlEvent(state.NodeId, "cluster.node_down", "Нода недоступна", $"Node Agent {state.NodeId} не отвечает более {DownAfterSeconds} с.", "error");
             _availability[state.NodeId] = false;
         }
     }
@@ -229,7 +349,6 @@ public sealed class ClusterTelemetryService(
         }
     }
 
-
     private void MarkEventSeen(string id)
     {
         if (!_seenEventIds.TryAdd(id, 0)) return;
@@ -285,10 +404,11 @@ public sealed class ClusterTelemetryService(
     public object BuildPublicSnapshot()
     {
         var now = DateTimeOffset.UtcNow;
-        var staleAfter = TimeSpan.FromSeconds(Math.Max(15, PollSeconds * 3));
+        var downAfter = TimeSpan.FromSeconds(DownAfterSeconds);
+        var telemetryStaleAfter = TimeSpan.FromSeconds(Math.Max(90, TelemetryPollSeconds * 3));
         var states = _agents.Values.OrderBy(NodeSortKey, StringComparer.OrdinalIgnoreCase).ToList();
-        var live = states.Where(x => x.Payload is not null && now - x.LastSuccessUtc <= staleAfter).ToList();
-        var topologyMeta = ReadTopologyMeta(live.Select(x => x.Payload!));
+        var live = states.Where(x => x.Payload is not null && x.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - x.LastLiveSuccessUtc <= downAfter).ToList();
+        var topologyMeta = ReadTopologyMeta(states.Where(x => x.Payload is not null).Select(x => x.Payload!));
 
         string? activeNode = live
             .Select(x => x.Payload!)
@@ -309,7 +429,7 @@ public sealed class ClusterTelemetryService(
             }
         }
 
-        var sanitizedNodes = states.Select(state => BuildNode(state, now, staleAfter, activeNode, referenceImages, topologyMeta)).ToArray();
+        var sanitizedNodes = states.Select(state => BuildNode(state, now, downAfter, telemetryStaleAfter, activeNode, referenceImages, topologyMeta)).ToArray();
         var onlineCount = sanitizedNodes.Count(x => (bool)x["online"]!);
         var healthyCount = sanitizedNodes.Count(x => x.GetValueOrDefault("healthy") is true);
         var imageAssigned = 0;
@@ -366,19 +486,21 @@ public sealed class ClusterTelemetryService(
         };
     }
 
-    private static Dictionary<string, object?> BuildNode(AgentState state, DateTimeOffset now, TimeSpan staleAfter, string? activeNode, Dictionary<string, string> referenceImages, Dictionary<string, JsonObject> topologyMeta)
+    private static Dictionary<string, object?> BuildNode(AgentState state, DateTimeOffset now, TimeSpan downAfter, TimeSpan telemetryStaleAfter, string? activeNode, Dictionary<string, string> referenceImages, Dictionary<string, JsonObject> topologyMeta)
     {
         var p = state.Payload;
-        var online = p is not null && now - state.LastSuccessUtc <= staleAfter;
+        var online = state.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - state.LastLiveSuccessUtc <= downAfter;
+        var telemetryFresh = state.LastTelemetrySuccessUtc != DateTimeOffset.MinValue && now - state.LastTelemetrySuccessUtc <= telemetryStaleAfter;
         if (p is null)
         {
             topologyMeta.TryGetValue(state.NodeId, out var expected);
             return new Dictionary<string, object?>
             {
                 ["id"] = state.NodeId,
-                ["online"] = false,
+                ["online"] = online,
                 ["healthy"] = false,
-                ["error"] = state.Error ?? "Нет свежей телеметрии",
+                ["lastSeenAt"] = state.LastLiveSuccessUtc == DateTimeOffset.MinValue ? null : state.LastLiveSuccessUtc,
+                ["error"] = online ? "Node Agent доступен, свежая телеметрия ещё не получена" : state.Error ?? "Node Agent недоступен",
                 ["voter"] = expected?["dcs_voter"]?.GetValue<bool>() == true,
                 ["canBePrimary"] = expected?["can_be_primary"]?.GetValue<bool>() == true,
                 ["appProfile"] = expected?["app_profile"]?.GetValue<string>() ?? "unknown",
@@ -461,15 +583,17 @@ public sealed class ClusterTelemetryService(
         var noAppProfile = string.Equals(appProfile, "none", StringComparison.OrdinalIgnoreCase);
         var applicationReady = isActive ? trafficReady : noAppProfile || hotStartReady;
         var updaterReady = noAppProfile || watchtowerRunning && !updaterHasError;
-        var nodeHealthy = online && firewallActive && minioReady && postgresHealthy && roleReachable && applicationReady && updaterReady && (noAppProfile || tlsReady);
+        var nodeHealthy = online && telemetryFresh && firewallActive && minioReady && postgresHealthy && roleReachable && applicationReady && updaterReady && (noAppProfile || tlsReady);
 
         return new Dictionary<string, object?>
         {
             ["id"] = id,
             ["online"] = online,
             ["healthy"] = nodeHealthy,
-            ["lastSeenAt"] = state.LastSuccessUtc,
-            ["error"] = online ? null : state.Error ?? "Нет свежей телеметрии",
+            ["lastSeenAt"] = state.LastLiveSuccessUtc == DateTimeOffset.MinValue ? null : state.LastLiveSuccessUtc,
+            ["telemetryAt"] = state.LastTelemetrySuccessUtc == DateTimeOffset.MinValue ? null : state.LastTelemetrySuccessUtc,
+            ["telemetryFresh"] = telemetryFresh,
+            ["error"] = !online ? state.Error ?? "Node Agent недоступен" : telemetryFresh ? null : "Телеметрия ноды временно устарела",
             ["priority"] = p["node"]?["priority"]?.GetValue<int>() ?? 0,
             ["preferred"] = p["node"]?["preferred"]?.GetValue<bool>() == true,
             ["voter"] = p["node"]?["dcs_voter"]?.GetValue<bool>() == true,

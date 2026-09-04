@@ -63,10 +63,17 @@ applied against the new primary. C assist forces `MIGRATE_ON_STARTUP=false`.
 
 ## Telemetry
 
+`GET /ha/live` is the lightweight liveness probe. Observability polls it frequently
+and declares a node unavailable only after the configured grace period (60 seconds
+by default), so a short Docker/network stall does not generate DOWN/UP spam.
+
 `GET /ha/telemetry` reports host health, Docker state, PostgreSQL/MinIO,
 Watchtower running state, app profile/readiness and internal image fingerprints.
-Fingerprints are used only for exact comparison; admin UI exposes human states
-(`Одинаковая версия`, `Версия отличается`, `Не назначен`) and never the IDs.
+It serves the last completed snapshot without waiting for the HA control lock.
+Observability samples this heavier endpoint separately (30 seconds by default),
+so liveness does not depend on telemetry collection speed. Fingerprints are used
+only for exact comparison; admin UI exposes human states (`Одинаковая версия`,
+`Версия отличается`, `Не назначен`) and never the IDs.
 
 ## Public traffic
 

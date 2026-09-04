@@ -55,6 +55,14 @@ assert 'WATCHTOWER_INCLUDE_STOPPED' in watch and 'WATCHTOWER_REVIVE_STOPPED' in 
 agent=Path('deploy/cluster/agent.py').read_text()
 for token in ['reconcile_watchtower(True)','reconcile_watchtower(False)','hot_start_ready','--pull", "never"','unassigned_application_containers']:
     assert token in agent, token
+assert 'with self.lock:\n            return self.refresh_telemetry(force=False)' not in agent
+observability=Path('services/observability/api/Services/Cluster/ClusterTelemetryService.cs').read_text()
+for token in ['baseUrl + "/ha/live"','TelemetryPollSeconds','DownAfterSeconds','LastLiveSuccessUtc']:
+    assert token in observability, token
+assert 'configuration.GetValue("ClusterTelemetry:DownAfterSeconds", 60)' in observability
+integrations=Path('deploy/prod/compose/50-integrations.yaml').read_text()
+for token in ['ClusterTelemetry__TelemetryPollSeconds','ClusterTelemetry__DownAfterSeconds','ClusterTelemetry__LiveTimeoutSeconds','ClusterTelemetry__TelemetryTimeoutSeconds']:
+    assert token in integrations, token
 assert 'Requires=docker.service' not in Path('deploy/cluster/ops/quorum/install-service.sh').read_text()
 print('TaskForge v40 N-node HA invariants OK')
 PY

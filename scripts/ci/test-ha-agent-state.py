@@ -129,6 +129,20 @@ def test_lite_prunes_stale_excluded_container_before_watchtower_updates_it():
     assert ('rm', '-s', '-f', 'image-analyzer') not in calls
 
 
+
+def test_telemetry_snapshot_is_cached_and_does_not_take_control_lock():
+    c = object.__new__(Controller)
+    c._telemetry_cache = {"schema_version": 1, "node": {"id": "B"}}
+
+    class ForbiddenLock:
+        def __enter__(self):
+            raise AssertionError("telemetry HTTP path must not wait for the HA control lock")
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    c.lock = ForbiddenLock()
+    assert c.telemetry_snapshot() == c._telemetry_cache
+
 def test_watchtower_start_failure_is_not_ha_readiness_failure():
     c = object.__new__(Controller)
     c.deploy_lock = threading.RLock()
@@ -164,4 +178,6 @@ if __name__ == '__main__':
     print('PASS: lite standby removes stale excluded containers before Watchtower can update them')
     test_watchtower_start_failure_is_not_ha_readiness_failure()
     print('PASS: updater start failure is non-critical for HA/application readiness')
+    test_telemetry_snapshot_is_cached_and_does_not_take_control_lock()
+    print('PASS: telemetry HTTP snapshot does not wait for the HA control lock')
     print('All v40 Node Agent tests passed.')
