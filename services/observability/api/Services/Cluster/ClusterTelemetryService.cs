@@ -5,11 +5,16 @@ using System.Text.Json.Nodes;
 
 namespace TaskForge.Observability.Api.Services.Cluster;
 
-public sealed class ClusterTelemetryService(
+public sealed partial class ClusterTelemetryService(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
     ILogger<ClusterTelemetryService> logger) : BackgroundService
 {
+    // Stable member accessors are also used by the partial admin-control implementation.
+    private IHttpClientFactory ClusterHttpClientFactory => httpClientFactory;
+    private IConfiguration ClusterConfiguration => configuration;
+    private ILogger<ClusterTelemetryService> ClusterLogger => logger;
+
     private sealed record AgentState(
         string NodeId,
         string Url,
@@ -25,6 +30,12 @@ public sealed class ClusterTelemetryService(
     private readonly ConcurrentQueue<JsonObject> _controlEvents = new();
     private readonly ConcurrentDictionary<string, bool> _availability = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _everLive = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _recentSemanticEvents = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _suppressedUnavailable = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _semanticEventLock = new();
+    private readonly object _primaryTransitionLock = new();
+    private string? _observedPrimary;
+    private DateTimeOffset _primaryTransitionUntilUtc = DateTimeOffset.MinValue;
     private const int MaxSeenEventIds = 20_000;
     private const int MaxControlEvents = 500;
     private readonly HashSet<string> _seededNodes = new(StringComparer.OrdinalIgnoreCase);
@@ -84,6 +95,7 @@ public sealed class ClusterTelemetryService(
             if (due.Length > 0)
                 await Task.WhenAll(due.Select(url => PollTelemetryAsync(url, ct)));
         }
+        TrackPrimaryTransition();
         TrackAvailability();
         await FlushControlNotificationsAsync(ct);
     }
@@ -253,10 +265,55 @@ public sealed class ClusterTelemetryService(
             : existing.Key;
     }
 
+    private void TrackPrimaryTransition()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var downAfter = TimeSpan.FromSeconds(DownAfterSeconds);
+        var staleAfter = TimeSpan.FromSeconds(Math.Max(90, TelemetryPollSeconds * 3));
+        var primary = _agents.Values
+            .Where(x => x.Payload is not null
+                && x.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - x.LastLiveSuccessUtc <= downAfter
+                && x.LastTelemetrySuccessUtc != DateTimeOffset.MinValue && now - x.LastTelemetrySuccessUtc <= staleAfter
+                && IsPrimaryRole(ClusterTelemetryNormalizer.Text(x.Payload?["ha"]?["role"])))
+            .Select(x => x.NodeId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (primary.Length != 1) return;
+
+        lock (_primaryTransitionLock)
+        {
+            if (string.IsNullOrWhiteSpace(_observedPrimary))
+            {
+                _observedPrimary = primary[0];
+                return;
+            }
+            if (string.Equals(_observedPrimary, primary[0], StringComparison.OrdinalIgnoreCase)) return;
+            logger.LogInformation("Observed cluster Primary transition {From} -> {To}; suppressing transient availability Telegram noise.", _observedPrimary, primary[0]);
+            _observedPrimary = primary[0];
+            _primaryTransitionUntilUtc = now.AddSeconds(90);
+        }
+    }
+
+    private void BeginPrimaryTransition(string from, string target)
+    {
+        lock (_primaryTransitionLock)
+        {
+            _observedPrimary = from;
+            _primaryTransitionUntilUtc = DateTimeOffset.UtcNow.AddSeconds(120);
+        }
+        logger.LogInformation("Primary transition window opened for {From} -> {Target}.", from, target);
+    }
+
+    private bool PrimaryTransitionActive(DateTimeOffset now)
+    {
+        lock (_primaryTransitionLock) return now <= _primaryTransitionUntilUtc;
+    }
+
     private void TrackAvailability()
     {
         var now = DateTimeOffset.UtcNow;
         var downAfter = TimeSpan.FromSeconds(DownAfterSeconds);
+        var transition = PrimaryTransitionActive(now);
         foreach (var state in _agents.Values)
         {
             if (state.NodeId.StartsWith("url:", StringComparison.OrdinalIgnoreCase)) continue;
@@ -264,7 +321,8 @@ public sealed class ClusterTelemetryService(
             if (live)
             {
                 _everLive.TryAdd(state.NodeId, 0);
-                if (_availability.TryGetValue(state.NodeId, out var previous) && !previous)
+                var wasSuppressed = _suppressedUnavailable.TryRemove(state.NodeId, out _);
+                if (_availability.TryGetValue(state.NodeId, out var previous) && !previous && !wasSuppressed)
                     QueueControlEvent(state.NodeId, "cluster.node_recovered", "Нода снова доступна", $"Node Agent {state.NodeId} снова отвечает.", "success");
                 _availability[state.NodeId] = true;
                 continue;
@@ -278,8 +336,23 @@ public sealed class ClusterTelemetryService(
                 _availability.TryAdd(state.NodeId, false);
                 continue;
             }
-            if (_availability.TryGetValue(state.NodeId, out var wasLive) && wasLive)
+
+            var wasLive = _availability.TryGetValue(state.NodeId, out var previousLive) && previousLive;
+            if (transition)
+            {
+                if (wasLive) _suppressedUnavailable.TryAdd(state.NodeId, now);
+                _availability[state.NodeId] = false;
+                continue;
+            }
+
+            if (_suppressedUnavailable.TryRemove(state.NodeId, out var suppressedAt))
+            {
+                QueueControlEvent(state.NodeId, "cluster.node_down", "Нода недоступна", $"Node Agent {state.NodeId} не отвечает после переключения Primary (с {suppressedAt:O}).", "error");
+            }
+            else if (wasLive)
+            {
                 QueueControlEvent(state.NodeId, "cluster.node_down", "Нода недоступна", $"Node Agent {state.NodeId} не отвечает более {DownAfterSeconds} с.", "error");
+            }
             _availability[state.NodeId] = false;
         }
     }
@@ -322,22 +395,33 @@ public sealed class ClusterTelemetryService(
             if (!seeded) _seededNodes.Add(nodeId);
         }
 
-        foreach (var node in events.OfType<JsonObject>())
+        foreach (var source in events.OfType<JsonObject>())
         {
-            var id = node["id"]?.GetValue<string>() ?? string.Empty;
-            if (id.Length == 0 || _seenEventIds.ContainsKey(id)) continue;
-            // After observability-api itself is replaced by Watchtower, allow only
-            // very recent host-agent events through. This preserves the useful
-            // "TaskForge updated" Telegram notification without replaying history.
-            if (!seeded && !IsRecentEvent(node, TimeSpan.FromMinutes(3)))
+            // r57 Agent events intentionally have no id. Give them a deterministic
+            // id here instead of silently dropping every HA/edge notification.
+            var id = StableEventId(nodeId, source);
+            if (_seenEventIds.ContainsKey(id)) continue;
+            if (!seeded && !IsRecentEvent(source, TimeSpan.FromMinutes(3)))
             {
                 MarkEventSeen(id);
                 continue;
             }
 
-            var kind = node["kind"]?.GetValue<string>() ?? string.Empty;
-            var severity = node["severity"]?.GetValue<string>() ?? "info";
+            var kind = source["kind"]?.GetValue<string>() ?? string.Empty;
+            var severity = source["severity"]?.GetValue<string>() ?? "info";
             if (!ShouldNotify(kind, severity))
+            {
+                MarkEventSeen(id);
+                continue;
+            }
+
+            var evt = (JsonObject)source.DeepClone();
+            evt["id"] = id;
+            evt["node"] ??= nodeId;
+            evt["message"] ??= evt["detail"]?.DeepClone();
+
+            var semanticKey = SemanticEventKey(nodeId, evt);
+            if (!TryReserveSemanticEvent(semanticKey, DateTimeOffset.UtcNow))
             {
                 MarkEventSeen(id);
                 continue;
@@ -345,8 +429,15 @@ public sealed class ClusterTelemetryService(
 
             // Do not lose a notification just because support-bot is being replaced
             // by Watchtower at the same moment. Failed delivery is retried on the
-            // next telemetry poll. support-bot itself de-duplicates by event id.
-            if (await NotifySupportBotAsync(node, ct)) MarkEventSeen(id);
+            // next telemetry poll. support-bot also applies semantic de-duplication.
+            if (await NotifySupportBotAsync(evt, ct))
+            {
+                MarkEventSeen(id);
+            }
+            else
+            {
+                ReleaseSemanticEvent(semanticKey);
+            }
         }
     }
 
@@ -366,9 +457,42 @@ public sealed class ClusterTelemetryService(
 
     private static bool ShouldNotify(string kind, string severity)
         => kind is "update.activated" or "update.watchtower_failed" or "update.watchtower_recovered"
-           or "cluster.leader_changed" or "cluster.failback_requested" or "cluster.node_down" or "cluster.node_recovered"
+           or "cluster.primary_switch_requested" or "cluster.leader_changed" or "cluster.failback_requested"
+           or "cluster.node_down" or "cluster.node_recovered" or "edge.public_ready"
            || kind.StartsWith("failover.", StringComparison.OrdinalIgnoreCase)
            || severity is "error";
+
+    private static string StableEventId(string? nodeId, JsonObject evt)
+        => evt["id"]?.GetValue<string>()
+            ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{nodeId}|{evt.ToJsonString()}")))[..24];
+
+    private static string? SemanticEventKey(string nodeId, JsonObject evt)
+    {
+        var kind = evt["kind"]?.GetValue<string>() ?? string.Empty;
+        var message = evt["message"]?.GetValue<string>() ?? evt["detail"]?.GetValue<string>() ?? string.Empty;
+        if (kind == "cluster.leader_changed") return $"{kind}|{message.Trim().ToLowerInvariant()}";
+        if (kind == "edge.public_ready") return $"{kind}|{nodeId.ToUpperInvariant()}";
+        return null;
+    }
+
+    private bool TryReserveSemanticEvent(string? key, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return true;
+        lock (_semanticEventLock)
+        {
+            foreach (var stale in _recentSemanticEvents.Where(x => now - x.Value > TimeSpan.FromMinutes(10)).Select(x => x.Key).ToArray())
+                _recentSemanticEvents.Remove(stale);
+            if (_recentSemanticEvents.TryGetValue(key, out var previous) && now - previous < TimeSpan.FromMinutes(2)) return false;
+            _recentSemanticEvents[key] = now;
+            return true;
+        }
+    }
+
+    private void ReleaseSemanticEvent(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        lock (_semanticEventLock) _recentSemanticEvents.Remove(key);
+    }
 
     private async Task<bool> NotifySupportBotAsync(JsonObject evt, CancellationToken ct)
     {
@@ -456,6 +580,8 @@ public sealed class ClusterTelemetryService(
         var events = live.SelectMany(x => ReadEvents(x.Payload!))
             .Concat(ReadControlEvents())
             .OrderByDescending(x => x["at"]?.ToString())
+            .GroupBy(PublicEventDedupeKey, StringComparer.Ordinal)
+            .Select(group => group.First())
             .Take(100)
             .ToArray();
 
@@ -624,6 +750,7 @@ public sealed class ClusterTelemetryService(
             ["tlsLiveReady"] = p["ha"]?["tls_live_ready"]?.GetValue<bool>(),
             ["applicationsActive"] = p["ha"]?["applications_active"]?.GetValue<bool>(),
             ["reconciled"] = p["ha"]?["reconciled"]?.GetValue<bool>(),
+            ["controlPlaneFenced"] = p["ha"]?["control_plane_fenced"]?.GetValue<bool>() == true,
             ["online"] = online,
             ["healthy"] = nodeHealthy,
             ["lastSeenAt"] = state.LastLiveSuccessUtc == DateTimeOffset.MinValue ? null : state.LastLiveSuccessUtc,
@@ -719,7 +846,7 @@ public sealed class ClusterTelemetryService(
     private static Dictionary<string, object?> BuildPublicEvent(JsonObject e, string? nodeId = null)
         => new()
         {
-            ["id"] = e["id"]?.GetValue<string>() ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{nodeId}|{e.ToJsonString()}")))[..24],
+            ["id"] = StableEventId(nodeId, e),
             ["at"] = e["at"]?.GetValue<string>(),
             ["node"] = e["node"]?.GetValue<string>() ?? nodeId,
             ["kind"] = e["kind"]?.GetValue<string>(),
@@ -727,6 +854,16 @@ public sealed class ClusterTelemetryService(
             ["title"] = e["title"]?.GetValue<string>(),
             ["message"] = e["message"]?.GetValue<string>() ?? e["detail"]?.GetValue<string>(),
         };
+
+    private static string PublicEventDedupeKey(Dictionary<string, object?> evt)
+    {
+        var kind = evt.GetValueOrDefault("kind")?.ToString() ?? string.Empty;
+        if (kind == "cluster.leader_changed")
+            return $"{kind}|{evt.GetValueOrDefault("message")?.ToString()?.Trim().ToLowerInvariant()}";
+        if (kind == "edge.public_ready")
+            return $"{kind}|{evt.GetValueOrDefault("node")?.ToString()?.Trim().ToUpperInvariant()}";
+        return evt.GetValueOrDefault("id")?.ToString() ?? Guid.NewGuid().ToString("N");
+    }
 
     private static bool IsPrimaryRole(string? role)
         => role is not null && (role.Equals("primary", StringComparison.OrdinalIgnoreCase)

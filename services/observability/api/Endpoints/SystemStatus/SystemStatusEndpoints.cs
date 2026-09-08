@@ -28,9 +28,35 @@ internal static partial class ObservabilityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(telemetry.BuildPublicSnapshot());
         });
 
+        app.MapPost("/api/admin/cluster/primary", async (
+            ClusterPrimarySwitchRequest request,
+            ClusterTelemetryService telemetry,
+            HttpResponse response,
+            CancellationToken ct) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            try
+            {
+                var result = await telemetry.RequestPrimarySwitchAsync(request.Target, ct);
+                return Results.Json(result, statusCode: result.Changed ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
+            }
+            catch (ClusterPrimarySwitchException ex)
+            {
+                return Results.Json(new
+                {
+                    status = ex.StatusCode,
+                    code = ex.Code,
+                    message = ex.Message,
+                    severity = ex.StatusCode >= 500 ? "error" : "warning"
+                }, statusCode: ex.StatusCode);
+            }
+        });
+
         app.MapGet("/api/system-status", () =>
             Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));
 
         return app;
     }
 }
+
+internal sealed record ClusterPrimarySwitchRequest(string? Target);

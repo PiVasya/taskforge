@@ -63,6 +63,11 @@ internal static class ClusterTelemetryNormalizer
                 ["health_port"] = port,
                 ["http_port"] = item["http_port"]?.DeepClone(),
                 ["https_port"] = item["https_port"]?.DeepClone(),
+                // Internal-only control metadata. Network() deliberately does not
+                // expose the Patroni REST port to the browser, but the admin
+                // control plane needs the real configured port instead of guessing.
+                ["patroni_rest_port"] = item["postgres"]?["patroni_rest_port"]?.DeepClone()
+                    ?? item["patroni_rest_port"]?.DeepClone(),
             };
             topology.Add(entry);
             if (Text(entry["id"]) == Text(node["id"]))

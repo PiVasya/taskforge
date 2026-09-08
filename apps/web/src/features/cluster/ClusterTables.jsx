@@ -24,6 +24,7 @@ export function ImageMatrix({ nodes }) {
 const eventTitles = {
   'edge.public_ready': 'Маршрут и сертификат подтверждены',
   'edge.bootstrap_pending': 'Ожидание публичного маршрута',
+  'cluster.primary_switch_requested': 'Запрошена смена Primary',
   'cluster.leader_changed': 'Смена основной ноды',
   'cluster.node_down': 'Нода недоступна',
   'cluster.node_recovered': 'Связь с нодой восстановлена',

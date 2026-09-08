@@ -82,3 +82,31 @@ test('boolean/whitespace/object metrics are not measurements', () => {
 test('an unconfirmed primary cannot silently appear as a healthy standby', () => {
   assert.equal(model.nodeTone({ online: true, healthy: true, role: 'primary', isActive: false }), 'warn');
 });
+
+test('Primary switch client preflight only enables a fully ready standby', () => {
+  const active = { id: 'A', role: 'primary', trafficReady: true, bundleRevision: '57', edge: { configured: true } };
+  const ready = {
+    id: 'B', role: 'standby', leader: 'A', canBePrimary: true, online: true, telemetryFresh: true,
+    reconciled: true, controlPlaneFenced: false, hotStartReady: true, postgres: { healthy: true },
+    bundleRevision: '57', edge: { configured: true },
+  };
+  assert.deepEqual(model.primarySwitchEligibility(ready, active, true), { ready: true, reasons: [] });
+  const bad = { ...ready, id: 'C', hotStartReady: false, postgres: { healthy: false }, edge: { configured: false } };
+  const result = model.primarySwitchEligibility(bad, active, true);
+  assert.equal(result.ready, false);
+  assert.ok(result.reasons.includes('not-hot-ready'));
+  assert.ok(result.reasons.includes('postgres-not-ready'));
+  assert.ok(result.reasons.includes('edge-not-configured'));
+});
+
+test('Primary switch is complete only after target traffic and current Cloudflare HTTPS proof', () => {
+  const target = {
+    id: 'B', role: 'primary', trafficReady: true, edge: { configured: true, state: {
+      success: true, phase: 'ready', dns_synced: true, route_ready: true, tls_ready: true, target_node: 'B',
+    } },
+  };
+  assert.equal(model.primarySwitchComplete([target], 'B', 'B'), true);
+  assert.equal(model.primarySwitchComplete([{ ...target, edge: { ...target.edge, state: { ...target.edge.state, phase: 'route-check' } } }], 'B', 'B'), false);
+  assert.equal(model.primarySwitchComplete([{ ...target, trafficReady: false }], 'B', 'B'), false);
+  assert.equal(model.primarySwitchComplete([target], 'A', 'B'), false);
+});

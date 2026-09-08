@@ -123,3 +123,51 @@ export function imageCell(node, supplied) {
     ? { assigned: false, imageStatus: 'not-assigned' }
     : null;
 }
+
+export const PRIMARY_SWITCH_REASON = {
+  'no-primary': 'Текущая Primary не подтверждена',
+  'already-primary': 'Уже является Primary',
+  'cannot-be-primary': 'Для этой ноды can_be_primary=false',
+  offline: 'Node Agent не отвечает',
+  stale: 'Телеметрия устарела',
+  'not-reconciled': 'Node Agent ещё не reconciled',
+  fenced: 'Control plane временно fenced',
+  'not-standby': 'Нода сейчас не standby/replica',
+  'leader-mismatch': 'Нода не подтверждает текущую Primary',
+  'not-hot-ready': 'Горячий запуск не готов',
+  'postgres-not-ready': 'PostgreSQL реплика не готова',
+  'revision-mismatch': 'Версия Node Agent отличается от Primary',
+  'edge-not-configured': 'Cloudflare failover не настроен на этой ноде',
+};
+
+export function primarySwitchEligibility(node, active, edgeRequired = false) {
+  const reasons = [];
+  if (!active || !primaryRole(active.role)) reasons.push('no-primary');
+  if (!node || !node.id) return { ready: false, reasons: ['no-primary'] };
+  if (active && node.id === active.id) reasons.push('already-primary');
+  if (node.canBePrimary !== true) reasons.push('cannot-be-primary');
+  if (!node.online) reasons.push('offline');
+  if (node.telemetryFresh === false) reasons.push('stale');
+  if (node.reconciled !== true) reasons.push('not-reconciled');
+  if (node.controlPlaneFenced === true) reasons.push('fenced');
+  if (!['standby', 'replica', 'slave'].includes(String(node.role || '').toLowerCase())) reasons.push('not-standby');
+  if (active?.id && node.leader && String(node.leader).toUpperCase() !== String(active.id).toUpperCase()) reasons.push('leader-mismatch');
+  if (node.hotStartReady !== true) reasons.push('not-hot-ready');
+  if (node.postgres?.healthy !== true) reasons.push('postgres-not-ready');
+  if (active?.bundleRevision && node.bundleRevision && String(active.bundleRevision) !== String(node.bundleRevision)) reasons.push('revision-mismatch');
+  if (edgeRequired && node.edge?.configured !== true) reasons.push('edge-not-configured');
+  return { ready: reasons.length === 0, reasons };
+}
+
+export function primarySwitchComplete(nodes, activeId, targetId) {
+  const node = array(nodes).find(item => String(item.id) === String(targetId));
+  if (!node || String(activeId) !== String(targetId) || !primaryRole(node.role) || node.trafficReady !== true) return false;
+  if (node.edge?.configured !== true) return true;
+  const state = node.edge?.state || {};
+  return state.success === true
+    && state.phase === 'ready'
+    && state.dns_synced === true
+    && state.route_ready === true
+    && state.tls_ready === true
+    && String(state.target_node || '') === String(targetId);
+}

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Telegram.Bot;
@@ -17,6 +16,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     private long _supportGroupId;
     private long _aiAccessChatId;
     private readonly ConcurrentDictionary<string, byte> _deliveredClusterEvents = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _deliveredClusterSemantics = new(StringComparer.Ordinal);
+    private readonly object _clusterSemanticGate = new();
 
     public bool TelegramReady => _bot != null;
 
@@ -26,18 +27,18 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         var eventId = evt.Id?.Trim() ?? string.Empty;
         if (eventId.Length > 0 && _deliveredClusterEvents.ContainsKey(eventId)) return true;
 
-        var icon = evt.Severity?.ToLowerInvariant() switch
+        var semanticKey = ClusterNotificationFormatter.SemanticKey(evt);
+        if (!ReserveClusterSemantic(semanticKey, DateTimeOffset.UtcNow)) return true;
+        try
         {
-            "error" => "🔴",
-            "warning" => "⚠️",
-            "success" => "🟢",
-            _ => "ℹ️"
-        };
-        var title = string.IsNullOrWhiteSpace(evt.Title) ? "TaskForge cluster" : evt.Title.Trim();
-        var node = string.IsNullOrWhiteSpace(evt.Node) ? string.Empty : $"\nНода: {evt.Node.Trim()}";
-        var message = string.IsNullOrWhiteSpace(evt.Message) ? string.Empty : $"\n{evt.Message.Trim()}";
-        var text = $"{icon} <b>{WebUtility.HtmlEncode(title)}</b>{WebUtility.HtmlEncode(node)}{WebUtility.HtmlEncode(message)}";
-        await _bot.SendTextMessageAsync(_supportGroupId, text, parseMode: ParseMode.Html, cancellationToken: ct);
+            var text = ClusterNotificationFormatter.Format(evt);
+            await _bot.SendTextMessageAsync(_supportGroupId, text, parseMode: ParseMode.Html, cancellationToken: ct);
+        }
+        catch
+        {
+            ReleaseClusterSemantic(semanticKey);
+            throw;
+        }
 
         if (eventId.Length > 0)
         {
@@ -45,6 +46,25 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             if (_deliveredClusterEvents.Count > 5000) _deliveredClusterEvents.Clear();
         }
         return true;
+    }
+
+    private bool ReserveClusterSemantic(string? key, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return true;
+        lock (_clusterSemanticGate)
+        {
+            foreach (var stale in _deliveredClusterSemantics.Where(x => now - x.Value > TimeSpan.FromMinutes(10)).Select(x => x.Key).ToArray())
+                _deliveredClusterSemantics.Remove(stale);
+            if (_deliveredClusterSemantics.TryGetValue(key, out var previous) && now - previous < TimeSpan.FromMinutes(3)) return false;
+            _deliveredClusterSemantics[key] = now;
+            return true;
+        }
+    }
+
+    private void ReleaseClusterSemantic(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        lock (_clusterSemanticGate) _deliveredClusterSemantics.Remove(key);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
