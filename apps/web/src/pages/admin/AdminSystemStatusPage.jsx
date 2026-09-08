@@ -12,7 +12,7 @@ import PrimarySwitchDialog from '../../features/cluster/PrimarySwitchDialog';
 import { ClusterEvents, ImageMatrix } from '../../features/cluster/ClusterTables';
 import { Empty, Tag } from '../../features/cluster/ClusterShared';
 import {
-  array, countPair, DASH, dateTime, PHASE_LABELS, primarySwitchComplete, REASONS,
+  array, countPair, DASH, dateTime, PHASE_LABELS, primarySwitchComplete, primarySwitchProgress, REASONS,
 } from '../../features/cluster/clusterModel';
 import '../../features/cluster/cluster.css';
 
@@ -42,27 +42,51 @@ function OverviewItem({ icon: Icon, label, value, hint, tone = 'muted' }) {
   </div>;
 }
 
-function SwitchProgress({ pending, activeId, nodes, onDismiss }) {
-  const target = nodes.find(node => node.id === pending.target);
-  const targetIsObserved = activeId === pending.target;
-  const edgeState = target?.edge?.state || {};
-  const ageSeconds = Math.max(0, Math.floor((Date.now() - Number(pending.acceptedAt || Date.now())) / 1000));
-  const phase = targetIsObserved
-    ? PHASE_LABELS[edgeState.phase] || (target?.trafficReady ? 'Проверка финальной готовности' : 'Активация приложений')
-    : 'Patroni переключает роль';
-  const stalled = ageSeconds > 600;
-  return <div className={`tf-cluster-switch-progress ${stalled ? 'is-warn' : ''}`} role="status">
-    <span className="tf-cluster-switch-progress-icon"><Repeat2 size={18} /></span>
-    <div className="tf-cluster-switch-progress-main">
-      <div><strong>Смена Primary</strong><Tag tone="accent">{pending.from || '—'} → {pending.target}</Tag>{pending.uncertain && <Tag tone="warn">Ответ API потерян</Tag>}</div>
-      <p>{stalled ? 'Финальная готовность не подтверждена больше 10 минут. Не повторяйте переключение вслепую — сначала обновите состояние.' : phase}</p>
+function switchAge(seconds) {
+  if (seconds < 60) return `${seconds} с`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes} мин ${rest} с` : `${minutes} мин`;
+}
+
+function SwitchProgress({ pending, activeId, nodes, onDismiss, onRefresh, refreshing }) {
+  const progress = primarySwitchProgress(nodes, activeId, pending, Date.now());
+  const target = progress.target;
+  const edgePhase = PHASE_LABELS[progress.phase] || progress.phase || '—';
+  const warn = progress.stableNoTransition || progress.ageSeconds >= 600 || !!progress.lastError;
+  return <section className={`tf-cluster-switch-progress ${warn ? 'is-warn' : ''}`} role="status" aria-live="polite">
+    <div className="tf-cluster-switch-progress-head">
+      <span className="tf-cluster-switch-progress-icon"><Repeat2 size={18} /></span>
+      <div className="tf-cluster-switch-progress-main">
+        <div><strong>Смена Primary</strong><Tag tone="accent">{pending.from || '—'} → {pending.target}</Tag>{pending.uncertain && <Tag tone="warn">Результат POST не подтверждён</Tag>}<Tag>{switchAge(progress.ageSeconds)}</Tag></div>
+        <p>{progress.summary}</p>
+        {pending.uncertain && <small>Повторный POST автоматически не отправляется. Состояние ниже строится только по свежей фактической телеметрии кластера.</small>}
+      </div>
+      <div className="tf-cluster-switch-progress-actions">
+        <button type="button" className="tf-cluster-button" disabled={refreshing} onClick={onRefresh}><RefreshCw size={14} className={refreshing ? 'tf-cluster-spin' : ''} />Проверить</button>
+        {progress.allowDismiss && <button type="button" className="tf-cluster-button" onClick={onDismiss}>Снять ожидание</button>}
+      </div>
     </div>
-    <div className="tf-cluster-switch-progress-state">
-      <span>Наблюдаемая Primary</span><strong>{activeId || '—'}</strong>
-      <span>Traffic</span><strong>{target?.trafficReady ? 'READY' : 'WAIT'}</strong>
+
+    <div className="tf-cluster-switch-steps" aria-label="Этапы переключения Primary">
+      {progress.stages.map((stage, index) => <div key={stage.id} className={`tf-cluster-switch-step is-${stage.state}`}>
+        <span className="tf-cluster-switch-step-index">{stage.state === 'done' ? <CheckCircle2 size={14} /> : index + 1}</span>
+        <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
+      </div>)}
     </div>
-    {stalled && <button type="button" className="tf-cluster-button" onClick={onDismiss}>Скрыть ожидание</button>}
-  </div>;
+
+    <div className="tf-cluster-switch-diagnostics">
+      <span><small>Наблюдаемая Primary</small><strong>{activeId || '—'}</strong></span>
+      <span><small>Target role</small><strong>{target?.role || '—'}</strong></span>
+      <span><small>Edge phase</small><strong>{edgePhase}</strong></span>
+      <span><small>Route proof</small><strong>{progress.edgeRequired ? `${progress.routeConfirmations}/${progress.routeRequired || '—'}` : 'не требуется'}</strong></span>
+      <span><small>Traffic</small><strong>{progress.trafficReady ? 'READY' : 'WAIT'}</strong></span>
+      <span><small>Телеметрия target</small><strong>{dateTime(target?.telemetryAt)}</strong></span>
+    </div>
+
+    {progress.lastError && <div className="tf-cluster-switch-error"><AlertTriangle size={15} /><div><strong>Последняя причина ожидания</strong><span>{progress.lastError}{progress.retryInSeconds > 0 ? ` · повтор через ${progress.retryInSeconds} с` : ''}</span></div></div>}
+    {progress.stableNoTransition && <div className="tf-cluster-switch-note"><AlertTriangle size={15} />Свежие агенты всё ещё согласны, что Primary — {pending.from}, а {pending.target} — резерв. Это уже не «тишина»: фактическая смена роли пока не наблюдается. Можно снять только локальное ожидание и затем решить, повторять ли операцию.</div>}
+  </section>;
 }
 
 export default function AdminSystemStatusPage() {
@@ -204,15 +228,21 @@ export default function AdminSystemStatusPage() {
       setTimeout(() => load(true), 400);
     } catch (e) {
       const parsed = handleApiError(e, false, 'Не удалось запросить смену Primary');
-      // If the old origin disappeared after Patroni accepted the POST, the browser
-      // can lose the response. Never retry that situation blindly: observe state.
-      if (!parsed?.status || parsed.status >= 500) {
+      // A structured TaskForge error means the backend did answer. In particular,
+      // preflight failures such as PATRONI_CLUSTER_TIMEOUT happen before the
+      // switchover mutation and must be shown as the real error, not disguised as
+      // an uncertain/lost POST. Only transport/generic 5xx and failures that may
+      // happen while sending the Patroni mutation remain uncertain.
+      const uncertainCodes = new Set(['PATRONI_SWITCH_TIMEOUT', 'PATRONI_SWITCH_FAILED']);
+      const structuredFailure = Boolean(parsed?.code) && !uncertainCodes.has(parsed.code);
+      const uncertainResponse = !structuredFailure && (!parsed?.status || parsed.status >= 500);
+      if (uncertainResponse) {
         const pending = { from, target, requestId: null, acceptedAt: Date.now(), uncertain: true };
         setPendingSwitch(pending);
         savePendingSwitch(pending);
         setSelectedId(target);
         setSwitchOpen(false);
-        notifyRef.current.warn('Ответ на запрос переключения потерян. Запрос не повторяем: проверяем фактическое состояние кластера.', 10000);
+        notifyRef.current.warn('Результат запроса переключения не подтверждён. Запрос не повторяем: проверяем фактическое состояние кластера.', 10000);
         setTimeout(() => load(true), 800);
       } else {
         handleApiError(e, notifyRef.current, 'Не удалось запросить смену Primary');
@@ -238,7 +268,7 @@ export default function AdminSystemStatusPage() {
       </div>
     </div>
 
-    {pendingSwitch && <SwitchProgress pending={pendingSwitch} activeId={activeId} nodes={nodes} onDismiss={dismissPending} />}
+    {pendingSwitch && <SwitchProgress pending={pendingSwitch} activeId={activeId} nodes={nodes} onDismiss={dismissPending} onRefresh={() => load(true)} refreshing={loading} />}
     {error && <div role="alert" className="tf-cluster-callout is-warn"><AlertTriangle size={18} />{error}</div>}
     {data?.schemaVersion !== 2 && data && <div className="tf-cluster-callout"><AlertTriangle size={17} />API отдаёт сокращённые данные. Обновите образ observability-api вместе с фронтендом; Node Agent переустанавливать не нужно.</div>}
 

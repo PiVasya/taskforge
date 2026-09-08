@@ -139,3 +139,8 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 - Private key анализатора монтируется только в `code-analyzer`; runner-ы получают только public key. Версия политики и schema должны оставаться синхронными во всех verifier-ах.
 - Не ослаблять post-compile/AST/bytecode/PE/ELF-проверки, seccomp, `no_new_privs`, process-group cleanup, лимиты и отдельные internal runner networks.
 - После любых изменений OJ обязательно запускать `./scripts/security/check-oj-security.sh`. CI должен оставаться заблокированным этим security invariant job.
+
+## Primary switch local Patroni invariant (2026-09)
+
+- `/api/admin/cluster/primary` may execute only on the telemetry-confirmed current Primary. Its Patroni preflight and `/switchover` must therefore use the local Compose `postgres:8008` path, not the host self-WireGuard published port. The latter can hairpin/time out from a Docker bridge even while host/Node-Agent Patroni checks work.
+- A structured backend failure such as `PATRONI_CLUSTER_TIMEOUT` is a confirmed backend response before mutation and must be shown to the admin. Only response-less/generic transport 5xx or mutation-send uncertainty (`PATRONI_SWITCH_TIMEOUT`, `PATRONI_SWITCH_FAILED`) should enter state-observation mode without retry.

@@ -87,14 +87,16 @@ export function saveLayout(storage, key, positions, viewport) {
   try { storage.setItem(key, JSON.stringify({ version: 2, positions, viewport })); return true; } catch { return false; }
 }
 export const PHASE_LABELS = {
-  standby: '\u0420\u0435\u0437\u0435\u0440\u0432', ready: '\u0413\u043e\u0442\u043e\u0432',
-  'dns-update': '\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 DNS', 'edge-settle': '\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 Cloudflare',
+  standby: '\u0420\u0435\u0437\u0435\u0440\u0432', ready: '\u0413\u043e\u0442\u043e\u0432', starting: '\u0417\u0430\u043f\u0443\u0441\u043a edge',
+  'dns-update': '\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 DNS', 'dns-synced': 'DNS \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d',
+  'static-route': '\u0421\u0442\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u043c\u0430\u0440\u0448\u0440\u0443\u0442', 'edge-settle': '\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 Cloudflare',
   'route-check': '\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u043c\u0430\u0440\u0448\u0440\u0443\u0442\u0430',
   'route-confirmed': '\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d',
   'certbot-running': '\u0412\u044b\u043f\u0443\u0441\u043a \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0430',
   'certificate-reused': '\u0421\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442',
   'local-https-check': '\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 HTTPS \u0441\u0435\u0440\u0432\u0435\u0440\u0430',
-  'public-https-check': '\u041f\u0443\u0431\u043b\u0438\u0447\u043d\u044b\u0439 HTTPS',
+  'gateway-reload': '\u041f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u043a gateway', 'public-https-check': '\u041f\u0443\u0431\u043b\u0438\u0447\u043d\u044b\u0439 HTTPS',
+  'retry-wait': '\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 \u043f\u043e\u0432\u0442\u043e\u0440\u0430', cancelled: '\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u0430',
 };
 export const REASONS = {
   'agent-unavailable': '\u0410\u0433\u0435\u043d\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d',
@@ -170,4 +172,70 @@ export function primarySwitchComplete(nodes, activeId, targetId) {
     && state.route_ready === true
     && state.tls_ready === true
     && String(state.target_node || '') === String(targetId);
+}
+
+
+export function primarySwitchProgress(nodes, activeId, pending, now = Date.now()) {
+  const list = array(nodes);
+  const targetId = String(pending?.target || '');
+  const fromId = String(pending?.from || '');
+  const target = list.find(item => String(item.id) === targetId) || null;
+  const source = list.find(item => String(item.id) === fromId) || null;
+  const edgeRequired = list.some(item => item.edge?.configured === true);
+  const edge = target?.edge?.state || {};
+  const ageSeconds = Math.max(0, Math.floor((Number(now) - Number(pending?.acceptedAt || now)) / 1000));
+  const targetPrimary = !!target && String(activeId || '') === targetId && primaryRole(target.role);
+  const sourcePrimary = !!source && String(activeId || '') === fromId && primaryRole(source.role);
+  const targetRole = String(target?.role || 'unknown').toLowerCase();
+  const targetFresh = target?.online === true && target?.telemetryFresh !== false;
+  const sourceFresh = source?.online === true && source?.telemetryFresh !== false;
+  const roleStillStandby = ['standby', 'replica', 'slave'].includes(targetRole);
+  const leaderStillSource = !target?.leader || !fromId || String(target.leader).toUpperCase() === fromId.toUpperCase();
+  const stableNoTransition = pending?.uncertain === true && ageSeconds >= 20 && sourcePrimary && sourceFresh && targetFresh && roleStillStandby && leaderStillSource;
+
+  const routeRequired = Math.max(0, number(edge.route_required) ?? 0);
+  const routeConfirmations = Math.max(0, number(edge.route_confirmations) ?? 0);
+  const confirmationsReady = routeRequired <= 0 || routeConfirmations >= routeRequired;
+  const appsReady = targetPrimary && target?.applicationsActive === true;
+  const dnsReady = !edgeRequired || edge.dns_synced === true && String(edge.target_node || '') === targetId;
+  const routeReady = !edgeRequired || edge.route_ready === true && confirmationsReady;
+  const tlsReady = !edgeRequired || edge.tls_ready === true || edge.http_only === true;
+  const trafficReady = targetPrimary && target?.trafficReady === true;
+  const complete = primarySwitchComplete(list, activeId, targetId);
+  const requestConfirmed = pending?.uncertain !== true || targetPrimary;
+  const waiting = complete ? 'done' : 'waiting';
+
+  const stages = [
+    {
+      id: 'request', label: 'Запрос',
+      state: requestConfirmed ? 'done' : stableNoTransition ? 'warn' : 'unknown',
+      detail: requestConfirmed ? (pending?.uncertain ? 'Подтверждён фактом' : 'Patroni принял') : 'Ответ POST не получен',
+    },
+    { id: 'role', label: 'Роль БД', state: targetPrimary ? 'done' : waiting, detail: targetPrimary ? `Primary ${targetId}` : activeId ? `Сейчас ${activeId}` : 'Не определена' },
+    { id: 'apps', label: 'Приложения', state: appsReady ? 'done' : targetPrimary ? 'active' : 'waiting', detail: appsReady ? 'Активны' : targetPrimary ? 'Запускаются' : 'Ждут роли' },
+    { id: 'dns', label: 'DNS', state: dnsReady && targetPrimary ? 'done' : targetPrimary && edgeRequired ? 'active' : edgeRequired ? 'waiting' : 'done', detail: edgeRequired ? dnsReady && targetPrimary ? `→ ${targetId}` : PHASE_LABELS[edge.phase] || 'Ожидание' : 'Не требуется' },
+    { id: 'route', label: 'Маршрут', state: routeReady && targetPrimary ? 'done' : targetPrimary && edgeRequired ? 'active' : edgeRequired ? 'waiting' : 'done', detail: edgeRequired ? `${routeConfirmations}/${routeRequired || '—'}` : 'Не требуется' },
+    { id: 'tls', label: 'HTTPS', state: tlsReady && targetPrimary ? 'done' : targetPrimary && edgeRequired ? 'active' : edgeRequired ? 'waiting' : 'done', detail: edgeRequired ? tlsReady && targetPrimary ? 'Готов' : PHASE_LABELS[edge.phase] || 'Ожидание' : 'Не требуется' },
+    { id: 'traffic', label: 'Traffic', state: trafficReady ? 'done' : targetPrimary ? 'active' : 'waiting', detail: trafficReady ? 'READY' : 'WAIT' },
+  ];
+
+  let summary;
+  if (complete) summary = `Сервер ${targetId} полностью принял роль Primary; публичный маршрут и HTTPS подтверждены.`;
+  else if (stableNoTransition) summary = `По свежей телеметрии смена роли пока не наблюдается: Primary остаётся ${fromId}, сервер ${targetId} всё ещё ${targetRole}.`;
+  else if (!targetPrimary) summary = activeId ? `Patroni/Agent пока показывают Primary ${activeId}. Ждём появления ${targetId} в роли Primary.` : 'Во время смены роли единственная Primary пока не подтверждена.';
+  else if (!appsReady) summary = `Сервер ${targetId} уже Primary. Сейчас активируются приложения.`;
+  else if (edgeRequired && !dnsReady) summary = `Сервер ${targetId} уже Primary. Сейчас переключается Cloudflare DNS.`;
+  else if (edgeRequired && !routeReady) summary = `DNS уже направлен на ${targetId}. Проверяется публичный маршрут (${routeConfirmations}/${routeRequired || '—'}).`;
+  else if (edgeRequired && !tlsReady) summary = `Маршрут до ${targetId} подтверждён. Сейчас проверяется сертификат и публичный HTTPS.`;
+  else summary = `Сервер ${targetId} уже Primary. Ждём финальный traffic_ready.`;
+
+  return {
+    target, source, edge, edgeRequired, ageSeconds, complete, stableNoTransition,
+    allowDismiss: stableNoTransition || ageSeconds >= 600,
+    summary, stages, targetPrimary, appsReady, dnsReady, routeReady, tlsReady, trafficReady,
+    routeConfirmations, routeRequired,
+    phase: String(edge.phase || ''),
+    lastError: targetPrimary || String(edge.phase || '') !== 'standby' ? String(edge.last_error || '') : '',
+    retryInSeconds: Math.max(0, number(edge.retry_in_seconds) ?? 0),
+  };
 }

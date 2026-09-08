@@ -123,7 +123,16 @@ public sealed partial class ClusterTelemetryService
             if (edgeRequired && targetPayload["edge"]?["configured"]?.GetValue<bool>() != true)
                 throw new ClusterPrimarySwitchException(StatusCodes.Status409Conflict, "TARGET_EDGE_NOT_CONFIGURED", $"Cloudflare failover настроен в кластере, но на ноде {target} нет edge-конфигурации.");
 
-            var (leaderHost, leaderPort) = PatroniEndpoint(leaderState, states);
+            // This endpoint is deliberately allowed only on the node that is
+            // currently confirmed as Primary (CONTROL_NOT_ON_PRIMARY above).
+            // Therefore the leader Patroni is the local Compose `postgres` service.
+            // Calling the host's own WireGuard-published port from a Docker bridge
+            // can hit self-hairpin/NAT filtering and time out even though the same
+            // endpoint works from the host. Use the Docker-local route instead.
+            var (leaderHost, leaderPort) = LocalPatroniEndpoint();
+            ClusterLogger.LogInformation(
+                "Admin primary switchover preflight uses local Patroni endpoint {Host}:{Port} for leader {Leader}.",
+                leaderHost, leaderPort, leader);
             var cluster = await ReadPatroniClusterAsync(leaderHost, leaderPort, ct);
             var patroniLeaders = (cluster["members"] as JsonArray ?? new JsonArray())
                 .OfType<JsonObject>()
@@ -198,6 +207,19 @@ public sealed partial class ClusterTelemetryService
 
     private static bool EdgeRequired(IEnumerable<AgentState> states)
         => states.Any(x => x.Payload?["edge"]?["configured"]?.GetValue<bool>() == true);
+
+    private (string Host, int Port) LocalPatroniEndpoint()
+    {
+        var host = (ClusterConfiguration["ClusterControl:LocalPatroniHost"] ?? "postgres").Trim();
+        if (string.IsNullOrWhiteSpace(host)) host = "postgres";
+        var port = ClusterConfiguration.GetValue<int?>("ClusterControl:LocalPatroniPort") ?? 8008;
+        if (port is < 1 or > 65535)
+            throw new ClusterPrimarySwitchException(
+                StatusCodes.Status500InternalServerError,
+                "PATRONI_LOCAL_ENDPOINT_INVALID",
+                "Некорректно настроен локальный адрес Patroni для управляющего API.");
+        return (host, port);
+    }
 
     private static (string Host, int Port) PatroniEndpoint(AgentState state, IEnumerable<AgentState> allStates)
     {

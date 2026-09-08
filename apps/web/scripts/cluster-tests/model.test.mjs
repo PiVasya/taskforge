@@ -110,3 +110,37 @@ test('Primary switch is complete only after target traffic and current Cloudflar
   assert.equal(model.primarySwitchComplete([{ ...target, trafficReady: false }], 'B', 'B'), false);
   assert.equal(model.primarySwitchComplete([target], 'A', 'B'), false);
 });
+
+test('lost Primary POST becomes an explicit observed-no-transition state instead of silent WAIT', () => {
+  const nodes = [
+    { id: 'A', role: 'primary', online: true, telemetryFresh: true },
+    { id: 'B', role: 'standby', leader: 'A', online: true, telemetryFresh: true, applicationsActive: false, trafficReady: false, edge: { configured: true, state: { phase: 'standby', route_confirmations: 0, route_required: 3 } } },
+  ];
+  const pending = { from: 'A', target: 'B', uncertain: true, acceptedAt: 1_000 };
+  const progress = model.primarySwitchProgress(nodes, 'A', pending, 31_000);
+  assert.equal(progress.stableNoTransition, true);
+  assert.equal(progress.allowDismiss, true);
+  assert.match(progress.summary, /Primary остаётся A/);
+  assert.equal(progress.stages[0].state, 'warn');
+  assert.equal(progress.stages[1].detail, 'Сейчас A');
+});
+
+test('Primary progress exposes role, apps, DNS, route and HTTPS as separate live stages', () => {
+  const nodes = [
+    { id: 'A', role: 'standby', online: true, telemetryFresh: true },
+    { id: 'B', role: 'primary', online: true, telemetryFresh: true, applicationsActive: true, trafficReady: false, edge: { configured: true, state: {
+      phase: 'route-check', dns_synced: true, target_node: 'B', route_ready: false,
+      route_confirmations: 1, route_required: 3, tls_ready: false,
+    } } },
+  ];
+  const progress = model.primarySwitchProgress(nodes, 'B', { from: 'A', target: 'B', uncertain: true, acceptedAt: 0 }, 5_000);
+  assert.equal(progress.targetPrimary, true);
+  assert.equal(progress.appsReady, true);
+  assert.equal(progress.dnsReady, true);
+  assert.equal(progress.routeReady, false);
+  assert.equal(progress.tlsReady, false);
+  assert.equal(progress.stages.find(x => x.id === 'request').detail, 'Подтверждён фактом');
+  assert.equal(progress.stages.find(x => x.id === 'dns').state, 'done');
+  assert.equal(progress.stages.find(x => x.id === 'route').detail, '1/3');
+  assert.match(progress.summary, /Проверяется публичный маршрут/);
+});
