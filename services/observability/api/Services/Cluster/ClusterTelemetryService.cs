@@ -94,7 +94,7 @@ public sealed class ClusterTelemetryService(
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
         try
         {
-            var payload = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new JsonException("local telemetry is not an object");
+            var payload = ClusterTelemetryNormalizer.Normalize(JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new JsonException("local telemetry is not an object"));
             var nodeId = payload["node"]?["id"]?.GetValue<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(nodeId)) return;
 
@@ -205,7 +205,7 @@ public sealed class ClusterTelemetryService(
             using var response = await client.GetAsync(baseUrl + "/ha/telemetry", ct);
             response.EnsureSuccessStatusCode();
             var raw = await response.Content.ReadAsStringAsync(ct);
-            var payload = JsonNode.Parse(raw) as JsonObject ?? throw new JsonException("node agent returned a non-object payload");
+            var payload = ClusterTelemetryNormalizer.Normalize(JsonNode.Parse(raw) as JsonObject ?? throw new JsonException("node agent returned a non-object payload"));
             var nodeId = payload["node"]?["id"]?.GetValue<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(nodeId)) throw new JsonException("node agent payload has no node.id");
             _agents.TryRemove("url:" + baseUrl, out _);
@@ -214,9 +214,10 @@ public sealed class ClusterTelemetryService(
                 nodeId,
                 baseUrl,
                 payload,
-                now,
+                ReadTelemetryTimestamp(payload) ?? now,
                 now,
                 null);
+            SeedExpectedAgents(payload, nodeId);
             await ProcessEventsAsync(nodeId, payload, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -407,14 +408,12 @@ public sealed class ClusterTelemetryService(
         var downAfter = TimeSpan.FromSeconds(DownAfterSeconds);
         var telemetryStaleAfter = TimeSpan.FromSeconds(Math.Max(90, TelemetryPollSeconds * 3));
         var states = _agents.Values.OrderBy(NodeSortKey, StringComparer.OrdinalIgnoreCase).ToList();
-        var live = states.Where(x => x.Payload is not null && x.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - x.LastLiveSuccessUtc <= downAfter).ToList();
+        var live = states.Where(x => x.Payload is not null && x.LastLiveSuccessUtc != DateTimeOffset.MinValue && now - x.LastLiveSuccessUtc <= downAfter && now - x.LastTelemetrySuccessUtc <= telemetryStaleAfter).ToList();
         var topologyMeta = ReadTopologyMeta(states.Where(x => x.Payload is not null).Select(x => x.Payload!));
 
-        string? activeNode = live
-            .Select(x => x.Payload!)
-            .FirstOrDefault(x => x["ha"]?["traffic_ready"]?.GetValue<bool>() == true
-                && IsPrimaryRole(x["ha"]?["role"]?.GetValue<string>()))?["node"]?["id"]?.GetValue<string>();
-        activeNode ??= live.Select(x => x.Payload!).FirstOrDefault(x => IsPrimaryRole(x["ha"]?["role"]?.GetValue<string>()))?["node"]?["id"]?.GetValue<string>();
+        var primaryIds = live.Where(x => IsPrimaryRole(ClusterTelemetryNormalizer.Text(x.Payload?["ha"]?["role"])))
+            .Select(x => x.NodeId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        string? activeNode = primaryIds.Length == 1 ? primaryIds[0] : null;
 
         var referenceImages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var reference = live.Select(x => x.Payload!).FirstOrDefault(x => string.Equals(x["node"]?["id"]?.GetValue<string>(), activeNode, StringComparison.OrdinalIgnoreCase))
@@ -436,6 +435,8 @@ public sealed class ClusterTelemetryService(
         var imageSame = 0;
         var imageDifferent = 0;
         var imageMissing = 0;
+        var imageUnknown = 0;
+        var imageAvailable = 0;
         foreach (var node in sanitizedNodes)
         {
             if (node["services"] is not object[] services) continue;
@@ -444,9 +445,11 @@ public sealed class ClusterTelemetryService(
                 var status = obj.GetValueOrDefault("imageStatus")?.ToString();
                 if (status == "not-assigned") continue;
                 imageAssigned++;
+                if (obj.GetValueOrDefault("imageAvailable") is true) imageAvailable++;
                 if (status == "same") imageSame++;
                 else if (status == "different") imageDifferent++;
                 else if (status == "missing") imageMissing++;
+                else imageUnknown++;
             }
         }
 
@@ -461,15 +464,22 @@ public sealed class ClusterTelemetryService(
         // still make the cluster degraded because hot failover would be weaker.
         var imagesState = states.Count == 0 || onlineCount < states.Count || imageAssigned == 0
             ? "unknown"
-            : imageDifferent == 0 && imageMissing == 0 ? "synchronized" : "attention";
-        var overall = states.Count == 0 ? "unavailable" : healthyCount == states.Count && imageMissing == 0 ? "healthy" : "degraded";
+            : imageMissing > 0 || imageDifferent > 0 ? "attention"
+            : imageUnknown > 0 ? "unverified" : "synchronized";
+        var overall = states.Count == 0 ? "unavailable" : primaryIds.Length == 1 && healthyCount == states.Count && imageMissing == 0 ? "healthy" : "degraded";
         return new Dictionary<string, object?>
         {
+            ["schemaVersion"] = 2,
+            ["telemetryStaleAfterSeconds"] = telemetryStaleAfter.TotalSeconds,
+            ["cluster"] = live.Select(x => ClusterTelemetryNormalizer.Text(x.Payload?["cluster"])).FirstOrDefault(x => !string.IsNullOrEmpty(x)),
             ["status"] = overall,
             ["generatedAt"] = now,
             ["summary"] = new
             {
                 activeNode,
+                primaryConflict = primaryIds.Length > 1,
+                primaryCandidates = primaryIds,
+                quorumProof = "agent-liveness",
                 nodesOnline = onlineCount,
                 nodesHealthy = healthyCount,
                 nodesTotal = states.Count,
@@ -477,6 +487,9 @@ public sealed class ClusterTelemetryService(
                 imageSame,
                 imageDifferent,
                 imageMissing,
+                imageUnknown,
+                imageAvailable,
+                imageAssigned,
                 quorum = live.Count(x => x.Payload?["node"]?["dcs_voter"]?.GetValue<bool>() == true),
                 quorumTotal = topologyMeta.Values.Count(x => x["dcs_voter"]?.GetValue<bool>() == true),
                 mode = live.Select(x => x.Payload?["node"]?["deployment_mode"]?.GetValue<string>()).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "unknown",
@@ -497,6 +510,8 @@ public sealed class ClusterTelemetryService(
             return new Dictionary<string, object?>
             {
                 ["id"] = state.NodeId,
+                ["network"] = ClusterTelemetryNormalizer.Network(expected),
+                ["healthReasons"] = new[] { "telemetry-unavailable" },
                 ["online"] = online,
                 ["healthy"] = false,
                 ["lastSeenAt"] = state.LastLiveSuccessUtc == DateTimeOffset.MinValue ? null : state.LastLiveSuccessUtc,
@@ -525,7 +540,7 @@ public sealed class ClusterTelemetryService(
                 var fingerprint = svc["image_fingerprint"]?.GetValue<string>() ?? string.Empty;
                 string imageStatus;
                 if (!assigned) imageStatus = "not-assigned";
-                else if (fingerprint.Length == 0) imageStatus = "missing";
+                else if (fingerprint.Length == 0) imageStatus = svc["image_available"]?.GetValue<bool>() == false ? "missing" : svc["image_available"]?.GetValue<bool>() == true ? "unverified" : "unknown";
                 else if (!referenceImages.TryGetValue(name, out var reference) || reference.Length == 0) imageStatus = "unknown";
                 else imageStatus = string.Equals(reference, fingerprint, StringComparison.Ordinal) ? "same" : "different";
 
@@ -537,6 +552,7 @@ public sealed class ClusterTelemetryService(
                     ["containerState"] = svc["container_state"]?.GetValue<string>(),
                     ["health"] = svc["health"]?.GetValue<string>(),
                     ["imageStatus"] = imageStatus,
+                    ["imageAvailable"] = fingerprint.Length > 0 ? true : svc["image_available"]?.GetValue<bool>(),
                 });
             }
         }
@@ -552,7 +568,8 @@ public sealed class ClusterTelemetryService(
                     ["name"] = c["name"]?.GetValue<string>(),
                     ["state"] = c["state"]?.GetValue<string>(),
                     ["health"] = c["health"]?.GetValue<string>(),
-                    ["restartCount"] = c["restart_count"]?.GetValue<int>() ?? 0,
+                    ["restartCount"] = c["restart_count"]?.GetValue<int>(),
+                    ["oomKilled"] = c["oom"]?.GetValue<bool>(),
                     ["startedAt"] = c["started_at"]?.GetValue<string>(),
                     ["cpu"] = c["cpu"]?.GetValue<string>(),
                     ["memory"] = c["memory"]?.GetValue<string>(),
@@ -583,11 +600,30 @@ public sealed class ClusterTelemetryService(
         var noAppProfile = string.Equals(appProfile, "none", StringComparison.OrdinalIgnoreCase);
         var applicationReady = isActive ? trafficReady : noAppProfile || hotStartReady;
         var updaterReady = noAppProfile || watchtowerRunning && !updaterHasError;
-        var nodeHealthy = online && telemetryFresh && firewallActive && minioReady && postgresHealthy && roleReachable && applicationReady && updaterReady && (noAppProfile || tlsReady);
+        var nodeHealthy = online && telemetryFresh && firewallActive && minioReady && postgresHealthy && roleReachable && applicationReady && updaterReady && (noAppProfile || !isActive || tlsReady);
 
+        var reasons = new List<string>();
+        if (!online) reasons.Add("agent-unavailable");
+        if (!telemetryFresh) reasons.Add("telemetry-stale");
+        if (!firewallActive) reasons.Add("firewall-unconfirmed");
+        if (!minioReady) reasons.Add("minio-not-ready");
+        if (!postgresHealthy) reasons.Add("postgres-not-ready");
+        if (!roleReachable) reasons.Add("role-unconfirmed");
+        if (!applicationReady) reasons.Add(isActive ? "traffic-not-ready" : "hot-start-not-ready");
+        if (!updaterReady) reasons.Add("updater-not-ready");
+        if (isActive && !noAppProfile && !tlsReady) reasons.Add("tls-not-ready");
         return new Dictionary<string, object?>
         {
             ["id"] = id,
+            ["network"] = ClusterTelemetryNormalizer.Network(p["node"] as JsonObject),
+            ["edge"] = ClusterTelemetryNormalizer.PublicEdge(p["edge"] as JsonObject),
+            ["healthReasons"] = reasons.ToArray(),
+            ["trafficBlockers"] = SanitizeNode(p["ha"]?["traffic_blockers"]),
+            ["degradedServices"] = SanitizeNode(p["ha"]?["degraded_services"]),
+            ["tlsAssetsReady"] = p["ha"]?["tls_assets_ready"]?.GetValue<bool>(),
+            ["tlsLiveReady"] = p["ha"]?["tls_live_ready"]?.GetValue<bool>(),
+            ["applicationsActive"] = p["ha"]?["applications_active"]?.GetValue<bool>(),
+            ["reconciled"] = p["ha"]?["reconciled"]?.GetValue<bool>(),
             ["online"] = online,
             ["healthy"] = nodeHealthy,
             ["lastSeenAt"] = state.LastLiveSuccessUtc == DateTimeOffset.MinValue ? null : state.LastLiveSuccessUtc,
@@ -672,7 +708,7 @@ public sealed class ClusterTelemetryService(
     private static IEnumerable<Dictionary<string, object?>> ReadEvents(JsonObject p)
     {
         if (p["events"] is not JsonArray events) yield break;
-        foreach (var e in events.OfType<JsonObject>()) yield return BuildPublicEvent(e);
+        foreach (var e in events.OfType<JsonObject>()) yield return BuildPublicEvent(e, ClusterTelemetryNormalizer.Text(p["node"]?["id"]));
     }
 
     private IEnumerable<Dictionary<string, object?>> ReadControlEvents()
@@ -680,16 +716,16 @@ public sealed class ClusterTelemetryService(
         foreach (var e in _controlEvents) yield return BuildPublicEvent(e);
     }
 
-    private static Dictionary<string, object?> BuildPublicEvent(JsonObject e)
+    private static Dictionary<string, object?> BuildPublicEvent(JsonObject e, string? nodeId = null)
         => new()
         {
-            ["id"] = e["id"]?.GetValue<string>(),
+            ["id"] = e["id"]?.GetValue<string>() ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{nodeId}|{e.ToJsonString()}")))[..24],
             ["at"] = e["at"]?.GetValue<string>(),
-            ["node"] = e["node"]?.GetValue<string>(),
+            ["node"] = e["node"]?.GetValue<string>() ?? nodeId,
             ["kind"] = e["kind"]?.GetValue<string>(),
             ["severity"] = e["severity"]?.GetValue<string>(),
             ["title"] = e["title"]?.GetValue<string>(),
-            ["message"] = e["message"]?.GetValue<string>(),
+            ["message"] = e["message"]?.GetValue<string>() ?? e["detail"]?.GetValue<string>(),
         };
 
     private static bool IsPrimaryRole(string? role)

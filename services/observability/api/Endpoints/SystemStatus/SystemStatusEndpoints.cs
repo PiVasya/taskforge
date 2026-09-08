@@ -16,11 +16,17 @@ internal static partial class ObservabilityApiEndpoints
 {
     private static WebApplication MapSystemStatusEndpoints(WebApplication app)
     {
-        app.MapGet("/api/admin/system-status", (ClusterTelemetryService telemetry) =>
-            Microsoft.AspNetCore.Http.Results.Ok(telemetry.BuildPublicSnapshot()));
+        app.MapGet("/api/admin/system-status", (ClusterTelemetryService telemetry, HttpResponse response) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            return Microsoft.AspNetCore.Http.Results.Ok(telemetry.BuildPublicSnapshot());
+        });
 
-        app.MapGet("/api/admin/cluster", (ClusterTelemetryService telemetry) =>
-            Microsoft.AspNetCore.Http.Results.Ok(telemetry.BuildPublicSnapshot()));
+        app.MapGet("/api/admin/cluster", (ClusterTelemetryService telemetry, HttpResponse response) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            return Microsoft.AspNetCore.Http.Results.Ok(telemetry.BuildPublicSnapshot());
+        });
 
         app.MapGet("/api/system-status", () =>
             Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));

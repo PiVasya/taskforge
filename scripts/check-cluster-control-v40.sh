@@ -42,19 +42,24 @@ grep -Fq '/api/internal/cluster/events' services/bots/support-bot/Program.cs || 
 grep -Fq '_deliveredClusterEvents' services/bots/support-bot/Worker.cs || fail 'support-bot event de-duplication missing'
 pass 'support-bot cluster notifications are wired'
 
-grep -Fq 'Кластер TaskForge' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'cluster admin page missing'
-grep -Fq 'Одинаковая версия' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'human image comparison missing'
-grep -Fq 'HOT READY' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'hot-start readiness badge missing'
-grep -Fq 'quorumTotal' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'quorum ratio UI missing'
-grep -Fq 'Watchtower' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'updater status is not visible in admin node details'
-grep -Fq 'Cluster manager v' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'server bundle version is not visible in admin node details'
-grep -Fq 'selected.postgres.replicas' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'primary PostgreSQL replica detail is missing'
-grep -Fq "if (n === 0) return '0 Б';" apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'zero replication lag is rendered as unknown'
-grep -Fq 'path="/admin/cluster"' apps/web/src/App.jsx || fail 'canonical /admin/cluster route missing'
-grep -Fq 'Navigate to="/admin/cluster"' apps/web/src/App.jsx || fail 'legacy admin status route redirect missing'
-grep -Fq "api.get('/api/admin/cluster')" apps/web/src/api/systemStatus.js || fail 'admin page still calls legacy status endpoint'
-! grep -Eq 'sha256:|image_fingerprint|imageFingerprint|digest' apps/web/src/pages/admin/AdminSystemStatusPage.jsx || fail 'technical image identifier leaked into admin UI source'
-pass 'admin UI shows human synchronization/updater state without technical image identifiers'
+# The dashboard is modular: validate features where they now live rather than
+# pinning a page title or requiring all JSX in one historical file.
+page=apps/web/src/pages/admin/AdminSystemStatusPage.jsx
+features=apps/web/src/features/cluster
+grep -Fq 'ClusterMap' "$page" || fail 'cluster admin map is missing'
+grep -Fq 'ImageMatrix' "$page" || fail 'human image comparison is missing'
+grep -Fq 'hotStartReady' "$features/ClusterMap.jsx" || fail 'hot-start readiness badge missing'
+grep -Fq 'quorumTotal' "$page" || fail 'voter availability ratio UI missing'
+grep -Fq 'Watchtower' "$features/ClusterNodeDetails.jsx" || fail 'updater status is not visible'
+grep -Fq 'bundleRevision' "$features/ClusterNodeDetails.jsx" || fail 'server revision is not visible'
+grep -Fq 'pg.replicas' "$features/ClusterNodeDetails.jsx" || fail 'primary replica detail is missing'
+grep -Fq 'bytes(r.lag_bytes)' "$features/ClusterNodeDetails.jsx" || fail 'replication lag detail missing'
+grep -Fq 'path="/admin/cluster"' apps/web/src/App.jsx || fail 'canonical cluster route missing'
+grep -Fq 'Navigate to="/admin/cluster"' apps/web/src/App.jsx || fail 'legacy cluster route redirect missing'
+grep -Fq "api.get('/api/admin/cluster'," apps/web/src/api/systemStatus.js || fail 'admin page calls the wrong endpoint'
+! grep -Eq 'sha256:|image_fingerprint|imageFingerprint|digest' "$page" "$features/ClusterTables.jsx" || fail 'technical image identifier leaked into UI'
+node --test apps/web/scripts/cluster-tests/*.test.mjs
+pass 'modular cluster dashboard, image states, layout and metric formatting are checked'
 
 [ "$(cat deploy/prod/VERSION)" = 40 ] || fail 'embedded production bundle is not v40'
 [ "$(cat deploy/prod/REVISION)" = 2 ] || fail 'embedded production bundle is not v40 revision 2'
