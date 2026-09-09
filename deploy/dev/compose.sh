@@ -13,7 +13,7 @@ export TASKFORGE_ROOT="$ROOT_DIR"
 
 CODE_ANALYZER_KEY_DIR="${CODE_ANALYZER_KEY_DIR:-$ROOT_DIR/.runtime/code-analyzer-keys}"
 if [ ! -s "$CODE_ANALYZER_KEY_DIR/code-analyzer-private.pem" ] || [ ! -s "$CODE_ANALYZER_KEY_DIR/code-analyzer-public.pem" ]; then
-  "$ROOT_DIR/scripts/security/generate-code-analyzer-keypair.sh" "$CODE_ANALYZER_KEY_DIR"
+  sh "$ROOT_DIR/scripts/security/generate-code-analyzer-keypair.sh" "$CODE_ANALYZER_KEY_DIR"
 fi
 CODE_ANALYZER_PRIVATE_KEY_PATH="${CODE_ANALYZER_PRIVATE_KEY_PATH:-$CODE_ANALYZER_KEY_DIR/code-analyzer-private.pem}"
 CODE_ANALYZER_PUBLIC_KEY_PATH="${CODE_ANALYZER_PUBLIC_KEY_PATH:-$CODE_ANALYZER_KEY_DIR/code-analyzer-public.pem}"

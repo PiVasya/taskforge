@@ -164,6 +164,7 @@ internal static partial class SolutionsApiEndpoints
                 userId = (Guid?)x.UserId,
                 sourceKind = "image",
                 kind = "image",
+                executionTarget = (string?)null,
                 language = x.Language,
                 status = x.Passed ? "passed" : "failed",
                 passed = x.Passed,

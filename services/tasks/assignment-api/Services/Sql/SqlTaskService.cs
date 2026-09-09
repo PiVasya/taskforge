@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using HttpResults = Microsoft.AspNetCore.Http.Results;
 using TaskForge.Sql;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain.Sql;
@@ -187,13 +188,13 @@ internal sealed class SqlEndpointFilter : IEndpointFilter
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         try { return await next(context); }
-        catch (SqlAccessException) { return Results.Json(new { code = "EDITOR_REQUIRED", message = "Editor access is required." }, statusCode: 403); }
-        catch (SqlNotFoundException) { return Results.NotFound(new { code = "SQL_RESOURCE_NOT_FOUND", message = "SQL resource is unavailable." }); }
-        catch (SqlNotReadyException) { return Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Every enabled engine must pass validation before publication or execution." }); }
-        catch (DbUpdateConcurrencyException) { return Results.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource changed. Reload before saving." }); }
+        catch (SqlAccessException) { return HttpResults.Json(new { code = "EDITOR_REQUIRED", message = "Editor access is required." }, statusCode: 403); }
+        catch (SqlNotFoundException) { return HttpResults.NotFound(new { code = "SQL_RESOURCE_NOT_FOUND", message = "SQL resource is unavailable." }); }
+        catch (SqlNotReadyException) { return HttpResults.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Every enabled engine must pass validation before publication or execution." }); }
+        catch (DbUpdateConcurrencyException) { return HttpResults.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource changed. Reload before saving." }); }
         catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg && pg.SqlState == "23505")
-        { return Results.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource was concurrently created or updated. Reload and retry." }); }
-        catch (ArgumentException ex) { return Results.BadRequest(new { code = "SQL_DOCUMENT_INVALID", message = ex.Message }); }
-        catch (JsonException ex) { return Results.BadRequest(new { code = "SQL_DOCUMENT_INVALID", message = ex.Message }); }
+        { return HttpResults.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource was concurrently created or updated. Reload and retry." }); }
+        catch (ArgumentException ex) { return HttpResults.BadRequest(new { code = "SQL_DOCUMENT_INVALID", message = ex.Message }); }
+        catch (JsonException ex) { return HttpResults.BadRequest(new { code = "SQL_DOCUMENT_INVALID", message = ex.Message }); }
     }
 }
