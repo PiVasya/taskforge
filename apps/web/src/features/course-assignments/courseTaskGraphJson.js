@@ -262,10 +262,6 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function taskWith(base, key, title, patch = {}) {
-  return { ...clone(base), key, title, ...patch };
-}
-
 function simpleCodeTask(key, title, description = 'Решите задание и выведите ответ.') {
   return {
     key,

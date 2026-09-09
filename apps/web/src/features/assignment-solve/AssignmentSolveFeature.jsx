@@ -118,6 +118,8 @@ export default function AssignmentSolvePage() {
   const activityStatsRef = React.useRef({ startedAt: Date.now(), hiddenAt: 0, blurAt: 0, hiddenDurationMs: 0, blurDurationMs: 0 });
   const activitySeqRef = React.useRef(0);
   const latestActivityRef = React.useRef({ code: '', language: 'cpp', type: 'code-test' });
+  const codeSolveLayoutRef = React.useRef(codeSolveLayout);
+  codeSolveLayoutRef.current = codeSolveLayout;
   const currentAssignmentIdRef = React.useRef('');
 
   
@@ -230,9 +232,10 @@ export default function AssignmentSolvePage() {
     activitySeqRef.current = 0;
     lastCodeActivityRef.current = { initialized: false, length: latestActivityRef.current.code.length, at: Date.now() };
     lastLanguageActivityRef.current = latestActivityRef.current.language;
+    const activityQueue = activityQueueRef.current;
     queueActivity('assignment_opened', {
       codeLength: latestActivityRef.current.code.length,
-      payload: { type: latestActivityRef.current.type || 'code-test', layout: codeSolveLayout },
+      payload: { type: latestActivityRef.current.type || 'code-test', layout: codeSolveLayoutRef.current },
     });
 
     const timer = window.setInterval(() => flushActivity(false), 10000);
@@ -250,7 +253,7 @@ export default function AssignmentSolvePage() {
       }
       const seq = activitySeqRef.current + 1;
       activitySeqRef.current = seq;
-      activityQueueRef.current.push({
+      activityQueue.push({
         eventType: 'assignment_closed',
         eventUid: `${activitySessionIdRef.current}:${seq}`,
         sequence: seq,

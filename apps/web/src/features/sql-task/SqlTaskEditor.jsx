@@ -6,6 +6,10 @@ import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list } from
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
 import './sql-task.css';
 
+function invalidateSelection(selectionRef) {
+  selectionRef.current += 1;
+}
+
 const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublished }, ref) {
   const [view, setView] = useState(null), [spec, setSpec] = useState(freshSpec);
   const [datasets, setDatasets] = useState([]), [profiles, setProfiles] = useState([]), [runtime, setRuntime] = useState(null);
@@ -42,7 +46,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
       } catch (e) { if (alive) setError(getApiErrorMessage(e)); }
       finally { if (alive) setLoading(false); }
     })();
-    return () => { alive = false; mounted.current = false; selection.current++; };
+    return () => { alive = false; mounted.current = false; invalidateSelection(selection); };
     // The editor is keyed by assignment; an in-flight change must not overwrite dirty fields.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentId]);

@@ -1,6 +1,6 @@
 
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import { getGroups } from '../../api/groups';
@@ -69,9 +69,9 @@ export default function LeaderboardPage() {
         handleApiError(e, notify, 'Не удалось загрузить группы');
       }
     })();
-  }, []);
+  }, [notify]);
 
-  const loadEntries = async ({ reset = true } = {}) => {
+  const fetchEntries = useCallback(async ({ reset = true, courseFilter = '', daysFilter = '', groupFilter = '', queryFilter = '', currentPage = 0 } = {}) => {
     try {
       if (reset) setLoading(true);
       else setLoadingMore(true);
@@ -79,17 +79,17 @@ export default function LeaderboardPage() {
 
       const params = { viewId: leaderboardViewId.current };
 
-      if (courseId) params.courseId = courseId;
+      if (courseFilter) params.courseId = courseFilter;
 
-      const daysInt = parseInt(days, 10);
+      const daysInt = parseInt(daysFilter, 10);
       if (!Number.isNaN(daysInt) && daysInt > 0) {
         params.days = daysInt;
       }
 
-      if (groupId) params.groupId = groupId;
-      if (query.trim()) params.q = query.trim();
+      if (groupFilter) params.groupId = groupFilter;
+      if (queryFilter.trim()) params.q = queryFilter.trim();
 
-      const nextPage = reset ? 1 : page + 1;
+      const nextPage = reset ? 1 : currentPage + 1;
       params.page = nextPage;
       params.pageSize = LEADERBOARD_PAGE_SIZE;
 
@@ -112,13 +112,21 @@ export default function LeaderboardPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [notify]);
 
-  
+
+  const loadEntries = ({ reset = true } = {}) => fetchEntries({
+    reset,
+    courseFilter: courseId,
+    daysFilter: days,
+    groupFilter: groupId,
+    queryFilter: query,
+    currentPage: page,
+  });
+
   useEffect(() => {
-    loadEntries();
-    
-  }, []);
+    fetchEntries({ reset: true });
+  }, [fetchEntries]);
 
   return (
     <>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '../../components/ui';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -117,7 +117,7 @@ export default function AdminUserManagementPage() {
   const activeOperation = operations.find((item) => activeOperationStatuses.has(item.status));
   const activeMinecraftLinks = Array.isArray(minecraftRating?.activeLinks) ? minecraftRating.activeLinks : [];
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const [userDto, ratingRows, allGroups, userGroups, allFeatureRoles, codeRows, imageRows, testRows, mathRows, mcRatingDto, operationRows] = await Promise.all([
@@ -156,9 +156,9 @@ export default function AdminUserManagementPage() {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить профиль пользователя');
       setPageError(parsed);
     } finally { setLoading(false); }
-  };
+  }, [notify, userId]);
 
-  useEffect(() => { if (userId) load(); }, [userId]);
+  useEffect(() => { if (userId) load(); }, [load, userId]);
   const updateForm = (patch) => setForm((prev) => ({ ...(prev || {}), ...patch }));
 
   const runAction = async (key, action, successText, errorText, refresh = true) => {

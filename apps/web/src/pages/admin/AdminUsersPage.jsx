@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { getAdminUsers } from '../../api/adminUsers';
@@ -8,7 +8,7 @@ import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
-import { Ban, Bot, Copy, ExternalLink, Link2, RefreshCcw, Search, ShieldCheck, UserCog } from 'lucide-react';
+import { Ban, Bot, Copy, ExternalLink, Link2, RefreshCcw, ShieldCheck, UserCog } from 'lucide-react';
 
 const roles = ['User', 'Editor', 'Admin'];
 
@@ -102,7 +102,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const [res, ratingRows, minecraftRows] = await Promise.all([
@@ -138,9 +138,9 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const filteredItems = useMemo(() => {
     const search = normalize(query);

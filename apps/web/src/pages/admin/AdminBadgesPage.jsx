@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, Button, Input, Select } from '../../components/ui';
 import { AlertTriangle, Award, Copy, Trash2, UserX } from 'lucide-react';
 import { searchUsersOnce } from '../../api/admin';
@@ -42,27 +42,7 @@ export default function AdminBadgesPage() {
   const [pageError, setPageError] = useState('');
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, badge: null, assigned: false });
 
-  useEffect(() => {
-    
-    (async () => {
-      await loadBadges();
-    })();
-  }, []);
-
-  
-  useEffect(() => {
-    if (!userId) {
-      setUserBadges([]);
-      return;
-    }
-    (async () => {
-      await loadUserBadges(userId);
-    })();
-  }, [userId]);
-
-  
-
-  const loadBadges = async () => {
+  const loadBadges = useCallback(async () => {
     setBadgesLoading(true);
     try {
       const list = await getAllBadges();
@@ -74,11 +54,11 @@ export default function AdminBadgesPage() {
     } finally {
       setBadgesLoading(false);
     }
-  };
+  }, [notify]);
 
   
 
-  const loadUserBadges = async (uid) => {
+  const loadUserBadges = useCallback(async (uid) => {
     if (!uid) return;
     setUserBadgesLoading(true);
     try {
@@ -91,7 +71,20 @@ export default function AdminBadgesPage() {
     } finally {
       setUserBadgesLoading(false);
     }
-  };
+  }, [notify]);
+
+
+  useEffect(() => {
+    void loadBadges();
+  }, [loadBadges]);
+
+  useEffect(() => {
+    if (!userId) {
+      setUserBadges([]);
+      return;
+    }
+    void loadUserBadges(userId);
+  }, [loadUserBadges, userId]);
 
   
 

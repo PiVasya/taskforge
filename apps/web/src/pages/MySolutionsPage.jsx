@@ -240,7 +240,7 @@ export default function MySolutionsPage() {
     });
   }, [details, expandedId, expandedImageId, expandedMathAttemptId, expandedTestAttemptId, filterDays, imageDetails, imageHasMore, imageSkip, imageSolutions, loadedTabs, mathAttempts, mathDetails, mathHasMore, mathSkip, queryClient, solHasMore, solSkip, solutions, tab, testAttempts, testDetails, testHasMore, testSkip]);
 
-  const loadSolutions = async ({ reset = false } = {}) => {
+  const loadSolutions = useCallback(async ({ reset = false } = {}) => {
     setListLoading(true);
     try {
       const skip = reset ? 0 : solSkip;
@@ -262,9 +262,9 @@ export default function MySolutionsPage() {
       setLoadedTabs((prev) => ({ ...prev, code: true }));
       setListLoading(false);
     }
-  };
+  }, [filterDays, notify, solSkip]);
 
-  const loadTestAttempts = async ({ reset = false } = {}) => {
+  const loadTestAttempts = useCallback(async ({ reset = false } = {}) => {
     setTestListLoading(true);
     try {
       const skip = reset ? 0 : testSkip;
@@ -286,9 +286,9 @@ export default function MySolutionsPage() {
       setLoadedTabs((prev) => ({ ...prev, tests: true }));
       setTestListLoading(false);
     }
-  };
+  }, [filterDays, notify, testSkip]);
 
-  const loadImageSolutions = async ({ reset = false } = {}) => {
+  const loadImageSolutions = useCallback(async ({ reset = false } = {}) => {
     setImageListLoading(true);
     try {
       const skip = reset ? 0 : imageSkip;
@@ -310,9 +310,9 @@ export default function MySolutionsPage() {
       setLoadedTabs((prev) => ({ ...prev, images: true }));
       setImageListLoading(false);
     }
-  };
+  }, [filterDays, imageSkip, notify]);
 
-  const loadMathAttempts = async ({ reset = false } = {}) => {
+  const loadMathAttempts = useCallback(async ({ reset = false } = {}) => {
     setMathListLoading(true);
     try {
       const skip = reset ? 0 : mathSkip;
@@ -334,7 +334,7 @@ export default function MySolutionsPage() {
       setLoadedTabs((prev) => ({ ...prev, math: true }));
       setMathListLoading(false);
     }
-  };
+  }, [filterDays, mathSkip, notify]);
 
   useEffect(() => {
     if (!filterInitializedRef.current) {
@@ -374,7 +374,7 @@ export default function MySolutionsPage() {
     if (tab === 'tests' && !loadedTabs.tests) loadTestAttempts({ reset: true });
     if (tab === 'images' && !loadedTabs.images) loadImageSolutions({ reset: true });
     if (tab === 'math' && !loadedTabs.math) loadMathAttempts({ reset: true });
-  }, [tab, filterDays, loadedTabs.code, loadedTabs.tests, loadedTabs.images, loadedTabs.math]);
+  }, [tab, filterDays, loadedTabs.code, loadedTabs.tests, loadedTabs.images, loadedTabs.math, loadSolutions, loadTestAttempts, loadImageSolutions, loadMathAttempts]);
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');

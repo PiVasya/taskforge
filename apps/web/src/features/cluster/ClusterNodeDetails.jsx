@@ -19,7 +19,12 @@ function Containers({ node }) {
   const filtered = useMemo(() => containers.filter(c => {
     const state = containerState(c);
     const tone = containerTone(c, node);
-    return String(c.service || c.name || '').toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || filter === 'issues' && ['bad', 'warn'].includes(tone) || filter === 'running' && state === 'running' || filter === 'prepared' && ['created', 'exited', 'stopped'].includes(state));
+    const matchesQuery = String(c.service || c.name || '').toLowerCase().includes(query.trim().toLowerCase());
+    const matchesFilter = filter === 'all'
+      || (filter === 'issues' && ['bad', 'warn'].includes(tone))
+      || (filter === 'running' && state === 'running')
+      || (filter === 'prepared' && ['created', 'exited', 'stopped'].includes(state));
+    return matchesQuery && matchesFilter;
   }), [containers, query, filter, node]);
   return <div className="tf-cluster-containers"><div className="tf-cluster-table-tools"><label className="tf-cluster-search"><Search size={15} /><input aria-label="Поиск контейнера" value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти сервис…" /></label><div className="tf-cluster-segments" role="group" aria-label="Фильтр контейнеров">{[['all', 'Все'], ['issues', 'Внимание'], ['running', 'Работают'], ['prepared', 'Подготовлены']].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div><span className="tf-cluster-muted">{filtered.length} / {containers.length}</span></div>
     <div className="tf-cluster-table-scroll"><table className="tf-cluster-table"><thead><tr><th>Сервис</th><th>Состояние</th><th>CPU</th><th>RAM</th><th>Рестарты</th><th>Запущен</th></tr></thead><tbody>{filtered.map((c, i) => <tr key={c.service || c.name || i}><th scope="row"><strong>{c.service || c.name || DASH}</strong>{c.name && c.name !== c.service && <small>{c.name}</small>}</th><td><Tag tone={containerTone(c, node)} dot>{statusLabel(c, node)}</Tag>{c.oomKilled && <Tag tone="bad">OOM</Tag>}</td><td>{c.cpu || DASH}</td><td>{c.memory || DASH}</td><td>{c.restartCount ?? DASH}</td><td>{dateTime(c.startedAt)}</td></tr>)}</tbody></table>{!filtered.length && <Empty>По этому фильтру контейнеров нет.</Empty>}</div>

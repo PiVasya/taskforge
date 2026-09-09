@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, Button, Field, Input, Textarea, Badge } from '../../components/ui';
 import { createGroup, deleteGroup, getAdminGroups, updateGroup } from '../../api/groups';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -31,7 +31,7 @@ export default function AdminGroupsPage() {
   const [activeGroupId, setActiveGroupId] = useState('');
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, group: null });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setErr('');
@@ -43,12 +43,11 @@ export default function AdminGroupsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
 
   useEffect(() => {
     load();
-    
-  }, []);
+  }, [load]);
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openContextMenu = (event, group) => {

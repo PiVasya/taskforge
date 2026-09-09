@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input } from '../../components/ui';
 import {
@@ -19,18 +19,18 @@ export default function AdminMinecraftLinksPage() {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
 
-  const load = async () => {
+  const load = useCallback(async (searchQuery = '') => {
     try {
       setLoading(true);
-      const list = await getAdminMinecraftLinks({ query });
+      const list = await getAdminMinecraftLinks({ query: searchQuery });
       setItems(Array.isArray(list) ? list : []);
       setPageError(null);
     } catch (e) {
       setPageError(handleApiError(e, notify, 'Не удалось загрузить связи Minecraft'));
     } finally { setLoading(false); }
-  };
+  }, [notify]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(''); }, [load]);
 
   const stats = useMemo(() => ({
     users: items.length,
@@ -46,7 +46,7 @@ export default function AdminMinecraftLinksPage() {
       setBusy(link.id);
       await unlinkAdminMinecraftLink(link.id);
       notify.success('Minecraft-профиль отвязан');
-      await load();
+      await load(query);
     } catch (e) { setPageError(handleApiError(e, notify, 'Не удалось отвязать Minecraft-профиль')); }
     finally { setBusy(''); }
   };
@@ -59,7 +59,7 @@ export default function AdminMinecraftLinksPage() {
       setBusy(`all-${row.userId}`);
       await unlinkAllAdminMinecraftLinks(row.userId);
       notify.success('Все Minecraft-профили отвязаны');
-      await load();
+      await load(query);
     } catch (e) { setPageError(handleApiError(e, notify, 'Не удалось отвязать Minecraft-профили')); }
     finally { setBusy(''); }
   };
@@ -70,7 +70,7 @@ export default function AdminMinecraftLinksPage() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div><h1 className="flex items-center gap-2 text-2xl font-semibold"><Link2 size={22} /> Связи с Minecraft</h1><p className="mt-2 text-sm text-neutral-500">Все активные ники и UUID. У одного TaskForge-аккаунта может быть несколько Minecraft-профилей.</p></div>
-        <Button onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button>
+        <Button onClick={() => load(query)}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -80,7 +80,7 @@ export default function AdminMinecraftLinksPage() {
         <Card><div className="text-sm opacity-70">Восстановлено</div><div className="mt-2 text-3xl font-semibold">{stats.totalRestored}</div></Card>
       </div>
 
-      <Card><div className="flex items-end gap-2"><div className="flex-1"><Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="имя / логин / email / nick / uuid" /></Field></div><Button onClick={load}>Найти</Button></div></Card>
+      <Card><div className="flex items-end gap-2"><div className="flex-1"><Field label="Поиск"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="имя / логин / email / nick / uuid" /></Field></div><Button onClick={() => load(query)}>Найти</Button></div></Card>
       {loading ? <div className="text-neutral-500">Загрузка…</div> : null}
 
       <div className="space-y-4">

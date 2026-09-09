@@ -39,7 +39,10 @@ export function ClusterEvents({ events }) {
     const seen = new Set();
     return array(events).filter(event => { const key = event.id || `${event.at}-${event.node}-${event.kind}-${event.message}`; if (seen.has(key)) return false; seen.add(key); return true; });
   }, [events]);
-  const filtered = list.filter(e => filter === 'all' || filter === 'issues' && ['error', 'warning'].includes(e.severity) || filter === 'edge' && String(e.kind).startsWith('edge.') || filter === 'updates' && String(e.kind).startsWith('update.'));
+  const filtered = list.filter(e => filter === 'all'
+    || (filter === 'issues' && ['error', 'warning'].includes(e.severity))
+    || (filter === 'edge' && String(e.kind).startsWith('edge.'))
+    || (filter === 'updates' && String(e.kind).startsWith('update.')));
   return <section className="tf-cluster-panel"><div className="tf-cluster-panel-head"><div className="tf-cluster-heading"><Activity size={18} /><h2>События кластера</h2><Tag>{list.length}</Tag></div><div className="tf-cluster-segments" role="group" aria-label="Фильтр событий">{[['all', 'Все'], ['issues', 'Внимание'], ['edge', 'Маршрут'], ['updates', 'Обновления']].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); setLimit(12); }}>{label}</button>)}</div></div><div className="tf-cluster-events">{filtered.slice(0, limit).map(e => {
     const tone = e.severity === 'error' ? 'bad' : e.severity === 'warning' ? 'warn' : e.severity === 'success' ? 'good' : 'muted';
     const Icon = tone === 'bad' ? XCircle : tone === 'warn' ? AlertTriangle : tone === 'good' ? CheckCircle2 : Info;

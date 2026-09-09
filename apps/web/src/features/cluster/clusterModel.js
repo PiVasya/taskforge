@@ -1,5 +1,5 @@
 export const DASH = '\u2014';
-export const number = (value) => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value)) ? Number(value) : null;
+export const number = (value) => ((typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value))) ? Number(value) : null;
 export const array = (value) => Array.isArray(value) ? value : [];
 export const primaryRole = (role) => ['primary', 'master', 'leader'].includes(String(role || '').toLowerCase());
 export function bytes(value) {
@@ -38,7 +38,7 @@ export function containerTone(c, node) {
 }
 export function nodeTone(node) {
   if (!node.online) return 'bad';
-  if (node.telemetryFresh === false || node.healthy === false || primaryRole(node.role) && !node.isActive) return 'warn';
+  if (node.telemetryFresh === false || node.healthy === false || (primaryRole(node.role) && !node.isActive)) return 'warn';
   return 'good';
 }
 export function countPair(ready, total) {
@@ -197,8 +197,8 @@ export function primarySwitchProgress(nodes, activeId, pending, now = Date.now()
   const routeConfirmations = Math.max(0, number(edge.route_confirmations) ?? 0);
   const confirmationsReady = routeRequired <= 0 || routeConfirmations >= routeRequired;
   const appsReady = targetPrimary && target?.applicationsActive === true;
-  const dnsReady = !edgeRequired || edge.dns_synced === true && String(edge.target_node || '') === targetId;
-  const routeReady = !edgeRequired || edge.route_ready === true && confirmationsReady;
+  const dnsReady = !edgeRequired || (edge.dns_synced === true && String(edge.target_node || '') === targetId);
+  const routeReady = !edgeRequired || (edge.route_ready === true && confirmationsReady);
   const tlsReady = !edgeRequired || edge.tls_ready === true || edge.http_only === true;
   const trafficReady = targetPrimary && target?.trafficReady === true;
   const complete = primarySwitchComplete(list, activeId, targetId);

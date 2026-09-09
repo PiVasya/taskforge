@@ -403,7 +403,7 @@ export default function AssignmentEditPage() {
     }
 
     return [...new Set(issues)];
-  }, [title, description, type, difficulty, rating, isHidden, isAiDraft, lifecycleStatus, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings]);
+  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings]);
 
   const sectionNav = useMemo(() => {
     const items = [
@@ -428,7 +428,7 @@ export default function AssignmentEditPage() {
       setErr('');
     }
   
-  }, [title, description, type, difficulty, rating, starterCode, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings]);
+  }, [title, description, type, difficulty, rating, starterCode, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings, saveIssues.length]);
 
   const addTest = () =>
     setTestCases((prev) => [

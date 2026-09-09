@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Badge, Button, Card } from '../../components/ui';
 import { createAssignmentAnalyticsConnection, getAdminAssignmentInsights, getAdminAssignmentTimeline } from '../../api/adminAssignmentInsights';
@@ -159,7 +159,7 @@ export default function AdminAssignmentInsightsPage() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [liveStatus, setLiveStatus] = useState('connecting');
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setData(await getAdminAssignmentInsights(assignmentId));
@@ -170,9 +170,9 @@ export default function AdminAssignmentInsightsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [assignmentId, notify]);
 
-  useEffect(() => { load(); }, [assignmentId]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     setLiveStatus('connecting');

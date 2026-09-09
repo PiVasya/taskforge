@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, Field, Input, Textarea } from '../../components/ui';
 import { assignFeatureRole, createFeatureRole, deleteFeatureRole, getFeatureRoles, removeFeatureRole, searchFeatureRoleUsers, updateFeatureRole } from '../../api/featureRoles';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -22,15 +22,15 @@ export default function AdminFeatureRolesPage() {
   const [activeRoleId, setActiveRoleId] = useState('');
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, kind: '', role: null, user: null });
 
-  const loadRoles = async () => {
+  const loadRoles = useCallback(async () => {
     const list = await getFeatureRoles();
     setRoles(Array.isArray(list) ? list : []);
-  };
+  }, []);
 
-  const loadUsers = async (query = '') => {
+  const loadUsers = useCallback(async (query = '') => {
     const list = await searchFeatureRoleUsers(query);
     setUsers(Array.isArray(list) ? list : []);
-  };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -45,7 +45,7 @@ export default function AdminFeatureRolesPage() {
         setLoading(false);
       }
     })();
-  }, []); 
+  }, [loadRoles, loadUsers, notify]); 
 
   const closeContextMenu = () => setContextMenu((current) => current.open ? { ...current, open: false } : current);
   const openRoleContextMenu = (event, role) => {

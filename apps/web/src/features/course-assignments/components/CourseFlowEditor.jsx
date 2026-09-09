@@ -403,7 +403,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     }
     return restricted;
   }, [visibleCourses]);
-  const entityIndex = React.useMemo(() => buildEntityIndex(visibleCourses, assignments), [assignments, visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
   const cacheCourseIds = React.useMemo(() => visibleCourses.map((item) => String(item?.id || '')).filter(Boolean), [visibleCourses]);
   const clearProgressionRetry = React.useCallback(() => {
@@ -1583,7 +1582,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     });
 
     if (requestId === loadRequestRef.current && !receivedSegment) setLoading(false);
-  }, [course, editorMode, flow, mergeLearnerGraph, persistLearnerGraph, rootId, setEdges, setNodes, updateLearnerProjectionRecord, viewKey]);
+  }, [course, editorMode, mergeLearnerGraph, persistLearnerGraph, rootId, setEdges, setNodes, updateLearnerProjectionRecord, viewKey]);
 
   const fetchEditorTree = React.useCallback(async (reason = 'editor-load') => {
     const existing = editorTreeFetchRef.current;
@@ -2491,7 +2490,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
       return false;
     }
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey, visibleCourses]);
 
   React.useEffect(() => {
     const requestKey = String(graphImportRequest?.key || '');

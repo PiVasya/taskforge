@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, RefreshCw, Search } from 'lucide-react';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { Button, Card } from '../../components/ui';
@@ -27,12 +27,14 @@ export default function AdminUserActionsPage() {
   const [category, setCategory] = useState('');
   const [source, setSource] = useState('');
   const [page, setPage] = useState(1);
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
-  async function load(nextPage = page) {
+  const load = useCallback(async (nextPage = 1) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getAdminActivity({ days, q: query || undefined, category: category || undefined, source: source || undefined, page: nextPage, pageSize: 50 });
+      const data = await getAdminActivity({ days, q: queryRef.current || undefined, category: category || undefined, source: source || undefined, page: nextPage, pageSize: 50 });
       setPayload(data);
       setPage(nextPage);
     } catch (e) {
@@ -40,13 +42,13 @@ export default function AdminUserActionsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [category, days, notify, source]);
 
   useEffect(() => {
     load(1);
-  }, [days, category, source]);
+  }, [load]);
 
-  const items = payload?.items || [];
+  const items = useMemo(() => payload?.items || [], [payload]);
   const categories = useMemo(() => (payload?.topCategories || []).map((x) => x.label), [payload]);
   const sources = useMemo(() => {
     const set = new Set((items || []).map((x) => x.source).filter(Boolean));

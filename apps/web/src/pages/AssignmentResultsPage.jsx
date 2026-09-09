@@ -178,7 +178,7 @@ function parsePolicyText(raw) {
     if (l.startsWith('[hits]')) { inHits = true; continue; }
     if (l.startsWith('[') && l.endsWith(']')) { inHits = false; continue; }
     if (!l.startsWith('- ')) continue;
-    const body = l.replace(/^\-\s*/, '');
+    const body = l.replace(/^-\s*/, '');
     if (inHits) {
       const mId = body.match(/\bid=([^\s]+)\b/i);
       const mNeedle = body.match(/needle='([^']*)'/i);

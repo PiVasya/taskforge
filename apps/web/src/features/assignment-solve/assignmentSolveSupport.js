@@ -400,7 +400,7 @@ export function parsePolicyText(raw) {
     }
     if (!line.startsWith('- ')) continue;
 
-    const body = line.replace(/^\-\s*/, '');
+    const body = line.replace(/^-\s*/, '');
     if (inHits) {
       const mId = body.match(/\bid=([^\s]+)\b/i);
       const mNeedle = body.match(/needle='([^']*)'/i);

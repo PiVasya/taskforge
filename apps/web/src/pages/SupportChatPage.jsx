@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { Field, Textarea, Button, Card } from '../components/ui';
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../components/ui/ContextMenu';
@@ -121,7 +121,7 @@ export default function SupportChatPage() {
   const chatId = chat?.id || chat?.chatId || chat?.ticketId || ticketId;
   const title = useMemo(() => (isAdminView ? `Чат с ${userLabel(chat?.user)}` : 'Чат с поддержкой'), [chat?.user, isAdminView]);
 
-  const fetchChat = async ({ silent = false } = {}) => {
+  const fetchChat = useCallback(async ({ silent = false } = {}) => {
     try {
       const data = ticketId ? await getSupportTicket(ticketId) : await getSupportChat();
       if (!isMountedRef.current) return;
@@ -147,7 +147,7 @@ export default function SupportChatPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, [isAdminView, notify, ticketId]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -159,7 +159,7 @@ export default function SupportChatPage() {
     return () => {
       isMountedRef.current = false;
     };
-  }, [ticketId]);
+  }, [fetchChat]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card, Input } from '../../components/ui';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { useAuth } from '../../auth/AuthContext';
@@ -34,13 +34,13 @@ export default function MinecraftChatPage() {
   const mounted = useRef(true);
   const scrollerRef = useRef(null);
 
-  const scrollToBottom = (smooth = false) => {
+  const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
-  };
+  }, []);
 
-  const load = async ({ silent = false } = {}) => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
       const [data, chatMeta] = await Promise.all([
@@ -63,7 +63,7 @@ export default function MinecraftChatPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, [notify, scrollToBottom]);
 
   useEffect(() => {
     mounted.current = true;
@@ -103,7 +103,7 @@ export default function MinecraftChatPage() {
         if (conn) conn.invoke('LeaveChat').catch(() => {});
       } catch {}
     };
-  }, [access]);
+  }, [access, load, scrollToBottom]);
 
   const send = async () => {
     const value = text.trim();

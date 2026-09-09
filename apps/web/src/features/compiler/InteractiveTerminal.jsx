@@ -3,7 +3,6 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -101,7 +100,7 @@ const InteractiveTerminal = forwardRef(function InteractiveTerminal(
     viewport.scrollTop = viewport.scrollHeight;
   }, [revision]);
 
-  const snapshot = useMemo(() => modelRef.current.snapshot(), [revision]);
+  const snapshot = modelRef.current.snapshot();
 
   const handleScroll = useCallback(() => {
     const viewport = viewportRef.current;

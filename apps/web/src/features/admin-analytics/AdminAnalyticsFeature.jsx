@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   BarChart3,
   Database,
@@ -78,7 +78,7 @@ export default function AdminAnalyticsPage() {
   const supportTotals = data?.support?.totals || {};
   const executive = data?.executive || {};
 
-  const heroCards = useMemo(() => [
+  const heroCards = [
     {
       icon: Users,
       label: 'Активные пользователи',
@@ -103,7 +103,7 @@ export default function AdminAnalyticsPage() {
       value: formatNumber(supportTotals.userMessages || supportTotals.totalMessages || supportTotals.totalTickets),
       hint: `Среднее время ответа: ${formatMinutes(supportTotals.avgResponseMinutes || supportTotals.avgFirstResponseMinutes)} · ответов админов: ${formatNumber(supportTotals.adminMessages)}`,
     },
-  ], [usersTotals, apiTotals, assignmentTotals, supportTotals]);
+  ];
 
   return (
     <>
