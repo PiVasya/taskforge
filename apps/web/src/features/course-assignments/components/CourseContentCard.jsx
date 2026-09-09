@@ -1,4 +1,5 @@
 import React from 'react';
+import { Database } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Badge, Card } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
@@ -125,6 +126,7 @@ function CourseContentCard({
   const hasMeta = Boolean(assignment.isAiDraft || assignment.isHidden || (assignment.lifecycleStatus && assignment.lifecycleStatus !== 'published'));
   const main = (
     <div className="assignment-card-main min-w-0">
+      {assignment.type === "sql-test" && <Badge variant="outline"><Database size={13} /> SQL</Badge>}
       {hasMeta ? (
         <div className="assignment-card-heading">
           <div className="flex flex-wrap items-center gap-1.5">

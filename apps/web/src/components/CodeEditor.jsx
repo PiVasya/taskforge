@@ -245,6 +245,8 @@ function CodeEditor({
         return "pascal";
       case "java":
         return "java";
+      case "sql":
+        return "sql";
       default:
         return "plaintext";
     }

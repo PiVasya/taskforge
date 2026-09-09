@@ -15,7 +15,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import '../course-map.css';
-import { ArrowLeft, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Plus, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
+import { ArrowLeft, Database, Download, Eye, FileCode2, FileJson, FolderTree, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Pencil, Plus, Save, Search, Sigma, Trash2, X, ListChecks, RotateCcw, Unlink2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } from '../../../components/ui/ContextMenu';
@@ -59,6 +59,7 @@ import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
 import TestNode from '../nodes/TestNode';
 import ImageCodeNode from '../nodes/ImageCodeNode';
+import SqlNode from '../nodes/SqlNode';
 import MathNode from '../nodes/MathNode';
 import LockedNode from '../nodes/LockedNode';
 import CourseMapEdge from './CourseMapEdge';
@@ -70,6 +71,7 @@ const NODE_TYPES = {
   test: TestNode,
   'image-code': ImageCodeNode,
   math: MathNode,
+  'sql-test': SqlNode,
   locked: LockedNode,
 };
 
@@ -2955,6 +2957,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             <ContextMenuItem icon={FileCode2} onClick={() => void createMapNode('code-test', context.flowPosition)}>Code test</ContextMenuItem>
             <ContextMenuItem icon={ListChecks} onClick={() => void createMapNode('test', context.flowPosition)}>Тест</ContextMenuItem>
             <ContextMenuItem icon={ImageIcon} onClick={() => void createMapNode('image-code', context.flowPosition)}>Картинки / код</ContextMenuItem>
+            <ContextMenuItem icon={Database} onClick={() => void createMapNode('sql-test', context.flowPosition)}>SQL / Database</ContextMenuItem>
             <ContextMenuItem icon={Sigma} onClick={() => void createMapNode('math', context.flowPosition)}>Математика</ContextMenuItem>
           </>
         )}

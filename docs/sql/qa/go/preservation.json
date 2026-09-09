@@ -1,0 +1,20 @@
+{
+  "csharpFilesUnchangedSincePythonCandidate": 664,
+  "webFilesUnchangedSincePythonCandidate": 316,
+  "original212FilesRetained": 1483,
+  "protectedMigrationsSnapshots": 92,
+  "protectedDomainDataFiles": 104,
+  "clusterStateMachineFilesUnchanged": [
+    "cluster/agent.py",
+    "cluster/primary.py",
+    "cluster/cloudflare_dns.py"
+  ],
+  "goProductionFiles": 24,
+  "goProductionPhysicalLinesIncludingCGO": 7189,
+  "goTestFiles": 7,
+  "goTestPhysicalLines": 1784,
+  "goNonemptyTopLevelChecksPassed": 52,
+  "goDatabaseSubtestsSkipped": 16,
+  "goRabbitTestsSkipped": 1,
+  "goTestFailures": 0
+}

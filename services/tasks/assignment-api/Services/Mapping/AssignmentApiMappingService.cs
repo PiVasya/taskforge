@@ -205,7 +205,7 @@ internal static class AssignmentApiMappingService
                 assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
             }
         }
-        else if (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue)
+        else if (nextType != "sql-test" && (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue))
         {
             var incomingTestsJson = RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson;
             assignment.TestsJson = nextType is "test" or "math"
@@ -233,17 +233,17 @@ internal static class AssignmentApiMappingService
             Title = Clean(request.Title, "Новое задание"),
             Description = request.Description,
             Type = type,
-            Language = NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
+            Language = type == "sql-test" ? string.Empty : NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
             AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
             Tags = request.Tags,
             Difficulty = System.Math.Clamp(request.Difficulty ?? 1, 1, 3),
             Rating = System.Math.Max(0, request.Rating ?? 1),
             StarterCode = request.StarterCode,
-            TestsJson = type == "image-test" ? null : testsJson,
+            TestsJson = type is "image-test" or "sql-test" ? null : testsJson,
             CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
             CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
             AnalyticsSettingsJson = AssignmentAnalyticsSettingsService.NormalizeJson(request.AnalyticsSettings),
-            IsVisible = request.IsVisible ?? !(request.IsHidden ?? false),
+            IsVisible = type != "sql-test" && (request.IsVisible ?? !(request.IsHidden ?? false)),
             Sort = request.Sort ?? sort
         };
 

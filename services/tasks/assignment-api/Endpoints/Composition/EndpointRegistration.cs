@@ -34,6 +34,7 @@ internal static partial class AssignmentApiEndpoints
         MapInsightsEndpoints(app);
         MapAssignmentActivityEndpoints(app);
         MapImageTestsEndpoints(app);
+        MapSqlEndpoints(app);
 
         return app;
     }

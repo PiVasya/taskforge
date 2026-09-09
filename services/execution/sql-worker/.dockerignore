@@ -1,0 +1,7 @@
+.git
+bin
+obj
+*.log
+*.test
+sql-worker
+README.md

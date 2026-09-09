@@ -1,3 +1,6 @@
+> Historical stage-1 record. The user generated the migrations in develop(212).
+> Do not repeat migration generation; see [current deployment](DEPLOYMENT.md) and [runtime QA](QA_RUNTIME.md).
+
 # SQL migration boundary: EF runtime dependency correction
 
 Date: 2026-09-09. Package: `taskforge-develop-sql-domain-stage1-fix1`.

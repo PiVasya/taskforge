@@ -3,12 +3,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Sql;
 
 namespace TaskForge.Tasks.Api.Services.Serialization;
 
 internal static class AssignmentTaskGraphJsonService
 {
-    internal const int SchemaVersion = 4;
+    internal const int SchemaVersion = 5;
+    internal const int PreviousSchemaVersion = 4;
     internal const int LegacySchemaVersion = 3;
     internal const string Format = "taskforge-task-graph";
     internal const string CourseReference = "$course";
@@ -17,7 +19,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static readonly HashSet<string> TopLevelFields = new(StringComparer.Ordinal)
     {
-        "schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout"
+        "schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout", "datasets"
     };
 
     private static readonly HashSet<string> TaskFields = new(StringComparer.Ordinal)
@@ -25,7 +27,7 @@ internal static class AssignmentTaskGraphJsonService
         "key", "id", "course", "type", "title", "description", "language", "allowedLanguages", "tags",
         "difficulty", "rating", "starterCode", "testCases", "testSettings", "questions",
         "blocks", "codeForbiddenCalls", "codeRequiredCalls", "isVisible", "imageTestReferenceKey",
-        "imageTestSimilarityThreshold"
+        "imageTestSimilarityThreshold", "sql"
     };
 
     private static readonly HashSet<string> CourseFields = new(StringComparer.Ordinal)
@@ -163,6 +165,7 @@ internal static class AssignmentTaskGraphJsonService
                 ["scopes"] = BuildScopesJson(Scopes),
                 ["courses"] = courses,
                 ["tasks"] = tasks,
+                ["datasets"] = new JsonArray(),
                 ["connections"] = connections
             };
         }
@@ -179,7 +182,7 @@ internal static class AssignmentTaskGraphJsonService
         if (root.TryGetProperty("schemaVersion", out var schema)
             && schema.ValueKind == JsonValueKind.Number
             && schema.TryGetInt32(out var value))
-            return value is SchemaVersion or LegacySchemaVersion;
+            return value is SchemaVersion or PreviousSchemaVersion or LegacySchemaVersion;
         return root.TryGetProperty("tasks", out _) && root.TryGetProperty("connections", out _);
     }
 
@@ -199,14 +202,14 @@ internal static class AssignmentTaskGraphJsonService
         if (!root.TryGetProperty("schemaVersion", out var schema)
             || schema.ValueKind != JsonValueKind.Number
             || !schema.TryGetInt32(out schemaValue)
-            || (schemaValue != SchemaVersion && schemaValue != LegacySchemaVersion))
+            || (schemaValue != SchemaVersion && schemaValue != PreviousSchemaVersion && schemaValue != LegacySchemaVersion))
         {
-            issues.Add(new ValidationIssue("$.schemaVersion", $"Поддерживаются версии {LegacySchemaVersion} и {SchemaVersion}."));
+            issues.Add(new ValidationIssue("$.schemaVersion", $"Поддерживаются версии {LegacySchemaVersion}, {PreviousSchemaVersion} и {SchemaVersion}."));
         }
 
         var scopes = ReadScopes(root, schemaValue, issues);
         var layout = ReadLayout(root, schemaValue, issues);
-        if (layout.HasValue && schemaValue == SchemaVersion && !scopes.Contains("layout"))
+        if (layout.HasValue && schemaValue >= PreviousSchemaVersion && !scopes.Contains("layout"))
             issues.Add(new ValidationIssue("$.scopes", "Добавьте scope layout, если документ содержит layout."));
 
         if (!root.TryGetProperty("format", out var format)
@@ -293,6 +296,7 @@ internal static class AssignmentTaskGraphJsonService
         if (connectionsElement.GetArrayLength() > MaxConnections)
             issues.Add(new ValidationIssue("$.connections", $"В графе не может быть больше {MaxConnections} связей."));
 
+        issues.AddRange(SqlTaskGraphService.Validate(root, scopes, schemaValue));
         var tasks = new List<GraphTask>();
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var ids = new HashSet<Guid>();
@@ -437,7 +441,8 @@ internal static class AssignmentTaskGraphJsonService
         IReadOnlyList<Assignment> assignments,
         CourseTreeResponse tree,
         CourseMapInternalResponse map,
-        GraphExportOptions options)
+        GraphExportOptions options,
+        SqlGraphExport? sql = null)
     {
         var subtreeCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).ToHashSet();
         subtreeCourseIds.Add(courseId);
@@ -586,6 +591,7 @@ internal static class AssignmentTaskGraphJsonService
                 else if (property.Key == "isVisible" && options.IncludeVisibility)
                     task[property.Key] = property.Value?.DeepClone();
             }
+            if (sql?.Specs.TryGetValue(assignment.Id, out var sqlSpec) == true) task["sql"] = sqlSpec.DeepClone();
             tasksJson.Add(task);
         }
 
@@ -599,6 +605,7 @@ internal static class AssignmentTaskGraphJsonService
             ["scopes"] = BuildScopesJson(scopes),
             ["courses"] = coursesJson,
             ["tasks"] = tasksJson,
+            ["datasets"] = sql?.Datasets.DeepClone() ?? new JsonArray(),
             ["connections"] = connectionsJson
         };
 
@@ -644,7 +651,7 @@ internal static class AssignmentTaskGraphJsonService
                 ["rootCourseReference"] = CourseReference,
                 ["maxTasks"] = MaxTasks,
                 ["maxConnections"] = MaxConnections,
-                ["topLevel"] = Strings("schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout"),
+                ["topLevel"] = Strings("schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout", "datasets"),
                 ["rules"] = Strings(
                     "key обязателен и уникален среди courses и tasks.",
                     "$course обозначает курс, из которого выполняется импорт. Его нельзя использовать как key обычной ноды.",

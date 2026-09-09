@@ -25,6 +25,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddDbContext<SolutionsDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddHostedService<TaskForge.Solutions.Api.Services.Sql.SqlSubmissionDispatcher>();
+
 var app = builder.Build();
 
 app.UseTaskForgeDebugRequestLogging("solutions-api");

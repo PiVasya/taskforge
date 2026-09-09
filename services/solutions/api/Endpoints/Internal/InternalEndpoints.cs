@@ -62,6 +62,7 @@ internal static partial class SolutionsApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
             }
 
+            if (sub.SqlSpecVersionId.HasValue) return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_VERDICT_REQUIRES_BINDING" });
             var previous = sub.Status;
             var incomingVerdict = CleanVerdict(request.Verdict);
             TaskForgeDebugTrace.Map("VERDICT_RECEIVED",
@@ -142,8 +143,9 @@ internal static partial class SolutionsApiEndpoints
             {
                 attemptId = x.Id,
                 userId = x.UserId,
-                sourceKind = "code",
-                kind = "code",
+                sourceKind = x.SqlSpecVersionId.HasValue ? "sql" : "code",
+                kind = x.SqlSpecVersionId.HasValue ? "sql" : "code",
+                executionTarget = x.ExecutionTarget,
                 language = x.Language,
                 status = x.Status,
                 passed = IsAccepted(x.Status),

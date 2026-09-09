@@ -82,13 +82,14 @@ jobs:
             "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ Directory.Build.props global.json .dockerignore"
             "education-api|.|services/education/api/Dockerfile|services/education/api/ Directory.Build.props global.json .dockerignore"
             "content-api|./services/content/api|Dockerfile|services/content/api/"
-            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ Directory.Build.props global.json .dockerignore"
+            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ services/shared/Sql/ Directory.Build.props global.json .dockerignore"
             "quiz-api|./services/tasks/quiz-api|Dockerfile|services/tasks/quiz-api/"
-            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ Directory.Build.props global.json .dockerignore"
+            "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ services/shared/Sql/ Directory.Build.props global.json .dockerignore"
             "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ Directory.Build.props global.json .dockerignore"
 
-            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ Directory.Build.props global.json .dockerignore"
+            "execution-api|.|services/execution/api/Dockerfile|services/execution/api/ services/shared/Sql/ Directory.Build.props global.json .dockerignore"
             "execution-worker|.|services/execution/worker/Dockerfile|services/execution/worker/ Directory.Build.props global.json .dockerignore"
+            "sql-worker|./services/execution/sql-worker|Dockerfile|services/execution/sql-worker/"
             "csharp-runner|./services/execution/runners/csharp-runner|Dockerfile|services/execution/runners/csharp-runner/"
             "cpp-runner|./services/execution/runners/cpp-runner|Dockerfile|services/execution/runners/cpp-runner/"
             "java-runner|./services/execution/runners/java-runner|Dockerfile|services/execution/runners/java-runner/"
@@ -288,6 +289,30 @@ jobs:
       - name: Check migration tooling safety
         run: python3 scripts/ci/check-migration-tooling-safety.py
 
+  sql-runtime-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.8'
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libpq-dev libmariadb-dev libsqlite3-dev
+      - run: python3 -m pip install PyYAML==6.0.2
+      - name: SQL invariants, immutable user migrations and model build
+        run: bash ./scripts/check-sql-update.sh
+      - name: Actual SQL engines, Go isolation and RabbitMQ interoperability
+        run: bash ./scripts/sql/test-engines.sh
+
   compose-check:
     runs-on: ubuntu-latest
     steps:
@@ -298,7 +323,7 @@ jobs:
       - run: bash ./deploy/prod/compose.sh config
 
   build:
-    needs: [changes, compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants, browser-security-invariants]
+    needs: [changes, compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
     if: ${{ needs.changes.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-latest
     strategy:

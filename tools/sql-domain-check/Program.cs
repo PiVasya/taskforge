@@ -374,7 +374,7 @@ internal static class Program
             using var db = new ExecutionDbContextFactory().CreateDbContext(Array.Empty<string>());
             var job = Model(db).FindEntityType(typeof(ExecutionJob))!;
             Assert(job.FindProperty("SubmissionId")!.IsNullable);
-            var checks = job.GetCheckConstraints().ToDictionary(x => x.Name, x => x.Sql);
+            var checks = job.GetCheckConstraints().ToDictionary(x => x.Name ?? throw new InvalidOperationException("A SQL check constraint has no name."), x => x.Sql);
             Assert(checks["CK_ExecutionJobs_SqlSubmission"].Contains("'sql-preview', 'sql-materialize'", StringComparison.Ordinal));
             Assert(checks["CK_ExecutionJobs_SqlNoLegacyTests"].Contains("\"TestsJson\" IS NULL", StringComparison.Ordinal));
         });

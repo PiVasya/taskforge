@@ -1,3 +1,7 @@
+> SQL runtime release: [implementation](sql/IMPLEMENTATION.md), [deployment gates](sql/DEPLOYMENT.md),
+> [environment](sql/ENVIRONMENT.md), [actual QA and remaining gates](sql/QA_RUNTIME.md).
+> The current A/B/C production package is standalone v40-r58, not the historical source cluster manager below.
+
 > Перед правками ИИ должен открыть [`00_AI_READ_THIS_FIRST.md`](../00_AI_READ_THIS_FIRST.md).
 
 # TaskForge

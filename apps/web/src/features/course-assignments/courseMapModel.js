@@ -1,13 +1,14 @@
 import { isAssignmentSolved } from './courseAssignmentsModel';
 
 export const COURSE_MAP_SCHEMA_VERSION = 1;
-export const COURSE_MAP_NODE_TYPES = Object.freeze(['course', 'code-test', 'test', 'image-code', 'math', 'locked']);
+export const COURSE_MAP_NODE_TYPES = Object.freeze(['course', 'code-test', 'test', 'image-code', 'math', 'sql-test', 'locked']);
 
 export function assignmentNodeType(type) {
   const normalized = String(type || '').trim().toLowerCase();
   if (normalized === 'test') return 'test';
   if (normalized === 'image-test' || normalized === 'image-code') return 'image-code';
   if (normalized === 'math') return 'math';
+  if (normalized === 'sql-test') return 'sql-test';
   return 'code-test';
 }
 

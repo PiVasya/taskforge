@@ -3,6 +3,7 @@ WORKDIR /src
 COPY services/tasks/assignment-api/TaskForge.Tasks.Api.csproj services/tasks/assignment-api/
 RUN dotnet restore services/tasks/assignment-api/TaskForge.Tasks.Api.csproj
 COPY services/tasks/assignment-api services/tasks/assignment-api
+COPY services/shared/Sql services/shared/Sql
 RUN dotnet publish services/tasks/assignment-api/TaskForge.Tasks.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

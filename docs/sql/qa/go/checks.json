@@ -1,0 +1,38 @@
+[
+  {
+    "check": "sql-go-gate",
+    "exitCode": 0
+  },
+  {
+    "check": "sql-runtime-static",
+    "exitCode": 0
+  },
+  {
+    "check": "csharp-invariants",
+    "exitCode": 0
+  },
+  {
+    "check": "workflow-integrity",
+    "exitCode": 0
+  },
+  {
+    "check": "docker-contexts",
+    "exitCode": 0
+  },
+  {
+    "check": "oj-security",
+    "exitCode": 0
+  },
+  {
+    "check": "frontend-sql",
+    "exitCode": 0
+  },
+  {
+    "check": "frontend-cluster",
+    "exitCode": 0
+  },
+  {
+    "check": "frontend-architecture",
+    "exitCode": 0
+  }
+]

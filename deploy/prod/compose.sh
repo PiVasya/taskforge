@@ -42,11 +42,19 @@ for local_env in "$CLUSTER_RUNTIME/local.env" "$CLUSTER_RUNTIME/cpu.env" "$CLUST
   fi
 done
 
+export TASKFORGE_SQL_INIT_ROOT="$TASKFORGE_ROOT/infrastructure/sql"
+SQL_RUNTIME_ENV="$TASKFORGE_ROOT/.runtime/sql-runtime.env"
+if [ -s "$SQL_RUNTIME_ENV" ]; then
+  set -a; source "$SQL_RUNTIME_ENV"; set +a
+  if [ "${SQL_ENABLED:-false}" = true ]; then export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}sql"; fi
+fi
+
 COMPOSE_FILES=(
   -f "$ROOT_DIR/compose/00-storage.yaml"
   -f "$ROOT_DIR/compose/10-apps-gateway.yaml"
   -f "$ROOT_DIR/compose/20-core-services.yaml"
   -f "$ROOT_DIR/compose/30-execution.yaml"
+  -f "$ROOT_DIR/compose/35-sql.yaml"
   -f "$ROOT_DIR/compose/40-ai-and-analyzers.yaml"
   -f "$ROOT_DIR/compose/50-integrations.yaml"
   -f "$ROOT_DIR/compose/80-watchtower.yaml"

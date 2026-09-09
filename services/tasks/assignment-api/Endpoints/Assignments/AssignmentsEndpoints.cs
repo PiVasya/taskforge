@@ -8,6 +8,8 @@ using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
+using TaskForge.Tasks.Api.Services.Sql;
+using TaskForge.Tasks.Api.Domain.Sql;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -541,9 +543,10 @@ internal static partial class AssignmentApiEndpoints
                 includeConnections ?? true,
                 includeConnectionAccess ?? true,
                 includeLayout ?? true,
-                includeGuide ?? true);
-            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions), JsonOptions());
-        });
+                includeGuide ?? false);
+            var sql = await SqlTaskGraphService.Export(db, rows, exportOptions, ct);
+            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql), JsonOptions());
+        }).AddEndpointFilter<SqlEndpointFilter>();
 
         app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
@@ -802,6 +805,8 @@ internal static partial class AssignmentApiEndpoints
             var updated = new List<Assignment>();
             var processed = new List<(string? Key, string CourseRef, Assignment Assignment, string Action)>();
             var ratingAffectedAssignmentIds = new HashSet<Guid>();
+            await using var sqlImportTransaction = taskGraph?.SourceSchemaVersion == SchemaVersion
+                ? await db.Database.BeginTransactionAsync(ct) : null;
 
             for (var i = 0; i < requests.Count; i++)
             {
@@ -816,6 +821,9 @@ internal static partial class AssignmentApiEndpoints
                     var oldRating = existing.Rating;
                     var oldVisible = existing.IsVisible;
                     var filteredRequest = FilterExistingImportRequest(request, importOptions);
+                    if (!string.IsNullOrWhiteSpace(filteredRequest.Type) && filteredRequest.Type != existing.Type
+                        && (filteredRequest.Type == SqlTaskTypes.SqlTest || existing.Type == SqlTaskTypes.SqlTest))
+                        throw new ArgumentException("Create a separate SQL assignment instead of changing a populated assignment type.");
                     await ApplyAssignmentRequestAsync(existing, filteredRequest, clients, cfg, ct);
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
@@ -838,6 +846,15 @@ internal static partial class AssignmentApiEndpoints
 
             if (created.Count > 0) db.Assignments.AddRange(created);
             await db.SaveChangesAsync(ct);
+            if (taskGraph?.SourceSchemaVersion == SchemaVersion)
+            {
+                var (sqlUser, sqlAdmin) = SqlTaskService.Editor(http, cfg);
+                await SqlTaskGraphService.Import(db, graphPayload, processed, importOptions, sqlUser, sqlAdmin, ct);
+                foreach (var item in processed.Where(x => x.Assignment.Type == SqlTaskTypes.SqlTest && x.Assignment.IsVisible))
+                    if (!await SqlTaskService.HasPublishedRevision(db, item.Assignment.Id, ct)) item.Assignment.IsVisible = false;
+                await db.SaveChangesAsync(ct);
+            }
+            if (sqlImportTransaction is not null) await sqlImportTransaction.CommitAsync(ct);
 
             foreach (var affectedId in ratingAffectedAssignmentIds)
             {
@@ -887,6 +904,7 @@ internal static partial class AssignmentApiEndpoints
                     ["scopes"] = BuildScopesJson(taskGraph.Scopes),
                     ["courses"] = mappedCourses,
                     ["tasks"] = mappedTasks,
+                    ["datasets"] = new JsonArray(),
                     ["connections"] = mappedConnections,
                     ["layout"] = taskGraph.Layout.HasValue ? JsonNode.Parse(taskGraph.Layout.Value.GetRawText()) : null,
                     ["apply"] = new JsonObject
@@ -910,7 +928,7 @@ internal static partial class AssignmentApiEndpoints
                 assignments = processed.Select(x => ToDto(x.Assignment, includeSensitive: true)).ToList(),
                 taskGraph = importedTaskGraph
             });
-        });
+        }).AddEndpointFilter<SqlEndpointFilter>();
 
         app.MapGet("/api/assignments/{assignmentId:guid}/solve-shell", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
@@ -969,6 +987,11 @@ internal static partial class AssignmentApiEndpoints
         {
             var assignment = await db.Assignments.FindAsync(assignmentId);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!string.IsNullOrWhiteSpace(request.Type) && request.Type != assignment.Type
+                && (request.Type == SqlTaskTypes.SqlTest || assignment.Type == SqlTaskTypes.SqlTest))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_TYPE_IMMUTABLE", message = "Create a separate SQL assignment instead of changing its type." });
+            if (assignment.Type == SqlTaskTypes.SqlTest && (request.IsHidden.HasValue ? !request.IsHidden.Value : request.IsVisible == true) && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Validate and publish a SQL revision before making it visible." });
             var oldRating = assignment.Rating;
             var oldVisible = assignment.IsVisible;
             await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
@@ -990,6 +1013,8 @@ internal static partial class AssignmentApiEndpoints
         {
             var assignment = await db.Assignments.FindAsync([assignmentId], ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (assignment.Type == SqlTaskTypes.SqlTest && await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId, ct))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = "SQL revision history is retained for submissions. Hide the assignment instead of deleting it." });
             var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
             var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
             db.Attempts.RemoveRange(attempts);
@@ -1025,6 +1050,8 @@ internal static partial class AssignmentApiEndpoints
         {
             var assignment = await db.Assignments.FindAsync([assignmentId], ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (assignment.Type == SqlTaskTypes.SqlTest && request.IsVisible && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Validate and publish a SQL revision before making it visible." });
             var changed = assignment.IsVisible != request.IsVisible;
             assignment.IsVisible = request.IsVisible;
             await db.SaveChangesAsync(ct);

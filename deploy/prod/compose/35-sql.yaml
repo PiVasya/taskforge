@@ -1,0 +1,223 @@
+# SQL-only disposable runtime. Never attach these engines to the business network.
+services:
+  sql-postgres:
+    security_opt: &id001
+    - no-new-privileges:true
+    cap_drop: &id002
+    - ALL
+    read_only: true
+    init: true
+    restart: unless-stopped
+    oom_score_adj: 700
+    cpu_shares: 128
+    pids_limit: 96
+    ulimits: &id003
+      core: 0
+      nofile:
+        soft: 1024
+        hard: 1024
+    logging: &id004
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '2'
+    image: ${SQL_POSTGRES_IMAGE:-postgres:18-bookworm}
+    profiles:
+    - sql
+    user: 999:999
+    mem_limit: ${SQL_POSTGRES_MEM_LIMIT:-768m}
+    memswap_limit: ${SQL_POSTGRES_MEM_LIMIT:-768m}
+    cpus: ${SQL_POSTGRES_CPUS:-0.75}
+    networks:
+    - sql-postgres-net
+    shm_size: 64m
+    tmpfs:
+    - /var/lib/postgresql:size=384m,uid=999,gid=999,mode=0700,noexec,nosuid,nodev
+    - /var/run/postgresql:size=4m,uid=999,gid=999,mode=0770,noexec,nosuid,nodev
+    - /tmp:size=32m,mode=1777,noexec,nosuid,nodev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SQL_POSTGRES_PASSWORD:-sql-runtime-not-prepared}
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/18/docker
+      SQL_SANDBOX_MARKER: ${SQL_SANDBOX_MARKER:-not-prepared}
+    volumes:
+    - ${TASKFORGE_SQL_INIT_ROOT}/postgres-init:/docker-entrypoint-initdb.d:ro
+    command:
+    - postgres
+    - -c
+    - max_connections=32
+    - -c
+    - shared_buffers=64MB
+    - -c
+    - work_mem=8MB
+    - -c
+    - maintenance_work_mem=32MB
+    - -c
+    - max_parallel_workers=0
+    - -c
+    - max_wal_size=64MB
+    - -c
+    - min_wal_size=32MB
+    - -c
+    - temp_file_limit=32MB
+    - -c
+    - statement_timeout=15000
+    - -c
+    - log_statement=none
+    - -c
+    - log_min_error_statement=panic
+    - -c
+    - log_error_verbosity=terse
+    - -c
+    - autovacuum=off
+    - -c
+    - fsync=off
+    - -c
+    - full_page_writes=off
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U postgres -d postgres
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    labels:
+      com.centurylinklabs.watchtower.enable: 'false'
+      taskforge.sql.cache: disposable
+      taskforge.ha.critical: 'false'
+  sql-mysql:
+    security_opt: *id001
+    cap_drop: *id002
+    read_only: true
+    init: true
+    restart: unless-stopped
+    oom_score_adj: 700
+    cpu_shares: 128
+    pids_limit: 96
+    ulimits: *id003
+    logging: *id004
+    image: ${SQL_MYSQL_IMAGE:-mysql:8.4}
+    profiles:
+    - sql
+    user: 999:999
+    mem_limit: ${SQL_MYSQL_MEM_LIMIT:-1024m}
+    memswap_limit: ${SQL_MYSQL_MEM_LIMIT:-1024m}
+    cpus: ${SQL_MYSQL_CPUS:-0.75}
+    networks:
+    - sql-mysql-net
+    tmpfs:
+    - /var/lib/mysql:size=512m,uid=999,gid=999,mode=0700,noexec,nosuid,nodev
+    - /var/run/mysqld:size=4m,uid=999,gid=999,mode=0770,noexec,nosuid,nodev
+    - /tmp:size=32m,mode=1777,noexec,nosuid,nodev
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SQL_MYSQL_PASSWORD:-sql-runtime-not-prepared}
+      MYSQL_ROOT_HOST: '%'
+      SQL_SANDBOX_MARKER: ${SQL_SANDBOX_MARKER:-not-prepared}
+    volumes:
+    - ${TASKFORGE_SQL_INIT_ROOT}/mysql-init:/docker-entrypoint-initdb.d:ro
+    command:
+    - --max-connections=32
+    - --innodb-buffer-pool-size=128M
+    - --innodb-redo-log-capacity=64M
+    - --temptable-max-ram=32M
+    - --temptable-max-mmap=0
+    - --tmp-table-size=16M
+    - --max-heap-table-size=16M
+    - --max-allowed-packet=4M
+    - --local-infile=OFF
+    - --secure-file-priv=NULL
+    - --skip-log-bin
+    - --mysqlx=OFF
+    - --performance-schema=OFF
+    - --default-time-zone=+00:00
+    - --innodb-flush-log-at-trx-commit=0
+    - --log-error-verbosity=1
+    - --max-execution-time=10000
+    - --cte-max-recursion-depth=1000
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin --protocol=socket -u root ping --silent
+      interval: 5s
+      timeout: 3s
+      retries: 45
+      start_period: 60s
+    labels:
+      com.centurylinklabs.watchtower.enable: 'false'
+      taskforge.sql.cache: disposable
+      taskforge.ha.critical: 'false'
+  sql-worker:
+    security_opt: *id001
+    cap_drop: *id002
+    read_only: true
+    init: true
+    restart: unless-stopped
+    oom_score_adj: 700
+    cpu_shares: 128
+    pids_limit: 256
+    ulimits: *id003
+    logging: *id004
+    image: ${IMAGE_REPOSITORY:-taskforge}/sql-worker:${IMAGE_TAG:-develop}
+    profiles:
+    - sql
+    user: 10001:10001
+    mem_limit: ${SQL_WORKER_MEM_LIMIT:-768m}
+    memswap_limit: ${SQL_WORKER_MEM_LIMIT:-768m}
+    cpus: ${SQL_WORKER_CPUS:-0.75}
+    stop_grace_period: 45s
+    networks:
+    - default
+    - sql-postgres-net
+    - sql-mysql-net
+    tmpfs:
+    - /var/cache/taskforge-sql:size=96m,uid=10001,gid=10001,mode=0700,noexec,nosuid,nodev
+    - /tmp:size=16m,uid=10001,gid=10001,mode=0700,noexec,nosuid,nodev
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      GOMEMLIMIT: 128MiB
+      TASKFORGE_INTERNAL_KEY: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
+      SQL_WORKER_ID: ${SQL_WORKER_ID:-sql-local}
+      SQL_CONCURRENCY: ${SQL_CONCURRENCY:-2}
+      SQL_POOL_MAX_READY: ${SQL_POOL_MAX_READY:-6}
+      SQL_POOL_MAX_MATERIALIZATIONS: ${SQL_POOL_MAX_MATERIALIZATIONS:-4}
+      TASKS_API_URL: http://tasks-api:8080
+      EXECUTION_API_URL: http://execution-api:8080
+      SQL_POSTGRES_HOST: sql-postgres
+      SQL_MYSQL_HOST: sql-mysql
+      SQL_POSTGRES_PASSWORD: ${SQL_POSTGRES_PASSWORD:-not-prepared}
+      SQL_MYSQL_PASSWORD: ${SQL_MYSQL_PASSWORD:-not-prepared}
+      SQL_POSTGRES_RUNTIME_DIGEST: ${SQL_POSTGRES_RUNTIME_DIGEST:-not-prepared}
+      SQL_MYSQL_RUNTIME_DIGEST: ${SQL_MYSQL_RUNTIME_DIGEST:-not-prepared}
+      SQL_SANDBOX_MARKER: ${SQL_SANDBOX_MARKER:-not-prepared}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-taskforge}
+    healthcheck:
+      test:
+      - CMD
+      - /app/sql-worker
+      - health
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    labels:
+      com.centurylinklabs.watchtower.enable: 'true'
+      com.centurylinklabs.watchtower.scope: ${WATCHTOWER_SCOPE:-taskforge-prod}
+      taskforge.ha.critical: 'false'
+  execution-api:
+    environment:
+      Sql__RabbitManagementUrl: http://${RABBITMQ_HOST:-rabbitmq}:15672
+      Sql__RabbitUser: ${RABBITMQ_DEFAULT_USER:-taskforge}
+      Sql__RabbitPassword: ${RABBITMQ_DEFAULT_PASS:-taskforge}
+      Services__SolutionsApi: http://solutions-api:8080
+  tasks-api:
+    environment:
+      Services__ExecutionApi: http://execution-api:8080
+networks:
+  sql-postgres-net:
+    internal: true
+  sql-mysql-net:
+    internal: true

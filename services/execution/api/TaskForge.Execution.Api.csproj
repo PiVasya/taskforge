@@ -21,4 +21,7 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/Sql/*.cs" Link="Shared/Sql/%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

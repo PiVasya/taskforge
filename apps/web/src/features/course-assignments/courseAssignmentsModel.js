@@ -153,6 +153,7 @@ const CREATE_OPTIONS = [
   { type: "test", title: "Test" },
   { type: "image-test", title: "Image-test" },
   { type: "math", title: "Math" },
+  { type: "sql-test", title: "SQL / Database" },
 ];
 
 function buildDefaultAssignmentPayload(type, sort) {
@@ -166,6 +167,8 @@ function buildDefaultAssignmentPayload(type, sort) {
     tags: "ОАИП",
     sort,
   };
+
+  if (normalized === "sql-test") return { ...base, title: "SQL", tags: "SQL", isHidden: true, isVisible: false };
 
   if (normalized === "code-test") {
     return {

@@ -13,6 +13,7 @@ import { getMathTaskEdit, saveMathTaskEdit } from "../../api/mathTasks";
 import { Button, Field, Input, Textarea, Select, Badge } from "../../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
 import TaskTestEditor from "../../pages/TaskTestEditor";
+import SqlTaskEditor from '../sql-task/SqlTaskEditor';
 import MathTaskEditor from "../../pages/MathTaskEditor";
 import StatementEditor from "../../components/tiptap/StatementEditor";
 import { uploadImageTestReference, uploadImageTestExpectedImage } from "../../api/imageTests";
@@ -46,6 +47,7 @@ export default function AssignmentEditPage() {
     keepPreviousData: false,
   });
   const hydratedQueryKeyRef = useRef('');
+  const sqlEditorRef = useRef(null);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -277,7 +279,7 @@ export default function AssignmentEditPage() {
     if (!normalizedTitle) issues.push('Укажи название задания.');
     if (normalizedTitle.length > 200) issues.push('Название не должно быть длиннее 200 символов.');
     if (!plainDescription) issues.push('Заполни условие задания.');
-    if (!['code-test', 'image-test', 'test', 'math'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
+    if (!['code-test', 'image-test', 'test', 'math', 'sql-test'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
     if (![1, 2, 3].includes(Number(difficulty))) issues.push('Сложность должна быть 1, 2 или 3.');
     if (!Number.isFinite(Number(rating)) || Number(rating) < 0) issues.push('Рейтинг должен быть целым числом не меньше 0.');
 
@@ -516,6 +518,7 @@ export default function AssignmentEditPage() {
       };
 
       await updateAssignment(assignmentId, payload);
+      if (type === 'sql-test') await sqlEditorRef.current?.save();
 
       
       if ((type || "").trim() === "test") {
@@ -569,7 +572,7 @@ export default function AssignmentEditPage() {
       try {
         notify.success("Изменения сохранены");
       } finally {
-        returnFromEditor();
+        if (type !== 'sql-test') returnFromEditor();
       }
     } catch (e) {
       
@@ -724,11 +727,12 @@ export default function AssignmentEditPage() {
             </Field>
 
             <Field label="Тип">
-              <Select value={type} onChange={(e) => setType(e.target.value)}>
+              <Select value={type} disabled={editQuery.data?.assignment?.type === "sql-test"} onChange={(e) => setType(e.target.value)}>
                 <option value="code-test">code-test</option>
                 <option value="image-test">image-test</option>
                 <option value="test">test</option>
                 <option value="math">math</option>
+                {type === "sql-test" && <option value="sql-test">SQL / Database</option>}
               </Select>
             </Field>
 
@@ -1258,6 +1262,8 @@ export default function AssignmentEditPage() {
             />
           </EditorSection>
         )}
+
+        {type === 'sql-test' && <SqlTaskEditor key={assignmentId} ref={sqlEditorRef} assignmentId={assignmentId} />}
 
         {type === 'math' && (
           <EditorSection

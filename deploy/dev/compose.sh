@@ -25,12 +25,25 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "Created $ENV_FILE"
 fi
 
+export TASKFORGE_SQL_INIT_ROOT="$ROOT_DIR/infrastructure/sql"
+SQL_RUNTIME_ENV="$ROOT_DIR/.runtime/sql-runtime.env"
+case "${1:-}" in
+  up|create|start|build|pull)
+    python3 "$ROOT_DIR/scripts/sql/prepare-runtime.py" --env-file "$SQL_RUNTIME_ENV" --base-env "$ENV_FILE" --node dev --pull
+    ;;
+esac
+if [ -s "$SQL_RUNTIME_ENV" ]; then
+  set -a; . "$SQL_RUNTIME_ENV"; set +a
+  if [ "${SQL_ENABLED:-false}" = true ]; then export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}sql"; fi
+fi
+
 exec docker compose \
   --env-file "$ENV_FILE" \
   -f deploy/dev/compose/00-storage.yaml \
   -f deploy/dev/compose/10-apps-gateway.yaml \
   -f deploy/dev/compose/20-core-services.yaml \
   -f deploy/dev/compose/30-execution.yaml \
+  -f deploy/dev/compose/35-sql.yaml \
   -f deploy/dev/compose/40-ai-and-analyzers.yaml \
   -f deploy/dev/compose/50-integrations.yaml \
   "$@"

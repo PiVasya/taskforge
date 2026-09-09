@@ -52,7 +52,7 @@ internal static partial class ExecutionApiEndpoints
             var staleBefore = now.AddMinutes(-runningTimeoutMinutes);
 
             await db.ExecutionJobs
-                .Where(x => x.Status == "running" && x.StartedAt != null && x.StartedAt < staleBefore && x.AttemptCount < maxAttempts)
+                .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "running" && x.StartedAt != null && x.StartedAt < staleBefore && x.AttemptCount < maxAttempts)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(x => x.Status, "queued")
                     .SetProperty(x => x.StartedAt, (DateTimeOffset?)null), ct);
@@ -60,7 +60,7 @@ internal static partial class ExecutionApiEndpoints
             while (true)
             {
                 var candidateId = await db.ExecutionJobs
-                    .Where(x => x.Status == "queued" && x.AttemptCount < maxAttempts)
+                    .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "queued" && x.AttemptCount < maxAttempts)
                     .OrderBy(x => x.CreatedAt)
                     .Select(x => x.Id)
                     .FirstOrDefaultAsync(ct);
@@ -85,6 +85,8 @@ internal static partial class ExecutionApiEndpoints
         {
             var job = await db.ExecutionJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
             if (job == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Execution job not found", code = "EXECUTION_JOB_NOT_FOUND" });
+
+            if (job.Kind != ExecutionJobKinds.Legacy) return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "EXECUTION_CAPABILITY_MISMATCH" });
 
             job.Status = string.IsNullOrWhiteSpace(request.Status) ? "completed" : request.Status.Trim();
             job.CompletedAt = DateTimeOffset.UtcNow;

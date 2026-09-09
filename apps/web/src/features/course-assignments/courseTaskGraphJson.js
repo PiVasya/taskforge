@@ -1,5 +1,6 @@
-export const TASK_GRAPH_SCHEMA_VERSION = 4;
+export const TASK_GRAPH_SCHEMA_VERSION = 5;
 export const TASK_GRAPH_LEGACY_SCHEMA_VERSION = 3;
+export const TASK_GRAPH_PREVIOUS_SCHEMA_VERSION = 4;
 export const TASK_GRAPH_FORMAT = 'taskforge-task-graph';
 export const TASK_GRAPH_COURSE_REF = '$course';
 export const TASK_GRAPH_MAX_TASKS = 5000;
@@ -9,9 +10,9 @@ const TASK_FIELDS = new Set([
   'key', 'id', 'course', 'type', 'title', 'description', 'language', 'allowedLanguages', 'tags',
   'difficulty', 'rating', 'starterCode', 'testCases', 'testSettings', 'questions', 'blocks',
   'codeForbiddenCalls', 'codeRequiredCalls', 'isVisible', 'imageTestReferenceKey',
-  'imageTestSimilarityThreshold',
+  'imageTestSimilarityThreshold', 'sql',
 ]);
-const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'connections', 'layout']);
+const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'connections', 'layout', 'datasets']);
 const COURSE_FIELDS = new Set(['key', 'id', 'title']);
 const CONNECTION_FIELDS = new Set(['from', 'to', 'access']);
 const ACCESS_FIELDS = new Set(['hidden', 'sequential']);
@@ -358,6 +359,7 @@ function simpleMathTask(key, title) {
 
 export const TASK_GRAPH_MEGA_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+  datasets: [],
   format: TASK_GRAPH_FORMAT,
   scopes: [...TASK_GRAPH_SCOPES],
   courses: [
@@ -423,6 +425,7 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
 
 const SIMPLE_CHAIN_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+  datasets: [],
   format: TASK_GRAPH_FORMAT,
   scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
   courses: [],
@@ -440,6 +443,7 @@ const SIMPLE_CHAIN_EXAMPLE = {
 
 const BRANCH_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+  datasets: [],
   format: TASK_GRAPH_FORMAT,
   scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
   courses: [],
@@ -460,6 +464,7 @@ const BRANCH_EXAMPLE = {
 
 const PROGRESSION_EXAMPLE = {
   schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+  datasets: [],
   format: TASK_GRAPH_FORMAT,
   scopes: ['content', 'checks', 'visibility', 'connections', 'connectionAccess'],
   courses: [],
@@ -556,7 +561,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     key: 'content',
     title: 'Содержимое задания',
     items: [
-      { field: 'type', text: 'code-test, image-test, test или math.' },
+      { field: 'type', text: 'code-test, image-test, test, math, sql-test.' },
       { field: 'title / description', text: 'Название и условие. В description не помещается эталонное решение.' },
       { field: 'language / allowedLanguages / starterCode', text: 'Настройки кода и стартовый шаблон.' },
       { field: 'difficulty / rating / tags', text: 'Сложность, очки и теги.' },
@@ -618,7 +623,7 @@ Scopes:
 7. Порядок прохождения задаётся connections. Не используй sort.
 8. Несколько связей из одной ноды создают развилку; несколько входящих — слияние. Циклы запрещены.
 9. access.hidden и access.sequential принимают start, stop, inherit.
-10. Допустимые типы: code-test, image-test, test, math.
+10. Допустимые типы: code-test, image-test, test, math, sql-test.
 11. Не добавляй analyticsSettings и не помещай правильное решение в description.
 12. Расположение задаётся только как layout.positions[key] = {x,y}; viewport — layout.viewport = {x,y,zoom}.
 13. Никогда не помещай position, x, y, nodes, edges или nodeId внутрь tasks/connections.
@@ -664,6 +669,7 @@ function isPlainObject(value) {
 }
 
 function collectLegacyLayoutIssues(value, path, issues) {
+  if (path === '$.datasets' || /^\$\.tasks\[\d+\]\.sql$/.test(path)) return;
   if (Array.isArray(value)) {
     value.forEach((item, index) => collectLegacyLayoutIssues(item, `${path}[${index}]`, issues));
     return;
@@ -730,7 +736,7 @@ export function isCanonicalTaskGraph(parsed) {
   return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     && Array.isArray(parsed.tasks)
     && (parsed.format === TASK_GRAPH_FORMAT
-      || [TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(Number(parsed.schemaVersion))
+      || [TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_PREVIOUS_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(Number(parsed.schemaVersion))
       || Array.isArray(parsed.connections)));
 }
 
@@ -887,8 +893,8 @@ function validateTaskPayload(task, index, isPatch) {
   const type = String(task.type || '').trim().toLowerCase();
   if (!isPatch && !title) issues.push({ path: `${path}.title`, message: 'title обязателен для нового задания.' });
   if (title.length > 200) issues.push({ path: `${path}.title`, message: 'title не должен быть длиннее 200 символов.' });
-  if (task.type !== undefined && !['code-test', 'image-test', 'test', 'math'].includes(type)) {
-    issues.push({ path: `${path}.type`, message: 'Допустимы code-test, image-test, test и math.' });
+  if (task.type !== undefined && !['code-test', 'image-test', 'test', 'math', 'sql-test'].includes(type)) {
+    issues.push({ path: `${path}.type`, message: 'Допустимы code-test, image-test, test, math, sql-test.' });
   }
   if (task.difficulty !== undefined && ![1, 2, 3].includes(Number(task.difficulty))) {
     issues.push({ path: `${path}.difficulty`, message: 'difficulty должен быть 1, 2 или 3.' });
@@ -966,6 +972,7 @@ export function normalizeTaskGraphPayload(parsed) {
     legacy: false,
     schemaVersion,
     format: String(parsed.format || ''),
+    datasets: Array.isArray(parsed.datasets) ? parsed.datasets : [],
     scopes,
     courses: Array.isArray(parsed.courses) ? parsed.courses : [],
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
@@ -996,14 +1003,15 @@ export function validateTaskGraphPayload(parsed) {
   }
 
   const root = parsed;
+  validateSqlResources(root, graph, issues);
   for (const key of Object.keys(root || {})) {
     if (LEGACY_LAYOUT_FIELDS.has(String(key).toLowerCase())) continue;
     if (!TOP_LEVEL_FIELDS.has(key)) issues.push({ path: `$.${key}`, message: 'Неизвестное поле верхнего уровня.' });
   }
   const schemaVersion = Number(root?.schemaVersion);
-  if (![TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(schemaVersion)) issues.push({ path: '$.schemaVersion', message: `Поддерживаются ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} и ${TASK_GRAPH_SCHEMA_VERSION}.` });
+  if (![TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_PREVIOUS_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(schemaVersion)) issues.push({ path: '$.schemaVersion', message: `Поддерживаются ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} и ${TASK_GRAPH_SCHEMA_VERSION}.` });
   if (root?.format !== TASK_GRAPH_FORMAT) issues.push({ path: '$.format', message: `Ожидается "${TASK_GRAPH_FORMAT}".` });
-  if (schemaVersion === TASK_GRAPH_SCHEMA_VERSION) {
+  if (schemaVersion >= TASK_GRAPH_PREVIOUS_SCHEMA_VERSION) {
     if (!Array.isArray(root?.scopes)) issues.push({ path: '$.scopes', message: 'Нужен массив scopes.' });
     else {
       const seenScopes = new Set();
@@ -1014,7 +1022,7 @@ export function validateTaskGraphPayload(parsed) {
       });
     }
   }
-  if (schemaVersion === TASK_GRAPH_SCHEMA_VERSION && root?.layout != null && !graph.scopes.includes('layout')) {
+  if (schemaVersion >= TASK_GRAPH_PREVIOUS_SCHEMA_VERSION && root?.layout != null && !graph.scopes.includes('layout')) {
     issues.push({ path: '$.scopes', message: 'Добавьте scope layout, если документ содержит layout.' });
   }
   if (!Array.isArray(root?.tasks)) issues.push({ path: '$.tasks', message: 'Нужен массив заданий.' });
@@ -1392,4 +1400,43 @@ export function shortTaskGraphValue(value) {
 
 export function taskGraphExampleToText(example) {
   return JSON.stringify(example?.payload ?? example ?? TASK_GRAPH_MEGA_EXAMPLE, null, 2);
+}
+
+// Dedicated v5 documents are not legacy diagram coordinates or code-test JSON.
+function validateSqlResources(root, graph, issues) {
+  const problem = (path, message) => issues.push({ path, message });
+  if (graph.schemaVersion < 5) {
+    if (root.datasets !== undefined || graph.tasks.some(t => t?.sql || t?.type === 'sql-test')) problem('$.schemaVersion','SQL resources require schemaVersion 5.');
+    return;
+  }
+  if (!Array.isArray(root.datasets)) { problem('$.datasets','schemaVersion 5 requires datasets[] (empty is allowed).'); return; }
+  if (root.datasets.length > 256) problem('$.datasets','At most 256 shared SQL datasets.');
+  const keys = new Set();
+  root.datasets.forEach((d,i) => {
+    const path = `$.datasets[${i}]`;
+    if (!isPlainObject(d)) { problem(path,'Expected a dataset object.'); return; }
+    for (const k of Object.keys(d)) if (!['key','name','description','definition','seed','engineOverrides'].includes(k)) problem(`${path}.${k}`,'Unknown dataset field.');
+    if (!/^[a-zA-Z0-9_.-]{1,80}$/.test(d.key || '') || keys.has(d.key)) problem(`${path}.key`,'Unique dataset key required.');
+    keys.add(d.key);
+    if (!String(d.name || '').trim() || !Array.isArray(d.definition?.tables) || !isPlainObject(d.seed)) problem(path,'Dataset needs name, definition.tables and seed.');
+  });
+  graph.tasks.forEach((task,i) => {
+    const path = `$.tasks[${i}].sql`, s = task?.sql;
+    if (task?.type === 'sql-test' && !task.id && graph.scopes.includes('content') && !s) problem(path,'New SQL assignment needs a SQL spec.');
+    if (!s) return;
+    if (!isPlainObject(s)) { problem(path,'Expected a SQL specification.'); return; }
+    if (task.type && task.type !== 'sql-test') problem(path,'Only sql-test can contain a SQL specification.');
+    const privateFields = ['referenceSql','comparison','stateCheck','schemaCheck'];
+    const allowed = ['dataset','mode','allowMultipleStatements','targets','starterSql','limits',...privateFields];
+    for (const k of Object.keys(s)) if (!allowed.includes(k)) problem(`${path}.${k}`,'Unknown SQL specification field.');
+    if (!keys.has(s.dataset)) problem(`${path}.dataset`,'Dataset reference is not declared in datasets[].');
+    if (!['result','state','schema'].includes(s.mode)) problem(`${path}.mode`,'Expected result, state or schema.');
+    if (!Array.isArray(s.targets) || !s.targets.length) { problem(`${path}.targets`,'At least one engine target is required.'); return; }
+    if (!graph.scopes.includes('checks') && privateFields.some(k => s[k] != null)) problem(path,'Private checks require scope checks.');
+    s.targets.forEach((t,ti) => {
+      const p = t?.profile;
+      if (!isPlainObject(p) || !['postgresql','mysql','sqlite'].includes(p.engine) || !/^sha256:[0-9a-f]{64}$/.test(p.runtimeDigest || '') || !p.engineVersion || !p.adapterVersion || !isPlainObject(p.settings)) problem(`${path}.targets[${ti}].profile`,'Exact engine runtime profile required.');
+      if (!graph.scopes.includes('checks') && ['referenceSqlOverride','comparisonOverride','stateCheckOverride','schemaCheckOverride'].some(k => t?.[k] != null)) problem(`${path}.targets[${ti}]`,'Private engine checks require scope checks.');
+    });
+  });
 }

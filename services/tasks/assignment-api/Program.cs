@@ -28,6 +28,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
+builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Sql.SqlValidationDispatcher>();
 builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>();
 var app = builder.Build();

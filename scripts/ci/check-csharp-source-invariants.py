@@ -124,8 +124,8 @@ def main() -> int:
 
     if task_graph_json_path.exists():
         task_graph_source = task_graph_json_path.read_text(encoding="utf-8")
-        if "internal const int SchemaVersion = 4" not in task_graph_source or '"courses"' not in task_graph_source or '"course"' not in task_graph_source:
-            errors.append("canonical task-graph JSON v4 must retain nested course references")
+        if "internal const int SchemaVersion = 5" not in task_graph_source or '"datasets"' not in task_graph_source or '"courses"' not in task_graph_source or '"course"' not in task_graph_source:
+            errors.append("canonical task-graph JSON v5 must retain nested course references and shared datasets")
         if "internal const int MaxTasks = 5000" not in task_graph_source or "GraphExportOptions" not in task_graph_source or "GraphImportOptions" not in task_graph_source:
             errors.append("task-graph JSON lost the expanded export limit or selective import/export scopes")
         if "IReadOnlyList<CourseTreeCourseDto>" not in task_graph_source or "BuildCourseKeys" not in task_graph_source:

@@ -1,6 +1,14 @@
-## Cluster manager v30
+## Current SQL release and production entrypoint
 
-Production cluster operations now use `deploy/prod/cluster.sh`. A/B use safe asynchronous replica mode; Patroni/etcd is enabled only after three independent voters exist. The current production entrypoint is `deploy/prod/cluster.sh`; see `TASKFORGE_100_CLUSTER_MANAGER_V30.md` and `deploy/cluster/README.md` for the v30 workflow. `TASKFORGE_99_CLUSTER_MANAGER_V28.md` remains as historical design context.
+The Go SQL runtime release builds on user source develop(212), including the user's three
+`AddSqlDomain` migrations. Read `docs/sql/IMPLEMENTATION.md`, `docs/sql/DEPLOYMENT.md`
+and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
+full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
+
+The authoritative A/B/C production package is the independent v40-r59 archive. Its
+entrypoint is `./cluster.sh`. A/B are full; C remains lite. The older cluster scripts
+inside this source tree are not a replacement for that package. Do not restore the
+historical v30 deployment instructions as the current production procedure.
 
 # AI rules for this project
 
@@ -8,8 +16,10 @@ Open this file before changing the project.
 
 ## Hard rules
 
+- SQL production execution is Go, including the isolated per-attempt helper. Do not reintroduce a Python SQL worker or child. The native database client libraries are accessed through CGO; keep all-thread isolation, bounded resources and the independent provider contract.
+
 - The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
-- The SQL update is at the user-owned migration boundary. See `docs/sql/MIGRATION_HANDOFF.md` before continuing. Do not deploy this stage or generate/apply migrations automatically.
+- The user-owned migration boundary was completed in develop(212). Preserve all 92 migration/snapshot files and the existing SQL Entity/DbContext definitions. Do not generate or apply another migration for this runtime update. New schema changes require another explicit user-owned migration boundary; use the existing `scripts/generate-migrations.sh` rather than inventing per-project commands.
 - Do not generate database migrations unless the user explicitly asks for migrations.
 - Current logging policy is development mode: Docker images and Compose runtimes must keep `TASKFORGE_BUILD_DEBUG_LOGS=1` / `TASKFORGE_DEBUG_LOGS=1`. Do not disable, quiet, or change these defaults to `0` unless the user explicitly asks to change the logging policy. Preserve this rule whenever editing workflows, Dockerfiles, Compose files, or `.env.example` files.
 - Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.
@@ -40,7 +50,7 @@ Canonical TaskForge course task-graph import/export:
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "format": "taskforge-task-graph",
   "scopes": ["ids", "content", "checks", "visibility", "connections", "connectionAccess", "layout"],
   "guide": { "about": "Fresh exports may contain a self-contained human/AI guide; import ignores it." },
@@ -48,6 +58,7 @@ Canonical TaskForge course task-graph import/export:
     { "key": "course-existing", "id": "11111111-1111-4111-8111-111111111111", "title": "Существующий подкурс" },
     { "key": "course-new", "title": "Новый подкурс" }
   ],
+  "datasets": [],
   "tasks": [
     { "key": "intro", "course": "$course", "id": "00000000-0000-0000-0000-000000000000" }
   ],
@@ -72,7 +83,7 @@ Canonical TaskForge course task-graph import/export:
 - Import settings independently control content, checks/answers, visibility, topology, edge access effects and layout. The presence of an assignment ID never overrides those switches.
 - Canonical graph imports may contain zero tasks when they only update positions/connections of existing course nodes.
 - Fresh exports support up to 5000 task entries per course subtree and must not contain `analyticsSettings`, changelog text or implementation notes. By default they include a large top-level `guide` block intended to make the file self-describing for a human or AI; the export dialog can omit it.
-- Legacy assignment arrays and schema version 3 may remain accepted internally for compatibility, but the UI, documentation, examples and fresh exports use schema version 4.
+- Legacy assignment arrays and schema versions 3/4 remain accepted internally for compatibility. Fresh exports use schema version 5; reusable logical SQL resources live in top-level `datasets[]`. SQL reference and private verifier settings are included only with the checks scope.
 
 Type-specific fields:
 
@@ -80,6 +91,7 @@ Type-specific fields:
 - `image-test`: `testCases`, `imageTestReferenceKey`, `imageTestSimilarityThreshold`
 - `test`: `testSettings`, `questions`
 - `math`: `testSettings`, `blocks`
+- `sql-test`: dedicated `sql` object referencing a resource in `datasets[]`; never `TestsJson` or `language=sql` code-test routing.
 
 ## Minecraft plugin logging policy
 

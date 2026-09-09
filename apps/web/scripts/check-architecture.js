@@ -340,8 +340,8 @@ const taskGraphImport = read('features/course-assignments/courseTaskGraphImport.
 const taskGraphExportDialog = read('features/course-assignments/components/JsonTaskGraphExportDialog.jsx');
 const taskGraphImportDialog = read('features/course-assignments/components/JsonTaskGraphImportDialog.jsx');
 const taskGraphDiff = read('features/course-assignments/components/JsonTaskGraphDiffModal.jsx');
-if (!/TASK_GRAPH_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/['"]courses['"]/.test(taskGraphJson) || !/['"]course['"]/.test(taskGraphJson)) {
-  fail('canonical JSON graph v4 lost nested-course references');
+if (!/TASK_GRAPH_SCHEMA_VERSION = 5/.test(taskGraphJson) || !/TASK_GRAPH_PREVIOUS_SCHEMA_VERSION = 4/.test(taskGraphJson) || !/datasets/.test(taskGraphJson) || !/['"]courses['"]/.test(taskGraphJson) || !/['"]course['"]/.test(taskGraphJson)) {
+  fail('canonical JSON graph v5 lost datasets, legacy-v4 support or nested-course references');
 }
 if (!/key === 'layout' \|\| key === 'guide'/.test(taskGraphJson)) {
   fail('task-graph import must ignore documentation guide when checking legacy layout fields');

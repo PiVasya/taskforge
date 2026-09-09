@@ -1,3 +1,6 @@
+> Historical stage-1 record. The user generated the migrations in develop(212).
+> Do not repeat migration generation; see [current deployment](DEPLOYMENT.md) and [runtime QA](QA_RUNTIME.md).
+
 # Миграционная точка SQL: исходники подготовлены, миграции нужно создать у себя
 
 **Это промежуточный полный source archive, а не production-обновление.**

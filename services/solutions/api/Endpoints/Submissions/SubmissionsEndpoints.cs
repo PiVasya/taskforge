@@ -47,6 +47,10 @@ internal static partial class SolutionsApiEndpoints
                 }
             }
 
+            var spec = await LoadJudgeSpecAsync(assignmentId, cfg, httpFactory, ct);
+            if (spec?.Type == "sql-test")
+                return Problem(400, "SQL_ENDPOINT_REQUIRED", "solutions.validation", "SQL assignments require the SQL Check endpoint and an exact engine profile.");
+
             var sub = new SolutionSubmission
             {
                 AssignmentId = assignmentId,
@@ -68,7 +72,6 @@ internal static partial class SolutionsApiEndpoints
                 ("codeLength", code.Length),
                 ("status", sub.Status));
 
-            var spec = await LoadJudgeSpecAsync(assignmentId, cfg, httpFactory, ct);
             if (spec == null)
             {
                 ApplyLocalVerdict(sub, new JudgeRunResult(

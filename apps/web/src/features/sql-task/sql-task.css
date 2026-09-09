@@ -1,0 +1,40 @@
+.sql-task { --sql-line: color-mix(in srgb, currentColor 17%, transparent); --sql-fill: color-mix(in srgb, currentColor 4%, transparent); display: grid; gap: 1rem; min-width: 0; }
+.sql-task *, .sql-task *::before, .sql-task *::after { box-sizing: border-box; }
+.sql-task .sql-card { border: 1px solid var(--sql-line); border-radius: 16px; padding: 1.15rem; background: var(--sql-fill); min-width: 0; }
+.sql-task .sql-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 1rem; }
+.sql-task .sql-toolbar { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
+.sql-task .sql-toolbar > h2, .sql-task .sql-toolbar > h3 { margin: 0 auto 0 0; }
+.sql-task .sql-field { display: grid; gap: .35rem; font-size: .9rem; min-width: 0; }
+.sql-task input:not([type=checkbox]), .sql-task select, .sql-task textarea { width: 100%; min-width: 0; padding: .55rem .65rem; color: inherit; background: var(--card-bg, var(--bg-primary, transparent)); border: 1px solid var(--sql-line); border-radius: 8px; }
+.sql-task select option { color: CanvasText; background: Canvas; }
+.sql-task button { padding: .55rem .8rem; border: 1px solid var(--sql-line); border-radius: 9px; font-weight: 600; background: var(--sql-fill); color: inherit; cursor: pointer; }
+.sql-task button:hover:not(:disabled), .sql-task button[aria-selected=true] { background: color-mix(in srgb, #4285f4 16%, transparent); border-color: #4285f4; }
+.sql-task .sql-primary { background: #326ae1; border-color: #326ae1; color: #fff; }
+.sql-task button:disabled { opacity: .45; cursor: not-allowed; }
+.sql-task input:focus-visible, .sql-task select:focus-visible, .sql-task button:focus-visible { outline: 2px solid #6599ff; outline-offset: 2px; }
+.sql-task .sql-check { display: inline-flex; gap: .5rem; align-items: center; font-size: .88rem; }
+.sql-task .sql-muted { opacity: .7; font-size: .86rem; line-height: 1.5; }
+.sql-task .sql-error { border-left: 3px solid #e06a6a; padding: .7rem; background: color-mix(in srgb, #e06a6a 9%, transparent); overflow-wrap: anywhere; }
+.sql-task .sql-ok { border-left: 3px solid #39ad82; padding: .7rem; background: color-mix(in srgb, #39ad82 9%, transparent); }
+.sql-task .sql-scroll { overflow: auto; max-height: 520px; border: 1px solid var(--sql-line); border-radius: 10px; margin-top: .7rem; }
+.sql-task table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.sql-task th, .sql-task td { text-align: left; padding: .6rem; border-bottom: 1px solid var(--sql-line); vertical-align: top; }
+.sql-task th { white-space: nowrap; background: var(--sql-fill); }
+.sql-task .sql-columns { min-width: 900px; }
+.sql-task .sql-columns td:first-child { min-width: 145px; }
+.sql-task .sql-columns td:nth-child(2) { min-width: 125px; }
+.sql-task .sql-seed { min-width: 460px; }
+.sql-task .sql-seed td { min-width: 145px; }
+.sql-task .sql-seed td:last-child { min-width: 40px; }
+.sql-task .sql-cell-mode { font-size: .73rem; padding: .2rem .35rem; margin-bottom: .3rem; }
+.sql-task details { margin-top: .75rem; border-top: 1px solid var(--sql-line); padding-top: .7rem; }
+.sql-task summary { cursor: pointer; font-weight: 600; }
+.sql-task .sql-badge { border: 1px solid var(--sql-line); border-radius: 999px; padding: .22rem .6rem; font-size: .75rem; }
+.sql-task .sql-value { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 480px; font-family: ui-monospace, monospace; }
+.sql-task .sql-null { opacity: .5; font-style: italic; }
+.sql-task .sql-tabs { display: flex; gap: .45rem; flex-wrap: wrap; }
+.sql-task .sql-empty { padding: 1.5rem; text-align: center; opacity: .65; }
+.sql-task .sql-constraint { display: grid; grid-template-columns: repeat(auto-fit,minmax(125px,1fr)); gap: .5rem; align-items: end; margin-top: .7rem; }
+.sql-task .sql-status-list { display: grid; gap: .5rem; padding: .5rem 0; }
+.sql-task .sql-inline-number { max-width: 90px; }
+@media (max-width: 640px) { .sql-task .sql-card { padding: .8rem; border-radius: 10px; } .sql-task .sql-toolbar > select { flex: 1; width: 100%; } }

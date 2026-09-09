@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../../components/ui';
 import TaskTestSolve from '../../pages/TaskTestSolve';
+import SqlTaskSolve from '../sql-task/SqlTaskSolve';
 import MathTaskSolve from '../../pages/MathTaskSolve';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests } from '../../api/assignments';
@@ -957,6 +958,18 @@ export default function AssignmentSolvePage() {
   }
 
   
+  if (a.type === 'sql-test') {
+    return <>
+      <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} isAdmin={isAdmin} showQuota />
+      <Card className="assignment-reveal">
+        <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
+        {renderAssignmentStatement()}
+      </Card>
+      <SqlTaskSolve key={a.id} assignment={a} onActivity={queueActivity} onCompleted={refreshProgression} />
+      <NextAssignmentDock nextOptions={nextOptions} nextLoading={nextNavigationLoading} nextDisabled={assignmentSwitching} onNext={goNextAssignment} />
+    </>;
+  }
+
   if (a.type === 'test') {
     return (
       <>

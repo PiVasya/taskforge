@@ -18,6 +18,7 @@ internal static partial class ExecutionApiEndpoints
         MapServiceInfoEndpoints(app);
         MapCompilerEndpoints(app);
         MapInternalExecutionEndpoints(app);
+        MapSqlExecutionEndpoints(app);
         MapAccountLifecycleInternalEndpoints(app);
 
         return app;

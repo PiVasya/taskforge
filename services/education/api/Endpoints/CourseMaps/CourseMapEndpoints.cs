@@ -19,7 +19,8 @@ internal static partial class EducationApiEndpoints
         "code-test",
         "test",
         "image-code",
-        "math"
+        "math",
+        "sql-test"
     };
 
     private static WebApplication MapCourseMapEndpoints(WebApplication app)

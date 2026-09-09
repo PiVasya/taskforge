@@ -2033,3 +2033,6 @@ html.neo-brutal .course-map-node--locked:hover .course-map-node-heading,
 html.neo-brutal .course-map-node--locked:hover .course-map-locked-requirement {
   color: rgb(var(--neo-ink)) !important;
 }
+
+.course-map-node--sql { border-color: rgba(81, 149, 223, .6); }
+.course-map-node--sql .course-map-code-watermark { color: rgba(81,149,223,.16); font-size: 26px; }

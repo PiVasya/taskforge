@@ -25,12 +25,26 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapInternalEndpoints(WebApplication app)
     {
-        app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Guid assignmentId, TasksDbContext db) =>
+        app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Guid assignmentId, Guid? engineProfileId, TasksDbContext db, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
             if (assignment == null)
             {
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            }
+
+            if (assignment.Type == "sql-test")
+            {
+                var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
+                if (root?.PublishedVersionId is null || !engineProfileId.HasValue)
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "A published SQL revision and engine profile are required." });
+                try
+                {
+                    var payload = await TaskForge.Tasks.Api.Services.Sql.SqlTaskService.Payload(db, root.PublishedVersionId.Value, engineProfileId.Value, true, ct);
+                    return Microsoft.AspNetCore.Http.Results.Ok(new { assignment.Id, assignment.Type, sql = payload });
+                }
+                catch (TaskForge.Tasks.Api.Services.Sql.SqlNotFoundException) { return Microsoft.AspNetCore.Http.Results.NotFound(); }
+                catch (TaskForge.Tasks.Api.Services.Sql.SqlNotReadyException) { return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED" }); }
             }
 
             return Microsoft.AspNetCore.Http.Results.Ok(new

@@ -207,7 +207,7 @@ internal static class AssignmentApiSerializationService
             "image" or "image_test" or "imagetest" or "drawing" or "drawing-test" => "image-test",
             "quiz" or "task-test" or "multiple-choice" => "test",
             "math-test" or "math_task" or "math-task" => "math",
-            "image-test" or "code-test" or "test" or "math" => s,
+            "image-test" or "code-test" or "test" or "math" or "sql-test" => s,
             _ => "code-test"
         };
     }
@@ -444,7 +444,7 @@ internal static class AssignmentApiSerializationService
         if (!isPatch && title.Length == 0) yield return "title обязателен.";
         if (title.Length > 200) yield return "title не должен быть длиннее 200 символов.";
         var type = NormalizeAssignmentType(request.Type);
-        if (hasExplicitType && !new[] { "code-test", "image-test", "test", "math" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
+        if (hasExplicitType && !new[] { "code-test", "image-test", "test", "math", "sql-test" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
         if (request.Difficulty.HasValue && (request.Difficulty.Value < 1 || request.Difficulty.Value > 3)) yield return "difficulty должен быть 1, 2 или 3.";
         if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
         if (request.Sort.HasValue && request.Sort.Value < 0) yield return "sort не может быть отрицательным.";

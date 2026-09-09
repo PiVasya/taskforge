@@ -1,0 +1,3 @@
+Current implementation: docs/sql/IMPLEMENTATION.md and docs/sql/GO_RUNTIME.md
+Go port delta: docs/sql/go-changed-files.txt
+The prior Python runtime delta is historical at docs/sql/history/python-r58/runtime-changed-files.txt

@@ -108,7 +108,11 @@ internal static class SolutionsApiResultsService
         return best == int.MaxValue ? 999 : best;
     }
 
-    internal static bool IsTerminalVerdict(string? value) => value is not null && (string.Equals(value, "Accepted", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Rejected", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "CompileError", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "PolicyFailed", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "NoTestsConfigured", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "LanguageNotAllowed", StringComparison.OrdinalIgnoreCase));
+    internal static bool IsTerminalVerdict(string? value) => value is not null && new[]
+    {
+        "Accepted", "Rejected", "CompileError", "PolicyFailed", "NoTestsConfigured", "JudgeUnavailable", "LanguageNotAllowed",
+        "WrongAnswer", "RuntimeError", "TimeLimitExceeded", "OutputLimitExceeded"
+    }.Contains(value, StringComparer.OrdinalIgnoreCase);
 
     internal static bool IsPendingVerdict(string? value) => value is not null && (string.Equals(value, "Preparing", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Queued", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Running", StringComparison.OrdinalIgnoreCase));
 
