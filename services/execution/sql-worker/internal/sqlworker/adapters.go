@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -332,6 +333,10 @@ func administrationFailure(err error) error {
 	if !errors.As(err, &db) {
 		return err
 	}
+	// Log only the engine and numeric/native error code. Administration SQL can
+	// contain generated credentials, so neither the raw server message nor SQL
+	// text is ever emitted here.
+	slog.Warn("sql_admin_failure", "engine", db.Engine, "code", db.Code)
 	if db.Code == "3D000" || db.Code == "1049" {
 		return RecoverCache("A dedicated SQL cache database disappeared.")
 	}

@@ -182,6 +182,14 @@ func TestPortableDDLAllThreeEngines(t *testing.T) {
 }
 func TestDatasetEngineOverridesAndExactSeeds(t *testing.T) {
 	p := fixture(Profile{})
+	// Unbounded text participates in UNIQUE here. MySQL prefix indexes would
+	// weaken logical uniqueness, so the default mapping must be rejected before
+	// touching the engine; an explicit bounded override restores exact semantics.
+	p.Definition.Tables[0].Columns[1].Type = "text"
+	p.Definition.Tables[0].Columns[1].Length = nil
+	if _, e := CompileDataset(p, "mysql"); e == nil || !strings.Contains(e.Error(), "SQL_SCHEMA_UNSUPPORTED") {
+		t.Fatalf("MySQL unbounded keyed text was not rejected safely: %v", e)
+	}
 	p.EngineOverrides = map[string]EngineMapping{"mysql": {Columns: map[string]ColumnMapping{"products.name": {Type: ptr("varchar(100)")}}}}
 	my, e := CompileDataset(p, "mysql")
 	if e != nil {

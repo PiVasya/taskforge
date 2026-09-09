@@ -256,6 +256,19 @@ func defaultSQL(d *Default, c Column, engine string) (string, error) {
 
 type DatasetPlan struct{ Creates, Inserts, After []string }
 
+func mysqlUnboundedKeyType(nativeType string) bool {
+	base := strings.ToUpper(strings.TrimSpace(nativeType))
+	if at := strings.IndexByte(base, '('); at >= 0 {
+		base = strings.TrimSpace(base[:at])
+	}
+	switch base {
+	case "TEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT", "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB":
+		return true
+	default:
+		return false
+	}
+}
+
 func CompileDataset(p Payload, engine string) (DatasetPlan, error) {
 	plan := DatasetPlan{[]string{}, []string{}, []string{}}
 	bad := func(code, msg string) (DatasetPlan, error) { return plan, Fail(code, msg) }
@@ -279,6 +292,43 @@ func CompileDataset(p Payload, engine string) (DatasetPlan, error) {
 	for name := range p.Seed {
 		if _, ok := names[name]; !ok {
 			return bad("SQL_SEED_TABLE", "Unknown seed table.")
+		}
+	}
+	// MySQL cannot preserve full PK/UNIQUE/index/FK semantics on unbounded
+	// TEXT/BLOB columns without prefix indexes. Prefix indexes would change the
+	// logical TaskForge contract, so reject that engine/materialization before
+	// sending generated DDL to the server. An engine override to VARCHAR/VARBINARY
+	// (or a portable string(n)) remains available to the author.
+	mysqlKeyColumns := map[string]map[string]bool{}
+	if engine == "mysql" {
+		mark := func(table, column string) {
+			if mysqlKeyColumns[table] == nil {
+				mysqlKeyColumns[table] = map[string]bool{}
+			}
+			mysqlKeyColumns[table][column] = true
+		}
+		for _, t := range tables {
+			for _, c := range t.PrimaryKey {
+				mark(t.Name, c)
+			}
+			for _, key := range t.Unique {
+				for _, c := range key {
+					mark(t.Name, c)
+				}
+			}
+			for _, idx := range t.Indexes {
+				for _, c := range idx.Columns {
+					mark(t.Name, c)
+				}
+			}
+			for _, fk := range t.ForeignKeys {
+				for _, c := range fk.Columns {
+					mark(t.Name, c)
+				}
+				for _, c := range fk.ReferenceColumns {
+					mark(fk.ReferenceTable, c)
+				}
+			}
 		}
 	}
 	total := 0
@@ -366,6 +416,9 @@ func CompileDataset(p Payload, engine string) (DatasetPlan, error) {
 			nt, e := NativeType(c, engine, override)
 			if e != nil {
 				return plan, e
+			}
+			if engine == "mysql" && mysqlKeyColumns[t.Name][c.Name] && mysqlUnboundedKeyType(nt) {
+				return bad("SQL_SCHEMA_UNSUPPORTED", "MySQL requires a bounded type for key/index column "+t.Name+"."+c.Name+"; use string(n) or a MySQL type override.")
 			}
 			s := q(c.Name, engine) + " " + nt
 			if c.Identity {
