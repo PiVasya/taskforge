@@ -9,6 +9,8 @@
     <AssemblyName>TaskForge.Tasks.Api</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>

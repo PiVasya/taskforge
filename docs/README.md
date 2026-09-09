@@ -1,4 +1,4 @@
-> Перед правками ИИ должен открыть [`00_AI_READ_THIS_FIRST.md`](./00_AI_READ_THIS_FIRST.md).
+> Перед правками ИИ должен открыть [`00_AI_READ_THIS_FIRST.md`](../00_AI_READ_THIS_FIRST.md).
 
 # TaskForge
 
@@ -189,7 +189,7 @@ Public discovery and inspection:
 
 Browser API contract version is `1.3`; semantic snapshot version is `2.2`. Test/math snapshots expose stable question/answer keys so agents do not have to rely on visual radio labels. For reliable serial solving, use Browser API for discovery/navigation and ordinary authenticated submit/result APIs as the authoritative mutation/verdict channel; reconcile an uncertain submit through the matching GET before retrying.
 
-The browser service accepts only configured TaskForge sites plus relative paths, is protected by Nginx and Redis quotas, and cannot be used as a general-purpose URL proxy. See [`services/browser/api/README.md`](./services/browser/api/README.md) and [`00_AI_READ_THIS_FIRST.md`](./00_AI_READ_THIS_FIRST.md).
+The browser service accepts only configured TaskForge sites plus relative paths, is protected by Nginx and Redis quotas, and cannot be used as a general-purpose URL proxy. See [`services/browser/api/README.md`](../services/browser/api/README.md) and [`00_AI_READ_THIS_FIRST.md`](../00_AI_READ_THIS_FIRST.md).
 
 The Identity migration for the AI account marker already exists as `services/identity/api/Migrations/20260807225514_AddAiAccountType.cs`. Do not generate a second `AddAiAccountType` migration.
 

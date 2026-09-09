@@ -1,0 +1,1590 @@
+TASKFORGE — ПОЛНЫЙ ПЛАН ОБНОВЛЕНИЯ SQL / DATABASE TASKS
+Версия handoff-документа для нового чата
+Дата: 2026-09-09
+
+================================================================================
+0. ЧТО НУЖНО СДЕЛАТЬ
+================================================================================
+
+Нужно добавить в TaskForge полноценный новый тип задания для работы с базами данных / SQL.
+
+Исходные свежие архивы, от которых надо отталкиваться:
+- taskforge-develop(210)(2).zip
+- taskforge-prod-linux-v40-cluster-control-final-r57.tar(2).gz
+
+ВАЖНО:
+Не продолжать старые экспериментальные SQL-патчи поверх промежуточных архивов.
+Начинать именно со свежего taskforge-develop(210)(2) и стабильного production r57.
+
+Цель:
+1. Автор задания один раз создаёт логическую учебную БД:
+   - таблицы;
+   - колонки;
+   - PK;
+   - FK;
+   - UNIQUE;
+   - NULL/NOT NULL;
+   - default;
+   - индексы;
+   - seed-данные.
+2. Автор отмечает, на каких СУБД это задание должно работать:
+   - PostgreSQL;
+   - MySQL;
+   - SQLite;
+   - позднее SQL Server / MariaDB и другие.
+3. TaskForge материализует одну и ту же логическую учебную БД отдельно под каждый выбранный движок.
+4. Ученик выбирает СУБД/диалект и пишет SQL.
+5. TaskForge выполняет SQL только в изолированной disposable-копии учебной БД.
+6. После проверки disposable sandbox уничтожается.
+7. GOLDEN никогда не изменяется.
+8. Один и тот же dataset может использоваться десятками разных заданий.
+9. Система должна быть быстрой при одновременных запусках и не должна создавать холодный контейнер/СУБД на каждую попытку.
+
+================================================================================
+1. ЖЁСТКИЕ ПРАВИЛА ЭТОГО ОБНОВЛЕНИЯ
+================================================================================
+
+1.1. НИКАКИХ КОСТЫЛЕЙ РАДИ ОТСУТСТВИЯ МИГРАЦИИ
+------------------------------------------------
+Нельзя запихивать SQL-домен в старые поля только потому, что в среде ассистента нет dotnet/EF CLI.
+
+Запрещён подход:
+- хранить всю SQL-задачу в старом Assignment.TestsJson;
+- притворяться, что PostgreSQL/MySQL — это просто старый Language;
+- обходить нормальную модель ради того, чтобы не создавать миграцию.
+
+Делаем нормальные Entity и нормальный DbContext.
+
+Если Entity/DbContext меняются — это нормально.
+Миграцию генерирует пользователь локально.
+
+1.2. МИГРАЦИИ ДЕЛАЕТ ТОЛЬКО ПОЛЬЗОВАТЕЛЬ
+-----------------------------------------
+Ассистент:
+- меняет Entity;
+- меняет DbContext configuration;
+- меняет DTO;
+- меняет API;
+- меняет frontend;
+- меняет workers;
+- меняет Docker/Compose/CI;
+- НЕ создаёт EF migration вручную;
+- НЕ редактирует существующие migration-файлы;
+- НЕ редактирует ModelSnapshot;
+- НЕ имитирует вывод dotnet ef.
+
+После изменения Entity/DbContext ассистент должен остановиться на миграционном этапе и дать пользователю точные команды dotnet ef migrations add.
+
+Пользователь выполняет команды у себя с установленным .NET SDK и возвращает проект/миграции. После этого работа продолжается.
+
+1.3. НОВЫЙ АРХИВ = НЕЗАВИСИМОСТЬ ОТ СТАРОГО
+---------------------------------------------
+Любой новый source archive должен быть полностью самостоятельным.
+
+Любой новый production cluster archive (например r58) должен быть полной самостоятельной копией, а не "патчером r57".
+
+Нельзя делать runtime-зависимость:
+"положи рядом r57 и запусти install-from-r57".
+
+Новый архив должен содержать всё необходимое сам.
+
+1.4. В КОМАНДАХ ИСПОЛЬЗОВАТЬ ОТНОСИТЕЛЬНЫЕ ПУТИ
+-------------------------------------------------
+В пользовательских инструкциях:
+- ../taskforge-...
+- ./cluster.sh
+- ./services/...
+
+Не использовать абсолютные проектные пути и не привязываться к ~/...
+
+1.5. НЕ ЛОМАТЬ СУЩЕСТВУЮЩИЙ JUDGE
+----------------------------------
+Новый sql-test не должен ломать:
+- code-test;
+- image-test;
+- test;
+- math;
+- существующий solutions pipeline;
+- rating;
+- course progression;
+- leaderboard;
+- analytics;
+- hidden tests;
+- code analyzer.
+
+SQL должен встроиться в существующую архитектуру, а не создать параллельный TaskForge внутри TaskForge.
+
+================================================================================
+2. ГЛАВНОЕ АРХИТЕКТУРНОЕ РЕШЕНИЕ ПО МИКРОСЕРВИСАМ
+================================================================================
+
+НЕ создаём отдельный публичный sql-api.
+
+Расширяем:
+- tasks-api;
+- solutions-api;
+- execution-api;
+- frontend;
+- gateway/config;
+- observability.
+
+Добавляем ОДИН новый execution microservice:
+- sql-worker.
+
+Добавляем runtime engine containers:
+- sql-postgres;
+- sql-mysql;
+- позднее sql-mssql.
+
+SQLite не требует отдельного server-контейнера и может исполняться внутри sql-worker.
+
+Итог:
+
+                    TaskForge frontend
+                           |
+             +-------------+-------------+
+             |                           |
+         tasks-api                  solutions-api
+             |                           |
+      SQL task/domain                submission
+             |                           |
+             +-------------> execution-api
+                                  |
+                       +----------+----------+
+                       |                     |
+                execution-worker        sql-worker
+                 code / image              |
+                       |                    |
+                  code runners      Sandbox Manager
+                                            |
+                             +--------------+--------------+
+                             |              |              |
+                         PostgreSQL       MySQL          SQLite
+
+================================================================================
+3. ПОЧЕМУ НЕТ ОТДЕЛЬНОГО sql-api
+================================================================================
+
+SQL-задача — это не отдельная бизнес-система.
+
+Уже существуют:
+- tasks-api — владелец задания;
+- solutions-api — владелец submission/verdict;
+- execution-api — владелец durable execution jobs.
+
+Если сделать отдельный sql-api, который сам хранит задания/попытки/вердикты, появятся:
+- две истории попыток;
+- два rating pipeline;
+- две аналитики;
+- два progression pipeline;
+- два результата;
+- два набора правил доступа.
+
+Это неправильно.
+
+sql-worker — execution component, а не новый бизнес-domain API.
+
+================================================================================
+4. НОВЫЙ ТИП ЗАДАНИЯ
+================================================================================
+
+Добавить новый полноценный тип:
+
+sql-test
+
+Он НЕ является:
+code-test + language=sql
+
+У SQL другая семантика проверки:
+- result;
+- state;
+- schema.
+
+У SQL нет нормальной модели stdin/stdout.
+
+================================================================================
+5. НОРМАЛЬНАЯ ДОМЕННАЯ МОДЕЛЬ В tasks-api
+================================================================================
+
+Нужны отдельные SQL Entity.
+
+5.1. SqlDataset
+---------------
+Логическая учебная БД.
+
+Примерные поля:
+- Id
+- Name
+- Description
+- CreatedAt
+- UpdatedAt
+
+Dataset может использоваться многими assignments.
+
+5.2. SqlDatasetVersion
+----------------------
+Immutable-версия dataset.
+
+Примерные поля:
+- Id
+- DatasetId
+- Version
+- DefinitionJson / SchemaJson
+- SeedJson
+- ContentHash
+- CreatedAt
+
+Dedicated JSON внутри SqlDatasetVersion допустим и логичен, потому что это собственный versioned document агрегата.
+
+НЕЛЬЗЯ использовать для этого unrelated Assignment.TestsJson.
+
+5.3. SqlAssignmentSpec
+----------------------
+One-to-one с Assignment.
+
+Примерные поля:
+- AssignmentId
+- DatasetVersionId
+- Mode
+- StarterSql
+- ReferenceSql
+- AllowMultipleStatements
+- ResultComparisonSettingsJson
+- StateCheckSettingsJson
+- SchemaCheckSettingsJson
+- CreatedAt
+- UpdatedAt
+
+Mode:
+- result
+- state
+- schema
+
+5.4. SqlAssignmentEngineTarget
+------------------------------
+Какие СУБД поддерживает конкретное задание.
+
+Пример:
+- Id
+- AssignmentId
+- Engine
+- EngineVersion
+- Enabled
+- Sort
+
+Например:
+postgresql / 18
+mysql / 8.4
+sqlite / 3
+
+5.5. Engine-specific overrides
+------------------------------
+Нужен механизм override, потому что SQL-диалекты реально различаются.
+
+Override может содержать:
+- ReferenceSql override;
+- StarterSql override;
+- type/default mapping override;
+- engine-specific check settings.
+
+Общий ReferenceSql используется, если переносим.
+Если на MySQL нужен другой синтаксис — применяется override.
+
+================================================================================
+6. ЛОГИЧЕСКАЯ БД И "ВИДЫ SQL"
+================================================================================
+
+Автор создаёт ОДНУ логическую БД TaskForge.
+
+Например:
+
+users
+- id integer PK auto
+- name string(100)
+- group_id integer FK -> groups.id
+
+groups
+- id integer PK auto
+- name string(100)
+
+Затем выбирает:
+
+[x] PostgreSQL 18
+[x] MySQL 8.4
+[x] SQLite
+[ ] SQL Server
+
+TaskForge материализует разные физические GOLDEN:
+
+Logical Dataset
+     |
+     +--> PostgreSQL 18 GOLDEN
+     +--> MySQL 8.4 GOLDEN
+     +--> SQLite GOLDEN
+
+Физические файлы/форматы этих GOLDEN между собой несовместимы.
+
+НЕЛЬЗЯ:
+PostgreSQL GOLDEN -> COW -> MySQL
+
+МОЖНО:
+PostgreSQL GOLDEN -> PostgreSQL sandbox
+MySQL GOLDEN      -> MySQL sandbox
+SQLite GOLDEN     -> SQLite sandbox
+
+================================================================================
+7. PORTABLE SUBSET
+================================================================================
+
+Основные связи во всех СУБД действительно похожи:
+- table;
+- columns;
+- PK;
+- FK;
+- UNIQUE;
+- NULL;
+- indexes.
+
+Но различия появляются в:
+- AUTO_INCREMENT / IDENTITY / generated identity;
+- boolean;
+- UUID;
+- JSON;
+- datetime/timestamp;
+- collations;
+- case sensitivity;
+- NULL ordering;
+- generated columns;
+- ALTER TABLE;
+- functions;
+- stored procedures;
+- engine-specific types.
+
+Поэтому TaskForge должен иметь собственные logical types.
+
+Начальный portable subset:
+- integer
+- bigint
+- decimal(p,s)
+- string(n)
+- text
+- boolean
+- date
+- datetime
+- uuid
+- binary
+
+Advanced types добавляются позже:
+- json
+- enum
+- arrays
+- interval
+- geometry
+- и т.д.
+
+================================================================================
+8. GOLDEN
+================================================================================
+
+GOLDEN = неизменяемый физический эталон конкретного:
+
+datasetVersion + engine + engineVersion + adapterVersion
+
+GOLDEN никогда не отдаётся ученику напрямую.
+
+GOLDEN никогда не редактируется.
+
+Изменился dataset:
+- новая SqlDatasetVersion;
+- новый hash;
+- новый GOLDEN.
+
+Старый GOLDEN можно убрать GC после того, как:
+- на него больше не ссылаются задания;
+- нет выполняющихся sandbox-ов.
+
+================================================================================
+9. COW — ЧТО ЭТО И ГДЕ ЕГО ИСПОЛЬЗОВАТЬ
+================================================================================
+
+COW = Copy On Write.
+
+COW не "сравнивает БД с GOLDEN" и не выполняет rollback.
+
+При создании COW-клона неизменённые блоки физически разделяются с GOLDEN.
+
+Если пользователь меняет блок:
+- для sandbox создаётся отдельный новый блок;
+- GOLDEN остаётся прежним.
+
+После attempt:
+- sandbox уничтожается;
+- его уникальные изменённые блоки освобождаются;
+- GOLDEN остаётся.
+
+ВАЖНО:
+COW — НЕ обязательный MVP-механизм.
+
+При наших учебных БД:
+- десятки строк;
+- обычно 20-30 строк;
+- максимум примерно сотня строк в таблице;
+
+полезные данные очень маленькие.
+
+Основная задержка часто будет не в объёме копирования, а:
+- в запуске DB engine;
+- в connection/setup;
+- в queue;
+- в verification.
+
+Поэтому нельзя запускать новый PostgreSQL/MySQL instance на каждый Run только ради того, чтобы красиво использовать COW.
+
+================================================================================
+10. ДВА УРОВНЯ SANDBOX
+================================================================================
+
+10.1. NORMAL DATABASE SANDBOX
+-----------------------------
+Основной режим для обычных SQL-задач.
+
+Долгоживущий engine:
+- PostgreSQL server;
+- MySQL server.
+
+Внутри есть:
+- GOLDEN;
+- READY disposable databases/schemas.
+
+Attempt:
+READY sandbox
+ -> lease
+ -> student SQL
+ -> verify
+ -> DROP/destroy
+ -> background replenish
+
+Никакого rollback пользовательских изменений.
+
+Пользователь может спокойно:
+- INSERT;
+- UPDATE;
+- DELETE;
+- ALTER TABLE;
+- DROP TABLE;
+- CREATE TABLE.
+
+Потому что вся его disposable database после проверки уничтожается.
+
+10.2. FULL INSTANCE SANDBOX
+---------------------------
+Позднее для заданий на:
+- CREATE DATABASE;
+- CREATE USER;
+- CREATE ROLE;
+- server-level config;
+- extensions/plugins;
+- администрацию СУБД.
+
+Там нужен:
+physical GOLDEN
+ -> COW snapshot
+ -> dedicated DB process/container
+ -> student
+ -> destroy entire instance
+
+Это advanced profile.
+
+================================================================================
+11. READY POOL И НАГРУЗКА
+================================================================================
+
+Нельзя синхронно создавать clone после каждого нажатия "Проверить", если можно держать готовые.
+
+Для каждого горячего materialization:
+
+GOLDEN
+  |
+  +-- READY 1
+  +-- READY 2
+  +-- READY 3
+  +-- READY 4
+
+Attempt:
+- acquire READY;
+- execute;
+- destroy;
+- вернуть ответ пользователю;
+- replenisher в фоне создаёт замену.
+
+Replenishment НЕ должен блокировать пользовательский hot path.
+
+AcquireSandbox():
+1. пытается взять READY;
+2. если READY нет — максимум один cold-create;
+3. никогда не пытается полностью "починить pool" синхронно.
+
+Pool target динамический.
+
+Не делать:
+4 clones x 5000 datasets x 4 engines
+
+Делать:
+cold dataset:
+- GOLDEN
+- ready=0/1
+
+warm:
+- 2
+
+hot:
+- 4/8/16/...
+
+после inactivity:
+- shrink;
+- удалить READY;
+- при долгом idle можно удалить локальный физический GOLDEN;
+- authoritative logical dataset остаётся.
+
+Нужен idle GC / LRU.
+
+================================================================================
+12. ДЕДУПЛИКАЦИЯ
+================================================================================
+
+Материализация должна дедуплицироваться по содержимому dataset.
+
+Пример ключа:
+
+SHA256(
+  normalized SqlDatasetVersion
+  + engine
+  + engineVersion
+  + adapterVersion
+)
+
+Если 50 assignments используют одну shop-v1:
+- не делаем 50 GOLDEN;
+- делаем один GOLDEN на каждый engine.
+
+НО expected result НЕ дедуплицируется только по dataset.
+
+Два задания могут использовать один dataset, но иметь разные reference SQL.
+
+Expected artifact key должен учитывать:
+- assignment/spec version;
+- dataset version;
+- engine;
+- mode;
+- reference SQL;
+- comparison settings.
+
+Это обязательное правило.
+
+================================================================================
+13. ТРИ РЕЖИМА ПРОВЕРКИ
+================================================================================
+
+13.1. RESULT
+------------
+Для SELECT / query tasks.
+
+Сравнивается result set.
+
+Настройки:
+- orderMatters;
+- columnNamesMatter;
+- duplicatesMatter;
+- caseSensitive;
+- numericTolerance;
+- NULL semantics.
+
+Эталонный result желательно вычислять при materialization/publish и кешировать, а не выполнять reference SQL при каждом Check.
+
+13.2. STATE
+-----------
+Для:
+- INSERT;
+- UPDATE;
+- DELETE;
+- UPSERT.
+
+Student SQL выполняется в disposable sandbox.
+
+После выполнения verifier читает нужные tables/state и сравнивает с expected state.
+
+Expected state лучше заранее вычислять на отдельном чистом sandbox через reference SQL.
+
+После проверки student sandbox уничтожается.
+
+13.3. SCHEMA
+------------
+Для:
+- CREATE TABLE;
+- ALTER TABLE;
+- indexes;
+- constraints;
+- views и т.д.
+
+Adapter читает schema metadata конкретного движка и переводит её в canonical TaskForge representation:
+- tables;
+- columns;
+- logical types;
+- nullable;
+- PK;
+- FK;
+- UNIQUE;
+- indexes;
+- defaults.
+
+Потом canonical actual сравнивается с canonical expected.
+
+================================================================================
+14. MULTI-STATEMENT
+================================================================================
+
+SQL-задачи могут требовать несколько statements.
+
+Нужно отдельное настройочное поле:
+AllowMultipleStatements
+
+Не делать глобальный запрет "всегда только один statement".
+
+Для простых result tasks по умолчанию можно ограничивать одним statement.
+Для schema/state автор задания может разрешить несколько.
+
+================================================================================
+15. sql-worker
+================================================================================
+
+Новый каталог примерно:
+
+services/execution/sql-worker/
+
+Внутри:
+- JobConsumer
+- EngineRegistry
+- MaterializationManager
+- GoldenManager
+- SandboxManager
+- SandboxPool
+- QueryExecutor
+- Verifier
+- ResultComparator
+- StateVerifier
+- SchemaInspector
+- ResourceLimiter
+- Replenisher
+- Janitor
+- Metrics
+
+Engine adapters:
+- PostgreSqlAdapter
+- MySqlAdapter
+- SqliteAdapter
+- SqlServerAdapter (later)
+
+Один sql-worker лучше, чем отдельные postgres-runner/mysql-runner/sqlite-runner.
+
+================================================================================
+16. execution-api — НОРМАЛЬНОЕ РАСШИРЕНИЕ
+================================================================================
+
+Текущий ExecutionJob слишком code-oriented.
+
+Нужно добавить нормальные поля Entity:
+- Kind
+- Target
+- PayloadJson
+
+Пример Kind:
+- code
+- image
+- sql-check
+- sql-preview
+- sql-materialize
+
+Target:
+- cpp
+- python
+- postgresql:18
+- mysql:8.4
+- sqlite:3
+
+PayloadJson:
+type-specific execution payload.
+
+Существующие поля для code pipeline не обязательно удалять сразу.
+Нужно сделать backward-compatible переход, а не ломать существующий judge.
+
+После Entity/DbContext изменений пользователь сам создаёт миграцию ExecutionDbContext.
+
+================================================================================
+17. CAPABILITY-AWARE CLAIM
+================================================================================
+
+Нельзя, чтобы обычный execution-worker забрал sql-job.
+Нельзя, чтобы sql-worker забрал cpp-job.
+
+Claim должен учитывать capabilities.
+
+Например sql-worker:
+workerId = sql-a
+kinds = [sql-check, sql-preview, sql-materialize]
+targets = [postgresql:18, mysql:8.4, sqlite:3]
+
+Обычный worker:
+kinds = [code, image]
+
+execution-api выдаёт worker только совместимый job.
+
+================================================================================
+18. УБРАТЬ 2-СЕКУНДНУЮ ЗАДЕРЖКУ POLLING ДЛЯ SQL
+================================================================================
+
+Для интерактивной кнопки Run нельзя допускать случайную задержку на polling.
+
+Использовать существующий RabbitMQ как wake-up механизм:
+
+execution-api:
+1. сохраняет durable job в своей DB;
+2. публикует "job available" event.
+
+worker:
+1. просыпается по event;
+2. делает capability-aware claim через execution-api.
+
+DB execution-api остаётся source of truth.
+
+RabbitMQ НЕ становится единственной очередью истины.
+
+Если event потерян:
+- fallback poll всё равно найдёт job.
+
+================================================================================
+19. tasks-api INTERNAL JUDGE SPEC
+================================================================================
+
+/api/internal/assignments/{id}/judge-spec должен поддерживать sql-test.
+
+Публичному learner DTO НЕЛЬЗЯ отдавать:
+- ReferenceSql;
+- expected state;
+- expected result;
+- hidden check configuration;
+- engine-specific private verifier data.
+
+Internal judge spec может содержать:
+- assignment type;
+- datasetVersionId;
+- engine target;
+- mode;
+- reference/expected artifact id;
+- check settings;
+- limits.
+
+================================================================================
+20. solutions-api
+================================================================================
+
+SQL должен использовать тот же SolutionSubmission pipeline.
+
+НЕ делать отдельную таблицу SqlAttempt как параллельную систему решения, если submission уже является стандартным graded solution.
+
+Нужно хранить, на каком engine решалась попытка.
+
+Нормальный вариант:
+- добавить ExecutionTarget / SqlEngineTarget в SolutionSubmission;
+или другое явно доменное поле.
+
+Не прятать обязательную часть истории только в ResultJson.
+
+Существующее Code можно пока использовать как source text и для SQL, чтобы не делать опасное массовое переименование по всему проекту.
+
+Если SolutionSubmission Entity меняется — пользователь сам генерирует migration SolutionsDbContext.
+
+================================================================================
+21. RUN И CHECK — РАЗНЫЕ ДЕЙСТВИЯ
+================================================================================
+
+RUN:
+- временный preview;
+- показывает rows/schema/data;
+- не закрывает задание;
+- не даёт рейтинг;
+- не должен считаться обычным graded verdict.
+
+CHECK:
+- создаёт normal SolutionSubmission;
+- execution job;
+- verifier;
+- verdict;
+- progression/rating.
+
+Оба должны исполняться только через sql-worker/sandbox.
+
+Frontend НИКОГДА не подключается непосредственно к SQL engine.
+
+================================================================================
+22. LIVE PREVIEW
+================================================================================
+
+После Run нужно уметь показать не только исходную GOLDEN-БД.
+
+Если ученик сделал:
+UPDATE
+DELETE
+ALTER
+DROP TABLE
+
+то вкладки:
+- Результат;
+- Схема;
+- Данные
+
+должны отражать состояние ПОСЛЕ student SQL.
+
+sql-worker:
+1. выполняет SQL;
+2. собирает безопасный preview snapshot;
+3. формирует response;
+4. уничтожает sandbox.
+
+================================================================================
+23. FRONTEND — РЕДАКТОР
+================================================================================
+
+Новый тип:
+SQL / База данных
+
+Редактор должен быть нормальным UI, а не огромным textarea JSON.
+
+Минимум:
+
+A. Dataset picker
+- выбрать существующий dataset;
+- создать новый;
+- создать новую version.
+
+B. Таблицы
+- name;
+- columns;
+- types;
+- nullable;
+- PK;
+- FK;
+- UNIQUE;
+- defaults;
+- indexes.
+
+C. Seed data
+Табличная сетка:
+id | name | price | ...
+
+D. Engines
+checkboxes:
+PostgreSQL 18
+MySQL 8.4
+SQLite
+SQL Server later
+
+E. Mode
+result/state/schema
+
+F. Reference SQL
+- общий;
+- optional per-engine override.
+
+G. Starter SQL
+
+H. Comparison settings
+
+I. Validation status
+PostgreSQL 18: READY
+MySQL 8.4: READY
+SQLite: READY
+или понятная несовместимость до публикации.
+
+================================================================================
+24. FRONTEND — SOLVE PAGE
+================================================================================
+
+Пример:
+
+[ PostgreSQL 18 v ]
+
+SQL Monaco editor
+
+[ Run ] [ Check ]
+
+Tabs:
+[ Результат ] [ Схема ] [ Данные ]
+
+Результат:
+- columns;
+- rows;
+- affectedRows;
+- execution time;
+- DB error.
+
+Схема:
+- tables;
+- columns;
+- PK/FK;
+- indexes;
+- ER-style relation view позже.
+
+Данные:
+- preview исходных/текущих таблиц.
+
+На course graph sql-test должен иметь свой DB/SQL icon/badge.
+
+================================================================================
+25. IMPORT / EXPORT TASK GRAPH
+================================================================================
+
+Нужно поддержать SQL dataset как shared resource, чтобы schema/seed не копировались в каждую задачу.
+
+Рекомендуемый новый canonical format:
+schemaVersion = 5
+
+Причина:
+Добавляется новый top-level semantic object datasets[].
+
+Importer:
+- продолжает принимать legacy v3/v4;
+- новый export делает v5.
+
+Checks scope:
+ReferenceSql / hidden verifier data экспортируется только если пользователь включил checks/answers.
+
+Fresh export не должен содержать changelog/implementation notes.
+
+================================================================================
+26. MATERIALIZATION PIPELINE
+================================================================================
+
+Materialization нельзя делать на student Check.
+
+Делать при:
+- публикации;
+- изменении dataset version;
+- добавлении engine target;
+- смене adapter major version.
+
+Pipeline:
+
+SqlDatasetVersion
+  |
+  +--> enqueue sql-materialize
+          |
+          +--> PostgreSQL
+          |      create GOLDEN
+          |      seed
+          |      validate
+          |
+          +--> MySQL
+          +--> SQLite
+          +--> compute expected artifacts
+          +--> mark ready/status
+
+Автор до публикации должен увидеть несовместимость, а не ученик во время урока.
+
+================================================================================
+27. EXPECTED ARTIFACTS
+================================================================================
+
+Для каждой комбинации:
+assignment/spec + dataset version + engine + mode + reference/check settings
+
+можно заранее получить:
+- canonical result;
+- expected state;
+- expected schema;
+- hash.
+
+Это уменьшает DB work на каждом Check.
+
+Не выполнять reference SQL снова на каждый submission, если задание и dataset не изменились.
+
+================================================================================
+28. SECURITY
+================================================================================
+
+SQL sandbox — отдельный execution plane.
+
+НИКОГДА не выполнять student SQL:
+- в production PostgreSQL TaskForge;
+- в Patroni cluster основной БД;
+- в database/schema рядом с бизнес-данными TaskForge.
+
+sql-postgres/sql-mysql — отдельные sandbox engines.
+
+Student sandbox не должен иметь:
+- доступ к Docker socket;
+- host mounts;
+- TaskForge secrets;
+- production DB credentials;
+- Internet egress;
+- доступ к identity-api;
+- доступ к gateway;
+- доступ к MinIO credentials;
+- server admin права.
+
+Обычный database sandbox может разрешать:
+- SELECT
+- INSERT
+- UPDATE
+- DELETE
+- CREATE TABLE
+- ALTER TABLE
+- DROP TABLE
+- CREATE INDEX
+- DROP INDEX
+- views/constraints по правилам задания.
+
+Обычный sandbox НЕ должен разрешать:
+- CREATE DATABASE;
+- DROP DATABASE;
+- CREATE USER/ROLE;
+- SUPERUSER/root server operations;
+- filesystem execution;
+- plugins/extensions;
+- arbitrary network access.
+
+Для server-level заданий позднее используется full-instance sandbox.
+
+================================================================================
+29. RESOURCE LIMITS
+================================================================================
+
+Даже маленькую БД можно убить CROSS JOIN/recursive query.
+
+Обязательно:
+- wall-clock timeout;
+- engine statement timeout где доступно;
+- cancel;
+- result rows cap;
+- result bytes cap;
+- memory limit;
+- CPU limit;
+- connection limit;
+- concurrency limit;
+- temp/spill limit где доступно.
+
+Preview rows, например:
+200
+
+Hard result cap, например:
+1000
+
+Конкретные числа окончательно выбрать после load test.
+
+================================================================================
+30. МАЛЕНЬКИЕ БД — ЧТО ЭТО ДАЁТ
+================================================================================
+
+Планируемые dataset:
+- 20-30 строк в таблице обычно;
+- до ~100 строк в пределе.
+
+Полезные данные обычно:
+- десятки/сотни KB;
+- иногда 1-5 MB для уже жирной учебной БД.
+
+Поэтому:
+- размер dataset не является главным bottleneck;
+- обычное создание маленькой logical database может быть достаточно быстрым;
+- COW не надо превращать в обязательную религию;
+- самое важное — READY pool и отсутствие cold engine startup на каждый Run.
+
+================================================================================
+31. HDD
+================================================================================
+
+HDD не надо "беречь" как SSD по ресурсу записи, но latency/IOPS важны.
+
+НЕЛЬЗЯ на каждом attempt делать:
+cp -r весь datadir
+
+Поэтому:
+- normal logical ready pool;
+- background replenish;
+- local cache;
+- позднее reflink/Btrfs/XFS/LVM-thin для advanced physical sandboxes.
+
+COW слой должен быть предусмотрен abstraction, но не обязателен в первой версии.
+
+================================================================================
+32. SANDBOX PROVIDER ABSTRACTION
+================================================================================
+
+Архитектура должна позволять:
+
+ISandboxProvider
+- LogicalDatabaseProvider
+- FileCloneProvider
+- ReflinkProvider
+- VolumeSnapshotProvider
+
+sql-worker выбирает provider через adapter/capabilities.
+
+Верхний TaskForge contract всегда один:
+AcquireSandbox
+Execute
+Inspect
+Destroy
+
+================================================================================
+33. ENGINE SUPPORT
+================================================================================
+
+Первая полноценная версия должна стремиться поддерживать:
+- PostgreSQL
+- MySQL
+- SQLite
+
+Не писать архитектуру как PostgresRunner.
+
+SQL Server добавить следующей волной.
+
+================================================================================
+34. CLUSTER / КУЧА СЕРВЕРОВ
+================================================================================
+
+Текущая production topology:
+- A — full;
+- B — full;
+- C — lite.
+
+C ОСТАЁТСЯ LITE.
+
+Не надо автоматически навешивать тяжёлые sql-postgres/sql-mysql на C.
+
+34.1. SQL execution data НЕ реплицируется Patroni
+--------------------------------------------------
+sql-postgres для заданий НЕ является production PostgreSQL TaskForge.
+
+Его:
+- GOLDEN;
+- READY;
+- sandbox databases
+
+являются disposable/local cache.
+
+Их не надо:
+- включать в Patroni;
+- реплицировать как бизнес-данные;
+- переключать как Primary;
+- копировать между A/B при failover.
+
+34.2. Authoritative данные общие
+--------------------------------
+Авторитетный источник:
+- SqlDataset/SqlDatasetVersion в business DB;
+- immutable logical artifacts/manifest при необходимости в MinIO.
+
+A/B могут независимо восстановить свои локальные materialization/golden/pool.
+
+34.3. Начальная production схема
+--------------------------------
+A и B должны быть способны запускать:
+- sql-worker;
+- sql-postgres;
+- sql-mysql;
+- SQLite внутри worker.
+
+C lite:
+- без sql-postgres/sql-mysql по умолчанию.
+
+34.4. Primary switch
+--------------------
+SQL sandbox cache не должен влиять на Primary switch.
+
+После A -> B:
+- business DB переключается как сейчас;
+- приложения/Cloudflare работают по существующему cluster flow;
+- B имеет/восстанавливает локальный SQL cache;
+- GOLDEN можно пересоздать из logical dataset.
+
+Нельзя делать failover зависимым от переноса sandbox volume.
+
+34.5. Масштабирование
+---------------------
+Архитектура sql-worker должна поддерживать уникальный workerId и capabilities.
+
+Позднее можно перейти к active-active execution plane A+B:
+оба sql-worker claim compatible jobs.
+
+Но первая интеграция не должна зависеть от конкретной ноды или от Primary=A.
+
+================================================================================
+35. PRODUCTION CLUSTER RELEASE
+================================================================================
+
+Следующая production revision должна строиться как самостоятельный пакет на базе r57, условно r58.
+
+Добавить:
+- sql-worker image/service;
+- sql-postgres;
+- sql-mysql;
+- environment variables;
+- internal network;
+- health checks;
+- diagnostics;
+- image inventory;
+- doctor/status;
+- upgrade/migrate preservation rules.
+
+sql engine volumes — local disposable cache.
+cluster migrate не должен пытаться промоутить их как production data.
+
+На C lite SQL engine containers не обязательны.
+
+Новая revision должна:
+- быть self-contained;
+- не зависеть runtime от r57;
+- сохранять текущую Cloudflare/Primary/Patroni механику.
+
+================================================================================
+36. CI / BUILD
+================================================================================
+
+Source update должен включить SQL worker в:
+- build scripts;
+- GitHub Actions;
+- Docker images;
+- GHCR push list;
+- compose manifests;
+- image validation.
+
+Не забыть debug logging policy проекта:
+TASKFORGE_BUILD_DEBUG_LOGS=1
+TASKFORGE_DEBUG_LOGS=1
+
+================================================================================
+37. OBSERVABILITY
+================================================================================
+
+Минимальные метрики:
+- sql_attempt_duration
+- sql_queue_wait
+- sql_sandbox_acquire
+- sql_db_execution
+- sql_verification
+- sql_cleanup
+- sql_pool_ready
+- sql_pool_leased
+- sql_pool_replenishing
+- sql_pool_cold_create
+- sql_timeouts
+- sql_result_limit_hits
+- sql_engine_connections
+- sql_worker_inflight
+- sql_materialization_duration
+- sql_materialization_failures
+
+Логи должны содержать:
+- attempt/job id;
+- engine;
+- dataset/materialization hash;
+- sandbox id;
+- durations;
+- verdict/error class.
+
+Не логировать секреты и скрытые эталоны.
+
+================================================================================
+38. JANITOR / RECOVERY
+================================================================================
+
+Sandbox lifecycle:
+
+READY
+ -> LEASED
+ -> DESTROYING
+ -> gone
+
+При неизвестной ошибке:
+LEASED
+ -> QUARANTINED
+ -> cleanup/rebuild
+
+Нельзя вернуть sandbox в pool только потому, что HTTP request завершился.
+
+Startup janitor:
+- удаляет только объекты собственного TaskForge SQL namespace;
+- не трогает чужие DB;
+- удаляет stale attempt sandboxes;
+- восстанавливает pool лениво/в фоне.
+
+Если sql-worker умер:
+- job остаётся durable в execution-api;
+- stale job может быть requeued;
+- sandbox cleanup выполняет janitor.
+
+================================================================================
+39. ЧТО НЕ ДЕЛАТЬ
+================================================================================
+
+ЗАПРЕЩЕНО:
+
+1. sql-test = code-test + language sql.
+2. Хранить весь новый домен в Assignment.TestsJson.
+3. Выполнять SQL в основном TaskForge PostgreSQL.
+4. Создавать DB container с нуля на каждую попытку.
+5. Делать full datadir cp на HDD на каждый Run.
+6. Строить архитектуру вокруг PostgreSQL-only возможностей.
+7. Считать, что один physical GOLDEN подходит MySQL/PostgreSQL/SQLite.
+8. Смешивать expected artifact разных заданий только потому, что dataset общий.
+9. Делать отдельный sql-api с собственной параллельной системой attempts.
+10. Давать frontend прямое подключение к DB.
+11. Реплицировать disposable SQL sandbox через Patroni.
+12. Делать C тяжёлой SQL-нодой — C остаётся lite.
+13. Генерировать миграции вручную без dotnet.
+14. Редактировать ModelSnapshot вручную.
+15. Редактировать существующие migrations.
+16. Выпускать новый cluster archive, зависящий от старой папки.
+17. Делать synchronous full-pool refill перед ответом пользователю.
+
+================================================================================
+40. ПОРЯДОК РЕАЛИЗАЦИИ В НОВОМ ЧАТЕ
+================================================================================
+
+ЭТАП 1 — ИНСПЕКЦИЯ
+- распаковать именно свежие archives;
+- прочитать project rules;
+- изучить tasks/solutions/execution/frontend/deploy/r57.
+
+ЭТАП 2 — DOMAIN MODEL
+Добавить нормальные Entity/DbContext изменения:
+- SqlDataset
+- SqlDatasetVersion
+- SqlAssignmentSpec
+- SqlAssignmentEngineTarget
+- engine override при необходимости
+- ExecutionJob Kind/Target/Payload
+- SolutionSubmission execution target, если нужен.
+
+НЕ трогать Migrations/ModelSnapshot.
+
+ЭТАП 3 — МИГРАЦИОННАЯ ТОЧКА
+После Entity/DbContext изменений:
+- ассистент даёт точные dotnet ef commands;
+- пользователь генерирует migrations локально;
+- пользователь возвращает обновлённый проект;
+- только после этого работа продолжается.
+
+Ориентировочно могут понадобиться migration:
+- TasksDbContext
+- ExecutionDbContext
+- возможно SolutionsDbContext
+
+Названия могут быть:
+- AddSqlTaskDomain
+- AddExecutionJobRouting
+- AddSqlSubmissionTarget
+
+Но точные команды формируются по реальным csproj/context из архива.
+
+ЭТАП 4 — tasks-api
+- CRUD dataset;
+- versioning;
+- sql-test CRUD;
+- safe learner DTO;
+- private judge-spec;
+- import/export;
+- validation portable subset.
+
+ЭТАП 5 — execution-api
+- universal job routing;
+- capability-aware claim;
+- sql job kinds;
+- RabbitMQ wake-up + fallback polling.
+
+ЭТАП 6 — solutions-api
+- submit SQL;
+- selected engine;
+- same verdict/rating/progression pipeline;
+- preview/check separation.
+
+ЭТАП 7 — sql-worker
+- adapters;
+- materialization;
+- golden;
+- ready pool;
+- verifier;
+- janitor;
+- limits;
+- metrics.
+
+ЭТАП 8 — FRONTEND
+- sql-test create/edit;
+- dataset table editor;
+- engine selector;
+- reference SQL;
+- solve page;
+- schema/data/result tabs;
+- course node/badge;
+- import/export validation.
+
+ЭТАП 9 — DEV INFRA
+- sql-worker;
+- sql-postgres;
+- sql-mysql;
+- volumes/network;
+- health checks;
+- env;
+- build images.
+
+ЭТАП 10 — TESTS
+Unit/integration:
+- result;
+- state;
+- schema;
+- multi-statement;
+- per-engine overrides;
+- dataset reuse;
+- expected-cache separation.
+
+Security:
+- DROP TABLE allowed in sandbox;
+- production DB unreachable;
+- CREATE ROLE denied;
+- file/network denied.
+
+Load:
+- 100 concurrent Run;
+- 100 concurrent Check;
+- hot dataset;
+- many datasets;
+- pool exhaustion;
+- idle GC;
+- worker crash;
+- engine crash.
+
+ЭТАП 11 — PRODUCTION
+Создать самостоятельный новый cluster archive:
+- не patch;
+- не зависимость от r57.
+
+A/B full:
+- SQL runtime supported.
+
+C lite:
+- без тяжёлых SQL engines по умолчанию.
+
+Обновить:
+- app inventory;
+- compose;
+- images;
+- env;
+- status;
+- doctor;
+- validation;
+- migrate preservation.
+
+ЭТАП 12 — FINAL QA
+- source build;
+- backend build;
+- frontend build;
+- sql-worker tests;
+- compose config;
+- shell/static checks;
+- prod cluster tests;
+- release self-containment.
+
+Вернуть:
+1. self-contained source archive;
+2. self-contained production cluster archive;
+3. точные команды обновления через относительные пути;
+4. список новых env vars;
+5. результаты тестов;
+6. явно указать, что EF migrations были созданы пользователем.
+
+================================================================================
+41. КРИТЕРИИ ГОТОВНОСТИ
+================================================================================
+
+Обновление считается нормальным только если:
+
+1. В редакторе можно создать sql-test без ручного JSON.
+2. Можно создать reusable dataset.
+3. Можно задать таблицы/отношения/seed.
+4. Можно выбрать PostgreSQL/MySQL/SQLite.
+5. Materialization валидируется до публикации.
+6. Один dataset даёт разные GOLDEN по движкам.
+7. Один GOLDEN переиспользуется несколькими заданиями.
+8. Expected artifacts не путаются между заданиями.
+9. Run не влияет на rating/progress.
+10. Check идёт через стандартный SolutionSubmission.
+11. SQL выполняется только в disposable sandbox.
+12. DELETE/INSERT/ALTER не требуют rollback.
+13. После попытки sandbox уничтожается.
+14. GOLDEN не меняется.
+15. READY pool пополняется в фоне.
+16. sql-worker не забирает code jobs.
+17. execution-worker не забирает sql jobs.
+18. Front не имеет DB credentials.
+19. Production TaskForge PostgreSQL недоступен student SQL.
+20. A/B могут обслуживать SQL runtime.
+21. C остаётся lite.
+22. Primary switch не зависит от переноса SQL sandbox volumes.
+23. Existing code-test/image-test/test/math не сломаны.
+24. Existing task-graph legacy imports продолжают работать.
+25. Fresh export имеет нормальный новый SQL/dataset формат.
+26. Никакая migration не была сфабрикована ассистентом.
+
+================================================================================
+42. КОРОТКОЕ РЕШЕНИЕ В ОДНОЙ СХЕМЕ
+================================================================================
+
+                     TASKFORGE
+                         |
+                     tasks-api
+             sql-test + DatasetVersion
+                         |
+                   solutions-api
+                  normal submission
+                         |
+                   execution-api
+                 universal durable jobs
+                    /            \
+                   /              \
+          execution-worker      sql-worker
+          code/image judge      SQL execution
+                   |              |
+              code runners        |
+                                  v
+                         Engine adapters
+                   /          |          \
+                  /           |           \
+            PostgreSQL      MySQL       SQLite
+               |              |           |
+             GOLDEN         GOLDEN      GOLDEN
+               |              |           |
+          READY POOL     READY POOL   READY/FILE
+               |              |           |
+           disposable     disposable   disposable
+            sandbox        sandbox      sandbox
+               \              |           /
+                \             |          /
+                      verify
+                         |
+                      verdict
+                         |
+                  solutions-api
+
+================================================================================
+43. ФРАЗА ДЛЯ СТАРТА НОВОГО ЧАТА
+================================================================================
+
+"Вот свежие taskforge-develop(210)(2).zip и production cluster r57.
+Используй SQL_UPDATE_PLAN_TASKFORGE.txt как обязательный handoff.
+Сначала изучи реальные архивы и соблюдай правила проекта.
+Делай нормальные Entity/DbContext изменения. Migrations и ModelSnapshot не трогай.
+Как только изменения Entity потребуют миграций — дай мне точные команды
+dotnet ef migrations add, я выполню их сам и верну проект. После этого продолжай
+полный апдейт до self-contained source archive и self-contained новой cluster
+revision. C остаётся lite, A/B full. Не делай PostgreSQL-only архитектуру,
+не используй TestsJson как костыль и не запускай новую СУБД на каждую попытку."

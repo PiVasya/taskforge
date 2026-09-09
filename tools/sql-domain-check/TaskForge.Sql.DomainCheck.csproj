@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../../services/tasks/assignment-api/TaskForge.Tasks.Api.csproj" />
+    <ProjectReference Include="../../services/execution/api/TaskForge.Execution.Api.csproj" />
+    <ProjectReference Include="../../services/solutions/api/TaskForge.Solutions.Api.csproj" />
+  </ItemGroup>
+</Project>

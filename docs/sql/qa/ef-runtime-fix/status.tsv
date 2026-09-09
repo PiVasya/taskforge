@@ -1,0 +1,9 @@
+check-migration-tooling-safety.py	0
+check-csharp-source-invariants.py	0
+check-docker-build-contexts.py	0
+check-workflow-integrity.py	0
+frontend-architecture	0
+frontend-cluster	0
+shell-syntax	0
+dotnet-gate-sdk-unavailable	2
+oj-security	0

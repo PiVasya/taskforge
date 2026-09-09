@@ -8,6 +8,8 @@ Open this file before changing the project.
 
 ## Hard rules
 
+- The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
+- The SQL update is at the user-owned migration boundary. See `docs/sql/MIGRATION_HANDOFF.md` before continuing. Do not deploy this stage or generate/apply migrations automatically.
 - Do not generate database migrations unless the user explicitly asks for migrations.
 - Current logging policy is development mode: Docker images and Compose runtimes must keep `TASKFORGE_BUILD_DEBUG_LOGS=1` / `TASKFORGE_DEBUG_LOGS=1`. Do not disable, quiet, or change these defaults to `0` unless the user explicitly asks to change the logging policy. Preserve this rule whenever editing workflows, Dockerfiles, Compose files, or `.env.example` files.
 - Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.

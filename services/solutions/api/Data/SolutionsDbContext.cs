@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using TaskForge.Solutions.Api.Domain;
 
 namespace TaskForge.Solutions.Api.Data;
@@ -60,10 +61,18 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
 
         modelBuilder.Entity<SolutionSubmission>(entity =>
         {
-            entity.ToTable("SolutionSubmissions");
+            entity.ToTable("SolutionSubmissions", table =>
+            {
+                table.HasCheckConstraint("CK_SolutionSubmissions_SqlBinding", "(\"SqlSpecVersionId\" IS NULL AND \"SqlEngineProfileId\" IS NULL) OR (\"SqlSpecVersionId\" IS NOT NULL AND \"SqlEngineProfileId\" IS NOT NULL AND \"ExecutionTarget\" IS NOT NULL AND length(\"ExecutionTarget\") > 0)");
+            });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
             entity.HasIndex(x => x.AssignmentId);
+            entity.HasIndex(x => new { x.SqlSpecVersionId, x.SqlEngineProfileId });
+            entity.Property(x => x.ExecutionTarget).HasMaxLength(160);
+            entity.Property(x => x.ExecutionTarget).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+            entity.Property(x => x.SqlSpecVersionId).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+            entity.Property(x => x.SqlEngineProfileId).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
             entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
         });

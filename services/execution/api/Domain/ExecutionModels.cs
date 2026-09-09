@@ -3,7 +3,17 @@ namespace TaskForge.Execution.Api.Domain;
 public sealed class ExecutionJob
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid SubmissionId { get; set; }
+    // Preview and materialization jobs do not create a graded submission.
+    public Guid? SubmissionId { get; set; }
+    public string Kind { get; set; } = ExecutionJobKinds.Legacy;
+    public string? Target { get; set; }
+    public int? PayloadVersion { get; set; }
+    public string? PayloadJson { get; set; }
+    // Computed internally from the producer's operation identity, not a global client key.
+    public string? DeduplicationKey { get; set; }
+    public string? ClaimedByWorkerId { get; set; }
+    public Guid? LeaseToken { get; set; }
+    public DateTimeOffset? LeaseExpiresAt { get; set; }
     public Guid? AssignmentId { get; set; }
     public Guid? UserId { get; set; }
     public string Language { get; set; } = string.Empty;

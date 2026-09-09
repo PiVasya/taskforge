@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Domain.Sql;
+using TaskForge.Tasks.Api.Data.Sql;
 
 namespace TaskForge.Tasks.Api.Data;
 
@@ -12,8 +14,31 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     public DbSet<AssignmentWorkSession> AssignmentWorkSessions => Set<AssignmentWorkSession>();
     public DbSet<AssignmentCodeSnapshot> AssignmentCodeSnapshots => Set<AssignmentCodeSnapshot>();
 
+    public DbSet<SqlDataset> SqlDatasets => Set<SqlDataset>();
+    public DbSet<SqlDatasetVersion> SqlDatasetVersions => Set<SqlDatasetVersion>();
+    public DbSet<SqlEngineProfile> SqlEngineProfiles => Set<SqlEngineProfile>();
+    public DbSet<SqlAssignmentSpec> SqlAssignmentSpecs => Set<SqlAssignmentSpec>();
+    public DbSet<SqlAssignmentSpecVersion> SqlAssignmentSpecVersions => Set<SqlAssignmentSpecVersion>();
+    public DbSet<SqlAssignmentEngineTarget> SqlAssignmentEngineTargets => Set<SqlAssignmentEngineTarget>();
+    public DbSet<SqlDatasetEngineValidation> SqlDatasetEngineValidations => Set<SqlDatasetEngineValidation>();
+    public DbSet<SqlExpectedArtifact> SqlExpectedArtifacts => Set<SqlExpectedArtifact>();
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        SqlDomainSaveGuard.Prepare(this);
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        SqlDomainSaveGuard.Prepare(this);
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ConfigureSqlDomain();
+
         modelBuilder.Entity<ServiceSchemaMarker>(entity =>
         {
             entity.ToTable("ServiceSchemaMarkers");
