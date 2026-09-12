@@ -52,6 +52,7 @@ const testTask = {
   description: 'Ответьте на вопросы о формате JSON.',
   testSettings: {
     maxAttempts: 3,
+    unlimitedAttempts: false,
     passPercent: 75,
     shuffleQuestions: true,
     shuffleAnswers: true,
@@ -150,6 +151,7 @@ const mathTask = {
   description: 'Пройдите последовательность математических блоков.',
   testSettings: {
     maxAttempts: 3,
+    unlimitedAttempts: false,
     passPercent: 80,
     shuffleBlocks: false,
     allowReview: true,
@@ -292,6 +294,7 @@ function simpleTestTask(key, title) {
     description: 'Выберите правильный ответ.',
     testSettings: {
       maxAttempts: 2,
+      unlimitedAttempts: false,
       passPercent: 100,
       shuffleQuestions: false,
       shuffleAnswers: false,
@@ -328,6 +331,7 @@ function simpleMathTask(key, title) {
     description: 'Введите результат вычисления.',
     testSettings: {
       maxAttempts: 2,
+      unlimitedAttempts: false,
       passPercent: 100,
       shuffleBlocks: false,
       allowReview: true,
@@ -568,8 +572,8 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     title: 'Проверки и ответы',
     items: [
       { field: 'code-test / image-test', text: 'testCases, codeRequiredCalls, codeForbiddenCalls; для image-test также эталон и threshold.' },
-      { field: 'test', text: 'testSettings и questions; типы single-choice, multi-choice, fill, text.' },
-      { field: 'math', text: 'testSettings и blocks; виды info, single-choice, multi-choice, number, expression, set, order, match.' },
+      { field: 'test', text: 'testSettings и questions; unlimitedAttempts=true включает бесконечные попытки; типы single-choice, multi-choice, fill, text.' },
+      { field: 'math', text: 'testSettings и blocks; unlimitedAttempts=true включает бесконечные попытки; виды info, single-choice, multi-choice, number, expression, set, order, match.' },
     ],
   },
   {
@@ -741,6 +745,9 @@ function validateAttemptSettings(value, path, issues) {
   if (!isPlainObject(value)) {
     issues.push({ path, message: 'Ожидался объект настроек.' });
     return;
+  }
+  if (value.unlimitedAttempts !== undefined && typeof value.unlimitedAttempts !== 'boolean') {
+    issues.push({ path: `${path}.unlimitedAttempts`, message: 'unlimitedAttempts должен быть true или false.' });
   }
   if (value.maxAttempts !== undefined && (!Number.isInteger(Number(value.maxAttempts)) || Number(value.maxAttempts) < 1)) {
     issues.push({ path: `${path}.maxAttempts`, message: 'maxAttempts должен быть целым числом не меньше 1.' });

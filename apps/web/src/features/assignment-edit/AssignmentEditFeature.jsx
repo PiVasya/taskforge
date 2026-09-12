@@ -73,6 +73,7 @@ export default function AssignmentEditPage() {
     shuffleQuestions: true,
     shuffleAnswers: true,
     maxAttempts: 1,
+    unlimitedAttempts: false,
     passPercent: 60,
     allowReview: true,
     attemptTimeLimitsSeconds: [],
@@ -82,6 +83,7 @@ export default function AssignmentEditPage() {
 
   const [mathSettings, setMathSettings] = useState({
     maxAttempts: 1,
+    unlimitedAttempts: false,
     passPercent: 60,
     shuffleBlocks: false,
     allowReview: true,
@@ -234,6 +236,7 @@ export default function AssignmentEditPage() {
         shuffleQuestions: true,
         shuffleAnswers: true,
         maxAttempts: 1,
+        unlimitedAttempts: false,
         passPercent: 60,
         allowReview: true,
         attemptTimeLimitsSeconds: [],
@@ -243,6 +246,7 @@ export default function AssignmentEditPage() {
     if (payload.mathEdit) {
       setMathSettings(payload.mathEdit.settings || {
         maxAttempts: 1,
+        unlimitedAttempts: false,
         passPercent: 60,
         shuffleBlocks: false,
         allowReview: true,

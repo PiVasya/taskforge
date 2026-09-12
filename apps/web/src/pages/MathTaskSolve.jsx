@@ -48,6 +48,10 @@ function summarizeAnswerDraft(answers) {
   };
 }
 
+function attemptsAreUnlimited(data) {
+  return data?.unlimitedAttempts === true || Number(data?.maxAttempts) === 0;
+}
+
 function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
   const notify = useNotify();
   const [loading, setLoading] = useState(false);
@@ -96,7 +100,8 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     if (storeKey) destroyAttemptAnswers(storeKey);
     setResult(response);
     if (
-      Number.isFinite(startData?.attemptNumber)
+      !attemptsAreUnlimited(startData)
+      && Number.isFinite(startData?.attemptNumber)
       && Number.isFinite(startData?.maxAttempts)
       && startData.attemptNumber >= startData.maxAttempts
     ) {
@@ -206,7 +211,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <div className="text-right">
           {startData ? (
             <div className="text-sm text-neutral-600 dark:text-neutral-400">
-              Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}
+              Попытка: <b>{startData.attemptNumber}</b> / {attemptsAreUnlimited(startData) ? '∞' : startData.maxAttempts}
             </div>
           ) : null}
           {startData?.timeLimitSeconds ? (
@@ -248,7 +253,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             </div>
             <div className="flex gap-3">
               <Button data-taskforge-automation-id="math-task-close-result" data-taskforge-agent-role="math-action" data-taskforge-agent-action="close-math-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
-              {startData && startData.attemptNumber < startData.maxAttempts ? (
+              {startData && (attemptsAreUnlimited(startData) || startData.attemptNumber < startData.maxAttempts) ? (
                 <Button data-taskforge-automation-id="math-task-restart" data-taskforge-agent-role="math-action" data-taskforge-agent-action="restart-math-task" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>

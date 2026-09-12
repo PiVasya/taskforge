@@ -365,6 +365,7 @@ internal static class AssignmentApiCommonService
         }
 
         CopyLoose(source, settings, "maxAttempts", "maxAttempts", "attempts", "attemptLimit", "maxAttemptCount");
+        CopyLoose(source, settings, "unlimitedAttempts", "unlimitedAttempts", "infiniteAttempts", "unlimited", "noAttemptLimit");
         CopyLoose(source, settings, "passPercent", "passPercent", "passingPercent", "passScore", "successPercent");
         CopyLoose(source, settings, "allowReview", "allowReview", "showReview", "reviewAllowed", "showResults");
         CopyLoose(source, settings, "attemptTimeLimitsSeconds", "attemptTimeLimitsSeconds", "timeLimits", "timeLimitSecondsByAttempt");

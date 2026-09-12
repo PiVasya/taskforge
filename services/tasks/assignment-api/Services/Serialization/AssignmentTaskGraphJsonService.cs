@@ -722,12 +722,14 @@ internal static class AssignmentTaskGraphJsonService
                     ["test"] = new JsonObject
                     {
                         ["checks"] = Strings("testSettings", "questions"),
-                        ["questionTypes"] = Strings("single-choice", "multi-choice", "fill", "text")
+                        ["questionTypes"] = Strings("single-choice", "multi-choice", "fill", "text"),
+                        ["attempts"] = "testSettings.unlimitedAttempts=true включает бесконечные попытки; maxAttempts остаётся обычным лимитом при false."
                     },
                     ["math"] = new JsonObject
                     {
                         ["checks"] = Strings("testSettings", "blocks"),
-                        ["blockKinds"] = Strings("info", "single-choice", "multi-choice", "number", "expression", "set", "order", "match")
+                        ["blockKinds"] = Strings("info", "single-choice", "multi-choice", "number", "expression", "set", "order", "match"),
+                        ["attempts"] = "testSettings.unlimitedAttempts=true включает бесконечные попытки; maxAttempts остаётся обычным лимитом при false."
                     }
                 }
             },

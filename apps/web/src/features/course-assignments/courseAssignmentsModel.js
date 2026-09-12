@@ -193,7 +193,7 @@ function buildDefaultAssignmentPayload(type, sort) {
   if (normalized === "test") {
     return {
       ...base,
-      testSettings: { maxAttempts: 1, passPercent: 60, shuffleQuestions: true, shuffleAnswers: true, allowReview: true, attemptTimeLimitsSeconds: [] },
+      testSettings: { maxAttempts: 1, unlimitedAttempts: false, passPercent: 60, shuffleQuestions: true, shuffleAnswers: true, allowReview: true, attemptTimeLimitsSeconds: [] },
       questions: [],
     };
   }
@@ -201,7 +201,7 @@ function buildDefaultAssignmentPayload(type, sort) {
   if (normalized === "math") {
     return {
       ...base,
-      testSettings: { maxAttempts: 1, passPercent: 60, shuffleBlocks: false, allowReview: true, attemptTimeLimitsSeconds: [] },
+      testSettings: { maxAttempts: 1, unlimitedAttempts: false, passPercent: 60, shuffleBlocks: false, allowReview: true, attemptTimeLimitsSeconds: [] },
       blocks: [],
     };
   }

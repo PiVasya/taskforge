@@ -16,6 +16,14 @@ tiptap_viewer = text('apps/web/src/components/tiptap/StatementViewer.jsx')
 worker = text('services/execution/sql-worker/cmd/sql-worker/main.go')
 app = text('apps/web/src/App.jsx')
 course_card = text('apps/web/src/features/course-assignments/components/CourseContentCard.jsx')
+test_editor = text('apps/web/src/pages/TaskTestEditor.jsx')
+test_solve = text('apps/web/src/pages/TaskTestSolve.jsx')
+math_editor = text('apps/web/src/pages/MathTaskEditor.jsx')
+math_solve = text('apps/web/src/pages/MathTaskSolve.jsx')
+task_serialization = text('services/tasks/assignment-api/Services/Serialization/AssignmentApiSerializationService.cs')
+test_runtime = text('services/tasks/assignment-api/Services/Testing/AssignmentApiTestingService.cs')
+math_runtime = text('services/tasks/assignment-api/Services/Math/AssignmentApiMathService.cs')
+task_graph = text('apps/web/src/features/course-assignments/courseTaskGraphJson.js')
 
 assert 'title: buildConversationTitle(value)' in agent_ui
 assert 'maxLength = 160' in agent_model
@@ -35,4 +43,19 @@ assert 'const latest = await api.sqlEdit(assignmentId);' in editor
 assert 'case "health", "ready":' in worker
 assert '<Route path="/admin/ai/assistant" element={<AgentPage />} />' in app
 assert "assignment.lifecycleStatus !== 'published' && !assignment.isHidden" in course_card
+
+assert 'data-taskforge-automation-id="test-unlimited-attempts"' in test_editor
+assert 'Бесконечные попытки' in test_editor
+assert 'disabled={!!s.unlimitedAttempts}' in test_editor
+assert 'attemptsAreUnlimited(startData)' in test_solve
+assert "? '∞' : startData.maxAttempts" in test_solve
+assert 'data-taskforge-automation-id="math-unlimited-attempts"' in math_editor
+assert 'attemptsAreUnlimited(startData)' in math_solve
+assert 'Bool(settings, "unlimitedAttempts", false)' in task_serialization
+assert 'spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts' in test_runtime
+assert 'spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts' in math_runtime
+assert 'unlimitedAttempts, passPercent' in test_runtime
+assert 'unlimitedAttempts, passPercent' in math_runtime
+assert "typeof value.unlimitedAttempts !== 'boolean'" in task_graph
+
 print('Authoring regression invariants OK')

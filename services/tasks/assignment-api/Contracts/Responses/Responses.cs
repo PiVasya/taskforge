@@ -102,9 +102,9 @@ public sealed record UploadedFileDto(string Key, string? PrivateUrl, string Cont
 
 public sealed record ImageCaseResult(int Index, string Name, string Input, string? ExpectedOutput, string? ActualOutput, bool StdoutPassed, bool ImagePassed, bool Passed, double Similarity, double SimilarityPercent, int Threshold, int ThresholdPercent, bool IsHidden, string? ReferenceUrl, string? SubmittedUrl, string? Stderr, JsonElement? Analyzer);
 
-public sealed record TestSettings(int MaxAttempts, int PassPercent, bool ShuffleQuestions, bool ShuffleAnswers, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
+public sealed record TestSettings(int MaxAttempts, bool UnlimitedAttempts, int PassPercent, bool ShuffleQuestions, bool ShuffleAnswers, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
 
-public sealed record MathSettings(int MaxAttempts, int PassPercent, bool ShuffleBlocks, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
+public sealed record MathSettings(int MaxAttempts, bool UnlimitedAttempts, int PassPercent, bool ShuffleBlocks, bool AllowReview, List<int?> AttemptTimeLimitsSeconds);
 
 public sealed class AssignmentSolutionsInsightsDto
 {

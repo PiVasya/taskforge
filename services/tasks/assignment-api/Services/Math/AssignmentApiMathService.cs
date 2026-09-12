@@ -29,12 +29,12 @@ internal static class AssignmentApiMathService
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         var spec = ReadMathSpec(assignment);
         if (spec.Blocks.Count == 0) return Problem(400, "MATH_HAS_NO_BLOCKS", "tasks.math.start", "В math-задании пока нет блоков.");
-        var unlimitedAttempts = HasUnlimitedAiTaskAttempts(http, cfg);
+        var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
         var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
         if (active != null) return Microsoft.AspNetCore.Http.Results.Ok(MathStartDto(active, spec, unlimitedAttempts, ignoreTimeLimit));
         var used = await db.Attempts.CountAsync(x => x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
-        var max = unlimitedAttempts || spec.Settings.MaxAttempts <= 0 ? int.MaxValue : spec.Settings.MaxAttempts;
+        var max = unlimitedAttempts ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "math-attempt-start", ct) is { } quotaProblem) return quotaProblem;
         var attempt = new TaskAttempt { Kind = "math", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = ignoreTimeLimit ? null : TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
@@ -83,7 +83,7 @@ internal static class AssignmentApiMathService
         }
         var score = totalScore == 0 ? 0 : (int)System.Math.Floor(earned * 100.0 / totalScore);
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
-        var unlimitedAttempts = HasUnlimitedAiTaskAttempts(http, cfg);
+        var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         attempt.SubmittedAt = DateTimeOffset.UtcNow;
         attempt.TimeExpired = !ignoreTimeLimit && IsTimeExpired(attempt);
         attempt.TotalUnits = spec.Blocks.Count(x => x.Kind != "info"); attempt.CorrectUnits = correct; attempt.TotalScore = totalScore; attempt.EarnedScore = earned;
@@ -103,7 +103,7 @@ internal static class AssignmentApiMathService
             ("timeExpired", attempt.TimeExpired),
             ("submittedAt", attempt.SubmittedAt));
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "math-attempt-submitted", assignmentId, ct);
-        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, totalScore, earnedScore = earned, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, totalScore, earnedScore = earned, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }
 
     internal static object MathStartDto(TaskAttempt attempt, MathSpec spec, bool unlimitedAttempts = false, bool ignoreTimeLimit = false)
@@ -111,7 +111,7 @@ internal static class AssignmentApiMathService
         var order = ParseGuidList(attempt.OrderJson);
         var map = spec.Blocks.ToDictionary(x => x.Id);
         var blocks = (order.Count == 0 ? spec.Blocks : order.Where(map.ContainsKey).Select(id => map[id])).Select(x => MathBlockPublicDto(x)).ToList();
-        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, passPercent = spec.Settings.PassPercent, attemptTimeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleBlocks, blocks };
+        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, attemptTimeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleBlocks, blocks };
     }
 
     internal static MathSpec ReadMathSpec(Assignment assignment)
@@ -143,6 +143,7 @@ internal static class AssignmentApiMathService
         return new MathSpec(
             new MathSettings(
                 Int(settings, "maxAttempts", 1),
+                Bool(settings, "unlimitedAttempts", false),
                 System.Math.Clamp(Int(settings, "passPercent", 60), 0, 100),
                 Bool(settings, "shuffleBlocks", false),
                 Bool(settings, "allowReview", true),

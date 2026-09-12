@@ -547,6 +547,7 @@ internal static class AssignmentApiSerializationService
         return new TaskSpec(
             new TestSettings(
                 Int(settings, "maxAttempts", 1),
+                Bool(settings, "unlimitedAttempts", false),
                 System.Math.Clamp(Int(settings, "passPercent", 60), 0, 100),
                 Bool(settings, "shuffleQuestions", true),
                 Bool(settings, "shuffleAnswers", true),

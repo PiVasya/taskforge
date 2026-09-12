@@ -17,6 +17,7 @@ function normalizeLimits(x) {
 export default function TaskTestEditor({ settings, setSettings, questions, setQuestions }) {
   const s = settings || {
     maxAttempts: 1,
+    unlimitedAttempts: false,
     passPercent: 60,
     shuffleQuestions: true,
     shuffleAnswers: true,
@@ -194,12 +195,24 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
 
         <div className="grid md:grid-cols-2 gap-4 mt-4">
           <Field label="Кол-во попыток">
-            <Input
-              type="number"
-              min={1}
-              value={s.maxAttempts ?? 1}
-              onChange={(e) => updateSettings({ maxAttempts: Math.max(1, Number(e.target.value || 1)) })}
-            />
+            <div className="space-y-2">
+              <Input
+                type="number"
+                min={1}
+                value={s.maxAttempts ?? 1}
+                disabled={!!s.unlimitedAttempts}
+                onChange={(e) => updateSettings({ maxAttempts: Math.max(1, Number(e.target.value || 1)) })}
+              />
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  data-taskforge-automation-id="test-unlimited-attempts"
+                  type="checkbox"
+                  checked={!!s.unlimitedAttempts}
+                  onChange={(e) => updateSettings({ unlimitedAttempts: e.target.checked })}
+                />
+                Бесконечные попытки
+              </label>
+            </div>
           </Field>
           <Field label="Проходной процент">
             <Input

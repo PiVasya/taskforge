@@ -43,6 +43,10 @@ function summarizeAnswerDraft(answers) {
   };
 }
 
+function attemptsAreUnlimited(data) {
+  return data?.unlimitedAttempts === true || Number(data?.maxAttempts) === 0;
+}
+
 function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
   const notify = useNotify();
   const [loading, setLoading] = useState(false);
@@ -91,7 +95,8 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
     if (storeKey) destroyAttemptAnswers(storeKey);
     setResult(response);
     if (
-      Number.isFinite(startData?.attemptNumber)
+      !attemptsAreUnlimited(startData)
+      && Number.isFinite(startData?.attemptNumber)
       && Number.isFinite(startData?.maxAttempts)
       && startData.attemptNumber >= startData.maxAttempts
     ) {
@@ -188,7 +193,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <div className="text-right">
           {startData ? (
             <div className="text-sm text-neutral-600 dark:text-neutral-400">
-              Попытка: <b>{startData.attemptNumber}</b> / {startData.maxAttempts}
+              Попытка: <b>{startData.attemptNumber}</b> / {attemptsAreUnlimited(startData) ? '∞' : startData.maxAttempts}
             </div>
           ) : null}
           {startData?.timeLimitSeconds ? (
@@ -231,7 +236,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             </div>
             <div className="flex gap-3">
               <Button data-taskforge-automation-id="task-test-close-result" data-taskforge-agent-role="test-action" data-taskforge-agent-action="close-test-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
-              {startData && startData.attemptNumber < startData.maxAttempts ? (
+              {startData && (attemptsAreUnlimited(startData) || startData.attemptNumber < startData.maxAttempts) ? (
                 <Button data-taskforge-automation-id="task-test-restart" data-taskforge-agent-role="test-action" data-taskforge-agent-action="restart-test" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>
