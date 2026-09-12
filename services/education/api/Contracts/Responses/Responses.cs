@@ -23,7 +23,7 @@ public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string T
 
 public sealed record CourseTreeResponse(Guid CourseId, Guid[] CourseIds, List<CourseTreeCourseDto> Courses);
 
-public sealed record CourseMapResponse(Guid RootCourseId, Guid RequestedCourseId, int Version, JsonElement? Document, DateTimeOffset? UpdatedAt, Guid? UpdatedBy);
+public sealed record CourseMapResponse(Guid RootCourseId, Guid RequestedCourseId, int Version, JsonElement? Document, DateTimeOffset? UpdatedAt, Guid? UpdatedBy, List<CourseTreeCourseDto>? Courses = null);
 
 public sealed record CourseMapMetaResponse(Guid RootCourseId, Guid RequestedCourseId, int Version, DateTimeOffset? UpdatedAt, Guid? UpdatedBy);
 

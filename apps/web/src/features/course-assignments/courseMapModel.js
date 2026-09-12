@@ -356,23 +356,56 @@ export function computeCourseProgress(nodes, edges, assignments, rootCourseId) {
   return result;
 }
 
-export function normalizeStoredMap(document, courses, assignments) {
-  if (!document || Number(document.schemaVersion) !== COURSE_MAP_SCHEMA_VERSION) return null;
+export function normalizeStoredMap(document, courses, assignments, options = {}) {
+  if (!document || Number(document.schemaVersion) !== COURSE_MAP_SCHEMA_VERSION) {
+    options?.onDiagnostics?.({
+      schemaValid: false,
+      rawNodes: Array.isArray(document?.nodes) ? document.nodes.length : 0,
+      rawEdges: Array.isArray(document?.edges) ? document.edges.length : 0,
+      normalizedNodes: 0,
+      normalizedEdges: 0,
+      droppedNodes: [],
+      droppedEdges: [],
+      missingCourseMetadataIds: [],
+      missingAssignmentMetadataIds: [],
+    });
+    return null;
+  }
   const { courseById, assignmentById } = buildEntityIndex(courses, assignments);
   const nodes = [];
   const validIds = new Set();
+  const droppedNodes = [];
+  const missingCourseMetadataIds = new Set();
+  const missingAssignmentMetadataIds = new Set();
   for (const raw of Array.isArray(document.nodes) ? document.nodes : []) {
-    if (!raw?.id || validIds.has(String(raw.id))) continue;
+    const rawId = String(raw?.id || '');
+    if (!rawId) {
+      droppedNodes.push({ id: '', reason: 'missing-id', type: String(raw?.type || ''), entityId: String(raw?.entityId || '') });
+      continue;
+    }
+    if (validIds.has(rawId)) {
+      droppedNodes.push({ id: rawId, reason: 'duplicate-id', type: String(raw?.type || ''), entityId: String(raw?.entityId || '') });
+      continue;
+    }
     const isLocked = raw?.type === 'locked';
     const entityId = String(raw?.entityId || '');
     const isCourse = raw?.type === 'course';
     const entity = isLocked ? null : (isCourse ? courseById.get(entityId) : assignmentById.get(entityId));
-    if (!isLocked && !entity) continue;
+    if (!isLocked && !entityId) {
+      droppedNodes.push({ id: rawId, reason: 'missing-entity-id', type: String(raw?.type || ''), entityId });
+      continue;
+    }
+    if (!isLocked && !entity && !isCourse) {
+      missingAssignmentMetadataIds.add(entityId);
+      droppedNodes.push({ id: rawId, reason: 'assignment-metadata-missing', type: String(raw?.type || ''), entityId });
+      continue;
+    }
+    if (isCourse && !entity) missingCourseMetadataIds.add(entityId);
     const type = isLocked ? 'locked' : (isCourse ? 'course' : assignmentNodeType(entity.type));
     const x = Number(raw?.position?.x);
     const y = Number(raw?.position?.y);
     nodes.push({
-      id: String(raw.id),
+      id: rawId,
       type,
       ...(isLocked ? {} : { entityId }),
       position: {
@@ -381,18 +414,43 @@ export function normalizeStoredMap(document, courses, assignments) {
       },
       settings: raw?.settings && typeof raw.settings === 'object' ? raw.settings : undefined,
     });
-    validIds.add(String(raw.id));
+    validIds.add(rawId);
   }
-  const edges = (Array.isArray(document.edges) ? document.edges : [])
-    .filter((edge) => edge?.id && validIds.has(String(edge.source)) && validIds.has(String(edge.target)) && String(edge.source) !== String(edge.target))
-    .map((edge) => ({
-      id: String(edge.id),
-      source: String(edge.source),
-      target: String(edge.target),
+  const droppedEdges = [];
+  const edges = [];
+  for (const edge of Array.isArray(document.edges) ? document.edges : []) {
+    const id = String(edge?.id || '');
+    const source = String(edge?.source || '');
+    const target = String(edge?.target || '');
+    let reason = '';
+    if (!id) reason = 'missing-id';
+    else if (!validIds.has(source)) reason = 'source-node-missing';
+    else if (!validIds.has(target)) reason = 'target-node-missing';
+    else if (source === target) reason = 'self-loop';
+    if (reason) {
+      droppedEdges.push({ id, source, target, reason });
+      continue;
+    }
+    edges.push({
+      id,
+      source,
+      target,
       sourceHandle: edge.sourceHandle || 'out',
       targetHandle: edge.targetHandle || 'in',
       ...(edge?.settings && typeof edge.settings === 'object' ? { settings: edge.settings } : {}),
-    }));
+    });
+  }
+  options?.onDiagnostics?.({
+    schemaValid: true,
+    rawNodes: Array.isArray(document.nodes) ? document.nodes.length : 0,
+    rawEdges: Array.isArray(document.edges) ? document.edges.length : 0,
+    normalizedNodes: nodes.length,
+    normalizedEdges: edges.length,
+    droppedNodes,
+    droppedEdges,
+    missingCourseMetadataIds: Array.from(missingCourseMetadataIds),
+    missingAssignmentMetadataIds: Array.from(missingAssignmentMetadataIds),
+  });
   return {
     schemaVersion: COURSE_MAP_SCHEMA_VERSION,
     viewport: {

@@ -302,8 +302,11 @@ const courseMapCache = read('features/course-assignments/courseMapLocalCache.js'
 if (!/indexedDB/.test(courseMapCache) || !/readCourseMapLocalCacheAsync/.test(courseMapCache)) {
   fail('learner course map lost IndexedDB persistence');
 }
-if (!/CACHE_SCHEMA = 5/.test(courseMapCache) || !/sourceMode/.test(courseMapCache) || !/fullSyncAt/.test(courseMapCache) || !/verifiedAt/.test(courseMapCache) || !/courseMapCacheNeedsFullRevalidation/.test(courseMapCache)) {
+if (!/CACHE_SCHEMA = 6/.test(courseMapCache) || !/sourceMode/.test(courseMapCache) || !/fullSyncAt/.test(courseMapCache) || !/verifiedAt/.test(courseMapCache) || !/courseMapCacheNeedsFullRevalidation/.test(courseMapCache)) {
   fail('course-map local cache must separate source modes and periodically revalidate persisted learner snapshots');
+}
+if (!/recordCourses/.test(courseFlowEditor) || !/EDITOR_DIRTY_DRAFT_SHADOWS_SERVER/.test(courseFlowEditor) || !/MAP_NORMALIZE/.test(courseFlowEditor)) {
+  fail('editor course-map must hydrate only map-referenced course metadata and expose dirty-cache/normalization diagnostics');
 }
 if (!/fresh:\s*Boolean\(fresh\)/.test(courseFlowEditor) || !/forceFullRevalidation/.test(courseFlowEditor) || !/isBrowserReloadNavigation/.test(courseFlowEditor) || !/server-version-verified/.test(courseFlowEditor) || !/cache\+authoritative-delta/.test(courseFlowEditor) || !/DELTA_FALLBACK/.test(courseFlowEditor) || !/deltaVerificationFailed/.test(courseFlowEditor) || !/fresh:\s*\(forceFullRevalidation && !token\) \|\| deltaVerificationFailed/.test(courseFlowEditor)) {
   fail('persistent learner map cache can become authoritative again instead of stale-while-revalidate');

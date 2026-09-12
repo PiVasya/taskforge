@@ -1,5 +1,5 @@
-const CACHE_SCHEMA = 5;
-const CACHE_PREFIX = 'taskforge.course-map.cache.v5';
+const CACHE_SCHEMA = 6;
+const CACHE_PREFIX = 'taskforge.course-map.cache.v6';
 const CACHE_FULL_REVALIDATE_MS = 60 * 1000;
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_MAX_LOCAL_CHARS = 650_000;

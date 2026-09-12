@@ -856,19 +856,18 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const sourceLabel = source || (fromCache ? `${modeName}-cache` : `${modeName}-server`);
     const nextAssignments = Array.isArray(treeAssignments) ? treeAssignments : [];
     const cachedCourses = Array.isArray(cachedState?.courses) ? cachedState.courses : [];
+    const recordCourses = Array.isArray(mapRecord?.courses) ? mapRecord.courses : [];
     const pendingRevealNodeIds = !editorMode && fromCache
       ? new Set((cachedState?.pendingRevealNodeIds || []).map(String).filter(Boolean))
       : new Set();
     const knownCoursesById = new Map();
-    for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...cachedCourses, ...mapCoursesRef.current]) {
-      if (item?.id) knownCoursesById.set(String(item.id), item);
+    for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...cachedCourses, ...mapCoursesRef.current, ...recordCourses]) {
+      if (item?.id) knownCoursesById.set(String(item.id), { ...knownCoursesById.get(String(item.id)), ...item });
     }
     if (course?.id) knownCoursesById.set(String(course.id), { ...knownCoursesById.get(String(course.id)), ...course });
     const nextCourses = subtreeCourses(rootId, Array.from(knownCoursesById.values()), course);
-    if (!editorMode) {
-      mapCoursesRef.current = nextCourses;
-      setMapCourses(nextCourses);
-    }
+    mapCoursesRef.current = nextCourses;
+    setMapCourses(nextCourses);
     const suppliedCourseProgress = editorMode ? new Map() : readCourseProgress(mapRecord?.document);
     let session = preferSession ? getCourseMapSessionState(rootId, sessionOptions) : null;
     if (!editorMode && session?.document && !learnerCourseMapSessionMatchesProjection(session, mapRecord)) {
@@ -925,6 +924,36 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const localIsDirty = editorMode && Boolean(localState?.dirty);
     const localMatchesServer = Boolean(localState?.document) && localVersion === serverVersion;
     const keepDirtyAcrossConflict = Boolean(localState?.document) && localIsDirty && localVersion !== serverVersion;
+    const graphDocumentShape = (value) => {
+      const nodeIds = new Set((Array.isArray(value?.nodes) ? value.nodes : []).map((item) => String(item?.id || '')).filter(Boolean));
+      const edgeIds = new Set((Array.isArray(value?.edges) ? value.edges : []).map((item) => String(item?.id || '')).filter(Boolean));
+      return { nodeIds, edgeIds, nodes: nodeIds.size, edges: edgeIds.size };
+    };
+    if (editorMode && localState?.document && localIsDirty && mapRecord?.document) {
+      const localShape = graphDocumentShape(localState.document);
+      const serverShape = graphDocumentShape(mapRecord.document);
+      const serverOnlyNodeIds = [...serverShape.nodeIds].filter((id) => !localShape.nodeIds.has(id));
+      const localOnlyNodeIds = [...localShape.nodeIds].filter((id) => !serverShape.nodeIds.has(id));
+      const serverOnlyEdgeIds = [...serverShape.edgeIds].filter((id) => !localShape.edgeIds.has(id));
+      const localOnlyEdgeIds = [...localShape.edgeIds].filter((id) => !serverShape.edgeIds.has(id));
+      if (serverOnlyNodeIds.length || localOnlyNodeIds.length || serverOnlyEdgeIds.length || localOnlyEdgeIds.length) {
+        courseMapConsole('EDITOR_DIRTY_DRAFT_SHADOWS_SERVER', {
+          viewKey,
+          source: sourceLabel,
+          localVersion,
+          serverVersion,
+          sameVersion: localVersion === serverVersion,
+          localNodes: localShape.nodes,
+          localEdges: localShape.edges,
+          serverNodes: serverShape.nodes,
+          serverEdges: serverShape.edges,
+          serverOnlyNodeIds: serverOnlyNodeIds.slice(0, 24),
+          localOnlyNodeIds: localOnlyNodeIds.slice(0, 24),
+          serverOnlyEdgeIds: serverOnlyEdgeIds.slice(0, 24),
+          localOnlyEdgeIds: localOnlyEdgeIds.slice(0, 24),
+        }, 'warn');
+      }
+    }
     let document = localMatchesServer || keepDirtyAcrossConflict ? localState.document : null;
     let isDirty = document ? localIsDirty : false;
     let expectedRecord = mapRecord || { version: 0, document: null };
@@ -935,14 +964,44 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       changedOnServer = true;
     }
 
+    const normalizeForView = (candidate, origin) => normalizeStoredMap(candidate, nextCourses, nextAssignments, {
+      onDiagnostics: (details) => {
+        const droppedNodeIds = (details?.droppedNodes || []).slice(0, 24).map((item) => `${item.reason}:${item.id || '<no-id>'}:${item.entityId || '<no-entity>'}`);
+        const droppedEdgeIds = (details?.droppedEdges || []).slice(0, 24).map((item) => `${item.reason}:${item.id || '<no-id>'}:${item.source || '?'}->${item.target || '?'}`);
+        const hasLoss = Number(details?.rawNodes || 0) !== Number(details?.normalizedNodes || 0)
+          || Number(details?.rawEdges || 0) !== Number(details?.normalizedEdges || 0);
+        const missingCourseMetadataIds = (details?.missingCourseMetadataIds || []).slice(0, 24);
+        const missingAssignmentMetadataIds = (details?.missingAssignmentMetadataIds || []).slice(0, 24);
+        courseMapConsole('MAP_NORMALIZE', {
+          viewKey,
+          source: sourceLabel,
+          origin,
+          schemaValid: details?.schemaValid !== false,
+          rawNodes: Number(details?.rawNodes || 0),
+          rawEdges: Number(details?.rawEdges || 0),
+          normalizedNodes: Number(details?.normalizedNodes || 0),
+          normalizedEdges: Number(details?.normalizedEdges || 0),
+          droppedNodeCount: (details?.droppedNodes || []).length,
+          droppedEdgeCount: (details?.droppedEdges || []).length,
+          droppedNodeIds,
+          droppedEdgeIds,
+          missingCourseMetadataIds,
+          missingAssignmentMetadataIds,
+          mapCourseMetadata: recordCourses.length,
+          knownCourses: nextCourses.length,
+          knownAssignments: nextAssignments.length,
+        }, hasLoss ? 'warn' : 'info');
+      },
+    });
+
     if (!document) {
-      document = normalizeStoredMap(mapRecord?.document, nextCourses, nextAssignments);
+      document = normalizeForView(mapRecord?.document, 'server-document');
       if (!document) {
         document = buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
         isDirty = Boolean(editorMode && (document.nodes.length || document.edges.length));
       }
     } else {
-      document = normalizeStoredMap(document, nextCourses, nextAssignments)
+      document = normalizeForView(document, localState?.document === document ? 'local-dirty-document' : 'local-document')
         || buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
     }
 
@@ -975,7 +1034,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         };
       }
       const isCourse = node.type === 'course';
-      const entity = isCourse ? idx.courseById.get(String(node.entityId)) : idx.assignmentById.get(String(node.entityId));
+      const entity = isCourse
+        ? (idx.courseById.get(String(node.entityId)) || { id: node.entityId, title: 'Курс', metadataPending: true })
+        : idx.assignmentById.get(String(node.entityId));
       const accessEffects = accessByNode.get(String(node.id)) || null;
       return {
         ...node,

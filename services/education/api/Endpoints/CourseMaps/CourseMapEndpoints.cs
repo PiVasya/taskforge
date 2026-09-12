@@ -55,6 +55,7 @@ internal static partial class EducationApiEndpoints
             }
 
             var editorDocument = ParseDocumentElement(map.DocumentJson);
+            var editorCourseRows = await LoadCourseMapReferencedCoursesAsync(editorDocument, db, ct);
             var editorNodeCount = editorDocument.HasValue && editorDocument.Value.ValueKind == JsonValueKind.Object && editorDocument.Value.TryGetProperty("nodes", out var editorNodes) && editorNodes.ValueKind == JsonValueKind.Array ? editorNodes.GetArrayLength() : 0;
             var editorEdgeCount = editorDocument.HasValue && editorDocument.Value.ValueKind == JsonValueKind.Object && editorDocument.Value.TryGetProperty("edges", out var editorEdges) && editorEdges.ValueKind == JsonValueKind.Array ? editorEdges.GetArrayLength() : 0;
             TaskForgeDebugTrace.Map("EDITOR_MAP_GET_END",
@@ -66,6 +67,8 @@ internal static partial class EducationApiEndpoints
                 ("documentHash", TaskForgeDebugTrace.Fingerprint(map.DocumentJson)),
                 ("nodeCount", editorNodeCount),
                 ("edgeCount", editorEdgeCount),
+                ("courseMetadataCount", editorCourseRows.Count),
+                ("courseMetadataIds", TaskForgeDebugTrace.MapList(editorCourseRows.Select(x => x.Id))),
                 ("updatedAt", map.UpdatedAt),
                 ("updatedBy", map.UpdatedBy));
 
@@ -75,7 +78,8 @@ internal static partial class EducationApiEndpoints
                 map.Version,
                 editorDocument,
                 map.UpdatedAt,
-                map.UpdatedBy));
+                map.UpdatedBy,
+                editorCourseRows));
         });
 
         app.MapPut("/api/courses/{courseId:guid}/map", async (
@@ -245,13 +249,15 @@ internal static partial class EducationApiEndpoints
                 ("version", nextVersion),
                 ("updatedAt", now));
 
+            var savedCourseRows = await LoadCourseMapReferencedCoursesAsync(request.Document, db, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
                 root.Id,
                 courseId,
                 nextVersion,
                 request.Document.Clone(),
                 now,
-                updatedBy));
+                updatedBy,
+                savedCourseRows));
         });
 
         app.MapHub<CourseMapPresenceHub>("/hubs/course-map");
@@ -271,6 +277,50 @@ internal static partial class EducationApiEndpoints
             currentId = current.ParentCourseId.Value;
         }
         return null;
+    }
+
+    private static async Task<List<CourseTreeCourseDto>> LoadCourseMapReferencedCoursesAsync(
+        JsonElement? document,
+        EducationDbContext db,
+        CancellationToken ct)
+    {
+        if (!document.HasValue || document.Value.ValueKind != JsonValueKind.Object
+            || !document.Value.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != JsonValueKind.Array)
+        {
+            return new List<CourseTreeCourseDto>();
+        }
+
+        var orderedIds = new List<Guid>();
+        var seen = new HashSet<Guid>();
+        foreach (var node in nodes.EnumerateArray())
+        {
+            if (node.ValueKind != JsonValueKind.Object
+                || !node.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String
+                || !string.Equals(type.GetString(), "course", StringComparison.OrdinalIgnoreCase)
+                || !node.TryGetProperty("entityId", out var entityId) || entityId.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(entityId.GetString(), out var id) || id == Guid.Empty
+                || !seen.Add(id))
+            {
+                continue;
+            }
+            orderedIds.Add(id);
+        }
+
+        if (orderedIds.Count == 0) return new List<CourseTreeCourseDto>();
+
+        var rows = await db.Courses.AsNoTracking()
+            .Where(x => orderedIds.Contains(x.Id))
+            .Select(x => new CourseTreeCourseDto(
+                x.Id,
+                x.ParentCourseId,
+                x.Title,
+                x.Description,
+                x.IsPublic && !x.IsHiddenFromStudents,
+                x.IsHiddenFromStudents,
+                x.Sort))
+            .ToListAsync(ct);
+        var byId = rows.ToDictionary(x => x.Id);
+        return orderedIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
     }
 
     private static async Task<List<CourseTreeCourseDto>> LoadCourseSubtreeRowsAsync(Guid rootCourseId, EducationDbContext db, CancellationToken ct)
