@@ -128,6 +128,16 @@ func (r *Registry) Refresh(ctx context.Context) {
 		}
 		deadline, cancel := context.WithTimeout(ctx, 20*time.Second)
 		registration, e := entry.adapter.Registration(deadline)
+		if e != nil && deadline.Err() == nil {
+			// Registration is read-only and opens a fresh admin connection. One
+			// immediate retry absorbs short PostgreSQL/MySQL connection churn without
+			// throwing away a healthy materialization cache. Persistent failures still
+			// take the engine out of rotation below.
+			slog.Warn("sql_engine_probe_retry", "engine", entry.adapter.Engine(), "error_class", fmt.Sprintf("%T", e))
+			if sleep(deadline, 200*time.Millisecond) {
+				registration, e = entry.adapter.Registration(deadline)
+			}
+		}
 		cancel()
 		if e != nil {
 			r.setFailure(entry, epoch, "engine-probe", true)

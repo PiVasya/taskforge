@@ -57,6 +57,16 @@ export function datasetIssues(doc) {
   return errors;
 }
 
+export function validationReadyForTargets(targets, validation) {
+  const enabled = (Array.isArray(targets) ? targets : []).filter(t => t?.enabled !== false);
+  if (!enabled.length) return false;
+  const receipts = new Map((Array.isArray(validation) ? validation : []).map(v => [v?.engineProfileId, v]));
+  return enabled.every(target => {
+    const receipt = receipts.get(target.engineProfileId);
+    return receipt?.status === 'valid' && receipt?.datasetStatus === 'valid';
+  });
+}
+
 export function toggleEngineTargets(targets, engineProfileId, checked) {
   const current = Array.isArray(targets) ? targets : [];
   if (!checked) return current.filter(t => t.engineProfileId !== engineProfileId);

@@ -54,3 +54,17 @@ test('dataset catalog refresh is best effort and cannot fail the SQL save workfl
  assert.equal(await m.refreshDatasetCatalogBestEffort(async()=>[{id:'1'}],v=>{applied=v}),true);
  assert.deepEqual(applied,[{id:'1'}]);
 });
+
+
+test('publication readiness requires every enabled engine validation receipt',()=>{
+ const targets=[{engineProfileId:'sqlite',enabled:true},{engineProfileId:'mysql',enabled:true},{engineProfileId:'pg',enabled:false}];
+ assert.equal(m.validationReadyForTargets(targets,[{engineProfileId:'sqlite',datasetStatus:'valid',status:'valid'}]),false);
+ assert.equal(m.validationReadyForTargets(targets,[
+  {engineProfileId:'sqlite',datasetStatus:'valid',status:'valid'},
+  {engineProfileId:'mysql',datasetStatus:'valid',status:'pending'}
+ ]),false);
+ assert.equal(m.validationReadyForTargets(targets,[
+  {engineProfileId:'sqlite',datasetStatus:'valid',status:'valid'},
+  {engineProfileId:'mysql',datasetStatus:'valid',status:'valid'}
+ ]),true);
+});

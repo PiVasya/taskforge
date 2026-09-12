@@ -14,6 +14,7 @@ type fakeAdapter struct {
 	prepares, creates, destroys, drops, startups, creating, peakCreating int
 	delay                                                                time.Duration
 	destroyFails, createFails, dropFails, probeFails                     bool
+	probeFailuresRemaining                                               int
 	live                                                                 map[string]bool
 	blocked                                                              chan struct{}
 }
@@ -28,7 +29,10 @@ func (a *fakeAdapter) Startup(context.Context) error {
 func (a *fakeAdapter) Registration(context.Context) (Registration, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.probeFails {
+	if a.probeFails || a.probeFailuresRemaining > 0 {
+		if a.probeFailuresRemaining > 0 {
+			a.probeFailuresRemaining--
+		}
 		return Registration{}, errors.New("probe failed")
 	}
 	return Registration{Engine: "sqlite", EngineVersion: "test", RuntimeDigest: "sha256:" + textHash("runtime"), AdapterVersion: AdapterVersion, Settings: map[string]any{"implementation": "test"}}, nil

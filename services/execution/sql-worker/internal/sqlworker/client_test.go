@@ -211,3 +211,25 @@ func TestRegistryRecoveryWaitsForActiveJob(t *testing.T) {
 		t.Fatal("missing engine cleanup on recovery")
 	}
 }
+
+func TestRegistryTransientProbeFailureDoesNotResetHealthyRuntime(t *testing.T) {
+	a := &fakeAdapter{}
+	pool, _ := fakePool(t, a, nil)
+	r := NewRegistry([]EngineAdapter{a}, &fakeProfiles{}, pool, NewMetrics())
+	r.Refresh(context.Background())
+	if len(r.Targets()) != 1 {
+		t.Fatal("initial registration failed")
+	}
+	a.mu.Lock()
+	a.probeFailuresRemaining = 1
+	a.mu.Unlock()
+	r.Refresh(context.Background())
+	if len(r.Targets()) != 1 {
+		t.Fatal("single transient probe removed healthy target")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.startups != 1 || a.drops != 0 {
+		t.Fatalf("transient probe reset runtime cache: startup=%d drop=%d", a.startups, a.drops)
+	}
+}

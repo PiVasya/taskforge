@@ -15,6 +15,7 @@ tiptap_editor = text('apps/web/src/components/tiptap/StatementEditor.jsx')
 tiptap_viewer = text('apps/web/src/components/tiptap/StatementViewer.jsx')
 worker = text('services/execution/sql-worker/cmd/sql-worker/main.go')
 app = text('apps/web/src/App.jsx')
+course_card = text('apps/web/src/features/course-assignments/components/CourseContentCard.jsx')
 
 assert 'title: buildConversationTitle(value)' in agent_ui
 assert 'maxLength = 160' in agent_model
@@ -28,6 +29,10 @@ assert 'setDatasets(await api.sqlDatasets())' not in editor
 assert 'toggleEngineTargets(targets, id, checked)' in editor
 assert 'export async function refreshDatasetCatalogBestEffort' in sql_model
 assert 'export function toggleEngineTargets' in sql_model
+assert 'export function validationReadyForTargets' in sql_model
+assert 'validationReadyForTargets(targets, view?.validation)' in editor
+assert 'const latest = await api.sqlEdit(assignmentId);' in editor
 assert 'case "health", "ready":' in worker
 assert '<Route path="/admin/ai/assistant" element={<AgentPage />} />' in app
+assert "assignment.lifecycleStatus !== 'published' && !assignment.isHidden" in course_card
 print('Authoring regression invariants OK')

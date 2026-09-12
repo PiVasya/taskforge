@@ -325,7 +325,7 @@ func (a *ServerAdapter) owned(name string) bool {
 
 // Administration statements can contain generated credentials. Never forward a
 // native server message from this boundary into validation receipts or job output.
-func administrationFailure(err error) error {
+func administrationFailureAt(stage string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -333,17 +333,18 @@ func administrationFailure(err error) error {
 	if !errors.As(err, &db) {
 		return err
 	}
-	// Log only the engine and numeric/native error code. Administration SQL can
-	// contain generated credentials, so neither the raw server message nor SQL
-	// text is ever emitted here.
-	slog.Warn("sql_admin_failure", "engine", db.Engine, "code", db.Code)
+	// Log only the engine, operation stage and numeric/native error code.
+	// Administration SQL can contain generated credentials, so neither raw
+	// server messages nor SQL text are emitted at this boundary.
+	slog.Warn("sql_admin_failure", "engine", db.Engine, "stage", stage, "code", db.Code)
 	if db.Code == "3D000" || db.Code == "1049" {
 		return RecoverCache("A dedicated SQL cache database disappeared.")
 	}
 	return Unavailable("The dedicated SQL engine rejected dataset preparation or sandbox administration.")
 }
-func (a *ServerAdapter) withAdmin(ctx context.Context, database string, f func(*native.Session) error) (err error) {
-	defer func() { err = administrationFailure(err) }()
+func administrationFailure(err error) error { return administrationFailureAt("admin", err) }
+func (a *ServerAdapter) withAdminStage(ctx context.Context, database, stage string, f func(*native.Session) error) (err error) {
+	defer func() { err = administrationFailureAt(stage, err) }()
 	if e := ctx.Err(); e != nil {
 		return e
 	}
@@ -370,8 +371,11 @@ func (a *ServerAdapter) withAdmin(ctx context.Context, database string, f func(*
 	defer c.Close()
 	return f(c)
 }
+func (a *ServerAdapter) withAdmin(ctx context.Context, database string, f func(*native.Session) error) error {
+	return a.withAdminStage(ctx, database, "admin", f)
+}
 func (a *ServerAdapter) verifyGuard(ctx context.Context) error {
-	return a.withAdmin(ctx, "", func(*native.Session) error { return nil })
+	return a.withAdminStage(ctx, "", "guard", func(*native.Session) error { return nil })
 }
 func (a *ServerAdapter) Startup(ctx context.Context) error {
 	if e := a.verifyGuard(ctx); e != nil {
@@ -439,7 +443,7 @@ func (a *ServerAdapter) Startup(ctx context.Context) error {
 func (a *ServerAdapter) Registration(ctx context.Context) (out Registration, err error) {
 	settings := map[string]any{"executorFingerprint": a.executor, "implementation": ImplementationVersion, "clientLibraries": native.LibraryVersions(), "transactionMode": "autocommit", "identifierPolicy": "portable-lower-v1", "caseFolding": "unicode-default-v1"}
 	out = Registration{Engine: a.Engine(), RuntimeDigest: a.config.RuntimeDigest, AdapterVersion: AdapterVersion, Settings: settings}
-	err = a.withAdmin(ctx, "", func(c *native.Session) error {
+	err = a.withAdminStage(ctx, "", "registration", func(c *native.Session) error {
 		if a.Engine() == "postgresql" {
 			version, e := readScalar(ctx, c, "SHOW server_version")
 			if e != nil {

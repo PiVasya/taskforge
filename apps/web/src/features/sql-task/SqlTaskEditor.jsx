@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import CodeEditor from '../../components/CodeEditor';
 import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
-import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, refreshDatasetCatalogBestEffort, toggleEngineTargets } from './sqlModel';
+import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, refreshDatasetCatalogBestEffort, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
 import './sql-task.css';
 
@@ -107,7 +107,15 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
   const publish = async () => {
     setBusy(true); operation.current = true; setError('');
     try {
-      const saved = await api.publishSqlEdit(assignmentId, { versionId: view.draftVersionId, concurrencyStamp: view.concurrencyStamp });
+      // Publication is a server-state operation. Re-read the saved draft so a delayed
+      // validation/poll response can never publish a stale subset of engine targets.
+      const latest = await api.sqlEdit(assignmentId);
+      setView(latest);
+      if (!validationReadyForTargets(latest?.spec?.targets, latest?.validation)) {
+        setError('Все включённые движки должны успешно пройти проверку перед публикацией.');
+        return;
+      }
+      const saved = await api.publishSqlEdit(assignmentId, { versionId: latest.draftVersionId, concurrencyStamp: latest.concurrencyStamp });
       setView(saved); setMessage('\u0412\u0435\u0440\u0441\u0438\u044f \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u0430. \u0422\u0435\u043f\u0435\u0440\u044c \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043c\u043e\u0436\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c \u0432\u0438\u0434\u0438\u043c\u044b\u043c.'); onPublished?.();
     } catch(e) { setError(getApiErrorMessage(e)); }
     finally { setBusy(false); operation.current = false; }
@@ -124,7 +132,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
   const targets = spec.targets || [];
   const toggleEngine = (id, checked) => changeSpec({ targets: toggleEngineTargets(targets, id, checked) });
   const changeTarget = (index, patch) => changeSpec({ targets: targets.map((t,i) => i === index ? { ...t,...patch } : t) });
-  const ready = view?.validation?.length > 0 && view.validation.every(v => v.status === 'valid' && v.datasetStatus === 'valid');
+  const ready = validationReadyForTargets(targets, view?.validation);
   const dirty = datasetDirty || specDirty || (!!versionId && view?.spec?.datasetVersionId !== versionId);
   if (loading) return <div className="sql-task"><div className="sql-card" role="status">{'\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 SQL-\u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430\u2026'}</div></div>;
   return <div className="sql-task">

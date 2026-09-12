@@ -132,7 +132,7 @@ function CourseContentCard({
           <div className="flex flex-wrap items-center gap-1.5">
             {assignment.isAiDraft ? <Badge variant="secondary">AI-черновик</Badge> : null}
             {assignment.isHidden ? <Badge variant="outline">скрыто</Badge> : null}
-            {assignment.lifecycleStatus && assignment.lifecycleStatus !== 'published' ? <Badge variant="outline">{assignment.lifecycleStatus}</Badge> : null}
+            {assignment.lifecycleStatus && assignment.lifecycleStatus !== 'published' && !assignment.isHidden ? <Badge variant="outline">{assignment.lifecycleStatus}</Badge> : null}
           </div>
         </div>
       ) : null}
