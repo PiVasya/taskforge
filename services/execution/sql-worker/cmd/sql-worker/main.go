@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -37,7 +38,7 @@ func main() {
 		case "version":
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"implementation": sqlworker.ImplementationVersion, "contractVersion": sqlworker.ContractVersion, "adapterVersion": sqlworker.AdapterVersion, "libraries": native.LibraryVersions()})
 			return
-		case "health":
+		case "health", "ready":
 			port := os.Getenv("SQL_HEALTH_PORT")
 			if port == "" {
 				port = "8081"
@@ -46,13 +47,20 @@ func main() {
 			if e != nil || p < 1 || p > 65535 {
 				os.Exit(2)
 			}
+			path := "/health"
+			if os.Args[1] == "ready" {
+				path = "/ready"
+			}
 			client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			response, e := client.Get("http://127.0.0.1:" + port + "/health")
+			response, e := client.Get("http://127.0.0.1:" + port + path)
 			if e != nil {
 				os.Exit(1)
 			}
-			response.Body.Close()
-			if response.StatusCode != 200 {
+			defer response.Body.Close()
+			if os.Args[1] == "ready" {
+				_, _ = io.Copy(os.Stdout, response.Body)
+			}
+			if response.StatusCode != http.StatusOK {
 				os.Exit(1)
 			}
 			return

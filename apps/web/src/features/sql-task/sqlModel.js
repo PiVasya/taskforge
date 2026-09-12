@@ -56,6 +56,24 @@ export function datasetIssues(doc) {
   });
   return errors;
 }
+
+export function toggleEngineTargets(targets, engineProfileId, checked) {
+  const current = Array.isArray(targets) ? targets : [];
+  if (!checked) return current.filter(t => t.engineProfileId !== engineProfileId);
+  const index = current.findIndex(t => t.engineProfileId === engineProfileId);
+  if (index >= 0) return current.map((t, i) => i === index ? { ...t, enabled: true } : t);
+  return [...current, { engineProfileId, enabled: true, sort: current.length, starterSqlOverride: null, referenceSqlOverride: null }];
+}
+
+export async function refreshDatasetCatalogBestEffort(load, apply) {
+  try {
+    const value = await load();
+    apply(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export function editorInput(spec, versionId, stamp) {
   return { ...spec, datasetVersionId: versionId, concurrencyStamp: stamp ?? null,
     targets: spec.targets.map((t, sort) => ({ ...t, sort })) };

@@ -16,6 +16,7 @@ import { Button, Badge } from '../../components/ui';
 import { useAuth } from '../../auth/AuthContext';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { handleApiError } from '../../utils/handleApiError';
+import { buildConversationTitle } from './agentModel';
 import {
   cancelAgentRun,
   createAgentConversation,
@@ -276,7 +277,7 @@ export default function AgentPage() {
           courseId,
           assignmentId,
           supportTicketId,
-          title: value,
+          title: buildConversationTitle(value),
           mode: 'course-assistant',
         });
         const conv = created?.conversation;

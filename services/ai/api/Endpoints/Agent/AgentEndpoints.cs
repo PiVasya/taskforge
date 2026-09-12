@@ -20,6 +20,23 @@ namespace TaskForge.Ai.Api.Endpoints;
 
 internal static partial class AiApiEndpoints
 {
+    private const int MaxConversationTitleLength = 300;
+
+    private static string NormalizeConversationTitle(string? title)
+    {
+        var value = string.IsNullOrWhiteSpace(title) ? "Новый диалог" : title.Trim();
+        if (value.Length <= MaxConversationTitleLength) return value;
+
+        var result = new StringBuilder(MaxConversationTitleLength);
+        var count = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (count++ >= MaxConversationTitleLength) break;
+            result.Append(rune.ToString());
+        }
+        return result.ToString();
+    }
+
     private static WebApplication MapAgentEndpoints(WebApplication app)
     {
         app.MapGet("/api/agent/conversations", async (HttpContext http, IConfiguration cfg, AiDbContext db, Guid? courseId, Guid? assignmentId) =>
@@ -41,7 +58,7 @@ internal static partial class AiApiEndpoints
             var title = payload.TryGetProperty("title", out var t) ? t.GetString() : null;
             var c = new AiConversation
             {
-                Title = string.IsNullOrWhiteSpace(title) ? "Новый диалог" : title!.Trim(),
+                Title = NormalizeConversationTitle(title),
                 UserId = uid.Value,
                 CourseId = GuidFromPayload(payload, "courseId"),
                 AssignmentId = GuidFromPayload(payload, "assignmentId"),

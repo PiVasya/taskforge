@@ -638,14 +638,11 @@ export default function CoursesPage() {
         <div className="card-muted p-8 mt-6 text-center text-neutral-500">Курсы пока не найдены.</div>
       )}
 
-      {!loading && items.length > 0 && (
-        <div className="mt-6 flex flex-col items-center gap-2">
-          <div className="text-xs text-neutral-500">Показано {rootCourses.length}{total ? ` из ${total}` : ''}</div>
-          {hasMore && (
-            <Button variant="outline" onClick={() => loadCourses({ reset: false })} disabled={loadingMore}>
-              {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
-            </Button>
-          )}
+      {!loading && hasMore && (
+        <div className="mt-6 flex justify-center">
+          <Button variant="outline" onClick={() => loadCourses({ reset: false })} disabled={loadingMore}>
+            {loadingMore ? 'Загружаем ещё…' : 'Показать ещё'}
+          </Button>
         </div>
       )}
 

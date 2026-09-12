@@ -3,7 +3,6 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Link } from "@tiptap/extension-link";
 import { Image } from "@tiptap/extension-image";
-import { Underline } from "@tiptap/extension-underline";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle } from "@tiptap/extension-text-style";
@@ -30,7 +29,6 @@ function TiptapDocViewer({ doc }) {
     editable: false,
     extensions: [
       StarterKit.configure({ link: false }),
-      Underline,
       Highlight,
       TextStyle,
       Color,

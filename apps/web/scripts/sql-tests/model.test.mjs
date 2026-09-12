@@ -35,3 +35,22 @@ test('canonical graph 5 retains legacy versions and shared resource key',()=>{
  assert.equal(graph.TASK_GRAPH_SCHEMA_VERSION,5);assert.equal(graph.TASK_GRAPH_PREVIOUS_SCHEMA_VERSION,4);assert.equal(graph.TASK_GRAPH_LEGACY_SCHEMA_VERSION,3);
  assert.ok(graphSource.includes('datasets'));assert.ok(graphSource.includes('sql-test'));
 });
+
+test('engine selection survives unrelated dataset editing and never duplicates a target',()=>{
+ const selected=m.toggleEngineTargets([], 'sqlite-profile', true);
+ const again=m.toggleEngineTargets(selected, 'sqlite-profile', true);
+ assert.equal(again.length,1);
+ const doc=m.freshDataset();doc.definition.tables=[m.newTable('products')];
+ const changed=m.renameColumn(doc,0,0,'product_id');
+ assert.equal(changed.definition.tables[0].columns[0].name,'product_id');
+ assert.deepEqual(again,selected);
+ assert.deepEqual(m.toggleEngineTargets(again,'sqlite-profile',false),[]);
+});
+
+test('dataset catalog refresh is best effort and cannot fail the SQL save workflow', async()=>{
+ let applied=null;
+ assert.equal(await m.refreshDatasetCatalogBestEffort(async()=>{throw new Error('offline')},v=>{applied=v}),false);
+ assert.equal(applied,null);
+ assert.equal(await m.refreshDatasetCatalogBestEffort(async()=>[{id:'1'}],v=>{applied=v}),true);
+ assert.deepEqual(applied,[{id:'1'}]);
+});

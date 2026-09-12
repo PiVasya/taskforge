@@ -5,7 +5,6 @@ import StarterKit from "@tiptap/starter-kit";
 import { Link } from "@tiptap/extension-link";
 import { Image } from "@tiptap/extension-image";
 
-import { Underline } from "@tiptap/extension-underline";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle } from "@tiptap/extension-text-style";
@@ -138,7 +137,6 @@ function StatementEditor({ value, onChange }) {
         link: false,
       }),
 
-      Underline,
       Highlight,
       TextStyle,
       FontSize,
