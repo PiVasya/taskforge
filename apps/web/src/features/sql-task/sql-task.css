@@ -503,41 +503,60 @@ html.neo-brutal .sql-task th {
   }
 }
 
-/* Learner SQL solve intentionally reuses the standard TaskForge card/control theme. */
+/* Learner SQL solve reuses the standard TaskForge card/control theme. */
 .sql-task-solve {
   min-width: 0;
 }
 
 .sql-task-solve .sql-editor-card,
 .sql-task-solve .sql-result-card,
+.sql-task-solve .sql-compare-card,
 .sql-loading-card {
   min-width: 0;
 }
 
+.sql-task-solve .sql-editor-card {
+  padding: 1rem !important;
+  overflow: hidden;
+}
+
 .sql-task-solve .sql-editor-header {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
+.sql-task-solve .sql-editor-heading-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
 .sql-task-solve .sql-editor-title {
-  font-weight: 650;
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .sql-task-solve .sql-editor-tools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: auto;
+  gap: 0.5rem;
   min-width: 0;
 }
 
+.sql-task-solve .sql-editor-tools.has-engine {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .sql-task-solve .sql-engine-select {
-  width: auto;
-  max-width: 14rem;
+  width: 100%;
   min-width: 0;
+  max-width: none;
 }
 
 .sql-task-solve .sql-db-button,
@@ -547,11 +566,19 @@ html.neo-brutal .sql-task th {
   justify-content: center;
   gap: 0.4rem;
   width: auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.sql-task-solve .sql-db-button {
+  padding-inline: 0.8rem;
 }
 
 .sql-task-solve .sql-reset-button {
-  min-width: 2.55rem;
-  padding-inline: 0.65rem;
+  flex: 0 0 auto;
+  min-width: 2.45rem;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.6rem;
 }
 
 .sql-task-solve .sql-editor-wrap {
@@ -567,19 +594,16 @@ html.neo-brutal .sql-task th {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+  margin-top: 0.65rem;
   color: rgb(var(--text-muted));
-  font-size: 0.86rem;
+  font-size: 0.82rem;
 }
 
 .sql-task-solve .sql-retry {
   justify-content: space-between;
 }
 
-.sql-task-solve .sql-feedback.is-success {
-  color: rgb(var(--accent));
-}
-
+.sql-task-solve .sql-feedback.is-success,
 .sql-task-solve .sql-feedback.is-error,
 .sql-task-solve .sql-inline-error {
   color: rgb(var(--text));
@@ -587,14 +611,18 @@ html.neo-brutal .sql-task th {
 
 .sql-task-solve .sql-feedback.is-error::before,
 .sql-task-solve .sql-inline-error::before {
-  content: '';
-  display: inline-block;
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-right: 0.45rem;
-  border-radius: 999px;
-  background: rgb(var(--accent));
-  vertical-align: 0.08rem;
+  content: '×';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-right: 0.35rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 900;
+  vertical-align: 0.04rem;
 }
 
 .sql-task-solve .sql-feedback-detail {
@@ -605,17 +633,20 @@ html.neo-brutal .sql-task th {
   white-space: nowrap;
 }
 
-.sql-result-card {
+.sql-result-card,
+.sql-compare-card {
   padding: 0 !important;
   overflow: hidden;
 }
 
-.sql-result-table-wrap {
+.sql-result-table-wrap,
+.sql-compare-table-wrap {
   max-width: 100%;
   overflow: auto;
 }
 
-.sql-result-table {
+.sql-result-table,
+.sql-compare-table {
   width: 100%;
   min-width: 28rem;
   border-collapse: collapse;
@@ -623,32 +654,41 @@ html.neo-brutal .sql-task th {
 }
 
 .sql-result-table th,
-.sql-result-table td {
-  padding: 0.65rem 0.8rem;
-  border-bottom: 1px solid rgba(var(--border) / 0.62);
+.sql-result-table td,
+.sql-compare-table th,
+.sql-compare-table td {
+  position: relative;
+  padding: 0.66rem 0.8rem;
+  border-bottom: 1px solid rgba(var(--border) / 0.72);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
-.sql-result-table th {
+.sql-result-table th,
+.sql-compare-table th {
   position: sticky;
   top: 0;
-  background: rgb(var(--card));
-  color: rgb(var(--text-muted));
-  font-size: 0.76rem;
-  font-weight: 650;
+  z-index: 1;
+  background: color-mix(in srgb, rgb(var(--card)) 84%, rgb(var(--text)) 16%);
+  color: rgb(var(--text));
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 
-.sql-result-table tbody tr:hover td {
-  background: rgba(var(--accent) / 0.055);
+.sql-result-table tbody tr:hover td,
+.sql-compare-table tbody tr:hover td {
+  background: rgba(var(--border) / 0.08);
 }
 
-.sql-result-card .sql-null {
+.sql-result-card .sql-null,
+.sql-compare-card .sql-null {
   color: rgb(var(--text-muted));
   font-style: italic;
 }
 
-.sql-result-block--separated {
+.sql-result-block--separated,
+.sql-compare-section + .sql-compare-section {
   border-top: 1px solid rgba(var(--border) / 0.72);
 }
 
@@ -656,39 +696,162 @@ html.neo-brutal .sql-task th {
 .sql-result-summary,
 .sql-result-note,
 .sql-result-card .sql-empty,
-.sql-result-card .sql-inline-error {
-  padding: 0.8rem 1rem;
+.sql-result-card .sql-inline-error,
+.sql-compare-note {
+  padding: 0.75rem 0.95rem;
 }
 
-.sql-result-label {
-  color: rgb(var(--text-muted));
+.sql-result-label,
+.sql-compare-section-title,
+.sql-compare-title {
+  color: rgb(var(--text));
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 800;
 }
 
 .sql-result-summary,
 .sql-result-note,
-.sql-result-card .sql-empty {
+.sql-result-card .sql-empty,
+.sql-compare-note {
   color: rgb(var(--text-muted));
-  font-size: 0.86rem;
+  font-size: 0.82rem;
 }
 
-@media (max-width: 720px) {
-  .sql-task-solve .sql-editor-header {
-    align-items: stretch;
-    flex-direction: column;
+.sql-compare-section-title {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid rgba(var(--border) / 0.72);
+}
+
+.sql-compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.sql-compare-pane {
+  min-width: 0;
+}
+
+.sql-compare-pane + .sql-compare-pane {
+  border-left: 1px solid rgba(var(--border) / 0.72);
+}
+
+.sql-compare-title {
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid rgba(var(--border) / 0.72);
+  background: rgba(var(--border) / 0.08);
+}
+
+.sql-compare-table {
+  min-width: 20rem;
+}
+
+.sql-compare-table td.is-different,
+.sql-compare-table th.is-different {
+  outline: 2px dashed currentColor;
+  outline-offset: -4px;
+}
+
+.sql-compare-table tr.is-extra > td:first-child,
+.sql-compare-table tr.is-missing > td:first-child {
+  border-left: 4px double currentColor;
+}
+
+.sql-diff-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.45rem;
+  border: 1px dashed currentColor;
+  border-radius: 0.22rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.sql-compare-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  border: 1px solid currentColor;
+  border-radius: 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.sql-compare-table tr.is-missing td {
+  border-top: 2px dashed currentColor;
+  text-align: center;
+}
+
+html.neo-brutal .sql-result-table th,
+html.neo-brutal .sql-compare-table th {
+  color: rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal .sql-result-table,
+html.neo-brutal .sql-compare-table {
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .sql-compare-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .sql-task-solve .sql-editor-tools {
-    justify-content: stretch;
+  .sql-compare-pane + .sql-compare-pane {
+    border-top: 1px solid rgba(var(--border) / 0.72);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .sql-task-solve .sql-editor-card {
+    padding: 0.8rem !important;
   }
 
-  .sql-task-solve .sql-engine-select {
-    flex: 1 1 auto;
-    max-width: none;
+  .sql-task-solve .sql-editor-tools.has-engine {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .sql-task-solve .sql-db-button {
-    flex: 1 1 auto;
+    padding-inline: 0.65rem;
   }
+}
+
+.sql-compare-verdict {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.72rem 0.9rem;
+  border-bottom: 1px solid rgba(var(--border) / 0.72);
+  color: rgb(var(--text));
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.sql-compare-verdict-mark,
+.sql-compare-hidden {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55rem;
+  min-height: 1.55rem;
+  padding: 0 0.32rem;
+  border: 1px dashed currentColor;
+  border-radius: 0.3rem;
+  color: inherit;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.sql-compare-table td.is-different .sql-compare-hidden,
+.sql-compare-table th.is-different .sql-compare-hidden {
+  border-width: 2px;
 }

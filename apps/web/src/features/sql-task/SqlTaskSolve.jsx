@@ -10,6 +10,7 @@ import { checkSql, runSql, sqlAssignment, sqlPreview } from '../../api/sqlTasks'
 import { isPending, ownSnapshot, resultLabel } from './sqlModel';
 import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
+import SqlCheckComparison from './SqlCheckComparison';
 import './sql-task.css';
 
 const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
@@ -40,6 +41,7 @@ export default function SqlTaskSolve({
   const [retry, setRetry] = useState(null);
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState('');
+  const [lastKind, setLastKind] = useState('');
   const mounted = useRef(true);
   const completed = useRef(new Set());
   const completedCallback = useRef(onCompleted);
@@ -81,6 +83,7 @@ export default function SqlTaskSolve({
   }, [currentDraftKey, source, loading]);
 
   const finish = (kind, data) => {
+    setLastKind(kind);
     setStatus(data.status || data.verdict);
     setResult(ownSnapshot(data.result));
     setError('');
@@ -144,6 +147,7 @@ export default function SqlTaskSolve({
     };
     if (!request.input.sql.trim()) return;
     setSending(true);
+    setLastKind(request.kind);
     setError('');
     setStatus('queued');
     setRetry(request);
@@ -195,6 +199,7 @@ export default function SqlTaskSolve({
     const target = spec.targets.find(item => item.engineProfileId === id);
     setSource(typeof draft === 'string' ? draft : target?.starterSql || '');
     setResult(null);
+    setLastKind('');
     setStatus('');
     setError('');
   };
@@ -210,14 +215,29 @@ export default function SqlTaskSolve({
   const busy = sending || !!receipt;
   const disabled = busy || !!retry || !source.trim() || !engineId;
   const successful = status === 'Accepted';
-  const showFeedback = Boolean(!busy && status && status !== 'Previewed');
+  const showFeedback = Boolean(!busy && status && status !== 'Previewed' && !(lastKind === 'check' && result?.check?.comparison));
   const statusText = busy ? (String(status).toLowerCase() === 'running' ? 'Выполняется…' : 'В очереди…') : '';
 
   const editorCard = (
     <Card className="sql-editor-card">
       <div className="sql-editor-header">
-        <div className="sql-editor-title">Написать SQL</div>
-        <div className="sql-editor-tools">
+        <div className="sql-editor-heading-row">
+          <div className="sql-editor-title">Написать SQL</div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="sql-reset-button"
+            aria-label="Сбросить SQL"
+            title="Сбросить SQL"
+            disabled={busy || !!retry}
+            onClick={() => {
+              if (window.confirm('Восстановить стартовый SQL?')) setSource(target?.starterSql || '');
+            }}
+          >
+            <RotateCcw size={16} />
+          </Button>
+        </div>
+        <div className={`sql-editor-tools${spec.targets.length > 1 ? ' has-engine' : ''}`}>
           {spec.targets.length > 1 ? (
             <Select
               className="sql-engine-select"
@@ -233,25 +253,14 @@ export default function SqlTaskSolve({
           ) : null}
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             className="sql-db-button"
+            aria-label="Открыть базу данных"
+            title="Открыть базу данных"
             onClick={() => navigate(`/assignment/${assignment.id}/database`)}
           >
             <Database size={16} />
-            <span>База данных</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="sql-reset-button"
-            aria-label="Сбросить SQL"
-            title="Сбросить SQL"
-            disabled={busy || !!retry}
-            onClick={() => {
-              if (window.confirm('Восстановить стартовый SQL?')) setSource(target?.starterSql || '');
-            }}
-          >
-            <RotateCcw size={16} />
+            <span>База</span>
           </Button>
         </div>
       </div>
@@ -263,7 +272,7 @@ export default function SqlTaskSolve({
           value={source}
           onChange={value => setSource(value || '')}
           readOnly={sending || !!retry}
-          height={layout === 'editorTop' ? 460 : 380}
+          height={layout === 'editorTop' ? 440 : 280}
           automationId={`sql-source-${assignment.id}`}
         />
       </div>
@@ -285,7 +294,7 @@ export default function SqlTaskSolve({
     </Card>
   );
 
-  const resultCard = result ? <SqlSnapshot snapshot={result} /> : null;
+  const resultCard = result ? (lastKind === 'check' && result?.check?.comparison ? <SqlCheckComparison snapshot={result} /> : <SqlSnapshot snapshot={result} />) : null;
 
   return (
     <div className="sql-task-solve">

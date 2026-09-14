@@ -232,7 +232,20 @@ func TestSQLiteResultAndHiddenAnswerBoundary(t *testing.T) {
 		}
 	}
 	p.Source = "SELECT name FROM products WHERE id=2"
-	requireVerdict(t, h.run(t, "sql-check", p), "WrongAnswer")
+	wrong := h.run(t, "sql-check", p)
+	requireVerdict(t, wrong, "WrongAnswer")
+	check, ok := wrong.Result["check"].(map[string]any)
+	if !ok {
+		t.Fatal("missing public comparison check")
+	}
+	comparison, ok := check["comparison"].(map[string]any)
+	if !ok || comparison["mode"] != "result" || comparison["equivalent"] != false {
+		t.Fatalf("unexpected public comparison: %#v", check["comparison"])
+	}
+	comparisonRaw, _ := json.Marshal(comparison)
+	if strings.Contains(string(comparisonRaw), "book") {
+		t.Fatal("public comparison leaked an expected cell value")
+	}
 	p.Expected = nil
 	p.ExpectedContentHash = nil
 	requireVerdict(t, h.run(t, "sql-preview", p), "Previewed")

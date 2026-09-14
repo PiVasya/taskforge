@@ -288,6 +288,255 @@ func compareResult(actual, expected ResultSet, o Comparison, budget *compareBudg
 	}
 	return true, nil
 }
+
+// PublicComparison returns only structural match metadata. It never includes
+// expected cell values, expected column names, reference SQL or hidden tables.
+// The learner can see where their output differs without turning Check into an
+// answer-retrieval endpoint.
+func PublicComparison(ctx context.Context, actual, expected Artifact, p Payload, passed bool) map[string]any {
+	view := map[string]any{"mode": p.Mode, "equivalent": passed}
+	switch p.Mode {
+	case "result":
+		if actual.Result == nil || expected.Result == nil {
+			return view
+		}
+		view["result"] = publicResultComparison(ctx, *actual.Result, *expected.Result, p.Comparison, passed)
+	case "state":
+		o := p.Comparison
+		o.OrderMatters = false
+		o.DuplicatesMatter = true
+		o.ColumnNamesMatter = true
+		names := make([]string, 0, len(actual.Tables))
+		for name := range actual.Tables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		tableCount := min(len(names), publicComparisonTableLimit)
+		tables := make([]map[string]any, 0, tableCount)
+		actualNames := map[string]bool{}
+		for _, name := range names {
+			actualNames[name] = true
+		}
+		for _, name := range names[:tableCount] {
+			av := actual.Tables[name]
+			bv, ok := expected.Tables[name]
+			if !ok {
+				tables = append(tables, map[string]any{
+					"name": name,
+					"result": map[string]any{
+						"equivalent":       false,
+						"columnMatches":    make([]bool, min(len(av.Columns), publicComparisonColumnLimit)),
+						"rows":             publicExtraRows(av.Rows),
+						"missingRows":      0,
+						"truncatedRows":    max(0, len(av.Rows)-publicComparisonRowLimit),
+						"truncatedColumns": max(0, len(av.Columns)-publicComparisonColumnLimit),
+					},
+				})
+				continue
+			}
+			tables = append(tables, map[string]any{"name": name, "result": publicResultComparison(ctx, av, bv, o, passed)})
+		}
+		missingTables := 0
+		for name := range expected.Tables {
+			if !actualNames[name] {
+				missingTables++
+			}
+		}
+		view["tables"] = tables
+		view["missingTables"] = missingTables
+		view["truncatedTables"] = len(names) - tableCount
+	case "schema":
+		if actual.Schema == nil || expected.Schema == nil {
+			return view
+		}
+		expectedByName := map[string]map[string]any{}
+		for _, raw := range expected.Schema.Tables {
+			if name, ok := raw["name"].(string); ok {
+				expectedByName[name] = raw
+			}
+		}
+		rows := make([]map[string]any, 0, len(actual.Schema.Tables))
+		seen := map[string]bool{}
+		for _, raw := range actual.Schema.Tables {
+			name, _ := raw["name"].(string)
+			other, ok := expectedByName[name]
+			match := ok && sameJSON(raw, other)
+			rows = append(rows, map[string]any{"name": name, "match": match})
+			if ok {
+				seen[name] = true
+			}
+		}
+		missing := 0
+		for name := range expectedByName {
+			if !seen[name] {
+				missing++
+			}
+		}
+		view["schemaTables"] = rows
+		view["missingTables"] = missing
+	}
+	return view
+}
+
+func publicExtraRows(rows [][]Cell) []map[string]any {
+	rowCount := min(len(rows), publicComparisonRowLimit)
+	out := make([]map[string]any, 0, rowCount)
+	for _, row := range rows[:rowCount] {
+		out = append(out, map[string]any{"kind": "extra", "cells": make([]bool, min(len(row), publicComparisonColumnLimit))})
+	}
+	return out
+}
+
+const publicComparisonRowLimit = 80
+const publicComparisonColumnLimit = 32
+const publicComparisonTableLimit = 8
+
+func publicResultComparison(ctx context.Context, actual, expected ResultSet, o Comparison, passed bool) map[string]any {
+	columnCount := min(len(actual.Columns), publicComparisonColumnLimit)
+	columnMatches := make([]bool, columnCount)
+	for i := range columnMatches {
+		columnMatches[i] = i < len(expected.Columns) && (!o.ColumnNamesMatter || actual.Columns[i] == expected.Columns[i])
+	}
+	rowCount := min(len(actual.Rows), publicComparisonRowLimit)
+	truncatedRows := len(actual.Rows) - rowCount
+	truncatedColumns := len(actual.Columns) - columnCount
+	if passed {
+		rows := make([]map[string]any, 0, rowCount)
+		for _, row := range actual.Rows[:rowCount] {
+			cellCount := min(len(row), publicComparisonColumnLimit)
+			cells := make([]bool, cellCount)
+			for i := range cells {
+				cells[i] = true
+			}
+			rows = append(rows, map[string]any{"kind": "match", "cells": cells})
+		}
+		return map[string]any{
+			"equivalent":       true,
+			"columnMatches":    columnMatches,
+			"rows":             rows,
+			"missingRows":      0,
+			"missingColumns":   0,
+			"truncatedRows":    truncatedRows,
+			"truncatedColumns": truncatedColumns,
+		}
+	}
+
+	tol := o.NumericTolerance.String()
+	if tol == "" {
+		tol = "0"
+	}
+	tolerance, err := parseDecimal(tol)
+	if err != nil {
+		tolerance = big.NewRat(0, 1)
+	}
+	budget := &compareBudget{ctx: ctx}
+	used := make([]bool, len(expected.Rows))
+	rows := make([]map[string]any, rowCount)
+
+	pair := func(ai, ei int) ([]bool, int) {
+		a := actual.Rows[ai]
+		b := expected.Rows[ei]
+		cellCount := min(len(a), publicComparisonColumnLimit)
+		cells := make([]bool, cellCount)
+		score := 0
+		for ci := range cells {
+			if ci >= len(b) {
+				continue
+			}
+			if budget.check(1) != nil {
+				continue
+			}
+			ok, e := sameCell(a[ci], b[ci], o, tolerance)
+			if e == nil && ok {
+				cells[ci] = true
+				score++
+			}
+		}
+		return cells, score
+	}
+
+	if o.OrderMatters {
+		for ai := 0; ai < rowCount; ai++ {
+			if ai >= len(expected.Rows) {
+				rows[ai] = map[string]any{"kind": "extra", "cells": make([]bool, min(len(actual.Rows[ai]), publicComparisonColumnLimit))}
+				continue
+			}
+			used[ai] = true
+			cells, score := pair(ai, ai)
+			kind := "different"
+			if len(actual.Rows[ai]) <= publicComparisonColumnLimit && score == len(actual.Rows[ai]) && len(actual.Rows[ai]) == len(expected.Rows[ai]) {
+				kind = "match"
+			}
+			rows[ai] = map[string]any{"kind": kind, "cells": cells}
+		}
+	} else {
+		// First preserve exact row matches, then pair remaining rows by the largest
+		// number of matching cells. The pairing is feedback-only and never affects
+		// the authoritative verdict.
+		for ai, ar := range actual.Rows[:rowCount] {
+			for ei, er := range expected.Rows {
+				if used[ei] {
+					continue
+				}
+				ok, e := sameRow(ar, er, o, tolerance, budget)
+				if e == nil && ok {
+					used[ei] = true
+					cells := make([]bool, min(len(ar), publicComparisonColumnLimit))
+					for i := range cells {
+						cells[i] = true
+					}
+					rows[ai] = map[string]any{"kind": "match", "cells": cells}
+					break
+				}
+			}
+		}
+		for ai := 0; ai < rowCount; ai++ {
+			if rows[ai] != nil {
+				continue
+			}
+			best, bestScore := -1, -1
+			var bestCells []bool
+			for ei := range expected.Rows {
+				if used[ei] {
+					continue
+				}
+				cells, score := pair(ai, ei)
+				if score > bestScore {
+					best, bestScore, bestCells = ei, score, cells
+				}
+			}
+			if best < 0 {
+				rows[ai] = map[string]any{"kind": "extra", "cells": make([]bool, min(len(actual.Rows[ai]), publicComparisonColumnLimit))}
+				continue
+			}
+			used[best] = true
+			rows[ai] = map[string]any{"kind": "different", "cells": bestCells}
+		}
+	}
+
+	missingRows := 0
+	if truncatedRows == 0 {
+		for _, yes := range used {
+			if !yes {
+				missingRows++
+			}
+		}
+	}
+	missingColumns := len(expected.Columns) - len(actual.Columns)
+	if missingColumns < 0 {
+		missingColumns = 0
+	}
+	return map[string]any{
+		"equivalent":       false,
+		"columnMatches":    columnMatches,
+		"rows":             rows,
+		"missingRows":      missingRows,
+		"missingColumns":   missingColumns,
+		"truncatedRows":    truncatedRows,
+		"truncatedColumns": truncatedColumns,
+	}
+}
+
 func canonicalSchema(schema Schema, settings SchemaCheck) (Schema, error) {
 	out := Schema{Tables: []map[string]any{}}
 	byName := map[string]map[string]any{}

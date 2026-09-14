@@ -13,6 +13,7 @@ agent_api = text('services/ai/api/Endpoints/Agent/AgentEndpoints.cs')
 editor = text('apps/web/src/features/sql-task/SqlTaskEditor.jsx')
 sql_solve = text('apps/web/src/features/sql-task/SqlTaskSolve.jsx')
 sql_db_viewer = text('apps/web/src/features/sql-task/SqlDatabaseViewer.jsx')
+sql_compare = text('apps/web/src/features/sql-task/SqlCheckComparison.jsx')
 sql_model = text('apps/web/src/features/sql-task/sqlModel.js')
 tiptap_editor = text('apps/web/src/components/tiptap/StatementEditor.jsx')
 tiptap_viewer = text('apps/web/src/components/tiptap/StatementViewer.jsx')
@@ -55,6 +56,9 @@ assert 'sqlRuntime' not in sql_solve
 assert 'Доступен' not in sql_solve and 'Недоступен' not in sql_solve
 assert '/database' in sql_solve
 assert "from '@tanstack/react-table'" in sql_db_viewer
+assert 'row.getAllCells()' in sql_db_viewer and 'row.getVisibleCells()' not in sql_db_viewer
+assert 'SqlCheckComparison' in sql_solve
+assert 'Ожидалось' in sql_compare and '≠' in sql_compare and 'sql-compare-hidden' in sql_compare
 assert '<Route path="/assignment/:assignmentId/database" element={<SqlDatabasePage />} />' in app
 assert 'const latest = await api.sqlEdit(assignmentId);' in editor
 assert 'case "health", "ready":' in worker

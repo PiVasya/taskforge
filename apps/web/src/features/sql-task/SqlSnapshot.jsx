@@ -40,6 +40,7 @@ export default function SqlSnapshot({ snapshot }) {
   return (
     <Card className="sql-result-card">
       {snapshot.previewError ? <div className="sql-inline-error">{snapshot.previewError.message}</div> : null}
+      {hasResultRows && results.length === 1 ? <div className="sql-result-label">Результат</div> : null}
       {hasResultRows ? results.map((result, index) => (
         <div key={index} className={index ? 'sql-result-block sql-result-block--separated' : 'sql-result-block'}>
           {results.length > 1 ? <div className="sql-result-label">Результат {result.statement ?? index + 1}</div> : null}

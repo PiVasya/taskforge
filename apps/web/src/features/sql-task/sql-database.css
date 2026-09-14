@@ -316,3 +316,20 @@
     max-height: calc(100vh - 20rem);
   }
 }
+
+
+/* SQL database viewer follows TaskForge theme tokens in every visual mode. */
+.sql-db-grid th,
+.sql-db-sort {
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .sql-db-grid th,
+html.neo-brutal .sql-db-sort,
+html.neo-brutal .sql-db-grid th:first-child {
+  color: rgb(var(--neo-ink)) !important;
+}
+
+html.neo-brutal .sql-db-grid {
+  box-shadow: none;
+}

@@ -264,7 +264,12 @@ func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile P
 	if passed {
 		message, verdict = "The solution is correct.", "Accepted"
 	}
-	public["check"] = map[string]any{"mode": p.Mode, "passed": passed, "message": message}
+	public["check"] = map[string]any{
+		"mode":       p.Mode,
+		"passed":     passed,
+		"message":    message,
+		"comparison": PublicComparison(ctx, current, expected, p, passed),
+	}
 	out = Outcome{verdict, public}
 	return
 }
