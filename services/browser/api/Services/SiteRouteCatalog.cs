@@ -20,6 +20,7 @@ public sealed class SiteRouteCatalog
         new("main", "/compiler", "Компилятор", true),
         new("main", "/course/:courseId", "Задания курса", true, "dynamic"),
         new("main", "/assignment/:assignmentId", "Решение задания", true, "dynamic"),
+        new("main", "/assignment/:assignmentId/database", "База данных SQL-задания", true, "dynamic"),
         new("main", "/assignment/:assignmentId/results", "Результаты задания", true, "dynamic"),
         new("main", "/assignment/:assignmentId/image-results", "Результаты задания с изображением", true, "dynamic"),
         new("main", "/assignment/:assignmentId/top", "Лучшие решения задания", true, "dynamic"),

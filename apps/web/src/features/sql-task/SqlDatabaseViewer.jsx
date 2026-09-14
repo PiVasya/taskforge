@@ -1,16 +1,38 @@
 import React, { useMemo, useState } from 'react';
 import {
+  columnFilteringFeature,
+  columnResizingFeature,
+  columnSizingFeature,
+  createFilteredRowModel,
+  createPaginatedRowModel,
+  createSortedRowModel,
+  filterFn_includesString,
   flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
+  globalFilteringFeature,
+  rowPaginationFeature,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  tableFeatures,
+  useTable,
 } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Button, Card, Input, Select } from '../../components/ui';
 import { cellText } from './sqlModel';
 import './sql-database.css';
+
+const databaseTableFeatures = tableFeatures({
+  columnFilteringFeature,
+  globalFilteringFeature,
+  rowSortingFeature,
+  rowPaginationFeature,
+  columnSizingFeature,
+  columnResizingFeature,
+  filteredRowModel: createFilteredRowModel(),
+  sortedRowModel: createSortedRowModel(),
+  paginatedRowModel: createPaginatedRowModel(),
+  filterFns: { includesString: filterFn_includesString },
+  sortFns: { alphanumeric: sortFn_alphanumeric },
+});
 
 function typeLabel(column) {
   const type = column?.nativeType || column?.type || column?.logicalType || '';
@@ -55,14 +77,15 @@ export default function SqlDatabaseViewer({ definition, seed }) {
           const value = info.getValue();
           return <span className={value === 'NULL' ? 'sql-db-null' : ''}>{value}</span>;
         },
-        sortingFn: 'alphanumeric',
+        sortFn: 'alphanumeric',
         minSize: 120,
         size: 180,
       })),
     ];
   }, [selected]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: databaseTableFeatures,
     data,
     columns,
     state: { globalFilter, sorting, pagination },
@@ -70,10 +93,6 @@ export default function SqlDatabaseViewer({ definition, seed }) {
     onSortingChange: setSorting,
     onPaginationChange: setPagination,
     globalFilterFn: 'includesString',
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     columnResizeMode: 'onChange',
   });
 
