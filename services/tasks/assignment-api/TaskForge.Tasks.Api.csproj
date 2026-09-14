@@ -23,5 +23,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/Sql/*.cs" Link="Shared/Sql/%(Filename)%(Extension)" />
+    <Compile Include="../../shared/Realtime/*.cs" Link="Shared/Realtime/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

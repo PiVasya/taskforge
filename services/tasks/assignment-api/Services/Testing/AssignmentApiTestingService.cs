@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Realtime;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -52,7 +53,7 @@ internal static class AssignmentApiTestingService
         return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit));
     }
 
-    internal static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
+    internal static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct)
     {
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
@@ -92,6 +93,7 @@ internal static class AssignmentApiTestingService
         attempt.ReviewJson = new JsonObject { ["questions"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await live.PublishAsync("test", attempt.Id, userId.Value, assignmentId, attempt.Passed ? "Accepted" : "Rejected", attempt.ScorePercent);
         TaskForgeDebugTrace.Map("TEST_ATTEMPT_SAVED",
             ("user", userId.Value),
             ("assignment", assignmentId),

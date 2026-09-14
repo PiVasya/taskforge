@@ -43,3 +43,9 @@ export async function getAdminGroups() {
   const { data } = await api.get('/api/admin/groups');
   return Array.isArray(data) ? data : [];
 }
+
+
+export async function getAdminGroupMemberIds(groupId) {
+  const { data } = await api.get(`/api/admin/groups/${groupId}/members`);
+  return Array.isArray(data?.userIds) ? data.userIds : [];
+}

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Hubs;
+using TaskForge.Realtime;
 
 using TaskForge.Tasks.Api.Endpoints;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -28,6 +29,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<AdminSolutionEventPublisher>();
 builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Sql.SqlValidationDispatcher>();
 builder.Services.AddDbContext<TasksDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<TaskForge.Tasks.Api.Services.Access.CourseMapProjectionService>();

@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Realtime;
 
 using TaskForge.Solutions.Api.Contracts;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
@@ -22,7 +23,7 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapSubmissionsEndpoints(WebApplication app)
     {
-        app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmentId, SubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        app.MapPost("/api/assignments/{assignmentId:guid}/submit", async (Guid assignmentId, SubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, AdminSolutionEventPublisher live, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
@@ -63,6 +64,7 @@ internal static partial class SolutionsApiEndpoints
             };
             db.Submissions.Add(sub);
             await db.SaveChangesAsync(ct);
+            await live.PublishAsync("code", sub.Id, userId.Value, assignmentId, sub.Status, null);
             TaskForgeDebugTrace.Map("SUBMISSION_CREATED",
                 ("submission", sub.Id),
                 ("user", userId.Value),

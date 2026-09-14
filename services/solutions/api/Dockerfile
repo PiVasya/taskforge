@@ -4,6 +4,7 @@ COPY services/solutions/api/TaskForge.Solutions.Api.csproj services/solutions/ap
 RUN dotnet restore services/solutions/api/TaskForge.Solutions.Api.csproj
 COPY services/solutions/api services/solutions/api
 COPY services/shared/Sql services/shared/Sql
+COPY services/shared/Realtime services/shared/Realtime
 RUN dotnet publish services/solutions/api/TaskForge.Solutions.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

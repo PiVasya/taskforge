@@ -61,6 +61,17 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted" });
         });
 
+        app.MapGet("/api/admin/groups/{groupId:guid}/members", async (Guid groupId, EducationDbContext db, CancellationToken ct) =>
+        {
+            var exists = await db.Groups.AsNoTracking().AnyAsync(x => x.Id == groupId, ct);
+            if (!exists) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Группа не найдена.", code = "GROUP_NOT_FOUND" });
+            var userIds = await db.GroupMembers.AsNoTracking()
+                .Where(x => x.GroupId == groupId)
+                .Select(x => x.UserId)
+                .ToListAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { groupId, userIds });
+        });
+
         app.MapPost("/api/admin/groups/{groupId:guid}/members", async (Guid groupId, GroupMemberRequest request, EducationDbContext db) =>
         {
             if (!await db.GroupMembers.AnyAsync(x => x.GroupId == groupId && x.UserId == request.UserId))

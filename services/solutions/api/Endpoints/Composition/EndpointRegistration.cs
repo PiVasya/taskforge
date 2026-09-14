@@ -32,6 +32,7 @@ internal static partial class SolutionsApiEndpoints
         MapQuotasEndpoints(app);
         MapBadgesEndpoints(app);
         MapImageSolutionsEndpoints(app);
+        MapAdminSolutionEventsEndpoints(app);
 
         return app;
     }

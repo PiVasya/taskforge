@@ -17,6 +17,7 @@ import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { handleApiError } from '../../utils/handleApiError';
 import useAdminSolutionsData from './useAdminSolutionsData';
+import useAdminSolutionLiveFeed from './useAdminSolutionLiveFeed';
 import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/AdminSolutionViews';
 import {
   formatDateTime,
@@ -46,11 +47,12 @@ const FILTER_OPTIONS = [
 export default function AdminSolutionsPage() {
   const notify = useNotify();
   const [pageError, setPageError] = useState(null);
-  const [tab, setTab] = useState('code'); 
+  const [tab, setTab] = useState('live');
 
   const [q, setQ] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [userId, setUserId] = useState('');
+  const [groupId, setGroupId] = useState('');
   const [filterDays, setFilterDays] = useState(null);
 
   const [detailsMap, setDetailsMap] = useState({});
@@ -77,12 +79,14 @@ export default function AdminSolutionsPage() {
     mathAttempts,
     groups,
     userGroupIds,
+    selectedGroupUserIds,
     searchLoading,
     listLoading,
     testListLoading,
     imageListLoading,
     mathListLoading,
     groupsLoading,
+    groupMembersLoading,
     error: queryError,
     refetchUsers,
     refetchSolutions,
@@ -95,7 +99,9 @@ export default function AdminSolutionsPage() {
     removeImageSolution,
     removeMathAttempt,
     setUserGroups,
-  } = useAdminSolutionsData({ searchQuery: submittedQuery, userId, filterDays });
+  } = useAdminSolutionsData({ searchQuery: submittedQuery, userId, groupId, filterDays });
+
+  const { items: liveItems, state: liveState } = useAdminSolutionLiveFeed();
 
   const loadUsers = () => {
     const next = q.trim();
@@ -121,7 +127,7 @@ export default function AdminSolutionsPage() {
     setImageDetailsMap({});
     setMathDetailsMap({});
     setGroupToAdd('');
-  }, [filterDays, userId]);
+  }, [filterDays, groupId, userId]);
 
   const displayedSolutions = useMemo(() => {
     const list = [...solutions];
@@ -142,6 +148,62 @@ export default function AdminSolutionsPage() {
   }, [imageSolutions]);
 
   const userGroupSet = useMemo(() => new Set(userGroupIds || []), [userGroupIds]);
+
+  const liveGroupSet = useMemo(
+    () => new Set((selectedGroupUserIds || []).map((id) => String(id))),
+    [selectedGroupUserIds],
+  );
+
+  const displayedLiveItems = useMemo(() => {
+    const since = filterDays && Number(filterDays) > 0
+      ? Date.now() - Number(filterDays) * 24 * 60 * 60 * 1000
+      : null;
+    return (liveItems || []).filter((item) => {
+      if (userId && String(item.userId) !== String(userId)) return false;
+      if (groupId && !liveGroupSet.has(String(item.userId))) return false;
+      if (since && new Date(item.occurredAtUtc || 0).getTime() < since) return false;
+      return true;
+    });
+  }, [filterDays, groupId, liveGroupSet, liveItems, userId]);
+
+  const visibleLiveItems = useMemo(() => {
+    if (tab === 'groups') return [];
+    if (tab === 'code') return displayedLiveItems.filter((item) => ['code', 'sql'].includes(String(item.kind || '').toLowerCase()));
+    if (tab === 'tests') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'test');
+    if (tab === 'images') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'image');
+    if (tab === 'math') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'math');
+    return displayedLiveItems;
+  }, [displayedLiveItems, tab]);
+
+  const liveStateLabel = liveState === 'live'
+    ? 'В эфире'
+    : liveState === 'reconnecting'
+      ? 'Переподключение'
+      : 'Подключение';
+
+  const liveKindLabel = (kind) => {
+    const value = String(kind || '').toLowerCase();
+    if (value === 'sql') return 'SQL';
+    if (value === 'test') return 'Тест';
+    if (value === 'math') return 'Математика';
+    if (value === 'image') return 'Картинка';
+    return 'Код';
+  };
+
+  const liveStatusLabel = (status) => {
+    const value = String(status || '').trim().toLowerCase();
+    if (!value) return null;
+    if (['accepted', 'passed', 'success'].includes(value)) return 'Принято';
+    if (['rejected', 'wronganswer', 'wrong_answer', 'failed'].includes(value)) return 'Не принято';
+    if (['preparing', 'queued', 'running', 'pending', 'judging'].includes(value)) return 'Проверяется';
+    if (value === 'compileerror' || value === 'compile_error') return 'Ошибка компиляции';
+    if (value === 'runtimeerror' || value === 'runtime_error') return 'Ошибка выполнения';
+    if (value === 'timelimitexceeded' || value === 'time_limit_exceeded') return 'Лимит времени';
+    if (value === 'outputlimitexceeded' || value === 'output_limit_exceeded') return 'Лимит вывода';
+    if (value === 'judgeunavailable' || value === 'judge_unavailable') return 'Проверка недоступна';
+    if (value === 'policyfailed' || value === 'policy_failed') return 'Отклонено';
+    return status;
+  };
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -315,12 +377,15 @@ export default function AdminSolutionsPage() {
   return (
     <>
       <div className="py-6 space-y-4 min-w-0">
-        <h1 className="text-2xl font-semibold">Управление пользователями</h1>
+        <h1 className="text-2xl font-semibold">Лента решений</h1>
 
         {pageError || queryError ? <AppErrorPanel error={pageError || queryError} title="Не удалось загрузить админ-раздел" /> : null}
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant={tab === 'live' ? 'primary' : 'outline'} onClick={() => setTab('live')}>
+              В эфире
+            </Button>
             <Button variant={tab === 'code' ? 'primary' : 'outline'} onClick={() => setTab('code')}>
               Код
             </Button>
@@ -338,7 +403,7 @@ export default function AdminSolutionsPage() {
             </Button>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.25fr)_minmax(180px,0.55fr)_auto] items-end">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 items-end">
             <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Поиск пользователя
@@ -363,11 +428,33 @@ export default function AdminSolutionsPage() {
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Пользователь
               </div>
-              <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
+              <Select value={userId} onChange={(e) => {
+                const next = e.target.value;
+                setUserId(next);
+                if (next) setGroupId('');
+              }}>
                 <option value="">— не выбрано —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.email} ({u.firstName} {u.lastName})
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="space-y-1 min-w-0">
+              <div className="text-xs uppercase tracking-wide text-neutral-500">
+                Группа
+              </div>
+              <Select value={groupId} onChange={(e) => {
+                const next = e.target.value;
+                setGroupId(next);
+                if (next) setUserId('');
+              }}>
+                <option value="">— все группы —</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name || group.title || group.code || group.id}
                   </option>
                 ))}
               </Select>
@@ -392,8 +479,8 @@ export default function AdminSolutionsPage() {
               </Select>
             </div>
 
-            <div className="flex flex-wrap items-end gap-2 min-w-0">
-              <Button
+            <div className="flex flex-wrap items-end gap-2 min-w-0 md:col-span-2 xl:col-span-4">
+              {tab !== 'live' && <Button
                 onClick={() => {
                   if (tab === 'tests') return refetchTests();
                   if (tab === 'images') return refetchImages();
@@ -412,7 +499,7 @@ export default function AdminSolutionsPage() {
                       : tab === 'groups'
                         ? 'Обновить группы'
                         : 'Загрузить решения'}
-              </Button>
+              </Button>}
               {tab === 'code' && (
                 <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
                   Удалить все решения
@@ -429,6 +516,43 @@ export default function AdminSolutionsPage() {
             </div>
           )}
         </Card>
+
+        {tab !== 'groups' && (
+          <Card className="p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-medium">Новые решения</div>
+              <Badge intent={liveState === 'live' ? 'success' : 'secondary'}>{liveStateLabel}</Badge>
+            </div>
+
+            {groupMembersLoading ? (
+              <div className="text-sm text-neutral-600 dark:text-neutral-300">Загружаю состав группы…</div>
+            ) : null}
+
+            {!groupMembersLoading && visibleLiveItems.length === 0 ? (
+              <CompactEmpty>Новые решения появятся здесь сразу после отправки.</CompactEmpty>
+            ) : null}
+
+            <div className="space-y-2">
+              {!groupMembersLoading && visibleLiveItems.map((item) => (
+                <div key={item.key} className="rounded-xl border border-neutral-200 dark:border-neutral-800/40 bg-[rgb(var(--card))] p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{item.assignmentTitle}</div>
+                      <div className="text-xs text-neutral-600 dark:text-neutral-400">
+                        {item.userLabel} • {formatDateTime(item.occurredAtUtc)}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge intent="secondary">{liveKindLabel(item.kind)}</Badge>
+                      {liveStatusLabel(item.status) ? <Badge>{liveStatusLabel(item.status)}</Badge> : null}
+                      {item.score != null && Number.isFinite(Number(item.score)) ? <Badge intent="secondary">{Number(item.score)}%</Badge> : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {tab === 'code' && listLoading && (
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>

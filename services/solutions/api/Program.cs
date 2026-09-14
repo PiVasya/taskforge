@@ -6,6 +6,8 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Solutions.Api.Services.Realtime;
+using TaskForge.Realtime;
 
 using TaskForge.Solutions.Api.Endpoints;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
@@ -24,6 +26,9 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<AdminSolutionEventPublisher>();
+builder.Services.AddSingleton<AdminSolutionEventBroker>();
+builder.Services.AddHostedService<AdminSolutionEventBroker>(sp => sp.GetRequiredService<AdminSolutionEventBroker>());
 builder.Services.AddDbContext<SolutionsDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddHostedService<TaskForge.Solutions.Api.Services.Sql.SqlSubmissionDispatcher>();
 

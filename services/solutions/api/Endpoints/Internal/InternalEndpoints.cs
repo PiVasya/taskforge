@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Realtime;
 
 using TaskForge.Solutions.Api.Contracts;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
@@ -53,7 +54,7 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, refunded = true, quota, request.Reason });
         });
 
-        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, CancellationToken ct) =>
         {
             var sub = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
             if (sub == null)
@@ -100,6 +101,8 @@ internal static partial class SolutionsApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
+            if (sub.UserId.HasValue)
+                await live.PublishAsync("code", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
             TaskForgeDebugTrace.Map("VERDICT_SAVED",
                 ("submission", submissionId),
                 ("user", sub.UserId),

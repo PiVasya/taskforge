@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Realtime;
 
 using TaskForge.Solutions.Api.Contracts;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
@@ -62,7 +63,7 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
         });
 
-        app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest request, SolutionsDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/internal/image-solutions", async (InternalImageSolutionRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, CancellationToken ct) =>
         {
             if (request.UserId == Guid.Empty || request.AssignmentId == Guid.Empty)
             {
@@ -84,6 +85,7 @@ internal static partial class SolutionsApiEndpoints
             db.ImageSolutions.Add(row);
             await MarkRatingDirtyAsync(db, row.UserId, "image-solution", row.AssignmentId, ct);
             await db.SaveChangesAsync(ct);
+            await live.PublishAsync("image", row.Id, row.UserId, row.AssignmentId, row.Passed ? "Accepted" : "Rejected", row.SimilarityPercent);
             TaskForgeDebugTrace.Map("IMAGE_SOLUTION_SAVED",
                 ("solution", row.Id),
                 ("user", row.UserId),

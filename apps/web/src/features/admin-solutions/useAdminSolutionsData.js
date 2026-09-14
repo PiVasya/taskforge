@@ -6,7 +6,7 @@ import {
   getUserImageSolutions,
 } from '../../api/admin';
 import { getUserTaskTestAttempts } from '../../api/taskTestAttempts';
-import { getAdminGroups } from '../../api/groups';
+import { getAdminGroups, getAdminGroupMemberIds } from '../../api/groups';
 import { getUserMathAttempts } from '../../api/mathTaskAttempts';
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
@@ -15,10 +15,11 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-export default function useAdminSolutionsData({ searchQuery, userId, filterDays }) {
+export default function useAdminSolutionsData({ searchQuery, userId, groupId, filterDays }) {
   const queryClient = useQueryClient();
   const normalizedSearch = String(searchQuery || '').trim();
   const normalizedUserId = String(userId || '').trim();
+  const normalizedGroupId = String(groupId || '').trim();
   const normalizedDays = filterDays == null ? null : Number(filterDays);
 
   const usersKey = useMemo(
@@ -45,6 +46,10 @@ export default function useAdminSolutionsData({ searchQuery, userId, filterDays 
   const userGroupsKey = useMemo(
     () => ['admin-solutions', 'user-groups', normalizedUserId],
     [normalizedUserId],
+  );
+  const selectedGroupMembersKey = useMemo(
+    () => ['admin-solutions', 'group-members', normalizedGroupId],
+    [normalizedGroupId],
   );
 
   const usersQuery = useQuery({
@@ -102,6 +107,14 @@ export default function useAdminSolutionsData({ searchQuery, userId, filterDays 
     keepPreviousData: true,
   });
 
+  const selectedGroupMembersQuery = useQuery({
+    queryKey: selectedGroupMembersKey,
+    queryFn: () => getAdminGroupMemberIds(normalizedGroupId),
+    enabled: normalizedGroupId.length > 0,
+    staleTime: 15_000,
+    keepPreviousData: true,
+  });
+
   const removeCodeSolution = (id) => {
     queryClient.setQueryData(codeKey, (current) => asArray(current).filter((item) => item?.id !== id));
   };
@@ -123,12 +136,13 @@ export default function useAdminSolutionsData({ searchQuery, userId, filterDays 
 
   return {
     users: asArray(usersQuery.data),
-    solutions: asArray(codeQuery.data),
-    testAttempts: asArray(testsQuery.data),
-    imageSolutions: asArray(imagesQuery.data),
-    mathAttempts: asArray(mathQuery.data),
+    solutions: normalizedUserId ? asArray(codeQuery.data) : [],
+    testAttempts: normalizedUserId ? asArray(testsQuery.data) : [],
+    imageSolutions: normalizedUserId ? asArray(imagesQuery.data) : [],
+    mathAttempts: normalizedUserId ? asArray(mathQuery.data) : [],
     groups: asArray(groupsQuery.data),
-    userGroupIds: asArray(userGroupsQuery.data),
+    userGroupIds: normalizedUserId ? asArray(userGroupsQuery.data) : [],
+    selectedGroupUserIds: asArray(selectedGroupMembersQuery.data),
 
     searchLoading: usersQuery.isFetching,
     listLoading: codeQuery.isFetching,
@@ -136,6 +150,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, filterDays 
     imageListLoading: imagesQuery.isFetching,
     mathListLoading: mathQuery.isFetching,
     groupsLoading: groupsQuery.isFetching,
+    groupMembersLoading: selectedGroupMembersQuery.isFetching,
 
     error:
       usersQuery.error ||
@@ -145,6 +160,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, filterDays 
       mathQuery.error ||
       groupsQuery.error ||
       userGroupsQuery.error ||
+      selectedGroupMembersQuery.error ||
       null,
 
     refetchUsers: usersQuery.refetch,
