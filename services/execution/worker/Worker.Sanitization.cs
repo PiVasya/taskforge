@@ -13,7 +13,7 @@ public sealed partial class Worker
     private static readonly Regex TmpGoBuildPathRegex = new(@"/tmp/go-build[^\s:]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex AppPathRegex = new(@"/app/[^\s:]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static string SanitizeRunnerText(string? value)
+    internal static string SanitizeRunnerText(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return value ?? string.Empty;
         var s = TmpTaskforgePathRegex.Replace(value, "[временный файл]");
@@ -33,7 +33,7 @@ public sealed partial class Worker
         return s;
     }
 
-    private static JsonElement SanitizeRunnerPayload(JsonElement root)
+    internal static JsonElement SanitizeRunnerPayload(JsonElement root)
     {
         try
         {
@@ -132,7 +132,7 @@ public sealed partial class Worker
         return false;
     }
 
-    private static bool IsJudgeUnavailableResult(JsonElement item)
+    internal static bool IsJudgeUnavailableResult(JsonElement item)
     {
         if (item.ValueKind != JsonValueKind.Object) return false;
 
@@ -145,7 +145,7 @@ public sealed partial class Worker
         return ContainsRunnerInfrastructureDiagnostic(item);
     }
 
-    private static bool IsJudgeUnavailableRoot(JsonElement root)
+    internal static bool IsJudgeUnavailableRoot(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return false;
 
@@ -193,7 +193,7 @@ public sealed partial class Worker
         return false;
     }
 
-    private static bool IsRunnerInfrastructureDiagnostic(string? value)
+    internal static bool IsRunnerInfrastructureDiagnostic(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
 

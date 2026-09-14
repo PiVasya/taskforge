@@ -9,7 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 
 public static class TaskForgeRequestSecurity
 {
-    private enum Requirement
+    internal enum Requirement
     {
         Public,
         Authenticated,
@@ -90,7 +90,7 @@ public static class TaskForgeRequestSecurity
         });
     }
 
-    private static Requirement GetRequirement(string service, string method, string path)
+    internal static Requirement GetRequirement(string service, string method, string path)
     {
         if (path is "" or "/" || path.StartsWith("/health") || path.StartsWith("/swagger")) return Requirement.Public;
         if (!path.StartsWith("/api") && !path.StartsWith("/hubs")) return Requirement.Public;

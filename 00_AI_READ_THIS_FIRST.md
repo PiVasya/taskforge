@@ -147,6 +147,14 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 - Breeze Elytra remains chance-based through `extra-loot.breeze.drops.elytra.chance` (default `0.05` = 5%); never force it to 100%. Preserve direct, projectile, and short delayed-death player attribution and event-driven `[loot]` roll diagnostics.
 - The maintained Minecraft plugins are exactly `TaskForgeLink` and `CustomMobTweaks`; do not reintroduce WorldLoaderFolia or DefaultGroupAssigner.
 
+## Testing architecture invariants
+
+- Test **behavior with executable tests against production code**, not by grepping for exact implementation strings, local variable names, method layout, comments, or formatting. A harmless refactor must not make CI red when behavior is unchanged.
+- Static/source checks are reserved for properties that are inherently structural: migration/source-retention boundaries, workflow/Docker matrix alignment, container/secret/network hardening, forbidden runtime dependencies, and deployment configuration wiring. Do not move business behavior back into static source-grep checkers.
+- Canonical suites are `scripts/tests/dotnet.sh` for .NET behavior, `scripts/tests/frontend.sh` for frontend behavior plus the production build, and `scripts/tests/repository.sh` for repository/release boundaries. SQL additionally keeps `scripts/check-sql-go.sh` and the real Docker provider gate `scripts/sql/test-engines.sh`; OJ and Browser keep their dedicated security suites.
+- `scripts/ci/check-csharp-source-invariants.py` and `scripts/ci/check-authoring-regressions.py` are legacy compatibility entrypoints only. Active CI must not use them as source-grep policy engines or accumulate new assertions there.
+- A regression fix should normally add a test that would have failed before the fix. Streaming regressions must test bytes becoming visible before request completion; privacy regressions must test persisted/in-memory user state; provider lifecycle/recovery must be covered by real-engine integration tests rather than mocks alone.
+
 ## OJ security invariants
 
 - Пользовательский код нельзя отправлять в runner без успешного `code-analyzer` и его действующей RSA-аттестации точного исходника. Любая недоступность анализатора, подписи или public key обрабатывается fail-closed.

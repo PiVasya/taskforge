@@ -43,12 +43,29 @@ def full_rebuild_matrix_entries() -> dict[str, str]:
 
 
 def project_dockerfiles() -> set[str]:
-    ignored_prefixes = ()
+    # The integrity check is about TaskForge-owned build inputs. A developer may
+    # legitimately have npm/.NET/test outputs in the working tree after running
+    # the canonical suites; Dockerfiles shipped by dependencies or generated
+    # outputs must not suddenly become "missing" workflow images.
+    ignored_parts = {
+        ".git",
+        ".cache",
+        ".venv",
+        "venv",
+        "node_modules",
+        "bin",
+        "obj",
+        "build",
+        "dist",
+        "coverage",
+        "__pycache__",
+    }
     files = set()
     for path in ROOT.rglob("Dockerfile"):
-        rel = norm(path.relative_to(ROOT))
-        if rel.startswith(ignored_prefixes):
+        relative = path.relative_to(ROOT)
+        if any(part in ignored_parts for part in relative.parts[:-1]):
             continue
+        rel = norm(relative)
         files.add(rel)
     return files
 
@@ -112,6 +129,58 @@ def main() -> int:
     matrix_not_prod = sorted(set(matrix) - prod)
     if matrix_not_prod:
         errors.append("Matrix images not used by prod compose:\n  " + "\n  ".join(matrix_not_prod))
+
+    required_test_jobs = {
+        "workflow-integrity",
+        "dotnet-behavior-tests",
+        "frontend-tests",
+        "oj-security-invariants",
+        "browser-security-invariants",
+        "sql-runtime-check",
+        "compose-check",
+    }
+    required_build_needs = set(required_test_jobs)
+    for workflow_path in (WORKFLOW, FULL_REBUILD_WORKFLOW):
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        job_names = set(re.findall(r"^  ([a-z0-9][a-z0-9-]*):\n    runs-on:", workflow_text, re.MULTILINE))
+        missing_jobs = sorted(required_test_jobs - job_names)
+        if missing_jobs:
+            errors.append(f"{workflow_path.name} misses required test jobs: " + ", ".join(missing_jobs))
+        if "check-csharp-source-invariants.py" in workflow_text or "check-authoring-regressions.py" in workflow_text:
+            errors.append(f"{workflow_path.name} still runs a retired source-grep regression checker")
+
+        required_commands = {
+            "workflow-integrity": ("bash scripts/tests/repository.sh",),
+            "dotnet-behavior-tests": ("bash scripts/tests/dotnet.sh",),
+            "frontend-tests": ("bash scripts/tests/frontend.sh",),
+            "oj-security-invariants": ("bash scripts/security/check-oj-security.sh",),
+            "browser-security-invariants": ("bash scripts/security/check-browser-api-security.sh",),
+            "sql-runtime-check": ("bash ./scripts/check-sql-update.sh", "bash ./scripts/sql/test-engines.sh"),
+            "compose-check": ("bash scripts/tests/compose.sh",),
+        }
+        for job_name, commands in required_commands.items():
+            job_match = re.search(
+                rf"^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)",
+                workflow_text,
+                re.MULTILINE | re.DOTALL,
+            )
+            body = job_match.group("body") if job_match is not None else ""
+            for command in commands:
+                if command not in body:
+                    errors.append(f"{workflow_path.name} {job_name} does not run canonical suite: {command}")
+
+        build_match = re.search(r"^  build:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)", workflow_text, re.MULTILINE | re.DOTALL)
+        if not build_match:
+            errors.append(f"{workflow_path.name} has no build job")
+            continue
+        needs_match = re.search(r"^    needs: \[(?P<items>[^]]+)\]", build_match.group("body"), re.MULTILINE)
+        if not needs_match:
+            errors.append(f"{workflow_path.name} build job has no explicit needs list")
+            continue
+        build_needs = {item.strip() for item in needs_match.group("items").split(",")}
+        missing_needs = sorted(required_build_needs - build_needs)
+        if missing_needs:
+            errors.append(f"{workflow_path.name} build does not wait for: " + ", ".join(missing_needs))
 
     if errors:
         print("\n\n".join(errors), file=sys.stderr)

@@ -129,7 +129,7 @@ internal static class SolutionsApiCommonService
         if (item.TryGetProperty("status", out var status))
         {
             var value = NormalizeStatusKey(status.ToString());
-            return value is "accepted" or "passed" or "success";
+            return value is "ok" or "accepted" or "passed" or "success";
         }
         return false;
     }

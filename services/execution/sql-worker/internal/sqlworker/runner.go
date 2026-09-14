@@ -79,8 +79,10 @@ func (r *JobRunner) executeOnce(ctx context.Context, a EngineAdapter, p Payload,
 	slog.Debug("sql_sandbox_leased", "engine", a.Engine(), "materialization", p.MaterializationKey, "sandbox", lease.Sandbox.ID)
 	defer func() {
 		if cleanup := lease.Release(); cleanup != nil {
-			snapshot = EmptySnapshot()
-			err = cleanup
+			// Release already quarantines the sandbox and schedules bounded janitor
+			// cleanup. Do not replace an execution result (especially a learner
+			// timeout/runtime error) with a secondary teardown failure.
+			slog.Warn("sql_cleanup_deferred", "engine", a.Engine(), "materialization", p.MaterializationKey)
 		}
 	}()
 	done := r.Metrics.Measure("sql_db_execution", a.Engine())

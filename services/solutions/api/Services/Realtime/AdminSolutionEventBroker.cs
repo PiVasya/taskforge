@@ -97,7 +97,7 @@ internal sealed class AdminSolutionEventBroker(IServiceProvider services, ILogge
         if (_subscribers.TryRemove(subscriptionId, out var channel)) channel.Writer.TryComplete();
     }
 
-    private void Broadcast(AdminSolutionEvent evt)
+    internal void Broadcast(AdminSolutionEvent evt)
     {
         lock (_gate)
         {

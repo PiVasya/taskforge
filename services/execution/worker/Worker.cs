@@ -292,7 +292,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         return RunnerResult.Error("JudgeUnavailable", "Runner temporarily unavailable.");
     }
 
-    private static bool IsTransientRunnerStatus(System.Net.HttpStatusCode statusCode)
+    internal static bool IsTransientRunnerStatus(System.Net.HttpStatusCode statusCode)
     {
         var code = (int)statusCode;
         return code == 408 || code == 429 || code >= 500;

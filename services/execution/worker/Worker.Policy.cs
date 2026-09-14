@@ -30,7 +30,7 @@ public sealed partial class Worker
         }
     }
 
-    private static string BuildPolicyMessage(JsonElement root)
+    internal static string BuildPolicyMessage(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
         {

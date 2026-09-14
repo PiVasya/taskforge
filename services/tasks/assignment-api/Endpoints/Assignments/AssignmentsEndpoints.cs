@@ -60,7 +60,7 @@ internal static partial class AssignmentApiEndpoints
     }
 
 
-    private static bool ReadFreshMapRequest(HttpContext http)
+    internal static bool ReadFreshMapRequest(HttpContext http)
     {
         var raw = http.Request.Query["fresh"].ToString().Trim();
         if (raw.Length == 0) return false;

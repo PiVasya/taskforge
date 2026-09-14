@@ -170,8 +170,12 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 		snapshotFailure(&out, e)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.Limits.TimeoutMS)*time.Millisecond)
-	defer cancel()
+
+	// Infrastructure setup has its own bounded budget. Learner execution time starts
+	// only after the disposable connection, runtime identity and mandatory isolation
+	// are ready; otherwise a 100 ms learner limit can be mostly consumed by setup.
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), time.Second)
+	defer setupCancel()
 	cfg := req.Connection
 	cfg.Create = false
 	cfg.TimeoutMS = req.Limits.TimeoutMS
@@ -181,18 +185,28 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 		return
 	}
 	defer conn.Close()
-	s := &querySession{conn, ctx, req.Engine, cfg.Database, req.Limits}
+	s := &querySession{conn, setupCtx, req.Engine, cfg.Database, req.Limits}
+	setupFailure := func(err error) error {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return Unavailable("The disposable SQL sandbox setup exceeded its bounded internal deadline.")
+		}
+		return err
+	}
 	if req.EngineVersion == "" {
 		snapshotFailure(&out, Unavailable("Missing pinned engine version."))
 		return
 	}
 	actual := native.LibraryVersions()["sqlite"]
 	if req.Engine == "postgresql" {
-		actual, e = readScalar(ctx, conn, "SHOW server_version")
+		actual, e = readScalar(setupCtx, conn, "SHOW server_version")
 	} else if req.Engine == "mysql" {
-		actual, e = readScalar(ctx, conn, "SELECT VERSION()")
+		actual, e = readScalar(setupCtx, conn, "SELECT VERSION()")
 	}
-	if e != nil || actual != req.EngineVersion {
+	if e != nil {
+		snapshotFailure(&out, setupFailure(e))
+		return
+	}
+	if actual != req.EngineVersion {
 		snapshotFailure(&out, RecoverCache("The connected engine no longer matches the pinned runtime profile."))
 		return
 	}
@@ -200,23 +214,23 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 	if req.Engine == "sqlite" {
 		for _, sql := range []string{"PRAGMA trusted_schema=OFF", "PRAGMA foreign_keys=ON", "PRAGMA journal_mode=MEMORY", "PRAGMA temp_store=MEMORY", "PRAGMA synchronous=OFF", "PRAGMA cell_size_check=ON", "PRAGMA max_page_count=16384"} {
 			if _, e = s.Meta(sql); e != nil {
-				snapshotFailure(&out, e)
+				snapshotFailure(&out, setupFailure(e))
 				return
 			}
 		}
 		rows, err := s.Meta("PRAGMA quick_check")
 		if err != nil || len(rows) != 1 || rows[0][0].Text != "ok" {
-			snapshotFailure(&out, Unavailable("The disposable SQLite database failed integrity validation."))
-			return
-		}
-		if e = conn.ConfigureSQLite(req.Limits.MaxBytes, req.Limits.TimeoutMS); e != nil {
-			snapshotFailure(&out, e)
+			if err != nil {
+				snapshotFailure(&out, setupFailure(err))
+			} else {
+				snapshotFailure(&out, Unavailable("The disposable SQLite database failed integrity validation."))
+			}
 			return
 		}
 	} else if req.Engine == "mysql" {
 		for _, sql := range []string{fmt.Sprintf("SET SESSION max_execution_time=%d", req.Limits.TimeoutMS), "SET SESSION tmp_table_size=16777216", "SET SESSION max_heap_table_size=16777216", "SET SESSION cte_max_recursion_depth=1000"} {
 			if _, e = s.Meta(sql); e != nil {
-				snapshotFailure(&out, e)
+				snapshotFailure(&out, setupFailure(e))
 				return
 			}
 		}
@@ -226,8 +240,22 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 		snapshotFailure(&out, Unavailable("The mandatory all-thread query isolation policy could not be installed."))
 		return
 	}
+	setupCancel()
+
+	// This is the learner-visible SQL execution budget. Server-side PostgreSQL and
+	// MySQL statement limits remain pinned to the same contract, while this context
+	// bounds the whole script. SQLite installs its progress deadline at this point,
+	// not during sandbox setup.
+	executionCtx, executionCancel := context.WithTimeout(context.Background(), time.Duration(req.Limits.TimeoutMS)*time.Millisecond)
+	s.ctx = executionCtx
 	if req.Engine == "sqlite" {
+		if e = conn.ConfigureSQLite(req.Limits.MaxBytes, req.Limits.TimeoutMS); e != nil {
+			executionCancel()
+			snapshotFailure(&out, e)
+			return
+		}
 		if e = conn.AuthorizeSQLite(true); e != nil {
+			executionCancel()
 			snapshotFailure(&out, e)
 			return
 		}
@@ -235,7 +263,7 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 	started := time.Now()
 	remaining := req.Limits.MaxBytes
 	for index, stmt := range statements {
-		r, err := conn.Query(ctx, stmt.SQL, req.Limits.MaxRows, max(1, remaining))
+		r, err := conn.Query(executionCtx, stmt.SQL, req.Limits.MaxRows, max(1, remaining))
 		if err != nil {
 			snapshotFailure(&out, err)
 			break
@@ -257,8 +285,22 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 		}
 	}
 	out.ExecutionMS = time.Since(started).Milliseconds()
+	executionCancel()
 	if req.Engine == "sqlite" {
 		if e = conn.AuthorizeSQLite(false); e != nil {
+			snapshotFailure(&out, e)
+			return
+		}
+	}
+
+	// Result/schema inspection is generated by TaskForge, not learner SQL. Give it
+	// a separate small infrastructure budget so it neither steals learner execution
+	// time nor turns a completed query into a fake learner timeout.
+	inspectionCtx, inspectionCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer inspectionCancel()
+	s.ctx = inspectionCtx
+	if req.Engine == "sqlite" {
+		if e = conn.ConfigureSQLite(req.Limits.MaxBytes, 500); e != nil {
 			snapshotFailure(&out, e)
 			return
 		}
@@ -267,6 +309,9 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 	e = inspectSnapshot(s, req, &out)
 	out.InspectionMS = time.Since(inspectionStart).Milliseconds()
 	if e != nil {
+		if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
+			e = Unavailable("The SQL result inspection exceeded its bounded internal deadline.")
+		}
 		f := NormalizeFailure(e)
 		out.PreviewError = &f.PublicError
 		if out.Error == nil && (req.Mode == "state" || req.Mode == "schema") {
@@ -275,6 +320,7 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 	}
 	return
 }
+
 func inspectSnapshot(s *querySession, req ChildRequest, out *Snapshot) error {
 	schema, e := InspectSchema(s, req.Engine)
 	if e != nil {

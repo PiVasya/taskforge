@@ -18,6 +18,13 @@ import AppErrorPanel from '../../components/AppErrorPanel';
 import { handleApiError } from '../../utils/handleApiError';
 import useAdminSolutionsData from './useAdminSolutionsData';
 import useAdminSolutionLiveFeed from './useAdminSolutionLiveFeed';
+import {
+  filterLiveItems,
+  filterLiveItemsByTab,
+  solutionKindLabel,
+  solutionLiveStateLabel,
+  solutionStatusLabel,
+} from './adminSolutionLiveModel';
 import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/AdminSolutionViews';
 import {
   formatDateTime,
@@ -149,61 +156,21 @@ export default function AdminSolutionsPage() {
 
   const userGroupSet = useMemo(() => new Set(userGroupIds || []), [userGroupIds]);
 
-  const liveGroupSet = useMemo(
-    () => new Set((selectedGroupUserIds || []).map((id) => String(id))),
-    [selectedGroupUserIds],
+  const displayedLiveItems = useMemo(() => filterLiveItems(liveItems, {
+    userId,
+    groupId,
+    groupUserIds: selectedGroupUserIds,
+    filterDays,
+  }), [filterDays, groupId, liveItems, selectedGroupUserIds, userId]);
+
+  const visibleLiveItems = useMemo(
+    () => filterLiveItemsByTab(displayedLiveItems, tab),
+    [displayedLiveItems, tab],
   );
 
-  const displayedLiveItems = useMemo(() => {
-    const since = filterDays && Number(filterDays) > 0
-      ? Date.now() - Number(filterDays) * 24 * 60 * 60 * 1000
-      : null;
-    return (liveItems || []).filter((item) => {
-      if (userId && String(item.userId) !== String(userId)) return false;
-      if (groupId && !liveGroupSet.has(String(item.userId))) return false;
-      if (since && new Date(item.occurredAtUtc || 0).getTime() < since) return false;
-      return true;
-    });
-  }, [filterDays, groupId, liveGroupSet, liveItems, userId]);
-
-  const visibleLiveItems = useMemo(() => {
-    if (tab === 'groups') return [];
-    if (tab === 'code') return displayedLiveItems.filter((item) => ['code', 'sql'].includes(String(item.kind || '').toLowerCase()));
-    if (tab === 'tests') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'test');
-    if (tab === 'images') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'image');
-    if (tab === 'math') return displayedLiveItems.filter((item) => String(item.kind || '').toLowerCase() === 'math');
-    return displayedLiveItems;
-  }, [displayedLiveItems, tab]);
-
-  const liveStateLabel = liveState === 'live'
-    ? 'В эфире'
-    : liveState === 'reconnecting'
-      ? 'Переподключение'
-      : 'Подключение';
-
-  const liveKindLabel = (kind) => {
-    const value = String(kind || '').toLowerCase();
-    if (value === 'sql') return 'SQL';
-    if (value === 'test') return 'Тест';
-    if (value === 'math') return 'Математика';
-    if (value === 'image') return 'Картинка';
-    return 'Код';
-  };
-
-  const liveStatusLabel = (status) => {
-    const value = String(status || '').trim().toLowerCase();
-    if (!value) return null;
-    if (['accepted', 'passed', 'success'].includes(value)) return 'Принято';
-    if (['rejected', 'wronganswer', 'wrong_answer', 'failed'].includes(value)) return 'Не принято';
-    if (['preparing', 'queued', 'running', 'pending', 'judging'].includes(value)) return 'Проверяется';
-    if (value === 'compileerror' || value === 'compile_error') return 'Ошибка компиляции';
-    if (value === 'runtimeerror' || value === 'runtime_error') return 'Ошибка выполнения';
-    if (value === 'timelimitexceeded' || value === 'time_limit_exceeded') return 'Лимит времени';
-    if (value === 'outputlimitexceeded' || value === 'output_limit_exceeded') return 'Лимит вывода';
-    if (value === 'judgeunavailable' || value === 'judge_unavailable') return 'Проверка недоступна';
-    if (value === 'policyfailed' || value === 'policy_failed') return 'Отклонено';
-    return status;
-  };
+  const liveStateLabel = solutionLiveStateLabel(liveState);
+  const liveKindLabel = solutionKindLabel;
+  const liveStatusLabel = solutionStatusLabel;
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {

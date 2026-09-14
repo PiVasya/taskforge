@@ -237,12 +237,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check Docker workflow integrity
-        run: python3 scripts/ci/check-workflow-integrity.py
-      - name: Check C# source invariants
-        run: python3 scripts/ci/check-csharp-source-invariants.py
-      - name: Check N-node cluster invariants
-        run: bash scripts/ci/check-cluster-ha.sh
+      - name: Check repository and release boundaries
+        run: bash scripts/tests/repository.sh
+
+  dotnet-behavior-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run .NET behavior tests
+        run: bash scripts/tests/dotnet.sh
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Run frontend behavior tests and production build
+        run: bash scripts/tests/frontend.sh
 
   minecraft-link-invariants:
     runs-on: ubuntu-latest
@@ -286,9 +304,6 @@ jobs:
       - name: Compile Browser API before Docker build
         run: bash scripts/ci/check-browser-api-build.sh
 
-      - name: Check migration tooling safety
-        run: python3 scripts/ci/check-migration-tooling-safety.py
-
   sql-runtime-check:
     runs-on: ubuntu-latest
     steps:
@@ -317,13 +332,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: cp deploy/dev/.env.example deploy/dev/.env
-      - run: bash ./deploy/dev/compose.sh config
-      - run: cp deploy/prod/.env.example deploy/prod/.env
-      - run: bash ./deploy/prod/compose.sh config
+      - name: Validate Compose configuration
+        run: bash scripts/tests/compose.sh
 
   build:
-    needs: [changes, compose-check, workflow-integrity, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
+    needs: [changes, compose-check, workflow-integrity, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
     if: ${{ needs.changes.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-latest
     strategy:

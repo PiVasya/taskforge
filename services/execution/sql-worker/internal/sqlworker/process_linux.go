@@ -151,6 +151,9 @@ func (r *ProcessRunner) Run(ctx context.Context, lease *Lease, p Payload, source
 			return EmptySnapshot(), ctx.Err()
 		}
 		if interrupted != nil {
+			if errors.Is(interrupted, context.DeadlineExceeded) {
+				return EmptySnapshot(), Unavailable("The isolated SQL helper exceeded its bounded lifecycle deadline.")
+			}
 			return EmptySnapshot(), NormalizeFailure(interrupted)
 		}
 		// Do not expose child stderr, driver traces, environment or credentials.

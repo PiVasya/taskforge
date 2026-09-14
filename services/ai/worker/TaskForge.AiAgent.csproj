@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>TaskForge.AiAgent</RootNamespace>
     <AssemblyName>TaskForge.AiAgent</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
@@ -24,8 +25,4 @@
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Remove="tests/**/*.cs" />
-    <None Include="tests/**/*.cs" />
-  </ItemGroup>
 </Project>

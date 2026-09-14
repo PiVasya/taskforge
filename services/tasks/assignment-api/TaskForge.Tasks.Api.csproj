@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>TaskForge.Tasks.Api</RootNamespace>
     <AssemblyName>TaskForge.Tasks.Api</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
@@ -24,5 +25,10 @@
   <ItemGroup>
     <Compile Include="../../shared/Sql/*.cs" Link="Shared/Sql/%(Filename)%(Extension)" />
     <Compile Include="../../shared/Realtime/*.cs" Link="Shared/Realtime/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>TaskForge.Tasks.Api.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

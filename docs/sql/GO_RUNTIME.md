@@ -115,6 +115,8 @@ Parent: bounded slots and Go soft heap limit 128 MiB by default in Compose.
 Child: GOMAXPROCS=1, Go soft heap limit 64 MiB, at most 16 OS threads, no core dump,
 NOFILE=64, file-size/CPU limits, parent-monitored RSS+swap ceiling 256 MiB and a
 wall-clock kill. Output is capped; native PG/MySQL row retrieval is streamed/bounded.
+The learner SQL execution timeout starts only after the disposable connection, pinned-engine check and mandatory isolation are ready. Sandbox setup and TaskForge-generated snapshot inspection use separate bounded infrastructure budgets, so they neither consume learner execution time nor turn an infrastructure stall into `TimeLimitExceeded`. The parent still keeps an independent hard helper-lifecycle deadline; exceeding that outer deadline is a judge/runtime availability failure, not a learner timeout.
+
 The parent kills the whole child process group and cleans the sandbox after timeout.
 There is no RLIMIT_AS because Go reserves virtual address ranges. Soft Go heap limits
 are not total RSS limits; native allocations are also subject to the parent monitor

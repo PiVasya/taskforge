@@ -17,7 +17,7 @@ for file in "$links" "$death" "$common" "$front" "$client" "$rules"; do
   [ -f "$file" ] || fail "missing $file"
 done
 
-if grep -Eq 'Лимит привязок|2/2|confirmedCount[[:space:]]*>=[[:space:]]*2|Minecraft уже привязан\. Сначала отвяжи|Привязки:.*\/2' "$links" "$front"; then
+if grep -Eq 'Лимит привязок|2/2|confirmedCount[[:space:]]*>=[[:space:]]*2|Minecraft уже привязан\. Сначала отвяжи|Привязки:.*/2' "$links" "$front"; then
   fail 'numeric Minecraft link cap returned'
 fi
 

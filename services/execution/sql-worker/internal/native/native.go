@@ -237,6 +237,11 @@ func (s *Session) ConfigureSQLite(bytes, ms int) error {
 	if s.sq == nil {
 		return errors.New("not SQLite")
 	}
+	if s.deadline != nil {
+		C.sqlite3_progress_handler(s.sq, 0, nil, nil)
+		C.free(unsafe.Pointer(s.deadline))
+		s.deadline = nil
+	}
 	if C.tf_sqlite_config(s.sq, C.int(bytes), C.int(ms), &s.deadline) != 0 {
 		return errors.New("cannot install SQLite limits")
 	}
@@ -402,10 +407,16 @@ func (s *Session) pgReady(ctx context.Context, write bool) error {
 				return nil
 			}
 			if n < 0 {
+				if e := ctx.Err(); e != nil {
+					return e
+				}
 				return s.pgError(nil)
 			}
 		} else {
 			if C.PQconsumeInput(s.pg) != 1 {
+				if e := ctx.Err(); e != nil {
+					return e
+				}
 				return s.pgError(nil)
 			}
 			if C.PQisBusy(s.pg) == 0 {
@@ -413,6 +424,9 @@ func (s *Session) pgReady(ctx context.Context, write bool) error {
 			}
 		}
 		if C.tf_poll(C.PQsocket(s.pg), boolInt(write), 50) < 0 {
+			if e := ctx.Err(); e != nil {
+				return e
+			}
 			return s.pgError(nil)
 		}
 	}
@@ -571,6 +585,22 @@ func mysqlKind(typ, charset uint) string {
 		return "string"
 	}
 }
+
+// contextDeadlineError also checks the monotonic deadline directly. A native
+// client call can return at the exact deadline before the context timer goroutine
+// has published ctx.Err(). MySQL in particular may turn an interrupted SLEEP
+// into a successful result row, so relying only on ctx.Err() can incorrectly
+// classify an over-budget statement as Previewed.
+func contextDeadlineError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func (s *Session) mysqlQuery(ctx context.Context, sql string, rows, bytes int) (r Result, err error) {
 	r = Result{Columns: []string{}, Rows: [][]Value{}}
 	if s.my == nil {
@@ -588,11 +618,21 @@ func (s *Session) mysqlQuery(ctx context.Context, sql string, rows, bytes int) (
 	}
 	query, free := cstring(sql)
 	defer free()
-	if C.mysql_real_query(s.my, query, C.ulong(len(sql))) != 0 {
+	queryRC := C.mysql_real_query(s.my, query, C.ulong(len(sql)))
+	// Prefer the TaskForge execution deadline over connector-specific return
+	// semantics. MySQL's SLEEP(), for example, can return the value 1 when the
+	// server-side max_execution_time interrupts it instead of returning an error.
+	if e := contextDeadlineError(ctx); e != nil {
+		return r, e
+	}
+	if queryRC != 0 {
 		return r, s.mysqlError()
 	}
 	res := C.mysql_use_result(s.my)
 	if res == nil {
+		if e := contextDeadlineError(ctx); e != nil {
+			return r, e
+		}
 		if C.mysql_field_count(s.my) != 0 {
 			return r, s.mysqlError()
 		}
@@ -627,10 +667,13 @@ func (s *Session) mysqlQuery(ctx context.Context, sql string, rows, bytes int) (
 		kinds[i] = mysqlKind(uint(C.tf_my_type(fields, C.uint(i))), uint(C.tf_my_charset(fields, C.uint(i))))
 	}
 	for {
-		if e := ctx.Err(); e != nil {
+		if e := contextDeadlineError(ctx); e != nil {
 			return r, e
 		}
 		rowPtr := C.mysql_fetch_row(res)
+		if e := contextDeadlineError(ctx); e != nil {
+			return r, e
+		}
 		if rowPtr == nil {
 			if C.mysql_errno(s.my) != 0 {
 				return r, s.mysqlError()

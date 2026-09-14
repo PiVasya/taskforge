@@ -789,27 +789,44 @@ func (a *ServerAdapter) killMySQL(ctx context.Context, user, database string) er
 		return nil
 	})
 }
+func (a *ServerAdapter) retryIdempotentAdministration(ctx context.Context, stage string, operation func() error) error {
+	for attempt := 0; attempt < 3; attempt++ {
+		err := operation()
+		if err == nil || !isTransientAdministrationFailure(err) || attempt == 2 || ctx.Err() != nil {
+			return err
+		}
+		slog.Warn("sql_admin_retry", "engine", a.Engine(), "stage", stage, "attempt", attempt+2)
+		if !sleep(ctx, time.Duration(attempt+1)*200*time.Millisecond) {
+			return ctx.Err()
+		}
+	}
+	return nil
+}
 func (a *ServerAdapter) dropDatabase(ctx context.Context, name string) error {
 	if !a.owned(name) {
 		return Unavailable("Refusing foreign database cleanup.")
 	}
-	return a.withAdmin(ctx, "", func(c *native.Session) error {
-		sql := "DROP DATABASE IF EXISTS " + q(name, a.Engine())
-		if a.Engine() == "postgresql" {
-			sql += " WITH (FORCE)"
-		}
-		return c.Exec(ctx, sql)
+	return a.retryIdempotentAdministration(ctx, "drop-database", func() error {
+		return a.withAdminStage(ctx, "", "drop-database", func(c *native.Session) error {
+			sql := "DROP DATABASE IF EXISTS " + q(name, a.Engine())
+			if a.Engine() == "postgresql" {
+				sql += " WITH (FORCE)"
+			}
+			return c.Exec(ctx, sql)
+		})
 	})
 }
 func (a *ServerAdapter) dropUser(ctx context.Context, user string) error {
 	if !a.owned(user) {
 		return Unavailable("Refusing foreign user cleanup.")
 	}
-	return a.withAdmin(ctx, "", func(c *native.Session) error {
-		if a.Engine() == "postgresql" {
-			return c.Exec(ctx, "DROP ROLE IF EXISTS "+q(user, a.Engine()))
-		}
-		return c.Exec(ctx, "DROP USER IF EXISTS '"+user+"'@'%'")
+	return a.retryIdempotentAdministration(ctx, "drop-user", func() error {
+		return a.withAdminStage(ctx, "", "drop-user", func(c *native.Session) error {
+			if a.Engine() == "postgresql" {
+				return c.Exec(ctx, "DROP ROLE IF EXISTS "+q(user, a.Engine()))
+			}
+			return c.Exec(ctx, "DROP USER IF EXISTS '"+user+"'@'%'")
+		})
 	})
 }
 func (a *ServerAdapter) Destroy(ctx context.Context, s Sandbox) error {

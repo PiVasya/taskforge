@@ -17,6 +17,25 @@ func requireGxx(t *testing.T) {
 	}
 }
 
+func requireCppProductionLinker(t *testing.T, guard string) {
+	t.Helper()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "toolchain_probe.cpp")
+	object := filepath.Join(dir, "toolchain_probe.o")
+	binary := filepath.Join(dir, "toolchain_probe")
+	if err := os.WriteFile(source, []byte("#include <iostream>\nint main(){ std::cout << \"ok\"; return 0; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	compile := exec.Command("g++", "-std=c++17", "-O2", "-pipe", "-fno-asm", "-fPIE", "-fstack-protector-strong", "-fstack-clash-protection", "-D_FORTIFY_SOURCE=2", "-c", source, "-o", object)
+	if output, err := compile.CombinedOutput(); err != nil {
+		t.Skipf("host C++ compiler cannot reproduce the production runner toolchain; Docker image build remains authoritative: %s", strings.TrimSpace(string(output)))
+	}
+	link := exec.Command("g++", object, guard, "-pie", "-static-libgcc", "-static-libstdc++", "-Wl,-init,taskforge_sandbox_init,-z,relro,-z,now,-z,noexecstack,-z,defs,--as-needed,--fatal-warnings", "-o", binary)
+	if output, err := link.CombinedOutput(); err != nil {
+		t.Skipf("host C++ linker lacks production runner prerequisites (commonly libstdc++-static); Docker image build remains authoritative: %s", strings.TrimSpace(string(output)))
+	}
+}
+
 func prepareSandboxGuard(t *testing.T) string {
 	t.Helper()
 	requireGxx(t)
@@ -151,7 +170,8 @@ int main() {
 }
 
 func TestCompileProgramAllowsHarmlessCpp(t *testing.T) {
-	prepareSandboxGuard(t)
+	guard := prepareSandboxGuard(t)
+	requireCppProductionLinker(t, guard)
 	dir := t.TempDir()
 	code := `
 #include <iostream>
@@ -162,7 +182,11 @@ int main() {
 `
 	program, result := compileProgram("cpp", code, dir, 3000, 256)
 	if result != nil {
-		t.Fatalf("harmless program was rejected: %#v", result)
+		compileStderr := ""
+		if result.CompileStderr != nil {
+			compileStderr = *result.CompileStderr
+		}
+		t.Fatalf("harmless program was rejected: status=%q exit=%d stderr=%q compile=%q", result.Status, result.ExitCode, result.Stderr, compileStderr)
 	}
 	if program == nil {
 		t.Fatal("harmless program was not prepared")
