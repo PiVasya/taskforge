@@ -87,11 +87,25 @@ risk requires the real security/load gate and capacity planning before public us
 
 ## Profiles, failover and cache
 
-Profiles include actual engine version, pinned engine image digest, adapter version,
-settings and executor fingerprint (Go executable/runtime/native libraries). A different
-profile cannot silently claim an old job. Keep the same image set on A/B. Upgrading
-worker code, dependencies or engine images can require new spec validation and
-publication; the old profile is not transparently rewritten.
+Profiles are immutable semantic runtime contracts. They include the exact engine version,
+pinned server image digest (or an embedded-engine component digest), adapter version,
+engine-specific native client identity, execution-semantics version and settings that can
+change SQL execution. The sql-worker executable/build fingerprint is retained only for
+health/log diagnostics and MUST NOT enter a profile fingerprint. Unrelated client libraries
+from other engines likewise do not enter a profile.
+
+Published jobs still carry the exact historical profile fingerprint; that fingerprint is never
+rewritten. Tasks API computes a separate deterministic compatibility relation over immutable
+profiles. A worker may advertise a historical fingerprint only when that relation proves the
+historical contract compatible with its current runtime, and Registry.Acquire returns the exact
+historical profile to the verifier. The legacy go-native-v1 bridge recognizes only the known old
+shape; SQLite may ignore its former executor-derived RuntimeDigest only when it exactly equals
+`sha256(executorFingerprint)`. Python profiles are never aliased as Go profiles.
+
+A build-only worker update therefore keeps old published SQL working. A changed engine image,
+engine version, adapter/semantics version, relevant client runtime, collation/mode/compile option
+or another semantic setting remains a compatibility boundary and requires normal validation and
+publication of a new immutable specification.
 
 Logical datasets/specs/expected receipts are business data. GOLDEN/READY/sandbox
 state is local disposable cache in separate tmpfs mounts. Deleting all runtime

@@ -77,9 +77,11 @@ ceiling 256 MiB. Container pids_limit=256 covers the coordinator, drivers and
 bounded child threads. Stop grace is 45 seconds. Container memory/CPU ceilings
 remain 768m/0.75 for the worker, not a new unbounded allocation per child.
 
-No new mandatory secret/environment variable is introduced by the language port.
-The same SQL engine pins and credentials are preserved. SQL-worker native libraries
-and its executable now enter the runtime fingerprint; old Python profiles must be
-replaced through ordinary specification editing, validation and publication.
-See GO_RUNTIME.md for the distinction between coordinator connection handles and
+No new mandatory secret/environment variable is introduced by the language port or
+profile-compatibility fix. The same SQL engine pins and credentials are preserved. The
+worker executable enters only the diagnostic build fingerprint. Each immutable SQL profile
+contains the relevant engine/client runtime identity and SQL-significant settings; libraries
+for the other two engines do not perturb its fingerprint. Old Python profiles must still be
+replaced through ordinary specification editing, validation and publication. See GO_RUNTIME.md
+for compatibility details and for the distinction between coordinator connection handles and
 server-wide database connections in metrics.

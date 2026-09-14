@@ -72,15 +72,25 @@ the intended existing image channel. Confirm that tasks-api, execution-api,
 solutions-api, education-api, front, gateway and sql-worker come from this source
 revision. Rebuilding or installing only sql-worker is not the complete update.
 
-Use the same worker image and PostgreSQL/MySQL RepoDigest pins on A/B. Profiles are
-exact fingerprints: different worker code/engine pins do not transparently serve
-old published specs. Revalidate/republish explicitly for a new profile. For assignments previously
-published against Python profiles, select the registered Go profiles in the editor,
-create the normal new immutable spec version, validate and publish. Do not rewrite
-old profiles, attempts, expected hashes or pinned queued jobs to make them look like
-Go. Drain old work before switching and reconcile outstanding attempts through the
-normal execution recovery path. A pending old-profile job is not compatible with a
-new worker merely because the visible engine name is the same.
+Use the same PostgreSQL/MySQL RepoDigest pins on A/B and deploy Tasks API, Execution API
+and sql-worker from the same source revision. Profile fingerprints remain exact and immutable,
+but worker build identity is no longer part of the semantic profile. Tasks API exposes a bounded
+compatibility set; sql-worker advertises those historical fingerprints in addition to its current
+profile and Execution API accepts the larger bounded capability list. This is an explicit semantic
+compatibility relation, not matching by visible engine name.
+
+A worker-only rebuild that leaves the semantic profile unchanged does not require revalidation.
+If a new profile is created only because the previous release embedded executor/build identity,
+the legacy go-native-v1 compatibility bridge keeps qualifying published jobs runnable without
+rewriting their stored profile. Engine image/version, adapter or execution-semantics changes,
+relevant native-client changes and SQL-significant settings still require normal validation and
+publication. For assignments previously published against Python profiles, select the registered
+Go profiles in the editor, create the normal new immutable spec version, validate and publish.
+Never rewrite old profiles, attempts, expected hashes or pinned queued jobs.
+
+Rolling upgrade is fail-safe: a new worker against an old Tasks API receives no aliases and serves
+only its exact profile; an old worker continues to use the unchanged registration response. Deploy
+the new Tasks/Execution APIs before relying on legacy aliases so old published jobs remain routable.
 
 ## 4. Standalone production cluster r59
 

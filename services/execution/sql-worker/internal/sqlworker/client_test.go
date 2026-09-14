@@ -82,20 +82,67 @@ func TestProfileRegistrationCannotChangeRuntimeIdentity(t *testing.T) {
 	profile := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: "sqlite", Engine: reg.Engine, EngineVersion: reg.EngineVersion, RuntimeDigest: reg.RuntimeDigest, AdapterVersion: reg.AdapterVersion, Settings: reg.Settings, Fingerprint: textHash("profile")}
 	good := true
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/compatible") {
+			_ = json.NewEncoder(w).Encode([]Profile{profile})
+			return
+		}
 		copy := profile
 		if !good {
 			copy.Settings = map[string]any{"executor": "two"}
 		}
 		_ = json.NewEncoder(w).Encode(copy)
 	})
-	if _, e := c.Register(context.Background(), reg); e != nil {
+	registered, e := c.Register(context.Background(), reg)
+	if e != nil {
 		t.Fatal(e)
+	}
+	if !registered.CompatibilityConfirmed {
+		t.Fatal("successful compatibility lookup was not marked authoritative")
 	}
 	good = false
 	if _, e := c.Register(context.Background(), reg); e == nil {
 		t.Fatal("different profile accepted")
 	}
 }
+func TestProfileRegistrationRollingUpgradeFallsBackToExactProfile(t *testing.T) {
+	reg := Registration{Engine: "sqlite", EngineVersion: "3", RuntimeDigest: "sha256:" + textHash("runtime"), AdapterVersion: AdapterVersion, Settings: map[string]any{"semantic": "one"}}
+	profile := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: "sqlite", Engine: reg.Engine, EngineVersion: reg.EngineVersion, RuntimeDigest: reg.RuntimeDigest, AdapterVersion: reg.AdapterVersion, Settings: reg.Settings, Fingerprint: textHash("profile")}
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(profile)
+	})
+	registered, err := c.Register(context.Background(), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.Current.Fingerprint != profile.Fingerprint || len(registered.Compatible) != 0 || registered.CompatibilityConfirmed {
+		t.Fatal("old Tasks API rolling-upgrade fallback must advertise only the exact unconfirmed profile")
+	}
+}
+
+func TestProfileRegistrationRejectsForeignCompatibilityAlias(t *testing.T) {
+	reg := Registration{Engine: "sqlite", EngineVersion: "3", RuntimeDigest: "sha256:" + textHash("runtime"), AdapterVersion: AdapterVersion, Settings: map[string]any{"semantic": "one"}}
+	profile := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: "sqlite", Engine: reg.Engine, EngineVersion: reg.EngineVersion, RuntimeDigest: reg.RuntimeDigest, AdapterVersion: reg.AdapterVersion, Settings: reg.Settings, Fingerprint: textHash("profile")}
+	foreign := profile
+	foreign.ID = "10000000-0000-4000-8000-000000000002"
+	foreign.Engine = "mysql"
+	foreign.Key = "mysql"
+	foreign.Fingerprint = textHash("foreign")
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]Profile{foreign})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(profile)
+	})
+	if _, err := c.Register(context.Background(), reg); err == nil {
+		t.Fatal("foreign engine compatibility alias was accepted")
+	}
+}
+
 func TestAdministrationErrorCannotLeakGeneratedPassword(t *testing.T) {
 	e := administrationFailure(&native.Error{Engine: "mysql", Code: "1064", Message: "CREATE USER example IDENTIFIED BY 'do-not-leak'"})
 	if e == nil || strings.Contains(e.Error(), "do-not-leak") {
@@ -130,19 +177,84 @@ func TestNamespaceLockCompatibleAndExclusive(t *testing.T) {
 }
 
 type fakeProfiles struct {
-	mu   sync.Mutex
-	fail bool
+	mu         sync.Mutex
+	fail       bool
+	compatible []Profile
 }
 
-func (c *fakeProfiles) Register(ctx context.Context, r Registration) (Profile, error) {
+func (c *fakeProfiles) Register(ctx context.Context, r Registration) (RegisteredProfiles, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fail {
-		return Profile{}, errors.New("API unavailable")
+		return RegisteredProfiles{}, errors.New("API unavailable")
 	}
 	h, _ := ContentHash(r)
-	return Profile{ID: "10000000-0000-4000-8000-000000000001", Key: r.Engine, Engine: r.Engine, EngineVersion: r.EngineVersion, RuntimeDigest: r.RuntimeDigest, AdapterVersion: r.AdapterVersion, Settings: r.Settings, Fingerprint: h}, nil
+	current := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: r.Engine, Engine: r.Engine, EngineVersion: r.EngineVersion, RuntimeDigest: r.RuntimeDigest, AdapterVersion: r.AdapterVersion, Settings: r.Settings, Fingerprint: h}
+	return RegisteredProfiles{Current: current, Compatible: append([]Profile(nil), c.compatible...), CompatibilityConfirmed: true}, nil
 }
+func TestRegistryAdvertisesAndAcquiresCompatibleImmutableProfile(t *testing.T) {
+	a := &fakeAdapter{}
+	pool, _ := fakePool(t, a, nil)
+	legacy := Profile{
+		ID: "10000000-0000-4000-8000-000000000099", Key: "fake", Engine: "fake",
+		EngineVersion: "1", RuntimeDigest: "sha256:" + textHash("legacy-runtime"), AdapterVersion: AdapterVersion,
+		Settings: map[string]any{"semantic": "legacy-contract"}, Fingerprint: textHash("legacy-compatible-profile"),
+	}
+	c := &fakeProfiles{compatible: []Profile{legacy}}
+	r := NewRegistry([]EngineAdapter{a}, c, pool, NewMetrics())
+	r.Refresh(context.Background())
+	targets := r.Targets()
+	if len(targets) != 2 || !contains(targets, legacy.Fingerprint) {
+		t.Fatalf("compatible immutable profile was not advertised: %v", targets)
+	}
+	adapter, profile, release, err := r.Acquire(legacy.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if adapter != a || profile.Fingerprint != legacy.Fingerprint || !sameJSON(profile, legacy) {
+		t.Fatal("compatible target did not preserve the exact historical profile contract")
+	}
+}
+
+func TestRegistryKeepsConfirmedAliasesAcrossTransientCompatibilityLookupFailure(t *testing.T) {
+	a := &fakeAdapter{}
+	pool, _ := fakePool(t, a, nil)
+	legacy := Profile{ID: "10000000-0000-4000-8000-000000000099", Key: "fake", Engine: "fake", EngineVersion: "1", RuntimeDigest: "sha256:" + textHash("legacy-runtime"), AdapterVersion: AdapterVersion, Settings: map[string]any{"semantic": "legacy-contract"}, Fingerprint: textHash("legacy-compatible-profile")}
+	c := &compatibilityFlapProfiles{authoritative: true, compatible: []Profile{legacy}}
+	r := NewRegistry([]EngineAdapter{a}, c, pool, NewMetrics())
+	r.Refresh(context.Background())
+	if !contains(r.Targets(), legacy.Fingerprint) {
+		t.Fatal("initial confirmed compatibility alias missing")
+	}
+	c.mu.Lock()
+	c.authoritative = false
+	c.mu.Unlock()
+	r.Refresh(context.Background())
+	if !contains(r.Targets(), legacy.Fingerprint) {
+		t.Fatal("transient compatibility lookup failure flapped a previously confirmed alias offline")
+	}
+}
+
+type compatibilityFlapProfiles struct {
+	mu            sync.Mutex
+	authoritative bool
+	compatible    []Profile
+}
+
+func (c *compatibilityFlapProfiles) Register(ctx context.Context, r Registration) (RegisteredProfiles, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h, _ := ContentHash(r)
+	current := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: r.Engine, Engine: r.Engine, EngineVersion: r.EngineVersion, RuntimeDigest: r.RuntimeDigest, AdapterVersion: r.AdapterVersion, Settings: r.Settings, Fingerprint: h}
+	if c.authoritative {
+		return RegisteredProfiles{Current: current, Compatible: append([]Profile(nil), c.compatible...), CompatibilityConfirmed: true}, nil
+	}
+	// Exact registration still works, but the compatibility lookup is temporarily
+	// unavailable. Registry must retain its last confirmed immutable alias set.
+	return RegisteredProfiles{Current: current, CompatibilityConfirmed: false}, nil
+}
+
 func TestRegistryControlPlaneOutageDoesNotDestroyCache(t *testing.T) {
 	a := &fakeAdapter{}
 	pool, _ := fakePool(t, a, nil)

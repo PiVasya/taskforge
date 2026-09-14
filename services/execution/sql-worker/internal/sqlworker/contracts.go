@@ -10,6 +10,7 @@ import (
 const ContractVersion = 1
 const AdapterVersion = "1.0.0"
 const ImplementationVersion = "go-native-v1"
+const ExecutionSemanticsVersion = "sql-runtime-v1"
 
 // The wire names mirror services/shared/Sql/SqlContracts.cs. Unknown fields, duplicate
 // properties, lossy numbers and unsupported contract versions are rejected on input.

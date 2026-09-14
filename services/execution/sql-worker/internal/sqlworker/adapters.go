@@ -14,10 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"taskforge/sqlworker/internal/native"
+	"unicode"
 )
 
 // Providers own engine-local disposable state, never business data. A future
@@ -38,6 +40,37 @@ type EngineAdapter interface {
 type Sandbox struct {
 	ID         string
 	Connection native.Config
+}
+
+func clientLibraryVersion(engine string) string {
+	versions := native.LibraryVersions()
+	switch engine {
+	case "postgresql":
+		return versions["libpq"]
+	case "mysql":
+		return versions["mariadbConnectorC"]
+	case "sqlite":
+		return versions["sqlite"]
+	default:
+		return ""
+	}
+}
+
+func semanticRuntimeSettings(engine, clientRuntimeDigest string) (map[string]any, error) {
+	version := clientLibraryVersion(engine)
+	if strings.TrimSpace(version) == "" || !digestRE.MatchString(clientRuntimeDigest) {
+		return nil, Unavailable("SQL client runtime identity is incomplete.")
+	}
+	return map[string]any{
+		"implementation":            ImplementationVersion,
+		"executionSemanticsVersion": ExecutionSemanticsVersion,
+		"unicodeVersion":            unicode.Version,
+		"clientLibraryVersion":      version,
+		"clientRuntimeDigest":       clientRuntimeDigest,
+		"transactionMode":           "autocommit",
+		"identifierPolicy":          "portable-lower-v1",
+		"caseFolding":               "unicode-default-v1",
+	}, nil
 }
 
 func randomHex(n int) (string, error) {
@@ -86,9 +119,12 @@ func readScalar(ctx context.Context, c *native.Session, sql string) (string, err
 	return r.Rows[0][0].Text, nil
 }
 
-type SQLiteAdapter struct{ root, executor string }
+type SQLiteAdapter struct{ root, clientRuntimeDigest string }
 
-func NewSQLiteAdapter(cache, workerID, executor string) (*SQLiteAdapter, error) {
+func NewSQLiteAdapter(cache, workerID, clientRuntimeDigest string) (*SQLiteAdapter, error) {
+	if !digestRE.MatchString(clientRuntimeDigest) {
+		return nil, Unavailable("SQLite client runtime digest is required.")
+	}
 	root := filepath.Join(cache, "sqlite", textHash(workerID)[:12])
 	if e := os.MkdirAll(root, 0700); e != nil {
 		return nil, e
@@ -101,7 +137,7 @@ func NewSQLiteAdapter(cache, workerID, executor string) (*SQLiteAdapter, error) 
 	if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, Unavailable("Invalid SQLite namespace.")
 	}
-	return &SQLiteAdapter{root, executor}, nil
+	return &SQLiteAdapter{root, clientRuntimeDigest}, nil
 }
 func (a *SQLiteAdapter) Engine() string { return "sqlite" }
 func (a *SQLiteAdapter) Startup(ctx context.Context) error {
@@ -144,7 +180,21 @@ func (a *SQLiteAdapter) Registration(ctx context.Context) (Registration, error) 
 	for _, r := range flags.Rows {
 		options = append(options, r[0].Text)
 	}
-	return Registration{"sqlite", native.LibraryVersions()["sqlite"], "sha256:" + a.executor, AdapterVersion, map[string]any{"executorFingerprint": a.executor, "implementation": ImplementationVersion, "clientLibraries": native.LibraryVersions(), "compileOptions": options, "storageStrategy": "immutable-file-v1", "foreignKeys": true, "timezone": "UTC", "transactionMode": "autocommit", "identifierPolicy": "portable-lower-v1", "caseFolding": "unicode-default-v1"}}, nil
+	sort.Strings(options)
+	version := native.LibraryVersions()["sqlite"]
+	runtimeHash, e := ContentHash(map[string]any{"engine": "sqlite", "engineVersion": version, "clientRuntimeDigest": a.clientRuntimeDigest, "compileOptions": options})
+	if e != nil {
+		return Registration{}, e
+	}
+	settings, e := semanticRuntimeSettings("sqlite", a.clientRuntimeDigest)
+	if e != nil {
+		return Registration{}, e
+	}
+	settings["compileOptions"] = options
+	settings["storageStrategy"] = "immutable-file-v1"
+	settings["foreignKeys"] = true
+	settings["timezone"] = "UTC"
+	return Registration{"sqlite", version, "sha256:" + runtimeHash, AdapterVersion, settings}, nil
 }
 func (a *SQLiteAdapter) golden(key string) (string, error) {
 	if !hashRE.MatchString(key) {
@@ -296,18 +346,18 @@ type ServerConfig struct {
 	RuntimeDigest, Marker string
 }
 type ServerAdapter struct {
-	config           ServerConfig
-	prefix, executor string
+	config                      ServerConfig
+	prefix, clientRuntimeDigest string
 }
 
-func NewServerAdapter(cfg ServerConfig, workerID, executor string) (*ServerAdapter, error) {
-	if !contains([]string{"postgresql", "mysql"}, cfg.Engine) || !digestRE.MatchString(cfg.RuntimeDigest) || !hashRE.MatchString(cfg.Marker) {
+func NewServerAdapter(cfg ServerConfig, workerID, clientRuntimeDigest string) (*ServerAdapter, error) {
+	if !contains([]string{"postgresql", "mysql"}, cfg.Engine) || !digestRE.MatchString(cfg.RuntimeDigest) || !digestRE.MatchString(clientRuntimeDigest) || !hashRE.MatchString(cfg.Marker) {
 		return nil, Unavailable("Dedicated SQL engine digest and guard marker are required.")
 	}
 	if cfg.Host == "" || cfg.User == "" || cfg.Password == "" {
 		return nil, Unavailable("Dedicated SQL connection configuration is incomplete.")
 	}
-	return &ServerAdapter{cfg, "tfq_" + textHash(workerID)[:8] + "_", executor}, nil
+	return &ServerAdapter{cfg, "tfq_" + textHash(workerID)[:8] + "_", clientRuntimeDigest}, nil
 }
 func (a *ServerAdapter) Engine() string { return a.config.Engine }
 func (a *ServerAdapter) admin(database string) (*native.Session, error) {
@@ -441,7 +491,10 @@ func (a *ServerAdapter) Startup(ctx context.Context) error {
 	return nil
 }
 func (a *ServerAdapter) Registration(ctx context.Context) (out Registration, err error) {
-	settings := map[string]any{"executorFingerprint": a.executor, "implementation": ImplementationVersion, "clientLibraries": native.LibraryVersions(), "transactionMode": "autocommit", "identifierPolicy": "portable-lower-v1", "caseFolding": "unicode-default-v1"}
+	settings, e := semanticRuntimeSettings(a.Engine(), a.clientRuntimeDigest)
+	if e != nil {
+		return out, e
+	}
 	out = Registration{Engine: a.Engine(), RuntimeDigest: a.config.RuntimeDigest, AdapterVersion: AdapterVersion, Settings: settings}
 	err = a.withAdminStage(ctx, "", "registration", func(c *native.Session) error {
 		if a.Engine() == "postgresql" {

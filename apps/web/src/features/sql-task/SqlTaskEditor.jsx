@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import CodeEditor from '../../components/CodeEditor';
 import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
-import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, refreshDatasetCatalogBestEffort, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
+import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, logicalEngineProfiles, refreshDatasetCatalogBestEffort, replaceEngineTargetProfile, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
 import './sql-task.css';
 
@@ -72,6 +72,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
   const allProfiles = [...new Map([...(profiles || []), ...(view?.profiles || [])].map(p => [p.id,p])).values()];
   const profileFor = id => allProfiles.find(p => p.id === id);
   const online = new Set((runtime?.workers || []).flatMap(w => w.targets || []));
+  const logicalEngines = logicalEngineProfiles(allProfiles, spec.targets, online);
   const upsertDatasetSummary = dataset => setDatasets(old => [dataset, ...old.filter(item => item.id !== dataset.id)]);
   const saveDataset = async () => {
     if (!name.trim()) throw new Error('\u0417\u0430\u0434\u0430\u0439 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 dataset.');
@@ -130,7 +131,15 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     } catch(e) { setError(getApiErrorMessage(e)); } finally { setBusy(false); }
   };
   const targets = spec.targets || [];
-  const toggleEngine = (id, checked) => changeSpec({ targets: toggleEngineTargets(targets, id, checked) });
+  const toggleEngine = (logical, checked) => {
+    const profileId = logical.target?.engineProfileId || logical.preferredProfile?.id;
+    if (!profileId) return;
+    changeSpec({ targets: toggleEngineTargets(targets, profileId, checked) });
+  };
+  const upgradeEngine = logical => {
+    if (!logical.target?.engineProfileId || !logical.preferredProfile?.id) return;
+    changeSpec({ targets: replaceEngineTargetProfile(targets, logical.target.engineProfileId, logical.preferredProfile.id) });
+  };
   const changeTarget = (index, patch) => changeSpec({ targets: targets.map((t,i) => i === index ? { ...t,...patch } : t) });
   const ready = validationReadyForTargets(targets, view?.validation);
   const dirty = datasetDirty || specDirty || (!!versionId && view?.spec?.datasetVersionId !== versionId);
@@ -148,7 +157,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     <div className="sql-card"><SqlDatasetEditor value={doc} onChange={changeDoc} disabled={busy} /></div>
     <div className="sql-card"><h3>{'\u0414\u0432\u0438\u0436\u043a\u0438 \u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430'}</h3>
       {!allProfiles.length && <div className="sql-error">{'\u0414\u0432\u0438\u0436\u043a\u0438 \u043f\u043e\u043a\u0430 \u043d\u0435 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u044b. \u041d\u0443\u0436\u0435\u043d \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0449\u0438\u0439 sql-worker.'}</div>}
-      <div className="sql-status-list">{allProfiles.map(p => <div className="sql-toolbar" key={p.id}><Check label={`${p.displayName} / ${p.fingerprint.slice(0,8)}`} value={targets.some(t => t.engineProfileId === p.id && t.enabled !== false)} onChange={v => toggleEngine(p.id,v)} disabled={busy} /><span className="sql-badge">{online.has(p.fingerprint) ? 'ONLINE' : 'OFFLINE'}</span></div>)}</div>
+      <div className="sql-status-list">{logicalEngines.map(item => <div className="sql-toolbar" key={item.engine}><Check label={item.displayName} value={item.selected} onChange={v => toggleEngine(item,v)} disabled={busy} /><span className="sql-badge">{item.online ? 'ONLINE' : 'OFFLINE'}</span>{item.canUpgrade && <button type="button" disabled={busy} onClick={() => upgradeEngine(item)}>{'Переключить на текущий runtime'}</button>}</div>)}</div>
       <F label={'\u0420\u0435\u0436\u0438\u043c'}><select value={spec.mode} disabled={busy} onChange={e => changeSpec({ mode:e.target.value,allowMultipleStatements:e.target.value !== 'result' })}><option value="result">{'Result \u2014 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 SELECT'}</option><option value="state">{'State \u2014 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0434\u0430\u043d\u043d\u044b\u0445'}</option><option value="schema">{'Schema \u2014 \u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u0430 \u0411\u0414'}</option></select></F>
       <Check label={'\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044c \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e statements'} value={spec.allowMultipleStatements} disabled={busy} onChange={v => changeSpec({ allowMultipleStatements:v })} />
       <p className="sql-muted">{'\u0421\u043a\u0440\u0438\u043f\u0442 \u0438\u0441\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f \u043f\u043e \u043f\u043e\u0440\u044f\u0434\u043a\u0443 \u0434\u043e \u043f\u0435\u0440\u0432\u043e\u0439 \u043e\u0448\u0438\u0431\u043a\u0438. Result \u0441\u0440\u0430\u0432\u043d\u0438\u0432\u0430\u0435\u0442 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 result set. BEGIN / COMMIT, \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0438 \u0432\u043d\u0435\u0448\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u044b \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u044e\u0442\u0441\u044f.'}</p>

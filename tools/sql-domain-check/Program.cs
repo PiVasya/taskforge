@@ -265,6 +265,76 @@ internal static class Program
             Assert(a.Id != b.Id && a.DatasetId != b.DatasetId);
             Assert(SqlContentKeys.Materialization(a, profile) == SqlContentKeys.Materialization(b, profile));
         });
+        Test("legacy build-only SQL profile changes remain semantically compatible", () =>
+        {
+            var old = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('1', 64), "libpq-18");
+            var rebuilt = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('2', 64), "libpq-18");
+            Assert(old.Fingerprint != rebuilt.Fingerprint);
+            Assert(SqlProfileCompatibility.IsCompatible(old, rebuilt));
+        });
+        Test("legacy compatibility ignores unrelated client libraries but not the engine client", () =>
+        {
+            var old = LegacyRuntimeProfile(SqlEngineNames.MySql, new string('3', 64), "mariadb-3.3");
+            var unrelated = LegacyRuntimeProfile(SqlEngineNames.MySql, new string('4', 64), "mariadb-3.3", sqliteVersion: "3.99");
+            var relevant = LegacyRuntimeProfile(SqlEngineNames.MySql, new string('5', 64), "mariadb-3.4");
+            Assert(SqlProfileCompatibility.IsCompatible(old, unrelated));
+            Assert(!SqlProfileCompatibility.IsCompatible(old, relevant));
+        });
+        Test("server runtime digest and engine version are compatibility boundaries", () =>
+        {
+            var old = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('6', 64), "libpq-18");
+            var imageChanged = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('7', 64), "libpq-18");
+            imageChanged.RuntimeDigest = "sha256:" + new string('b', 64);
+            imageChanged.Fingerprint = SqlContentKeys.Profile(imageChanged);
+            Assert(!SqlProfileCompatibility.IsCompatible(old, imageChanged));
+            imageChanged.RuntimeDigest = old.RuntimeDigest;
+            imageChanged.EngineVersion = "18.1";
+            imageChanged.Fingerprint = SqlContentKeys.Profile(imageChanged);
+            Assert(!SqlProfileCompatibility.IsCompatible(old, imageChanged));
+        });
+        Test("current server runtimes can serve matching legacy Go profiles", () =>
+        {
+            foreach (var (engine, client) in new[]
+            {
+                (SqlEngineNames.PostgreSql, "libpq-18"),
+                (SqlEngineNames.MySql, "mariadb-3.4")
+            })
+            {
+                var legacy = LegacyRuntimeProfile(engine, new string('7', 64), client);
+                var current = CurrentRuntimeProfile(engine, client, "sha256:" + new string('c', 64));
+                Assert(SqlProfileCompatibility.IsCompatible(current, legacy));
+                Assert(SqlProfileCompatibility.IsCompatible(legacy, current));
+            }
+        });
+        Test("legacy SQLite bridge accepts only the historical executor-derived runtime digest", () =>
+        {
+            var executor = new string('8', 64);
+            var old = LegacyRuntimeProfile(SqlEngineNames.Sqlite, executor, "sqlite-3.50");
+            var current = CurrentRuntimeProfile(SqlEngineNames.Sqlite, "sqlite-3.50", "sha256:" + new string('c', 64));
+            Assert(SqlProfileCompatibility.IsCompatible(current, old));
+            old.RuntimeDigest = "sha256:" + new string('d', 64);
+            old.Fingerprint = SqlContentKeys.Profile(old);
+            Assert(!SqlProfileCompatibility.IsCompatible(current, old));
+        });
+        Test("legacy compatibility remains pinned to semantics v1", () =>
+        {
+            var old = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('0', 64), "libpq-18");
+            var future = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('1', 64));
+            var settings = JsonSerializer.Deserialize<Dictionary<string, object?>>(future.SettingsJson)!;
+            settings["executionSemanticsVersion"] = "sql-runtime-v2";
+            future.SettingsJson = JsonSerializer.Serialize(settings);
+            future.Fingerprint = SqlContentKeys.Profile(future);
+            Assert(!SqlProfileCompatibility.IsCompatible(future, old));
+        });
+        Test("new SQL profiles compare semantic client runtime digests strictly", () =>
+        {
+            var a = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('e', 64));
+            var b = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('f', 64));
+            Assert(!SqlProfileCompatibility.IsCompatible(a, b));
+            b.SettingsJson = a.SettingsJson;
+            b.Fingerprint = SqlContentKeys.Profile(b);
+            Assert(SqlProfileCompatibility.IsCompatible(a, b));
+        });
         Test("engine and adapter changes invalidate materialization identity", () =>
         {
             var data = Dataset();
@@ -420,6 +490,96 @@ internal static class Program
         {
             Key = "postgresql-fixture", DisplayName = "Fixture only", Engine = SqlEngineNames.PostgreSql,
             EngineVersion = "fixture", RuntimeDigest = "sha256:" + new string('a', 64), AdapterVersion = "1"
+        };
+        profile.Fingerprint = SqlContentKeys.Profile(profile);
+        return profile;
+    }
+
+    private static SqlEngineProfile LegacyRuntimeProfile(string engine, string executor, string relevantClient,
+        string sqliteVersion = "sqlite-3.50")
+    {
+        var libraries = engine switch
+        {
+            SqlEngineNames.PostgreSql => new { libpq = relevantClient, mariadbConnectorC = "mariadb-unrelated", sqlite = sqliteVersion },
+            SqlEngineNames.MySql => new { libpq = "libpq-unrelated", mariadbConnectorC = relevantClient, sqlite = sqliteVersion },
+            _ => new { libpq = "libpq-unrelated", mariadbConnectorC = "mariadb-unrelated", sqlite = relevantClient }
+        };
+        var settings = new Dictionary<string, object?>
+        {
+            ["executorFingerprint"] = executor,
+            ["implementation"] = "go-native-v1",
+            ["clientLibraries"] = libraries,
+            ["transactionMode"] = "autocommit",
+            ["identifierPolicy"] = "portable-lower-v1",
+            ["caseFolding"] = "unicode-default-v1",
+            ["timezone"] = "UTC"
+        };
+        if (engine == SqlEngineNames.PostgreSql)
+        {
+            settings["encoding"] = "UTF8"; settings["collation"] = "C"; settings["localeProvider"] = "libc";
+            settings["serverVersionNum"] = "180000"; settings["serverBuild"] = "PostgreSQL fixture";
+            settings["storageStrategy"] = "template-database-v1";
+        }
+        else if (engine == SqlEngineNames.MySql)
+        {
+            settings["encoding"] = "utf8mb4"; settings["collation"] = "utf8mb4_0900_as_cs";
+            settings["serverBuild"] = "MySQL fixture"; settings["lowerCaseTableNames"] = 0;
+            settings["storageStrategy"] = "logical-script-v1";
+            settings["sqlMode"] = "STRICT_ALL_TABLES";
+        }
+        else
+        {
+            settings["compileOptions"] = new[] { "THREADSAFE=1", "ENABLE_FTS5" };
+            settings["storageStrategy"] = "immutable-file-v1"; settings["foreignKeys"] = true;
+        }
+        var profile = new SqlEngineProfile
+        {
+            Key = engine, DisplayName = engine, Engine = engine,
+            EngineVersion = engine == SqlEngineNames.PostgreSql ? "18.0" : engine == SqlEngineNames.MySql ? "8.4.6" : "3.50.0",
+            RuntimeDigest = engine == SqlEngineNames.Sqlite ? "sha256:" + executor : "sha256:" + new string('a', 64),
+            AdapterVersion = "1.0.0", SettingsJson = JsonSerializer.Serialize(settings)
+        };
+        profile.Fingerprint = SqlContentKeys.Profile(profile);
+        return profile;
+    }
+
+    private static SqlEngineProfile CurrentRuntimeProfile(string engine, string relevantClient, string clientRuntimeDigest)
+    {
+        var settings = new Dictionary<string, object?>
+        {
+            ["implementation"] = "go-native-v1",
+            ["executionSemanticsVersion"] = SqlProfileCompatibility.CurrentExecutionSemanticsVersion,
+            ["unicodeVersion"] = "15.0.0",
+            ["clientLibraryVersion"] = relevantClient,
+            ["clientRuntimeDigest"] = clientRuntimeDigest,
+            ["transactionMode"] = "autocommit",
+            ["identifierPolicy"] = "portable-lower-v1",
+            ["caseFolding"] = "unicode-default-v1",
+            ["timezone"] = "UTC"
+        };
+        if (engine == SqlEngineNames.PostgreSql)
+        {
+            settings["encoding"] = "UTF8"; settings["collation"] = "C"; settings["localeProvider"] = "libc";
+            settings["serverVersionNum"] = "180000"; settings["serverBuild"] = "PostgreSQL fixture";
+            settings["storageStrategy"] = "template-database-v1";
+        }
+        else if (engine == SqlEngineNames.MySql)
+        {
+            settings["encoding"] = "utf8mb4"; settings["collation"] = "utf8mb4_0900_as_cs";
+            settings["serverBuild"] = "MySQL fixture"; settings["lowerCaseTableNames"] = 0;
+            settings["storageStrategy"] = "logical-script-v1"; settings["sqlMode"] = "STRICT_ALL_TABLES";
+        }
+        else
+        {
+            settings["compileOptions"] = new[] { "ENABLE_FTS5", "THREADSAFE=1" };
+            settings["storageStrategy"] = "immutable-file-v1"; settings["foreignKeys"] = true;
+        }
+        var profile = new SqlEngineProfile
+        {
+            Key = engine, DisplayName = engine, Engine = engine,
+            EngineVersion = engine == SqlEngineNames.PostgreSql ? "18.0" : engine == SqlEngineNames.MySql ? "8.4.6" : "3.50.0",
+            RuntimeDigest = engine == SqlEngineNames.Sqlite ? "sha256:" + new string('9', 64) : "sha256:" + new string('a', 64),
+            AdapterVersion = "1.0.0", SettingsJson = JsonSerializer.Serialize(settings)
         };
         profile.Fingerprint = SqlContentKeys.Profile(profile);
         return profile;

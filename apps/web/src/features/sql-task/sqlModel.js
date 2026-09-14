@@ -94,3 +94,50 @@ export function resultLabel(status) {
     TimeLimitExceeded: '\u041b\u0438\u043c\u0438\u0442 \u0432\u0440\u0435\u043c\u0435\u043d\u0438', OutputLimitExceeded: '\u041b\u0438\u043c\u0438\u0442 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u0430',
     JudgeUnavailable: '\u0414\u0432\u0438\u0436\u043e\u043a \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d', Previewed: '\u0417\u0430\u043f\u0443\u0441\u043a \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d' })[status] || status;
 }
+
+
+export function logicalEngineProfiles(profiles, targets, onlineFingerprints) {
+  const catalog = Array.isArray(profiles) ? profiles : [];
+  const currentTargets = Array.isArray(targets) ? targets : [];
+  const online = onlineFingerprints instanceof Set ? onlineFingerprints : new Set(onlineFingerprints || []);
+  const selectedByEngine = new Map();
+  for (const target of currentTargets) {
+    if (target?.enabled === false) continue;
+    const profile = catalog.find(item => item.id === target?.engineProfileId);
+    if (profile?.engine && !selectedByEngine.has(profile.engine)) selectedByEngine.set(profile.engine, { target, profile });
+  }
+  const engines = [];
+  const seen = new Set();
+  for (const profile of catalog) {
+    if (!profile?.engine || seen.has(profile.engine)) continue;
+    seen.add(profile.engine);
+    const candidates = catalog.filter(item => item.engine === profile.engine);
+    const selected = selectedByEngine.get(profile.engine);
+    // /api/sql/engines is newest-first. Prefer the newest online immutable profile
+    // for a newly enabled logical engine; retain an already selected historical
+    // profile so existing drafts are never silently rewritten.
+    const preferred = candidates.find(item => online.has(item.fingerprint)) || candidates[0];
+    const active = selected?.profile || preferred;
+    if (!active) continue;
+    engines.push({
+      engine: profile.engine,
+      displayName: active.displayName || preferred?.displayName || profile.engine,
+      activeProfile: active,
+      preferredProfile: preferred || active,
+      target: selected?.target || null,
+      selected: !!selected,
+      online: online.has(active.fingerprint),
+      canUpgrade: !!selected && !!preferred && selected.profile.id !== preferred.id
+        && !online.has(selected.profile.fingerprint) && online.has(preferred.fingerprint)
+    });
+  }
+  return engines;
+}
+
+export function replaceEngineTargetProfile(targets, fromProfileId, toProfileId) {
+  if (!fromProfileId || !toProfileId || fromProfileId === toProfileId) return Array.isArray(targets) ? targets : [];
+  const current = Array.isArray(targets) ? targets : [];
+  if (current.some(target => target.engineProfileId === toProfileId))
+    return current.filter(target => target.engineProfileId !== fromProfileId);
+  return current.map(target => target.engineProfileId === fromProfileId ? { ...target, engineProfileId: toProfileId } : target);
+}

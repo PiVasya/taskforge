@@ -44,6 +44,76 @@ func TestMain(m *testing.M) {
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
+func TestRuntimeIdentitySeparatesBuildAndEngineClientDigests(t *testing.T) {
+	identity, err := DetectRuntimeIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hashRE.MatchString(identity.BuildFingerprint) {
+		t.Fatal("diagnostic worker build fingerprint is invalid")
+	}
+	for _, engine := range []string{"postgresql", "mysql", "sqlite"} {
+		digest := identity.ClientDigests[engine]
+		if !digestRE.MatchString(digest) {
+			t.Fatalf("%s client runtime digest is invalid", engine)
+		}
+		if digest == "sha256:"+identity.BuildFingerprint {
+			t.Fatalf("%s client runtime digest was coupled to the whole worker build", engine)
+		}
+	}
+}
+
+func TestSQLiteProfileIdentityIgnoresWorkerInstanceIdentity(t *testing.T) {
+	digest := "sha256:" + textHash("same-sqlite-client-runtime")
+	a, err := NewSQLiteAdapter(t.TempDir(), "worker-build-a", digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewSQLiteAdapter(t.TempDir(), "worker-build-b", digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := a.Registration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := b.Registration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameJSON(left, right) {
+		t.Fatal("worker instance/build identity changed the SQLite semantic profile")
+	}
+	if _, exists := left.Settings["executorFingerprint"]; exists {
+		t.Fatal("diagnostic build fingerprint leaked into the semantic SQL profile")
+	}
+	if left.Settings["executionSemanticsVersion"] != ExecutionSemanticsVersion {
+		t.Fatal("explicit SQL execution semantics version is missing")
+	}
+}
+
+func TestSQLiteProfileIdentityChangesWithClientRuntime(t *testing.T) {
+	a, err := NewSQLiteAdapter(t.TempDir(), "worker-a", "sha256:"+textHash("sqlite-client-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewSQLiteAdapter(t.TempDir(), "worker-b", "sha256:"+textHash("sqlite-client-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := a.Registration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := b.Registration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameJSON(left, right) || left.RuntimeDigest == right.RuntimeDigest {
+		t.Fatal("SQLite client runtime change failed to invalidate the semantic profile")
+	}
+}
+
 func ptr[T any](v T) *T { return &v }
 func fixture(profile Profile) Payload {
 	return Payload{ContractVersion: 1, AssignmentID: "10000000-0000-4000-8000-000000000001", SpecVersionID: "10000000-0000-4000-8000-000000000002", DatasetVersionID: "10000000-0000-4000-8000-000000000003", EngineTargetID: "10000000-0000-4000-8000-000000000004", Profile: profile, MaterializationKey: textHash("shop-fixture" + profile.Fingerprint), ArtifactKey: textHash("shop-assignment-one"), DatasetHash: textHash("shop-data"),
@@ -61,7 +131,7 @@ type harness struct {
 
 func newHarness(t *testing.T, options ...PoolOptions) *harness {
 	t.Helper()
-	a, e := NewSQLiteAdapter(t.TempDir(), "test-worker", textHash("go-test-executor"))
+	a, e := NewSQLiteAdapter(t.TempDir(), "test-worker", "sha256:"+textHash("go-test-client-runtime"))
 	if e != nil {
 		t.Fatal(e)
 	}

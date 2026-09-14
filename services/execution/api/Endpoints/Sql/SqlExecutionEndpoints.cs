@@ -9,6 +9,11 @@ namespace TaskForge.Execution.Api.Endpoints;
 
 internal static partial class ExecutionApiEndpoints
 {
+    // A worker can advertise historical immutable fingerprints that are explicitly
+    // compatible with its current semantic runtime. Keep this bounded, but do not
+    // couple correctness to the old 32-profile UI-era limit.
+    private const int MaxSqlCapabilityTargets = 4096;
+
     private static void MapSqlExecutionEndpoints(WebApplication app)
     {
         var group = app.MapGroup("/api/internal/execution/sql-jobs");
@@ -112,7 +117,7 @@ internal static partial class ExecutionApiEndpoints
         app.MapPost("/api/internal/execution/sql-capabilities", (SqlCapabilities request, SqlWorkerDirectory workers) =>
         {
             if (string.IsNullOrWhiteSpace(request.WorkerId) || request.WorkerId.Length > 160 || request.Targets is null
-                || request.Targets.Length > 32 || request.Targets.Any(x => !SqlWire.IsHash(x)))
+                || request.Targets.Length > MaxSqlCapabilityTargets || request.Targets.Any(x => !SqlWire.IsHash(x)))
                 return Microsoft.AspNetCore.Http.Results.BadRequest();
             workers.Update(request); return Microsoft.AspNetCore.Http.Results.Ok(new { accepted = true });
         });
@@ -128,7 +133,7 @@ internal static partial class ExecutionApiEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.WorkerId) || request.WorkerId.Length > 160 || request.Kinds is null
             || request.Kinds.Length is < 1 or > 3 || request.Kinds.Any(x => !SqlWire.IsSqlKind(x))
-            || request.Targets is null || request.Targets.Length is < 1 or > 32 || request.Targets.Any(x => !SqlWire.IsHash(x)))
+            || request.Targets is null || request.Targets.Length is < 1 or > MaxSqlCapabilityTargets || request.Targets.Any(x => !SqlWire.IsHash(x)))
             throw new ArgumentException("SQL claims require an identified worker and exact supported targets.");
     }
 }

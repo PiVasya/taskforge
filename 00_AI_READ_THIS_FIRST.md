@@ -17,6 +17,7 @@ Open this file before changing the project.
 ## Hard rules
 
 - SQL production execution is Go, including the isolated per-attempt helper. Do not reintroduce a Python SQL worker or child. The native database client libraries are accessed through CGO; keep all-thread isolation, bounded resources and the independent provider contract.
+- SQL engine profiles are immutable semantic runtime contracts. Never put the sql-worker executable/build fingerprint back into profile identity. Keep build identity diagnostic-only; compatibility with historical fingerprints must go through the explicit `SqlProfileCompatibility` semantic relation, never engine-name matching or in-place profile rewriting.
 
 - The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
 - The user-owned migration boundary was completed in develop(212). Preserve all 92 migration/snapshot files and the existing SQL Entity/DbContext definitions. Do not generate or apply another migration for this runtime update. New schema changes require another explicit user-owned migration boundary; use the existing `scripts/generate-migrations.sh` rather than inventing per-project commands.

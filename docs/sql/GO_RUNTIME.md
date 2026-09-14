@@ -17,10 +17,17 @@ limits, lifecycle, metrics and cancellation. The repository has no external Go
 module dependency for this worker. The Docker runtime still needs shared libraries.
 
 C# wire contract version 1 and adapter contract 1.0.0 are preserved. Implementation
-identity is go-native-v1. The runtime fingerprint includes the built executable,
-Go/runtime/native-library versions, engine settings and pinned engine image. Old
-Python profiles are NOT relabeled as Go profiles. SQL jobs are claimed only with
-the exact registered profile. See DEPLOYMENT.md before replacing a running r58.
+identity is go-native-v1 and the explicit execution-semantics identity is sql-runtime-v1.
+The worker build fingerprint (executable plus loaded runtime files) is diagnostic only.
+Immutable engine profiles contain engine-specific semantic identity: exact engine version,
+server image/embedded-runtime digest, relevant native client binary/version, adapter and
+SQL-significant settings. Updating unrelated worker code does not change that contract.
+
+Jobs remain pinned to their exact historical profile. After registering its current profile,
+the coordinator asks Tasks API for immutable profiles proven semantically compatible and may
+advertise those exact fingerprints as aliases. Acquire preserves the historical Profile object,
+so materialization/expected keys and verifier equality are not rewritten. Old Python profiles
+are NOT relabeled or aliased as Go profiles. See DEPLOYMENT.md for rolling-upgrade behavior.
 
 ## Build and artifacts
 

@@ -21,7 +21,7 @@ func engineHarness(t *testing.T, engine string) *harness {
 		host, port, user, digest = "sql-mysql", "3306", "root", os.Getenv("SQL_TEST_MY_DIGEST")
 	}
 	cfg := ServerConfig{Config: native.Config{Engine: engine, Host: host, Port: port, User: user, Password: os.Getenv("SQL_TEST_PASSWORD")}, RuntimeDigest: digest, Marker: os.Getenv("SQL_TEST_MARKER")}
-	a, e := NewServerAdapter(cfg, "go-engine-test-"+t.Name(), textHash("go-test-executor"))
+	a, e := NewServerAdapter(cfg, "go-engine-test-"+t.Name(), "sha256:"+textHash("go-test-client-runtime"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -199,7 +199,7 @@ func TestRealEnginesMarkerAndOrphanRecovery(t *testing.T) {
 		a := h.adapter.(*ServerAdapter)
 		badCfg := a.config
 		badCfg.Marker = strings.Repeat("0", 64)
-		bad, e := NewServerAdapter(badCfg, "foreign-probe", textHash("executor"))
+		bad, e := NewServerAdapter(badCfg, "foreign-probe", "sha256:"+textHash("test-client-runtime"))
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -207,7 +207,7 @@ func TestRealEnginesMarkerAndOrphanRecovery(t *testing.T) {
 			t.Fatal("wrong marker allowed admin access")
 		}
 		// Use another namespace, so startup recovery cannot interfere with this pool.
-		orphan, e := NewServerAdapter(a.config, "orphan-"+t.Name(), textHash("executor"))
+		orphan, e := NewServerAdapter(a.config, "orphan-"+t.Name(), "sha256:"+textHash("test-client-runtime"))
 		if e != nil {
 			t.Fatal(e)
 		}

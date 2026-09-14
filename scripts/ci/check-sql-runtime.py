@@ -26,6 +26,18 @@ def main():
        'apps/web/src/features/sql-task/SqlTaskSolve.jsx','deploy/dev/compose/35-sql.yaml','deploy/prod/compose/35-sql.yaml']
     for p in paths:require((ROOT/p).is_file(),'SQL runtime component missing: '+p)
     worker=ROOT/'services/execution/sql-worker'
+    adapters=(worker/'internal/sqlworker/adapters.go').read_text()
+    registry=(worker/'internal/sqlworker/registry.go').read_text()
+    tasks_sql=(ROOT/'services/tasks/assignment-api/Endpoints/Sql/SqlEndpoints.cs').read_text()
+    compatibility=(ROOT/'services/tasks/assignment-api/Domain/Sql/SqlProfileCompatibility.cs').read_text()
+    require('executorFingerprint' not in adapters, 'Worker build identity re-entered SQL profile registration')
+    require('executionSemanticsVersion' in adapters and 'clientRuntimeDigest' in adapters, 'Semantic SQL profile identity is incomplete')
+    require('BuildFingerprint' in registry and 'ClientDigests' in registry, 'Build/client runtime identities are not separated')
+    contracts=(worker/'internal/sqlworker/contracts.go').read_text()
+    go_semantics=re.search(r'const ExecutionSemanticsVersion = "([^"]+)"', contracts)
+    cs_semantics=re.search(r'CurrentExecutionSemanticsVersion = "([^"]+)"', compatibility)
+    require(go_semantics and cs_semantics and go_semantics.group(1)==cs_semantics.group(1), 'Go/C# SQL execution semantics versions drifted')
+    require('/engines/{fingerprint}/compatible' in tasks_sql and 'LegacySqliteDigestMatches' in compatibility, 'Explicit immutable profile compatibility layer is missing')
     require(not list(worker.rglob('*.py')), 'Python was reintroduced into the SQL worker')
     require(not (worker/'requirements.txt').exists(), 'Retired Python requirements remain')
     docker=(worker/'Dockerfile').read_text()

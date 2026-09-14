@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -101,16 +102,44 @@ func (c *InternalClient) request(ctx context.Context, service, method, path stri
 	}
 	return nil
 }
-func (c *InternalClient) Register(ctx context.Context, registration Registration) (Profile, error) {
+func (c *InternalClient) Register(ctx context.Context, registration Registration) (RegisteredProfiles, error) {
 	var p Profile
 	e := c.request(ctx, "tasks", "POST", "/api/internal/sql/engines/register", registration, &p, 8*time.Second)
 	if e != nil {
-		return p, e
+		return RegisteredProfiles{}, e
 	}
 	if !hashRE.MatchString(p.Fingerprint) || !uuidRE.MatchString(p.ID) || p.Key != registration.Engine || p.Engine != registration.Engine || p.EngineVersion != registration.EngineVersion || p.RuntimeDigest != registration.RuntimeDigest || p.AdapterVersion != registration.AdapterVersion || !sameJSON(p.Settings, registration.Settings) {
-		return Profile{}, Unavailable("Runtime registration changed the requested immutable profile.")
+		return RegisteredProfiles{}, Unavailable("Runtime registration changed the requested immutable profile.")
 	}
-	return p, nil
+	registered := RegisteredProfiles{Current: p, Compatible: []Profile{}, CompatibilityConfirmed: false}
+	var compatible []Profile
+	e = c.request(ctx, "tasks", "GET", "/api/internal/sql/engines/"+p.Fingerprint+"/compatible", nil, &compatible, 8*time.Second)
+	if e != nil {
+		var httpFailure *HTTPFailure
+		if errors.As(e, &httpFailure) && httpFailure.Status == http.StatusNotFound {
+			// Rolling upgrade compatibility: an older Tasks API still supports the
+			// exact profile until the compatibility endpoint arrives.
+			return registered, nil
+		}
+		slog.Warn("sql_profile_compatibility_lookup_unavailable", "engine", registration.Engine, "error_class", fmt.Sprintf("%T", e))
+		return registered, nil
+	}
+	registered.CompatibilityConfirmed = true
+	if len(compatible) > 1024 {
+		return RegisteredProfiles{}, Unavailable("SQL profile compatibility set is unreasonably large.")
+	}
+	seen := map[string]bool{p.Fingerprint: true}
+	for _, alias := range compatible {
+		if !hashRE.MatchString(alias.Fingerprint) || !uuidRE.MatchString(alias.ID) || alias.Key != registration.Engine || alias.Engine != registration.Engine || alias.EngineVersion != registration.EngineVersion || alias.AdapterVersion != registration.AdapterVersion {
+			return RegisteredProfiles{}, Unavailable("The SQL compatibility endpoint returned an invalid profile alias.")
+		}
+		if seen[alias.Fingerprint] {
+			continue
+		}
+		seen[alias.Fingerprint] = true
+		registered.Compatible = append(registered.Compatible, alias)
+	}
+	return registered, nil
 }
 func (c *InternalClient) Capabilities(ctx context.Context, worker string, targets []string, concurrency int) error {
 	if targets == nil {

@@ -24,19 +24,20 @@ type QueueClient interface {
 	Warmup(context.Context, string) ([]Payload, error)
 }
 type Worker struct {
-	Config     Config
-	Client     QueueClient
-	Registry   *Registry
-	Pool       *Pool
-	Runner     *JobRunner
-	Metrics    *Metrics
-	namespace  *os.File
-	wake       chan struct{}
-	slots      chan struct{}
-	jobs       sync.WaitGroup
-	background sync.WaitGroup
-	lastTick   atomic.Int64
-	stopping   atomic.Bool
+	Config           Config
+	Client           QueueClient
+	Registry         *Registry
+	Pool             *Pool
+	Runner           *JobRunner
+	Metrics          *Metrics
+	BuildFingerprint string
+	namespace        *os.File
+	wake             chan struct{}
+	slots            chan struct{}
+	jobs             sync.WaitGroup
+	background       sync.WaitGroup
+	lastTick         atomic.Int64
+	stopping         atomic.Bool
 }
 
 func NewWorker(cfg Config) (*Worker, error) {
@@ -50,19 +51,19 @@ func NewWorker(cfg Config) (*Worker, error) {
 		return nil, e
 	}
 	closeResources := func() { lock.Close(); client.Close() }
-	fingerprint, e := ExecutorFingerprint()
+	identity, e := DetectRuntimeIdentity()
 	if e != nil {
 		closeResources()
 		return nil, e
 	}
-	sqlite, e := NewSQLiteAdapter(cfg.Cache, cfg.WorkerID, fingerprint)
+	sqlite, e := NewSQLiteAdapter(cfg.Cache, cfg.WorkerID, identity.ClientDigests["sqlite"])
 	if e != nil {
 		closeResources()
 		return nil, e
 	}
 	adapters := []EngineAdapter{sqlite}
 	for _, engine := range cfg.Engines {
-		a, e := NewServerAdapter(engine, cfg.WorkerID, fingerprint)
+		a, e := NewServerAdapter(engine, cfg.WorkerID, identity.ClientDigests[engine.Engine])
 		if e != nil {
 			closeResources()
 			return nil, e
@@ -88,7 +89,7 @@ func NewWorker(cfg Config) (*Worker, error) {
 		return nil, Unavailable("The mandatory Go all-thread isolation self-test failed.")
 	}
 	pool := NewPool(cfg.Pool, metrics)
-	return &Worker{Config: cfg, Client: client, Registry: NewRegistry(adapters, client, pool, metrics), Pool: pool, Runner: &JobRunner{pool, processes, metrics}, Metrics: metrics, namespace: lock, wake: make(chan struct{}, 1), slots: make(chan struct{}, cfg.Concurrency)}, nil
+	return &Worker{Config: cfg, Client: client, Registry: NewRegistry(adapters, client, pool, metrics), Pool: pool, Runner: &JobRunner{pool, processes, metrics}, Metrics: metrics, BuildFingerprint: identity.BuildFingerprint, namespace: lock, wake: make(chan struct{}, 1), slots: make(chan struct{}, cfg.Concurrency)}, nil
 }
 func (w *Worker) signal() {
 	select {
@@ -269,7 +270,7 @@ func (w *Worker) HealthHandler() http.Handler {
 			if !live || (req.URL.Path == "/ready" && !ready) {
 				rw.WriteHeader(http.StatusServiceUnavailable)
 			}
-			_ = json.NewEncoder(rw).Encode(map[string]any{"live": live, "ready": ready, "implementation": ImplementationVersion, "engines": w.Registry.Status(), "pool": w.Pool.Stats()})
+			_ = json.NewEncoder(rw).Encode(map[string]any{"live": live, "ready": ready, "implementation": ImplementationVersion, "buildFingerprint": w.BuildFingerprint, "engines": w.Registry.Status(), "pool": w.Pool.Stats()})
 		default:
 			http.NotFound(rw, req)
 		}
@@ -319,7 +320,7 @@ func (w *Worker) Run(parent context.Context) (err error) {
 			w.Metrics.Set("sql_wakeup_connected", "all", v)
 		})
 	}()
-	slog.Info("sql_worker_started", "worker", w.Config.WorkerID, "implementation", ImplementationVersion, "concurrency", w.Config.Concurrency)
+	slog.Info("sql_worker_started", "worker", w.Config.WorkerID, "implementation", ImplementationVersion, "build_fingerprint", w.BuildFingerprint, "concurrency", w.Config.Concurrency)
 	for ctx.Err() == nil {
 		w.lastTick.Store(time.Now().UnixNano())
 		targets := w.Registry.Targets()

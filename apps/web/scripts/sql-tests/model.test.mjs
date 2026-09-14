@@ -68,3 +68,34 @@ test('publication readiness requires every enabled engine validation receipt',()
   {engineProfileId:'mysql',datasetStatus:'valid',status:'valid'}
  ]),true);
 });
+
+
+test('logical SQL engine catalog collapses immutable history without rewriting selected drafts',()=>{
+ const profiles=[
+  {id:'sqlite-new',engine:'sqlite',displayName:'SQLite 3',fingerprint:'new'},
+  {id:'sqlite-old',engine:'sqlite',displayName:'SQLite 3',fingerprint:'old'},
+  {id:'mysql-new',engine:'mysql',displayName:'MySQL 8',fingerprint:'mysql'}
+ ];
+ const selected=[{engineProfileId:'sqlite-old',enabled:true,sort:0,starterSqlOverride:'select 1'}];
+ const rows=m.logicalEngineProfiles(profiles,selected,new Set(['new','old','mysql']));
+ assert.equal(rows.length,2);
+ const sqlite=rows.find(x=>x.engine==='sqlite');
+ assert.equal(sqlite.activeProfile.id,'sqlite-old');
+ assert.equal(sqlite.preferredProfile.id,'sqlite-new');
+ assert.equal(sqlite.online,true);
+ assert.equal(sqlite.canUpgrade,false);
+});
+
+test('offline historical target can be explicitly moved to newest online profile preserving overrides',()=>{
+ const profiles=[
+  {id:'pg-new',engine:'postgresql',displayName:'PostgreSQL 16',fingerprint:'new'},
+  {id:'pg-old',engine:'postgresql',displayName:'PostgreSQL 16',fingerprint:'old'}
+ ];
+ const targets=[{engineProfileId:'pg-old',enabled:true,sort:4,referenceSqlOverride:'select 42'}];
+ const [row]=m.logicalEngineProfiles(profiles,targets,new Set(['new']));
+ assert.equal(row.canUpgrade,true);
+ const changed=m.replaceEngineTargetProfile(targets,'pg-old','pg-new');
+ assert.equal(changed[0].engineProfileId,'pg-new');
+ assert.equal(changed[0].referenceSqlOverride,'select 42');
+ assert.equal(changed[0].sort,4);
+});

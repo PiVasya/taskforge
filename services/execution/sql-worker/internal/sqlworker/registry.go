@@ -18,64 +18,103 @@ import (
 	"time"
 )
 
-// Fingerprints change when the executable OR its loaded native runtime changes.
-// This does not claim to attest a remote image: server image digests are supplied
-// by the deployment preflight and server versions are checked on each connection.
-func ExecutorFingerprint() (string, error) {
+// RuntimeIdentity deliberately separates the worker build identity from the
+// database-client runtime identity. The build fingerprint is diagnostic only;
+// profile compatibility is based on the engine-specific client/runtime contract.
+type RuntimeIdentity struct {
+	BuildFingerprint string
+	ClientDigests    map[string]string
+}
+
+func DetectRuntimeIdentity() (RuntimeIdentity, error) {
 	path, e := os.Executable()
 	if e != nil {
-		return "", e
+		return RuntimeIdentity{}, e
 	}
 	files := map[string]string{"executable": path}
 	maps, e := os.ReadFile("/proc/self/maps")
 	if e != nil {
-		return "", e
+		return RuntimeIdentity{}, e
 	}
 	for _, line := range strings.Split(string(maps), "\n") {
 		parts := strings.Fields(line)
 		if len(parts) < 6 {
 			continue
 		}
-		p := strings.Join(parts[5:], " ")
-		if strings.HasPrefix(p, "/") && strings.Contains(filepath.Base(p), ".so") {
-			if strings.HasSuffix(p, " (deleted)") {
-				return "", fmt.Errorf("loaded runtime library was replaced")
-			}
-			files["library:"+filepath.Base(p)] = p
-			// MySQL authentication plugins may be loaded lazily at first connect.
-			if strings.Contains(filepath.Base(p), "libmariadb") {
-				for _, dir := range []string{"libmariadb3/plugin", "mariadb19/plugin", "mariadb/plugin"} {
-					plugins, _ := filepath.Glob(filepath.Join(filepath.Dir(p), dir, "*.so"))
-					for _, plugin := range plugins {
-						files["plugin:"+filepath.Base(plugin)] = plugin
-					}
+		loaded := strings.Join(parts[5:], " ")
+		if !strings.HasPrefix(loaded, "/") || !strings.Contains(filepath.Base(loaded), ".so") {
+			continue
+		}
+		if strings.HasSuffix(loaded, " (deleted)") {
+			return RuntimeIdentity{}, fmt.Errorf("loaded runtime library was replaced")
+		}
+		files["library:"+filepath.Base(loaded)] = loaded
+		// MySQL authentication plugins may be loaded lazily at first connect. They
+		// belong to the build fingerprint, but not to SQL-result compatibility.
+		if strings.Contains(filepath.Base(loaded), "libmariadb") {
+			for _, dir := range []string{"libmariadb3/plugin", "mariadb19/plugin", "mariadb/plugin"} {
+				plugins, _ := filepath.Glob(filepath.Join(filepath.Dir(loaded), dir, "*.so"))
+				for _, plugin := range plugins {
+					files["plugin:"+filepath.Base(plugin)] = plugin
 				}
 			}
 		}
 	}
 	hashes := map[string]string{}
-	for name, path := range files {
-		f, e := os.Open(path)
+	for name, file := range files {
+		f, e := os.Open(file)
 		if e != nil {
-			return "", e
+			return RuntimeIdentity{}, e
 		}
 		h := sha256.New()
 		_, e = io.Copy(h, f)
 		f.Close()
 		if e != nil {
-			return "", e
+			return RuntimeIdentity{}, e
 		}
 		hashes[name] = hex.EncodeToString(h.Sum(nil))
 	}
-	return ContentHash(map[string]any{"implementation": ImplementationVersion, "os": runtime.GOOS, "arch": runtime.GOARCH, "libraries": native.LibraryVersions(), "files": hashes, "goUnicodePolicy": "default-fold"})
+	build, e := ContentHash(map[string]any{"implementation": ImplementationVersion, "os": runtime.GOOS, "arch": runtime.GOARCH, "libraries": native.LibraryVersions(), "files": hashes, "goUnicodePolicy": "default-fold"})
+	if e != nil {
+		return RuntimeIdentity{}, e
+	}
+	needles := map[string]string{"postgresql": "libpq", "mysql": "libmariadb", "sqlite": "libsqlite3"}
+	clients := map[string]string{}
+	for engine, needle := range needles {
+		selected := []string{}
+		for name, hash := range hashes {
+			if strings.HasPrefix(name, "library:") && strings.Contains(strings.ToLower(name), needle) {
+				selected = append(selected, hash)
+			}
+		}
+		if len(selected) == 0 {
+			return RuntimeIdentity{}, fmt.Errorf("loaded %s client library was not found", engine)
+		}
+		sort.Strings(selected)
+		// File names and loader paths are deployment details. The semantic component
+		// identity is the deterministic set of bytes actually loaded for this client.
+		digest, e := ContentHash(map[string]any{"engine": engine, "fileDigests": selected})
+		if e != nil {
+			return RuntimeIdentity{}, e
+		}
+		clients[engine] = "sha256:" + digest
+	}
+	return RuntimeIdentity{BuildFingerprint: build, ClientDigests: clients}, nil
+}
+
+type RegisteredProfiles struct {
+	Current                Profile
+	Compatible             []Profile
+	CompatibilityConfirmed bool
 }
 
 type profileClient interface {
-	Register(context.Context, Registration) (Profile, error)
+	Register(context.Context, Registration) (RegisteredProfiles, error)
 }
 type runtimeEntry struct {
 	adapter            EngineAdapter
 	profile            *Profile
+	profiles           map[string]Profile
 	ready, initialized bool
 	active             int
 	epoch              uint64
@@ -143,12 +182,25 @@ func (r *Registry) Refresh(ctx context.Context) {
 			r.setFailure(entry, epoch, "engine-probe", true)
 			continue
 		}
-		profile, e := r.client.Register(ctx, registration)
+		registered, e := r.client.Register(ctx, registration)
 		if e != nil {
 			r.setFailure(entry, epoch, "control-plane", false)
 			continue
 		}
+		profile := registered.Current
+		profiles := map[string]Profile{profile.Fingerprint: profile}
+		for _, compatible := range registered.Compatible {
+			profiles[compatible.Fingerprint] = compatible
+		}
 		r.mu.Lock()
+		// A transient compatibility lookup failure must not flap previously proved
+		// immutable aliases offline. They remain safe while the current semantic
+		// profile is unchanged. A profile change below always clears this cache.
+		if !registered.CompatibilityConfirmed && entry.profile != nil && entry.profile.Fingerprint == profile.Fingerprint {
+			for fingerprint, compatible := range entry.profiles {
+				profiles[fingerprint] = compatible
+			}
+		}
 		if entry.epoch != epoch {
 			r.mu.Unlock()
 			continue
@@ -156,12 +208,14 @@ func (r *Registry) Refresh(ctx context.Context) {
 		if entry.profile != nil && entry.profile.Fingerprint != profile.Fingerprint && initialized {
 			entry.ready = false
 			entry.initialized = false
+			entry.profiles = nil
 			entry.epoch++
 			entry.errorClass = "runtime-changed"
 			r.mu.Unlock()
 			continue
 		}
 		entry.profile = &profile
+		entry.profiles = profiles
 		entry.ready = true
 		entry.errorClass = ""
 		r.pool.Resume(entry.adapter)
@@ -190,7 +244,11 @@ func (r *Registry) Invalidate(fingerprint string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
-		if e.profile != nil && e.profile.Fingerprint == fingerprint {
+		_, compatible := e.profiles[fingerprint]
+		if !compatible && e.profile != nil {
+			compatible = e.profile.Fingerprint == fingerprint
+		}
+		if compatible {
 			e.ready = false
 			e.initialized = false
 			e.epoch++
@@ -202,11 +260,22 @@ func (r *Registry) Invalidate(fingerprint string) {
 func (r *Registry) Targets() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := []string{}
+	targets := map[string]struct{}{}
 	for _, e := range r.entries {
-		if e.ready && e.profile != nil {
-			out = append(out, e.profile.Fingerprint)
+		if !e.ready || e.profile == nil {
+			continue
 		}
+		if len(e.profiles) == 0 {
+			targets[e.profile.Fingerprint] = struct{}{}
+			continue
+		}
+		for fingerprint := range e.profiles {
+			targets[fingerprint] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(targets))
+	for fingerprint := range targets {
+		out = append(out, fingerprint)
 	}
 	sort.Strings(out)
 	return out
@@ -214,9 +283,15 @@ func (r *Registry) Targets() []string {
 func (r *Registry) Acquire(fingerprint string) (EngineAdapter, Profile, func(), error) {
 	r.mu.Lock()
 	for _, e := range r.entries {
-		if e.ready && e.profile != nil && e.profile.Fingerprint == fingerprint {
+		if !e.ready || e.profile == nil {
+			continue
+		}
+		profile, ok := e.profiles[fingerprint]
+		if !ok && e.profile.Fingerprint == fingerprint {
+			profile, ok = *e.profile, true
+		}
+		if ok {
 			e.active++
-			profile := *e.profile
 			adapter := e.adapter
 			r.mu.Unlock()
 			r.metrics.Inc("sql_worker_inflight", adapter.Engine(), 1)
@@ -241,10 +316,15 @@ func (r *Registry) Status() []map[string]any {
 	out := []map[string]any{}
 	for _, e := range r.entries {
 		var profile any
+		compatible := 0
 		if e.profile != nil {
 			profile = e.profile.Fingerprint
+			compatible = len(e.profiles)
+			if compatible == 0 {
+				compatible = 1
+			}
 		}
-		out = append(out, map[string]any{"engine": e.adapter.Engine(), "ready": e.ready, "active": e.active, "profile": profile, "errorClass": e.errorClass})
+		out = append(out, map[string]any{"engine": e.adapter.Engine(), "ready": e.ready, "active": e.active, "profile": profile, "compatibleProfiles": compatible, "errorClass": e.errorClass})
 	}
 	return out
 }

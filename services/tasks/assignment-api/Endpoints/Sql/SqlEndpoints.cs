@@ -164,6 +164,18 @@ internal static partial class AssignmentApiEndpoints
             db.SqlEngineProfiles.Add(profile); await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
             return Results.Ok(SqlTaskService.Profile(profile));
         });
+        internals.MapGet("/engines/{fingerprint}/compatible", async (string fingerprint, TasksDbContext db, CancellationToken ct) =>
+        {
+            if (!SqlWire.IsHash(fingerprint)) throw new ArgumentException("Exact runtime target is required.");
+            var current = await db.SqlEngineProfiles.AsNoTracking().SingleOrDefaultAsync(x => x.Fingerprint == fingerprint, ct)
+                ?? throw new SqlNotFoundException();
+            var candidates = await db.SqlEngineProfiles.AsNoTracking()
+                .Where(x => x.Key == current.Key && x.Engine == current.Engine && x.EngineVersion == current.EngineVersion
+                    && x.AdapterVersion == current.AdapterVersion && x.SettingsSchemaVersion == current.SettingsSchemaVersion)
+                .OrderByDescending(x => x.CreatedAt).Take(1024).ToListAsync(ct);
+            return Results.Ok(candidates.Where(x => SqlProfileCompatibility.IsCompatible(current, x))
+                .Select(SqlTaskService.Profile).ToArray());
+        });
         internals.MapGet("/warmup", async (string target, TasksDbContext db, CancellationToken ct) =>
         {
             if (!SqlWire.IsHash(target)) throw new ArgumentException("Exact runtime target is required.");
