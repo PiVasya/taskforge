@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,7 +35,10 @@ assert '@tiptap/extension-underline' not in tiptap_editor
 assert '@tiptap/extension-underline' not in tiptap_viewer
 assert 'void refreshDatasetCatalogBestEffort(api.sqlDatasets' in editor
 assert 'setDatasets(await api.sqlDatasets())' not in editor
-assert 'toggleEngineTargets(targets, id, checked)' in editor
+assert re.search(
+    r'changeSpec\(\{\s*targets:\s*toggleEngineTargets\(\s*targets\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*checked\s*\)\s*\}\s*\)',
+    editor,
+), 'SqlTaskEditor must route engine-target changes through toggleEngineTargets(targets, <profile>, checked)'
 assert 'export async function refreshDatasetCatalogBestEffort' in sql_model
 assert 'export function toggleEngineTargets' in sql_model
 assert 'export function validationReadyForTargets' in sql_model
