@@ -11,7 +11,6 @@ import { isPending, ownSnapshot, resultLabel } from './sqlModel';
 import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
 import SqlCheckComparison from './SqlCheckComparison';
-import './sql-task.css';
 
 const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
 const write = (key, value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch {} };

@@ -4,7 +4,6 @@ import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
 import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, logicalEngineProfiles, refreshDatasetCatalogBestEffort, replaceEngineTargetProfile, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
-import './sql-task.css';
 
 function invalidateSelection(selectionRef) {
   selectionRef.current += 1;
