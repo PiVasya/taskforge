@@ -154,6 +154,19 @@ func TestAdministrationErrorCannotLeakGeneratedPassword(t *testing.T) {
 			t.Fatal("cache miss not recoverable")
 		}
 	}
+	for _, code := range []string{"08006", "57P01", "2006", "2013"} {
+		err := administrationFailure(&native.Error{Engine: "postgresql", Code: code, Message: "secret server detail"})
+		if !isTransientAdministrationFailure(err) {
+			t.Fatalf("transient administration failure %s lost retry classification", code)
+		}
+		f := NormalizeFailure(err)
+		if f.Code != "SQL_ENGINE_UNAVAILABLE" || strings.Contains(f.Message, "secret server detail") {
+			t.Fatalf("transient administration failure %s leaked or changed public contract", code)
+		}
+	}
+	if isTransientAdministrationFailure(administrationFailure(&native.Error{Engine: "postgresql", Code: "42601", Message: "syntax"})) {
+		t.Fatal("non-transient administration error became retryable")
+	}
 }
 func TestNamespaceLockCompatibleAndExclusive(t *testing.T) {
 	root := t.TempDir()

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"taskforge/sqlworker/internal/native"
+	"time"
 	"unicode"
 )
 
@@ -375,6 +376,18 @@ func (a *ServerAdapter) owned(name string) bool {
 
 // Administration statements can contain generated credentials. Never forward a
 // native server message from this boundary into validation receipts or job output.
+type transientAdministrationFailure struct{ failure *Failure }
+
+func (e *transientAdministrationFailure) Error() string { return e.failure.Error() }
+func (e *transientAdministrationFailure) Unwrap() error { return e.failure }
+
+func transientAdministrationCode(code string) bool {
+	return strings.HasPrefix(code, "08") || contains([]string{"57P01", "57P02", "57P03", "2002", "2003", "2006", "2013"}, code)
+}
+func isTransientAdministrationFailure(err error) bool {
+	var transient *transientAdministrationFailure
+	return errors.As(err, &transient)
+}
 func administrationFailureAt(stage string, err error) error {
 	if err == nil {
 		return nil
@@ -389,6 +402,9 @@ func administrationFailureAt(stage string, err error) error {
 	slog.Warn("sql_admin_failure", "engine", db.Engine, "stage", stage, "code", db.Code)
 	if db.Code == "3D000" || db.Code == "1049" {
 		return RecoverCache("A dedicated SQL cache database disappeared.")
+	}
+	if transientAdministrationCode(db.Code) {
+		return &transientAdministrationFailure{Unavailable("The dedicated SQL engine connection was interrupted.")}
 	}
 	return Unavailable("The dedicated SQL engine rejected dataset preparation or sandbox administration.")
 }
@@ -554,6 +570,22 @@ func (a *ServerAdapter) golden(key string) (string, error) {
 	return a.prefix + "g_" + key[:28], nil
 }
 func (a *ServerAdapter) Prepare(ctx context.Context, p Payload) error {
+	for attempt := 0; attempt < 2; attempt++ {
+		err := a.prepareOnce(ctx, p)
+		if err == nil || !isTransientAdministrationFailure(err) || attempt == 1 || ctx.Err() != nil {
+			return err
+		}
+		// prepareOnce removes every partially created database before returning a
+		// retryable connection failure. A single fresh admin connection can then
+		// absorb short server-side connection churn without duplicating objects.
+		slog.Warn("sql_admin_retry", "engine", a.Engine(), "stage", "materialization")
+		if !sleep(ctx, 200*time.Millisecond) {
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func (a *ServerAdapter) prepareOnce(ctx context.Context, p Payload) error {
 	if a.Engine() == "mysql" {
 		// A deterministic, exclusively owned validation name lets the janitor
 		// retry cleanup after a failed DROP, rather than losing an orphan name.
