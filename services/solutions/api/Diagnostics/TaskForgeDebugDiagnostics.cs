@@ -80,7 +80,7 @@ internal static class TaskForgeDebugDiagnostics
                 }
             }
 
-            var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
+            var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType, context.Request.Headers.Accept.ToString());
             var originalBody = context.Response.Body;
             var responseBuffer = captureResponse ? new MemoryStream() : null;
             if (captureResponse && responseBuffer is not null)
@@ -188,11 +188,19 @@ internal static class TaskForgeDebugDiagnostics
             ?? headers["X-TaskForge-Gateway-Request-Id"].FirstOrDefault();
     }
 
-    private static bool ShouldCaptureResponse(string? path, string? contentType)
+    private static bool ShouldCaptureResponse(string? path, string? contentType, string? accept)
     {
         var p = (path ?? string.Empty).ToLowerInvariant();
         if (p.Contains("/hubs") || p.Contains("/hub")) return false;
         if (p.Contains("/api/files") || p.Contains("/files/")) return false;
+
+        // Streaming responses must write directly to the real response body.
+        // Capturing them in a MemoryStream would hold every SSE/NDJSON frame until
+        // the request ends, which for long-lived streams means the client receives nothing.
+        var accepted = (accept ?? string.Empty).ToLowerInvariant();
+        if (accepted.Contains("text/event-stream") || accepted.Contains("application/x-ndjson")) return false;
+        if (p.EndsWith("/solution-events", StringComparison.Ordinal) || p.Contains("/learning-map/stream")) return false;
+
         var ct = (contentType ?? string.Empty).ToLowerInvariant();
         if (ct.Contains("multipart") || ct.Contains("octet-stream")) return false;
         return true;

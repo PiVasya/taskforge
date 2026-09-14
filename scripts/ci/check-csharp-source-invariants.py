@@ -71,6 +71,14 @@ def main() -> int:
         diagnostics_source = diagnostics_path.read_text(encoding="utf-8")
         if "pipelineException" not in diagnostics_source or "StatusCodes.Status500InternalServerError" not in diagnostics_source:
             errors.append("tasks-api debug request logging must report unhandled pipeline exceptions as server failures")
+        if 'application/x-ndjson' not in diagnostics_source or '/learning-map/stream' not in diagnostics_source:
+            errors.append("tasks-api debug request logging must never buffer the learner NDJSON stream")
+
+    solutions_diagnostics_path = ROOT / "services" / "solutions" / "api" / "Diagnostics" / "TaskForgeDebugDiagnostics.cs"
+    if solutions_diagnostics_path.exists():
+        solutions_diagnostics = solutions_diagnostics_path.read_text(encoding="utf-8")
+        if 'text/event-stream' not in solutions_diagnostics or '/solution-events' not in solutions_diagnostics:
+            errors.append("solutions-api debug request logging must never buffer the admin SSE stream")
 
     if endpoints_path.exists():
         endpoints = endpoints_path.read_text(encoding="utf-8")
