@@ -3,6 +3,7 @@ import { ACTIONS, ENGINES, LOGICAL_TYPES, clone, list, newColumn, newTable, rena
 
 export const F = ({ label, children }) => <label className="sql-field"><span>{label}</span>{children}</label>;
 export const Check = ({ label, value, onChange, disabled }) => <label className="sql-check"><input type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} disabled={disabled} />{label}</label>;
+const SqlHelp = ({ children, label = 'Справка' }) => <details className="sql-help sql-help--icon"><summary title={label} aria-label={label}>?</summary><div className="sql-help-body">{children}</div></details>;
 export function NameInput({ value, onCommit, ...props }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
@@ -50,9 +51,9 @@ export default function SqlDatasetEditor({ value, onChange, disabled = false }) 
     else row[col.name] = mode === 'null' ? null : col.type === 'boolean' ? cell === true || cell === 'true' : cell;
   });
   return <fieldset disabled={disabled} style={{ border: 0, padding: 0, minWidth: 0 }}>
-    <div className="sql-toolbar"><h3>{'\u0422\u0430\u0431\u043b\u0438\u0446\u044b \u0438 \u0434\u0430\u043d\u043d\u044b\u0435'}</h3>
-      <button type="button" disabled={tables.length >= 24} onClick={() => { const usedNames = new Set(tables.map(t => t.name)); let candidate = `table_${tables.length + 1}`; while (usedNames.has(candidate)) candidate += '_new'; const tableName = candidate; mutate(next => { next.definition.tables.push(newTable(tableName)); }); setActive(tables.length); }}>{'+ \u0422\u0430\u0431\u043b\u0438\u0446\u0430'}</button></div>
-    <p className="sql-muted">{'\u041e\u0434\u043d\u0430 \u043b\u043e\u0433\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0411\u0414 \u0434\u043b\u044f \u0432\u0441\u0435\u0445 \u0434\u0432\u0438\u0436\u043a\u043e\u0432. \u0418\u043c\u0435\u043d\u0430: lower_snake_case. \u041f\u0443\u0441\u0442\u0430\u044f \u0411\u0414 \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u0430 \u0434\u043b\u044f CREATE TABLE.'}</p>
+    <div className="sql-toolbar"><h3>Таблицы и данные</h3>
+      <button type="button" disabled={tables.length >= 24} onClick={() => { const usedNames = new Set(tables.map(t => t.name)); let candidate = `table_${tables.length + 1}`; while (usedNames.has(candidate)) candidate += '_new'; const tableName = candidate; mutate(next => { next.definition.tables.push(newTable(tableName)); }); setActive(tables.length); }}>+ Таблица</button>
+      <SqlHelp label="Справка по структуре базы данных"><p>Описывается одна логическая база данных для всех выбранных движков. Для имён используй lower_snake_case. Пустая база допустима для заданий на CREATE TABLE.</p></SqlHelp></div>
     <div className="sql-tabs" role="tablist">{tables.map((t, i) => <button type="button" key={i} role="tab" aria-selected={i === index} onClick={() => setActive(i)}>{t.name}</button>)}</div>
     {table && <>
       <div className="sql-toolbar" style={{ marginTop: '.8rem' }}><F label={'\u0418\u043c\u044f \u0442\u0430\u0431\u043b\u0438\u0446\u044b'}><NameInput value={table.name} onCommit={name => onChange(renameTable(doc, index, name))} /></F><button type="button" onClick={deleteTable}>{'\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u0430\u0431\u043b\u0438\u0446\u0443'}</button></div>
@@ -82,8 +83,8 @@ export default function SqlDatasetEditor({ value, onChange, disabled = false }) 
         </div>)}
         <button type="button" onClick={() => mutate((n,t) => { t.foreignKeys = [...(t.foreignKeys || []), { name: `fk_${t.name}_${(t.foreignKeys || []).length+1}`, columns: [], referenceTable: '', referenceColumns: [], onDelete: 'no_action', onUpdate: 'no_action' }]; })}>+ FK</button>
       </details>
-      <details open><summary>{'\u041d\u0430\u0447\u0430\u043b\u044c\u043d\u044b\u0435 \u0434\u0430\u043d\u043d\u044b\u0435'} <span className="sql-badge">{rows.length} / 1000</span></summary>
-        <p className="sql-muted">{'DEFAULT \u043d\u0435 \u043f\u0435\u0440\u0435\u0434\u0430\u0451\u0442 \u043a\u043e\u043b\u043e\u043d\u043a\u0443 \u043f\u0440\u0438 INSERT. NULL \u0438 \u043f\u0443\u0441\u0442\u0430\u044f \u0441\u0442\u0440\u043e\u043a\u0430 \u0440\u0430\u0437\u043b\u0438\u0447\u0430\u044e\u0442\u0441\u044f. \u0427\u0438\u0441\u043b\u0430 \u043d\u0435 \u0442\u0435\u0440\u044f\u044e\u0442 \u0442\u043e\u0447\u043d\u043e\u0441\u0442\u044c. binary: Base64.'}</p>
+      <details open><summary>Начальные данные <span className="sql-badge">{rows.length} / 1000</span></summary>
+        <SqlHelp label="Справка по начальным данным"><p>DEFAULT оставляет колонку вне INSERT. NULL и пустая строка различаются. Числа сохраняются без потери точности. Двоичные значения вводятся в Base64.</p></SqlHelp>
         {rows.length > 0 && <div className="sql-scroll"><table className="sql-seed"><thead><tr>{table.columns.map(c => <th key={c.name}>{c.name}</th>)}<th /></tr></thead><tbody>{rows.map((row,ri) => <tr key={ri}>{table.columns.map(c => {
           const mode = !Object.hasOwn(row,c.name) ? 'default' : row[c.name] === null ? 'null' : 'value';
           return <td key={c.name}><select className="sql-cell-mode" aria-label={`${ri+1} ${c.name} mode`} value={mode} onChange={e => putCell(ri,c,e.target.value,c.type === 'boolean' ? false : '')}><option value="value">{'\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435'}</option><option value="default">DEFAULT</option><option value="null">NULL</option></select>

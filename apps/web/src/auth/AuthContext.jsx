@@ -5,6 +5,7 @@ import { getProfile } from '../api/profile';
 import { clearAllCourseMapLocalCaches } from '../features/course-assignments/courseMapLocalCache';
 import { clearAllCourseMapSessionStates } from '../features/course-assignments/courseMapSessionState';
 import { AUTH_REQUIRED_EVENT } from './authEvents';
+import { clearPrivateBrowserState } from './privateBrowserState';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
@@ -72,6 +73,7 @@ export default function AuthProvider({ children }) {
   }, [applyAccess, pullProfileOnce]);
 
   const doLogout = useCallback(async () => {
+    clearPrivateBrowserState();
     try { await AuthApi.logout(); } catch { }
     clearAllCourseMapLocalCaches();
     clearAllCourseMapSessionStates();
@@ -87,6 +89,7 @@ export default function AuthProvider({ children }) {
     } catch (error) {
       const status = Number(error?.response?.status || 0);
       if (status === 401 || status === 403) {
+        clearPrivateBrowserState();
         applyAccess(null);
         throw error;
       }
@@ -123,6 +126,7 @@ export default function AuthProvider({ children }) {
 
   useEffect(() => {
     const handleAuthRequired = () => {
+      clearPrivateBrowserState();
       applyAccess(null);
       setUser(null);
     };

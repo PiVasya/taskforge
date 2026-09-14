@@ -11,6 +11,8 @@ agent_ui = text('apps/web/src/features/agent/AgentFeature.jsx')
 agent_model = text('apps/web/src/features/agent/agentModel.js')
 agent_api = text('services/ai/api/Endpoints/Agent/AgentEndpoints.cs')
 editor = text('apps/web/src/features/sql-task/SqlTaskEditor.jsx')
+sql_solve = text('apps/web/src/features/sql-task/SqlTaskSolve.jsx')
+sql_db_viewer = text('apps/web/src/features/sql-task/SqlDatabaseViewer.jsx')
 sql_model = text('apps/web/src/features/sql-task/sqlModel.js')
 tiptap_editor = text('apps/web/src/components/tiptap/StatementEditor.jsx')
 tiptap_viewer = text('apps/web/src/components/tiptap/StatementViewer.jsx')
@@ -25,6 +27,9 @@ task_serialization = text('services/tasks/assignment-api/Services/Serialization/
 test_runtime = text('services/tasks/assignment-api/Services/Testing/AssignmentApiTestingService.cs')
 math_runtime = text('services/tasks/assignment-api/Services/Math/AssignmentApiMathService.cs')
 task_graph = text('apps/web/src/features/course-assignments/courseTaskGraphJson.js')
+auth_context = text('apps/web/src/auth/AuthContext.jsx')
+private_browser_state = text('apps/web/src/auth/privateBrowserState.js')
+solve_draft_store = text('apps/web/src/features/assignment-solve/solveDraftStore.js')
 
 assert 'title: buildConversationTitle(value)' in agent_ui
 assert 'maxLength = 160' in agent_model
@@ -43,6 +48,14 @@ assert 'export async function refreshDatasetCatalogBestEffort' in sql_model
 assert 'export function toggleEngineTargets' in sql_model
 assert 'export function validationReadyForTargets' in sql_model
 assert 'validationReadyForTargets(targets, view?.validation)' in editor
+assert 'Написать SQL' in sql_solve
+assert 'spec.targets.length > 1' in sql_solve
+assert 'SolveActionDock' in sql_solve
+assert 'sqlRuntime' not in sql_solve
+assert 'Доступен' not in sql_solve and 'Недоступен' not in sql_solve
+assert '/database' in sql_solve
+assert "from '@tanstack/react-table'" in sql_db_viewer
+assert '<Route path="/assignment/:assignmentId/database" element={<SqlDatabasePage />} />' in app
 assert 'const latest = await api.sqlEdit(assignmentId);' in editor
 assert 'case "health", "ready":' in worker
 assert '<Route path="/admin/ai/assistant" element={<AgentPage />} />' in app
@@ -61,5 +74,14 @@ assert 'spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts' in math_r
 assert 'unlimitedAttempts, passPercent' in test_runtime
 assert 'unlimitedAttempts, passPercent' in math_runtime
 assert "typeof value.unlimitedAttempts !== 'boolean'" in task_graph
+assert "import { clearPrivateBrowserState } from './privateBrowserState';" in auth_context
+assert 'clearPrivateBrowserState();' in auth_context
+assert "'solve-draft:v'" in private_browser_state
+assert "'results:'" in private_browser_state
+assert "'image-results:'" in private_browser_state
+assert "'taskforge-sql:'" in private_browser_state
+assert "'taskforge.compiler.draft.v1.'" in private_browser_state
+assert 'discardAllSolveDraftStores();' in private_browser_state
+assert 'export function discardAllSolveDraftStores()' in solve_draft_store
 
 print('Authoring regression invariants OK')

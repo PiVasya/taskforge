@@ -137,7 +137,7 @@ function SmoothHeightReveal({
 
     const measure = () => {
       const node = contentRef.current;
-      const nextHeight = Math.max(collapsedHeight, Math.ceil(node?.scrollHeight || collapsedHeight));
+      const nextHeight = Math.max(0, Math.ceil(node?.scrollHeight || 0));
       const nextDuration = reduced ? 0 : clampNumber(280 + nextHeight * 0.28, 360, 860);
       setDurationMs(nextDuration);
       setHeight(nextHeight);
@@ -417,6 +417,9 @@ const SolveActionDock = React.memo(function SolveActionDock({
   primaryLabel = 'Отправить решение',
   primaryIcon: PrimaryIcon = null,
   primaryDisabled = false,
+  primaryAutomationId = 'submit-code-solution',
+  primaryAgentRole = 'solution-submit',
+  primaryAgentAction = 'submit-code-solution',
   onPrimary,
   secondaryActions = [],
 }) {
@@ -453,9 +456,9 @@ const SolveActionDock = React.memo(function SolveActionDock({
           <Button
             className="solve-action-button solve-action-button--primary"
             onClick={onPrimary}
-            data-taskforge-automation-id="submit-code-solution"
-            data-taskforge-agent-role="solution-submit"
-            data-taskforge-agent-action="submit-code-solution"
+            data-taskforge-automation-id={primaryAutomationId}
+            data-taskforge-agent-role={primaryAgentRole}
+            data-taskforge-agent-action={primaryAgentAction}
             disabled={primaryDisabled}
           >
             {PrimaryIcon ? <PrimaryIcon size={16} className="mr-1" /> : null}

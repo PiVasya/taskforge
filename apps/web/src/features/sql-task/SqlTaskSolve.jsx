@@ -1,124 +1,333 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Check, CheckCircle2, Database, Play, RotateCcw, XCircle } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import CodeEditor from '../../components/CodeEditor';
+import { Button, Card, Select } from '../../components/ui';
 import { getApiErrorMessage } from '../../api/http';
-import { getMySolutionDetails, listMySolutions } from '../../api/solutions';
-import { checkSql, runSql, sqlAssignment, sqlPreview, sqlRuntime } from '../../api/sqlTasks';
+import { getMySolutionDetails } from '../../api/solutions';
+import { checkSql, runSql, sqlAssignment, sqlPreview } from '../../api/sqlTasks';
 import { isPending, ownSnapshot, resultLabel } from './sqlModel';
+import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
-import { F } from './SqlDatasetEditor';
 import './sql-task.css';
 
 const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
-const write = (key,value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key,JSON.stringify(value)); } catch {} };
-export default function SqlTaskSolve({ assignment, onActivity, onCompleted }) {
+const write = (key, value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+
+export default function SqlTaskSolve({
+  assignment,
+  statement,
+  layout = 'split',
+  nextOptions = [],
+  nextLoading = false,
+  nextDisabled = false,
+  onNext,
+  onActivity,
+  onCompleted,
+}) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const owner = user?.id || user?.userId || 'session';
   const key = `taskforge-sql:${owner}:${assignment.id}`;
-  const [spec, setSpec] = useState(null), [engineId, setEngineId] = useState(''), [source, setSource] = useState('');
-  const [runtime, setRuntime] = useState(null), [loading, setLoading] = useState(true), [sending, setSending] = useState(false);
-  const [error, setError] = useState(''), [receipt, setReceipt] = useState(null), [retry, setRetry] = useState(null);
-  const [result, setResult] = useState(null), [status, setStatus] = useState(''), [history, setHistory] = useState([]);
-  const mounted = useRef(true), completed = useRef(new Set()), completedCallback = useRef(onCompleted), activityCallback = useRef(onActivity);
-  completedCallback.current = onCompleted; activityCallback.current = onActivity;
+  const [spec, setSpec] = useState(null);
+  const [engineId, setEngineId] = useState('');
+  const [source, setSource] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [receipt, setReceipt] = useState(null);
+  const [retry, setRetry] = useState(null);
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState('');
+  const mounted = useRef(true);
+  const completed = useRef(new Set());
+  const completedCallback = useRef(onCompleted);
+  const activityCallback = useRef(onActivity);
+  completedCallback.current = onCompleted;
+  activityCallback.current = onActivity;
+
   const currentDraftKey = spec && engineId ? `${key}:${spec.specVersionId}:${engineId}` : '';
-  const loadHistory = async () => { try { const rows = await listMySolutions(assignment.id); if (mounted.current) setHistory((Array.isArray(rows) ? rows : rows?.items || []).filter(s => s.kind === 'sql' || s.sqlSpecVersionId).slice(0,20)); } catch {} };
+
   useEffect(() => {
-    let live = true; mounted.current = true;
+    let live = true;
+    mounted.current = true;
     (async () => {
       try {
-        const data = await sqlAssignment(assignment.id); if (!live) return;
-        setSpec(data); const savedEngine = read(`${key}:engine`);
+        const data = await sqlAssignment(assignment.id);
+        if (!live) return;
+        setSpec(data);
+        const savedEngine = read(`${key}:engine`);
         const target = data.targets.find(x => x.engineProfileId === savedEngine) || data.targets[0];
         setEngineId(target?.engineProfileId || '');
         const draft = target ? read(`${key}:${data.specVersionId}:${target.engineProfileId}`) : null;
         setSource(typeof draft === 'string' ? draft : target?.starterSql || '');
-        setReceipt(read(`${key}:receipt`)); setRetry(read(`${key}:request`));
-        await loadHistory();
-      } catch(e) { if (live) setError(getApiErrorMessage(e)); }
-      finally { if (live) setLoading(false); }
+        setReceipt(read(`${key}:receipt`));
+        setRetry(read(`${key}:request`));
+      } catch (e) {
+        if (live) setError(getApiErrorMessage(e));
+      } finally {
+        if (live) setLoading(false);
+      }
     })();
-    return () => { live = false; mounted.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      live = false;
+      mounted.current = false;
+    };
   }, [assignment.id, key]);
-  useEffect(() => { if (currentDraftKey && !loading) write(currentDraftKey,source); }, [currentDraftKey,source,loading]);
+
   useEffect(() => {
-    let live = true;
-    const refresh = async () => { try { const data = await sqlRuntime(); if (live) setRuntime(data); } catch { if (live) setRuntime(null); } };
-    void refresh(); const timer = setInterval(refresh,5000); return () => { live = false; clearInterval(timer); };
-  }, []);
+    if (currentDraftKey && !loading) write(currentDraftKey, source);
+  }, [currentDraftKey, source, loading]);
+
   const finish = (kind, data) => {
-    setStatus(data.status || data.verdict); setResult(ownSnapshot(data.result)); setError('');
+    setStatus(data.status || data.verdict);
+    setResult(ownSnapshot(data.result));
+    setError('');
     if (kind === 'check') {
-      void loadHistory(); window.dispatchEvent(new Event('quota:changed'));
-      if (!completed.current.has(data.id)) { completed.current.add(data.id); completedCallback.current?.(); }
+      window.dispatchEvent(new Event('quota:changed'));
+      if (!completed.current.has(data.id)) {
+        completed.current.add(data.id);
+        completedCallback.current?.();
+      }
     }
-    activityCallback.current?.(kind === 'check' ? 'submit_finished' : 'sql_preview_finished',{language:'sql',payload:{status:data.status || data.verdict,engineProfileId:data.sqlEngineProfileId || engineId}});
+    activityCallback.current?.(
+      kind === 'check' ? 'submit_finished' : 'sql_preview_finished',
+      { language: 'sql', payload: { status: data.status || data.verdict, engineProfileId: data.sqlEngineProfileId || engineId } },
+    );
   };
+
   useEffect(() => {
     if (!receipt?.id) return undefined;
-    let stopped = false, timer;
+    let stopped = false;
+    let timer;
     const poll = async () => {
       try {
         const data = receipt.kind === 'check' ? await getMySolutionDetails(receipt.id) : await sqlPreview(receipt.id);
         if (stopped) return;
         setStatus(data.status || data.verdict);
         if (!isPending(data.status || data.verdict)) {
-          finish(receipt.kind,data); setReceipt(null); write(`${key}:receipt`,null); return;
+          finish(receipt.kind, data);
+          setReceipt(null);
+          write(`${key}:receipt`, null);
+          return;
         }
-      } catch(e) {
+      } catch (e) {
         if (stopped) return;
         setError(getApiErrorMessage(e));
-        if ([403,404,410].includes(e?.response?.status)) { setReceipt(null); write(`${key}:receipt`,null); return; }
+        if ([403, 404, 410].includes(e?.response?.status)) {
+          setReceipt(null);
+          write(`${key}:receipt`, null);
+          return;
+        }
       }
-      if (!stopped) timer = setTimeout(poll,800);
+      if (!stopped) timer = setTimeout(poll, 800);
     };
-    void poll(); return () => { stopped = true; clearTimeout(timer); };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipt?.id,key]);
+  }, [receipt?.id, key]);
+
   const submit = async (kind, savedRequest = null) => {
     if (sending || receipt) return;
-    const request = savedRequest || { kind, input:{ assignmentId:assignment.id,engineProfileId:engineId,sql:source,requestId:crypto.randomUUID() } };
+    const request = savedRequest || {
+      kind,
+      input: {
+        assignmentId: assignment.id,
+        engineProfileId: engineId,
+        sql: source,
+        requestId: crypto.randomUUID(),
+      },
+    };
     if (!request.input.sql.trim()) return;
-    setSending(true); setError(''); setStatus('queued'); setRetry(request); write(`${key}:request`,request);
+    setSending(true);
+    setError('');
+    setStatus('queued');
+    setRetry(request);
+    write(`${key}:request`, request);
     try {
       const data = request.kind === 'check' ? await checkSql(request.input) : await runSql(request.input);
       if (!mounted.current) return;
-      setRetry(null); write(`${key}:request`,null);
-      activityCallback.current?.(request.kind === 'check' ? 'submit_started' : 'sql_preview_started',{language:'sql',codeLength:request.input.sql.length,fullCode:request.input.sql,payload:{engineProfileId:request.input.engineProfileId}});
-      if (request.kind === 'check' && !isPending(data.status || data.verdict)) finish('check',data);
-      else {
-        const active = {id:data.jobId || data.id,kind:request.kind,engineProfileId:request.input.engineProfileId};
-        write(`${key}:receipt`,active); setReceipt(active); setStatus(data.status || 'queued');
+      setRetry(null);
+      write(`${key}:request`, null);
+      activityCallback.current?.(
+        request.kind === 'check' ? 'submit_started' : 'sql_preview_started',
+        {
+          language: 'sql',
+          codeLength: request.input.sql.length,
+          fullCode: request.input.sql,
+          payload: { engineProfileId: request.input.engineProfileId },
+        },
+      );
+      if (request.kind === 'check' && !isPending(data.status || data.verdict)) {
+        finish('check', data);
+      } else {
+        const active = {
+          id: data.jobId || data.id,
+          kind: request.kind,
+          engineProfileId: request.input.engineProfileId,
+        };
+        write(`${key}:receipt`, active);
+        setReceipt(active);
+        setStatus(data.status || 'queued');
       }
-    } catch(e) {
+    } catch (e) {
       if (!mounted.current) return;
-      setError(getApiErrorMessage(e)); setStatus('');
-      if (e?.response?.status && e.response.status < 500) { setRetry(null); write(`${key}:request`,null); }
-    } finally { if (mounted.current) setSending(false); }
+      setError(getApiErrorMessage(e));
+      setStatus('');
+      if (e?.response?.status && e.response.status < 500) {
+        setRetry(null);
+        write(`${key}:request`, null);
+      }
+    } finally {
+      if (mounted.current) setSending(false);
+    }
   };
+
   const selectEngine = id => {
-    write(currentDraftKey,source); setEngineId(id); write(`${key}:engine`,id);
-    const draft = read(`${key}:${spec.specVersionId}:${id}`); const target = spec.targets.find(t => t.engineProfileId === id);
-    setSource(typeof draft === 'string' ? draft : target?.starterSql || ''); setResult(null); setStatus('');
+    write(currentDraftKey, source);
+    setEngineId(id);
+    write(`${key}:engine`, id);
+    const draft = read(`${key}:${spec.specVersionId}:${id}`);
+    const target = spec.targets.find(item => item.engineProfileId === id);
+    setSource(typeof draft === 'string' ? draft : target?.starterSql || '');
+    setResult(null);
+    setStatus('');
+    setError('');
   };
-  if (loading) return <div className="sql-task"><div className="sql-card" role="status">{'\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u044f\u2026'}</div></div>;
-  if (!spec) return <div className="sql-task"><div className="sql-error" role="alert">{error || '\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u0435\u0449\u0451 \u043d\u0435 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u043e.'}</div></div>;
-  const target = spec.targets.find(t => t.engineProfileId === engineId);
-  const online = (runtime?.workers || []).some(w => w.targets?.includes(target?.fingerprint));
+
+  if (loading) {
+    return <Card className="sql-loading-card" role="status">Загрузка…</Card>;
+  }
+  if (!spec) {
+    return <Card className="sql-loading-card"><div className="sql-inline-error" role="alert">{error || 'Задание ещё не опубликовано.'}</div></Card>;
+  }
+
+  const target = spec.targets.find(item => item.engineProfileId === engineId);
   const busy = sending || !!receipt;
-  return <div className="sql-task">
-    <div className="sql-card"><div className="sql-toolbar"><F label={'\u0414\u0432\u0438\u0436\u043e\u043a'}><select value={engineId} disabled={busy || !!retry} onChange={e => selectEngine(e.target.value)}>{spec.targets.map(t => <option value={t.engineProfileId} key={t.engineProfileId}>{t.displayName}</option>)}</select></F><span className="sql-badge">{spec.mode}</span><span className="sql-badge">{online ? 'ONLINE' : 'OFFLINE'}</span><span className="sql-muted">{spec.limits.timeoutMs} ms / {spec.limits.maxRows} rows</span></div>
-      <p className="sql-muted">{'\u041a\u0430\u0436\u0434\u044b\u0439 Run \u0438 Check \u043d\u0430\u0447\u0438\u043d\u0430\u0435\u0442\u0441\u044f \u0441 \u043d\u043e\u0432\u043e\u0439 \u043a\u043e\u043f\u0438\u0438 \u0438\u0441\u0445\u043e\u0434\u043d\u043e\u0439 \u0411\u0414. \u041c\u0435\u0436\u0434\u0443 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u043c\u0438 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0411\u0414 \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u044e\u0442\u0441\u044f. Run \u043d\u0435 \u0442\u0440\u0430\u0442\u0438\u0442 \u044d\u043d\u0435\u0440\u0433\u0438\u044e \u0438 \u043d\u0435 \u0434\u0430\u0451\u0442 \u0431\u0430\u043b\u043b\u044b.'}</p>
-      {!spec.allowMultipleStatements && <p className="sql-muted">{'\u0412 \u044d\u0442\u043e\u043c \u0437\u0430\u0434\u0430\u043d\u0438\u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043d \u043e\u0434\u0438\u043d statement.'}</p>}
-      <CodeEditor language="sql" modelPath={`sql-solve-${owner}-${assignment.id}-${spec.specVersionId}-${engineId}`} value={source} onChange={v => setSource(v || '')} readOnly={sending || !!retry} height={360} automationId={`sql-source-${assignment.id}`} />
-      <div className="sql-toolbar" style={{ marginTop: '.8rem' }}><button type="button" disabled={busy || !!retry || !source.trim() || !engineId} onClick={() => void submit('run')}>{'Run \u2014 \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c'}</button><button type="button" className="sql-primary" disabled={busy || !!retry || !source.trim() || !engineId} onClick={() => void submit('check')}>{'Check \u2014 \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c'}</button><button type="button" disabled={busy || !!retry} onClick={() => { if (window.confirm('\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0442\u0430\u0440\u0442\u043e\u0432\u044b\u0439 SQL?')) setSource(target?.starterSql || ''); }}>{'\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c SQL'}</button>
-        {busy && <span role="status">{status === 'running' || status === 'Running' ? '\u0412\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f\u2026' : '\u0412 \u043e\u0447\u0435\u0440\u0435\u0434\u0438\u2026'}</span>}</div>
-      {retry && !busy && <div className="sql-error"><p>{'\u041e\u0442\u0432\u0435\u0442 \u043d\u0430 \u0437\u0430\u043f\u0440\u043e\u0441 \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0435\u043d. \u041f\u043e\u0432\u0442\u043e\u0440 \u0441 \u0442\u0435\u043c \u0436\u0435 ID \u043d\u0435 \u0441\u043f\u0438\u0448\u0435\u0442 \u044d\u043d\u0435\u0440\u0433\u0438\u044e \u0434\u0432\u0430\u0436\u0434\u044b.'}</p><button type="button" onClick={() => void submit(retry.kind,retry)}>{'\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c \u0437\u0430\u043f\u0440\u043e\u0441'}</button></div>}
-      {error && <div role="alert" className="sql-error">{error}</div>}
-      {!busy && status && <div className={status === 'Accepted' || status === 'Previewed' ? 'sql-ok' : 'sql-error'} role="status">{resultLabel(status)}{result?.error && <p>{result.error.code}: {result.error.message}</p>}</div>}
+  const disabled = busy || !!retry || !source.trim() || !engineId;
+  const successful = status === 'Accepted';
+  const showFeedback = Boolean(!busy && status && status !== 'Previewed');
+  const statusText = busy ? (String(status).toLowerCase() === 'running' ? 'Выполняется…' : 'В очереди…') : '';
+
+  const editorCard = (
+    <Card className="sql-editor-card">
+      <div className="sql-editor-header">
+        <div className="sql-editor-title">Написать SQL</div>
+        <div className="sql-editor-tools">
+          {spec.targets.length > 1 ? (
+            <Select
+              className="sql-engine-select"
+              aria-label="SQL-движок"
+              value={engineId}
+              disabled={busy || !!retry}
+              onChange={event => selectEngine(event.target.value)}
+            >
+              {spec.targets.map(item => (
+                <option value={item.engineProfileId} key={item.engineProfileId}>{item.displayName}</option>
+              ))}
+            </Select>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            className="sql-db-button"
+            onClick={() => navigate(`/assignment/${assignment.id}/database`)}
+          >
+            <Database size={16} />
+            <span>База данных</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="sql-reset-button"
+            aria-label="Сбросить SQL"
+            title="Сбросить SQL"
+            disabled={busy || !!retry}
+            onClick={() => {
+              if (window.confirm('Восстановить стартовый SQL?')) setSource(target?.starterSql || '');
+            }}
+          >
+            <RotateCcw size={16} />
+          </Button>
+        </div>
+      </div>
+
+      <div className="sql-editor-wrap">
+        <CodeEditor
+          language="sql"
+          modelPath={`sql-solve-${owner}-${assignment.id}-${spec.specVersionId}-${engineId}`}
+          value={source}
+          onChange={value => setSource(value || '')}
+          readOnly={sending || !!retry}
+          height={layout === 'editorTop' ? 460 : 380}
+          automationId={`sql-source-${assignment.id}`}
+        />
+      </div>
+
+      {retry && !busy ? (
+        <div className="sql-retry" role="alert">
+          <span>Ответ не получен.</span>
+          <Button type="button" variant="outline" onClick={() => void submit(retry.kind, retry)}>Повторить</Button>
+        </div>
+      ) : null}
+      {error ? <div role="alert" className="sql-inline-error">{error}</div> : null}
+      {showFeedback ? (
+        <div className={successful ? 'sql-feedback is-success' : 'sql-feedback is-error'} role="status">
+          {successful ? <CheckCircle2 size={17} /> : <XCircle size={17} />}
+          <span>{resultLabel(status)}</span>
+          {result?.error ? <span className="sql-feedback-detail">{result.error.message}</span> : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+
+  const resultCard = result ? <SqlSnapshot snapshot={result} /> : null;
+
+  return (
+    <div className="sql-task-solve">
+      {layout === 'editorTop' ? (
+        <div className="space-y-6">
+          {editorCard}
+          {statement}
+          {resultCard}
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-5">
+            {statement}
+            {resultCard}
+          </div>
+          <div className="space-y-4">
+            {editorCard}
+          </div>
+        </div>
+      )}
+
+      <SolveActionDock
+        nextOptions={nextOptions}
+        nextLoading={nextLoading}
+        nextDisabled={nextDisabled}
+        onNext={onNext}
+        statusText={statusText}
+        primaryLabel="Проверить"
+        primaryIcon={Check}
+        primaryDisabled={disabled}
+        primaryAutomationId="submit-sql-solution"
+        primaryAgentAction="submit-sql-solution"
+        onPrimary={() => void submit('check')}
+        secondaryActions={[{
+          key: 'sql-run',
+          label: 'Запустить',
+          icon: <Play size={16} />,
+          variant: 'outline',
+          disabled,
+          onClick: () => void submit('run'),
+        }]}
+      />
     </div>
-    <SqlSnapshot snapshot={result} definition={spec.definition} seed={spec.seed} />
-    <details className="sql-card"><summary>{'\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043f\u0440\u043e\u0432\u0435\u0440\u043e\u043a'}</summary>{history.map(item => <div key={item.id} className="sql-toolbar" style={{ marginTop: '.7rem' }}><span>{new Date(item.createdAt || item.createdAtUtc).toLocaleString()}</span><span className="sql-badge">{resultLabel(item.status || item.verdict)}</span><span className="sql-muted">{spec.targets.find(t => t.engineProfileId === item.sqlEngineProfileId)?.displayName || item.executionTarget?.slice(0,12)}</span><button type="button" disabled={busy} onClick={async () => { try { const details = await getMySolutionDetails(item.id); setResult(ownSnapshot(details.result)); setStatus(details.status || details.verdict); } catch(e) { setError(getApiErrorMessage(e)); } }}>{'\u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442'}</button></div>)}</details>
-  </div>;
+  );
 }

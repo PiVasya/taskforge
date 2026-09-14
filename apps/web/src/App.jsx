@@ -21,6 +21,7 @@ const CourseAssignmentsPage = lazy(() => import('./pages/CourseAssignmentsPage')
 const CourseEditPage = lazy(() => import('./pages/CourseEditPage'));
 const AssignmentEditPage = lazy(() => import('./pages/AssignmentEditPage'));
 const AssignmentSolvePage = lazy(() => import('./pages/AssignmentSolvePage'));
+const SqlDatabasePage = lazy(() => import('./pages/SqlDatabasePage'));
 const AssignmentResultsPage = lazy(() => import('./pages/AssignmentResultsPage'));
 const AssignmentImageResultsPage = lazy(() => import('./pages/AssignmentImageResultsPage'));
 const AssignmentTopSolutionsPage = lazy(() => import('./pages/AssignmentTopSolutionsPage'));
@@ -77,6 +78,7 @@ export default function App() {
             <Route path="/compiler" element={<CompilerPage />} />
             <Route path="/course/:courseId" element={<CourseAssignmentsPage />} />
             <Route path="/assignment/:assignmentId" element={<AssignmentSolvePage />} />
+            <Route path="/assignment/:assignmentId/database" element={<SqlDatabasePage />} />
             <Route path="/assignment/:assignmentId/results" element={<AssignmentResultsPage />} />
             <Route path="/assignment/:assignmentId/image-results" element={<AssignmentImageResultsPage />} />
             <Route path="/assignment/:assignmentId/top" element={<AssignmentTopSolutionsPage />} />

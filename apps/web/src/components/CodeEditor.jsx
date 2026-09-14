@@ -99,28 +99,29 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
   const card = readThemeHex("--card", "FFFFFF");
   const page = readThemeHex("--page-bg", "F8FAFC");
   const border = readThemeHex("--border", "CBD5E1");
+  const mutedSurface = readThemeHex("--muted", page);
 
   const darkRules =
     style === "mono"
       ? [
-          { token: "", foreground: "D8DEE9" },
-          { token: "comment", foreground: "7B8794" },
-          { token: "string", foreground: "D8DEE9" },
-          { token: "number", foreground: "D8DEE9" },
-          { token: "keyword", foreground: "D8DEE9", fontStyle: "bold" },
-          { token: "type", foreground: "D8DEE9" },
-          { token: "function", foreground: "F8FAFC" },
-          { token: "identifier", foreground: "D8DEE9" },
+          { token: "", foreground: text },
+          { token: "comment", foreground: muted },
+          { token: "string", foreground: text },
+          { token: "number", foreground: text },
+          { token: "keyword", foreground: text, fontStyle: "bold" },
+          { token: "type", foreground: text },
+          { token: "function", foreground: text },
+          { token: "identifier", foreground: text },
         ]
       : [
-          { token: "", foreground: "D8DEE9" },
+          { token: "", foreground: text },
           { token: "comment", foreground: muted },
           { token: "string", foreground: accent3 },
           { token: "number", foreground: accent2 },
           { token: "keyword", foreground: accent, fontStyle: "bold" },
           { token: "type", foreground: accent2 },
-          { token: "function", foreground: "F8FAFC" },
-          { token: "identifier", foreground: "D8DEE9" },
+          { token: "function", foreground: text },
+          { token: "identifier", foreground: text },
         ];
 
   const lightRules =
@@ -150,27 +151,27 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
     inherit: true,
     rules: darkRules,
     colors: {
-      "editor.background": "#0f1115",
-      "editorGutter.background": "#0f1115",
-      "editor.foreground": "#D8DEE9",
-      "editorLineNumber.foreground": `#${style === "mono" ? "5d6b7e" : withAlpha(muted, 0.72)}`,
-      "editorLineNumber.activeForeground": `#${style === "mono" ? "a7b4c6" : accent2}`,
-      "editor.selectionBackground": `#${style === "mono" ? "2a3344" : withAlpha(accent, 0.3)}`,
-      "editor.inactiveSelectionBackground": `#${style === "mono" ? "202838" : withAlpha(accent, 0.18)}`,
-      "editor.lineHighlightBackground": `#${style === "mono" ? "141821" : withAlpha(accent, 0.1)}`,
-      "editorCursor.foreground": `#${style === "mono" ? "E5E7EB" : accent2}`,
+      "editor.background": `#${card}`,
+      "editorGutter.background": `#${card}`,
+      "editor.foreground": `#${text}`,
+      "editorLineNumber.foreground": `#${withAlpha(muted, 0.72)}`,
+      "editorLineNumber.activeForeground": `#${style === "mono" ? text : accent2}`,
+      "editor.selectionBackground": `#${style === "mono" ? withAlpha(border, 0.62) : withAlpha(accent, 0.3)}`,
+      "editor.inactiveSelectionBackground": `#${style === "mono" ? withAlpha(border, 0.38) : withAlpha(accent, 0.18)}`,
+      "editor.lineHighlightBackground": `#${style === "mono" ? withAlpha(mutedSurface, 0.55) : withAlpha(accent, 0.1)}`,
+      "editorCursor.foreground": `#${style === "mono" ? text : accent2}`,
       "scrollbarSlider.background": `#${withAlpha(border, 0.4)}`,
-      "scrollbarSlider.hoverBackground": `#${style === "mono" ? "2a3a5299" : withAlpha(accent, 0.38)}`,
-      "scrollbarSlider.activeBackground": `#${style === "mono" ? "2a3a52cc" : withAlpha(accent, 0.55)}`,
+      "scrollbarSlider.hoverBackground": `#${style === "mono" ? withAlpha(muted, 0.38) : withAlpha(accent, 0.38)}`,
+      "scrollbarSlider.activeBackground": `#${style === "mono" ? withAlpha(muted, 0.55) : withAlpha(accent, 0.55)}`,
       "editorIndentGuide.background": `#${withAlpha(border, 0.38)}`,
-      "editorIndentGuide.activeBackground": `#${style === "mono" ? "3a4150" : withAlpha(accent, 0.55)}`,
-      "editorWidget.background": "#12151b",
+      "editorIndentGuide.activeBackground": `#${style === "mono" ? withAlpha(text, 0.42) : withAlpha(accent, 0.55)}`,
+      "editorWidget.background": `#${mutedSurface}`,
       "editorWidget.border": `#${withAlpha(border, 0.65)}`,
-      "editorSuggestWidget.background": "#12151b",
+      "editorSuggestWidget.background": `#${mutedSurface}`,
       "editorSuggestWidget.border": `#${withAlpha(border, 0.65)}`,
-      "editorSuggestWidget.selectedBackground": `#${style === "mono" ? "1a2230" : withAlpha(accent, 0.25)}`,
-      "list.hoverBackground": `#${style === "mono" ? "1a1f28" : withAlpha(accent, 0.14)}`,
-      focusBorder: `#${style === "mono" ? "a7b4c6" : accent}`,
+      "editorSuggestWidget.selectedBackground": `#${style === "mono" ? withAlpha(border, 0.45) : withAlpha(accent, 0.25)}`,
+      "list.hoverBackground": `#${style === "mono" ? withAlpha(border, 0.28) : withAlpha(accent, 0.14)}`,
+      focusBorder: `#${style === "mono" ? text : accent}`,
     },
   });
 

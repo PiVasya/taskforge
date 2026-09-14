@@ -5,6 +5,7 @@ import TaskTestSolve from '../../pages/TaskTestSolve';
 import SqlTaskSolve from '../sql-task/SqlTaskSolve';
 import MathTaskSolve from '../../pages/MathTaskSolve';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import StatementViewer from '../../components/tiptap/StatementViewer';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests } from '../../api/assignments';
 import { listMySolutions, submitSolution } from '../../api/solutions';
 import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
@@ -962,14 +963,26 @@ export default function AssignmentSolvePage() {
 
   
   if (a.type === 'sql-test') {
+    const sqlStatement = (
+      <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind="sql-test">
+        <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
+        {partLoading.statement ? <SolveSkeletonLines lines={2} /> : <StatementViewer value={a.description} />}
+      </Card>
+    );
     return <>
       <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} isAdmin={isAdmin} showQuota />
-      <Card className="assignment-reveal">
-        <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
-        {renderAssignmentStatement()}
-      </Card>
-      <SqlTaskSolve key={a.id} assignment={a} onActivity={queueActivity} onCompleted={refreshProgression} />
-      <NextAssignmentDock nextOptions={nextOptions} nextLoading={nextNavigationLoading} nextDisabled={assignmentSwitching} onNext={goNextAssignment} />
+      <SqlTaskSolve
+        key={a.id}
+        assignment={a}
+        statement={sqlStatement}
+        layout={codeSolveLayout}
+        nextOptions={nextOptions}
+        nextLoading={nextNavigationLoading}
+        nextDisabled={assignmentSwitching}
+        onNext={goNextAssignment}
+        onActivity={queueActivity}
+        onCompleted={refreshProgression}
+      />
     </>;
   }
 

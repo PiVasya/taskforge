@@ -43,9 +43,11 @@ function createStore(assignmentId) {
   let snapshot = Object.freeze({ ...EMPTY_DRAFT, assignmentId: String(assignmentId || '') });
   const listeners = new Set();
   let persistTimer = null;
+  let destroyed = false;
 
   const emit = () => listeners.forEach((listener) => listener());
   const update = (patch, { persistNow = false } = {}) => {
+    if (destroyed) return snapshot;
     const next = typeof patch === 'function' ? patch(snapshot) : { ...snapshot, ...patch };
     const normalized = Object.freeze({
       assignmentId: String(next.assignmentId || assignmentId || ''),
@@ -70,6 +72,7 @@ function createStore(assignmentId) {
   return {
     getSnapshot: () => snapshot,
     subscribe(listener) {
+      if (destroyed) return () => {};
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -87,12 +90,15 @@ function createStore(assignmentId) {
     setLanguage(language) { return update({ language: String(language || 'cpp') }); },
     replace(draft) { return update({ ...draft, assignmentId, hydrated: true }, { persistNow: true }); },
     flush() {
+      if (destroyed) return;
       if (persistTimer) clearTimeout(persistTimer);
       persistTimer = null;
       persist(snapshot);
     },
     destroy() {
+      destroyed = true;
       if (persistTimer) clearTimeout(persistTimer);
+      persistTimer = null;
       listeners.clear();
     },
   };
@@ -136,4 +142,9 @@ export function releaseSolveDraftStore(assignmentId) {
   store.flush();
   store.destroy();
   stores.delete(key);
+}
+
+export function discardAllSolveDraftStores() {
+  for (const store of stores.values()) store.destroy();
+  stores.clear();
 }
