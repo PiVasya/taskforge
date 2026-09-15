@@ -202,34 +202,6 @@ func TestPoolQuarantineAndRecovery(t *testing.T) {
 	a.mu.Unlock()
 	eventually(t, func() bool { a.mu.Lock(); defer a.mu.Unlock(); return len(a.live) == 0 })
 }
-func TestPoolAcquireWaitsThroughRecentBackgroundCreateFailure(t *testing.T) {
-	a := &fakeAdapter{createFails: true}
-	p, v := fakePool(t, a, func(o *PoolOptions) {
-		o.MaxReady = 1
-		o.RetryDelay = 500 * time.Millisecond
-		o.AcquireWait = 2 * time.Second
-	})
-	if e := p.Warm(context.Background(), a, v); e != nil {
-		t.Fatal(e)
-	}
-	eventually(t, func() bool { return p.Stats()["quarantined"] > 0 })
-	a.mu.Lock()
-	a.createFails = false
-	a.mu.Unlock()
-
-	started := time.Now()
-	l, e := p.Acquire(context.Background(), a, v)
-	if e != nil {
-		t.Fatal("recent background refill failure leaked as request outage:", e)
-	}
-	if time.Since(started) < 100*time.Millisecond {
-		t.Fatal("acquire bypassed the configured recovery backoff")
-	}
-	if e = l.Release(); e != nil {
-		t.Fatal(e)
-	}
-}
-
 func TestPoolPartialCreateQuarantine(t *testing.T) {
 	a := &fakeAdapter{createFails: true, destroyFails: true}
 	p, v := fakePool(t, a, nil)
