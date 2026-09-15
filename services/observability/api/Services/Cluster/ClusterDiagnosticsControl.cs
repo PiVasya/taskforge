@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -42,7 +43,12 @@ public sealed class ClusterDiagnosticsException : Exception
 public sealed partial class ClusterTelemetryService
 {
     private const string DiagnosticsTokenPurpose = "taskforge-cluster-agent-diagnostics-v1";
+    private const int DiagnosticsMinAgentRevision = 65;
     private static readonly JsonSerializerOptions DiagnosticsJson = new(JsonSerializerDefaults.Web);
+    private sealed record DiagnosticsTarget(string NodeId, string BaseUrl, string Token, string? UnixSocketPath);
+
+    private string LocalAgentSocketPath => ClusterConfiguration["ClusterTelemetry:LocalAgentSocketPath"]
+        ?? "/run/taskforge-cluster-host/node-agent.sock";
 
     public async Task<ClusterDiagnosticsBatchResult> StartDiagnosticsAsync(ClusterDiagnosticsRequest request, CancellationToken ct)
     {
@@ -70,20 +76,30 @@ public sealed partial class ClusterTelemetryService
             if (!known.TryGetValue(nodeId, out var state))
                 return new ClusterDiagnosticsJobResult(nodeId, false, null, "failed", "Нода отсутствует в текущей топологии.", "DIAGNOSTICS_NODE_UNKNOWN");
 
-            var baseUrl = ResolveAgentUrl(state, known.Values);
-            if (string.IsNullOrWhiteSpace(baseUrl))
-                return new ClusterDiagnosticsJobResult(nodeId, false, null, "failed", "Не удалось определить адрес Node Agent.", "DIAGNOSTICS_AGENT_URL_MISSING");
+            var revision = AgentRevision(state);
+            if (revision is null || revision < DiagnosticsMinAgentRevision)
+                return new ClusterDiagnosticsJobResult(nodeId, false, null, "failed", $"Node Agent r{revision?.ToString() ?? "?"} не поддерживает сбор логов. Требуется r{DiagnosticsMinAgentRevision}+.", "DIAGNOSTICS_AGENT_TOO_OLD");
+
+            DiagnosticsTarget target;
+            try
+            {
+                target = ResolveDiagnosticsTarget(state, known.Values, token);
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                return new ClusterDiagnosticsJobResult(nodeId, false, null, "failed", ex.Message, ex.Code);
+            }
 
             try
             {
-                var client = ClusterHttpClientFactory.CreateClient();
+                using var client = CreateDiagnosticsClient(target);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(12));
-                using var message = new HttpRequestMessage(HttpMethod.Post, baseUrl.TrimEnd('/') + "/ha/diagnostics")
+                using var message = new HttpRequestMessage(HttpMethod.Post, target.BaseUrl + "/ha/diagnostics")
                 {
                     Content = JsonContent.Create(new { mode, since, max_log_mb = maxLogMb })
                 };
-                message.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", token);
+                message.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", target.Token);
                 using var response = await client.SendAsync(message, timeout.Token);
                 var raw = await response.Content.ReadAsStringAsync(timeout.Token);
                 var payload = TryParseJson(raw);
@@ -97,7 +113,8 @@ public sealed partial class ClusterTelemetryService
                     return new ClusterDiagnosticsJobResult(nodeId, false, jobId, status, detail ?? $"Node Agent вернул HTTP {(int)response.StatusCode}.", code ?? "DIAGNOSTICS_AGENT_REJECTED");
                 }
 
-                Console.WriteLine($"[TFDIAG API START] node={nodeId} job={jobId ?? "-"} mode={mode} since={since} maxLogMb={maxLogMb} utc={DateTimeOffset.UtcNow:O}");
+                var transport = target.UnixSocketPath is null ? "wireguard-http" : "local-unix";
+                Console.WriteLine($"[TFDIAG API START] node={nodeId} job={jobId ?? "-"} transport={transport} mode={mode} since={since} maxLogMb={maxLogMb} utc={DateTimeOffset.UtcNow:O}");
                 return new ClusterDiagnosticsJobResult(nodeId, true, jobId, status, detail, code);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -117,12 +134,12 @@ public sealed partial class ClusterTelemetryService
 
     public async Task<JsonElement> GetDiagnosticsJobAsync(string nodeId, string jobId, CancellationToken ct)
     {
-        var (baseUrl, token) = ResolveDiagnosticsTarget(nodeId, jobId);
-        var client = ClusterHttpClientFactory.CreateClient();
+        var target = ResolveDiagnosticsTarget(nodeId, jobId);
+        using var client = CreateDiagnosticsClient(target);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/ha/diagnostics/{Uri.EscapeDataString(jobId)}");
-        request.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", token);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{target.BaseUrl}/ha/diagnostics/{Uri.EscapeDataString(jobId)}");
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", target.Token);
         using var response = await client.SendAsync(request, timeout.Token);
         var raw = await response.Content.ReadAsStringAsync(timeout.Token);
         if (!response.IsSuccessStatusCode)
@@ -133,10 +150,10 @@ public sealed partial class ClusterTelemetryService
 
     public async Task ProxyDiagnosticsArchiveAsync(string nodeId, string jobId, HttpResponse output, CancellationToken ct)
     {
-        var (baseUrl, token) = ResolveDiagnosticsTarget(nodeId, jobId);
-        var client = ClusterHttpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/ha/diagnostics/{Uri.EscapeDataString(jobId)}/archive");
-        request.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", token);
+        var target = ResolveDiagnosticsTarget(nodeId, jobId);
+        using var client = CreateDiagnosticsClient(target);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{target.BaseUrl}/ha/diagnostics/{Uri.EscapeDataString(jobId)}/archive");
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", target.Token);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
         {
@@ -156,17 +173,59 @@ public sealed partial class ClusterTelemetryService
         await stream.CopyToAsync(output.Body, ct);
     }
 
-    private (string BaseUrl, string Token) ResolveDiagnosticsTarget(string nodeId, string jobId)
+    private DiagnosticsTarget ResolveDiagnosticsTarget(string nodeId, string jobId)
     {
         ValidateNodeId(nodeId);
         ValidateJobId(jobId);
         var states = _agents.Values.Where(x => !x.NodeId.StartsWith("url:", StringComparison.OrdinalIgnoreCase)).ToArray();
         var state = states.FirstOrDefault(x => string.Equals(x.NodeId, nodeId, StringComparison.OrdinalIgnoreCase))
             ?? throw new ClusterDiagnosticsException(StatusCodes.Status404NotFound, "DIAGNOSTICS_NODE_UNKNOWN", "Нода не найдена в текущей топологии.");
+        var revision = AgentRevision(state);
+        if (revision is null || revision < DiagnosticsMinAgentRevision)
+            throw new ClusterDiagnosticsException(StatusCodes.Status409Conflict, "DIAGNOSTICS_AGENT_TOO_OLD", $"Node Agent r{revision?.ToString() ?? "?"} не поддерживает сбор логов. Требуется r{DiagnosticsMinAgentRevision}+.");
+        return ResolveDiagnosticsTarget(state, states, DiagnosticsControlToken());
+    }
+
+    private DiagnosticsTarget ResolveDiagnosticsTarget(AgentState state, IEnumerable<AgentState> states, string token)
+    {
+        if (!string.IsNullOrWhiteSpace(_localNodeId) && string.Equals(state.NodeId, _localNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            var socketPath = LocalAgentSocketPath.Trim();
+            if (socketPath.Length == 0 || !Path.IsPathRooted(socketPath))
+                throw new ClusterDiagnosticsException(StatusCodes.Status503ServiceUnavailable, "DIAGNOSTICS_LOCAL_SOCKET_INVALID", "Локальный Unix socket Node Agent не настроен.");
+            return new DiagnosticsTarget(state.NodeId, "http://localhost", token, socketPath);
+        }
+
         var url = ResolveAgentUrl(state, states);
         if (string.IsNullOrWhiteSpace(url))
             throw new ClusterDiagnosticsException(StatusCodes.Status409Conflict, "DIAGNOSTICS_AGENT_URL_MISSING", "Не удалось определить адрес Node Agent.");
-        return (url.TrimEnd('/'), DiagnosticsControlToken());
+        return new DiagnosticsTarget(state.NodeId, url.TrimEnd('/'), token, null);
+    }
+
+    private HttpClient CreateDiagnosticsClient(DiagnosticsTarget target)
+    {
+        if (target.UnixSocketPath is null)
+            return ClusterHttpClientFactory.CreateClient();
+
+        var endpoint = new UnixDomainSocketEndPoint(target.UnixSocketPath);
+        var handler = new SocketsHttpHandler
+        {
+            ConnectCallback = async (_, cancellationToken) =>
+            {
+                var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                try
+                {
+                    await socket.ConnectAsync(endpoint, cancellationToken);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            }
+        };
+        return new HttpClient(handler, disposeHandler: true) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     private string DiagnosticsControlToken()
@@ -179,6 +238,12 @@ public sealed partial class ClusterTelemetryService
             throw new ClusterDiagnosticsException(StatusCodes.Status503ServiceUnavailable, "DIAGNOSTICS_AUTH_NOT_CONFIGURED", "В observability-api не настроен внутренний ключ управления Node Agent.");
         var digest = HMACSHA256.HashData(Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(DiagnosticsTokenPurpose));
         return Convert.ToHexString(digest).ToLowerInvariant();
+    }
+
+    private static int? AgentRevision(AgentState state)
+    {
+        var raw = ClusterTelemetryNormalizer.Text(state.Payload?["node"]?["bundle_revision"]);
+        return int.TryParse(raw, out var revision) && revision >= 0 ? revision : null;
     }
 
     private static string? ResolveAgentUrl(AgentState state, IEnumerable<AgentState> states)

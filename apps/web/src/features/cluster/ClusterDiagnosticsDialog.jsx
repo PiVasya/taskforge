@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, Download, FileArchive, HardDrive, Loader2, Server, X } from 'lucide-react';
 import { downloadClusterDiagnostics, getClusterDiagnosticsJob, startClusterDiagnostics } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
-import { bytes } from './clusterModel';
+import { bytes, diagnosticsEligibility, DIAGNOSTICS_MIN_AGENT_REVISION } from './clusterModel';
 import { Tag } from './ClusterShared';
 
 const MODES = [
@@ -50,11 +50,11 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   const [downloading, setDownloading] = useState(null);
   const pollAbort = useRef(null);
   const jobsRef = useRef([]);
-  const onlineNodes = useMemo(() => nodes.filter(node => node.online), [nodes]);
+  const eligibleNodes = useMemo(() => nodes.filter(node => diagnosticsEligibility(node).ready), [nodes]);
 
   useEffect(() => {
     if (!open) return;
-    const preferred = onlineNodes.find(node => node.id === initialNodeId) || onlineNodes[0] || nodes[0];
+    const preferred = eligibleNodes.find(node => node.id === initialNodeId) || eligibleNodes[0];
     setSelected(preferred ? [preferred.id] : []);
   }, [open, initialNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -100,7 +100,7 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   if (!open) return null;
 
   const toggleNode = id => setSelected(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]);
-  const allOnlineSelected = onlineNodes.length > 0 && onlineNodes.every(node => selected.includes(node.id));
+  const allEligibleSelected = eligibleNodes.length > 0 && eligibleNodes.every(node => selected.includes(node.id));
   const running = jobs.some(job => job.accepted && !terminal(job.status));
 
   const start = async () => {
@@ -151,11 +151,19 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
 
       <div className="tf-cluster-diagnostics-body">
         <section className="tf-cluster-diagnostics-section">
-          <div className="tf-cluster-diagnostics-section-head"><div><strong>Серверы</strong><small>Архив создаётся отдельно на каждой ноде.</small></div>{onlineNodes.length > 1 && <button type="button" className="tf-cluster-button" onClick={() => setSelected(allOnlineSelected ? [] : onlineNodes.map(node => node.id))}>{allOnlineSelected ? 'Снять все' : 'Все онлайн'}</button>}</div>
+          <div className="tf-cluster-diagnostics-section-head"><div><strong>Серверы</strong><small>Архив создаётся отдельно на каждой ноде. Нужен Node Agent r{DIAGNOSTICS_MIN_AGENT_REVISION}+.</small></div>{eligibleNodes.length > 1 && <button type="button" className="tf-cluster-button" onClick={() => setSelected(allEligibleSelected ? [] : eligibleNodes.map(node => node.id))}>{allEligibleSelected ? 'Снять все' : 'Все доступные'}</button>}</div>
           <div className="tf-cluster-diagnostics-nodes">
-            {nodes.map(node => <button type="button" key={node.id} className={`tf-cluster-diagnostics-node ${selected.includes(node.id) ? 'is-selected' : ''}`} aria-pressed={selected.includes(node.id)} disabled={!node.online || running} onClick={() => toggleNode(node.id)}>
-              <span className="tf-cluster-server-letter">{node.id}</span><span><strong>Сервер {node.id}</strong><small>{node.online ? `${String(node.appProfile || '—').toUpperCase()} · Agent r${node.bundleRevision || '—'}` : 'Node Agent офлайн'}</small></span><Tag tone={node.online ? 'good' : 'bad'}>{node.online ? 'Онлайн' : 'Офлайн'}</Tag>
-            </button>)}
+            {nodes.map(node => {
+              const eligibility = diagnosticsEligibility(node);
+              const subtitle = !node.online
+                ? 'Node Agent офлайн'
+                : eligibility.reason === 'agent-too-old'
+                  ? `${String(node.appProfile || '—').toUpperCase()} · Agent r${node.bundleRevision || '—'} · нужен r${DIAGNOSTICS_MIN_AGENT_REVISION}+`
+                  : `${String(node.appProfile || '—').toUpperCase()} · Agent r${node.bundleRevision || '—'}`;
+              return <button type="button" key={node.id} className={`tf-cluster-diagnostics-node ${selected.includes(node.id) ? 'is-selected' : ''}`} aria-pressed={selected.includes(node.id)} disabled={!eligibility.ready || running} onClick={() => toggleNode(node.id)}>
+                <span className="tf-cluster-server-letter">{node.id}</span><span><strong>Сервер {node.id}</strong><small>{subtitle}</small></span><Tag tone={!node.online ? 'bad' : eligibility.ready ? 'good' : 'warn'}>{!node.online ? 'Офлайн' : eligibility.ready ? 'Готов' : 'Старая версия'}</Tag>
+              </button>;
+            })}
           </div>
         </section>
 

@@ -301,6 +301,7 @@ services:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
       ClusterTelemetry__AgentUrls: ${TASKFORGE_CLUSTER_AGENT_URLS:-}
       ClusterTelemetry__LocalTelemetryPath: /run/taskforge-cluster-host/node-telemetry.json
+      ClusterTelemetry__LocalAgentSocketPath: /run/taskforge-cluster-host/node-agent.sock
       ClusterTelemetry__PollSeconds: ${TASKFORGE_CLUSTER_TELEMETRY_POLL_SECONDS:-5}
       ClusterTelemetry__TelemetryPollSeconds: ${TASKFORGE_CLUSTER_TELEMETRY_FETCH_SECONDS:-30}
       ClusterTelemetry__DownAfterSeconds: ${TASKFORGE_CLUSTER_NODE_DOWN_AFTER_SECONDS:-60}

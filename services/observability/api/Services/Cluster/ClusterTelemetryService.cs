@@ -41,6 +41,8 @@ public sealed partial class ClusterTelemetryService(
     private readonly HashSet<string> _seededNodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _seedLock = new();
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private volatile string? _localNodeId;
+    private volatile string? _localAgentUrl;
 
     private string[] AgentUrls => (configuration["ClusterTelemetry:AgentUrls"] ?? string.Empty)
         .Split(new[] { ';', ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -83,11 +85,12 @@ public sealed partial class ClusterTelemetryService(
     private async Task PollAllAsync(CancellationToken ct)
     {
         await PollLocalTelemetryAsync(ct);
-        var urls = AgentUrls;
+        var urls = AgentUrls.Where(url => !IsLocalAgentUrl(url)).ToArray();
         if (urls.Length > 0)
         {
-            // Availability is intentionally based on /ha/live. A slow Docker or
-            // PostgreSQL telemetry collection must not masquerade as a dead node.
+            // Remote availability is intentionally based on /ha/live. The local
+            // node is observed from the host telemetry file because Docker -> own
+            // WireGuard-IP hairpin traffic can time out on an otherwise healthy host.
             await Task.WhenAll(urls.Select(url => PollLiveAsync(url, ct)));
 
             var now = DateTimeOffset.UtcNow;
@@ -111,6 +114,10 @@ public sealed partial class ClusterTelemetryService(
             if (string.IsNullOrWhiteSpace(nodeId)) return;
 
             var observedAt = ReadTelemetryTimestamp(payload) ?? File.GetLastWriteTimeUtc(path);
+            _localNodeId = nodeId;
+            _localAgentUrl = ResolveLocalAgentUrl(payload, nodeId);
+            if (!string.IsNullOrWhiteSpace(_localAgentUrl))
+                _agents.TryRemove("url:" + _localAgentUrl, out _);
             var previous = _agents.TryGetValue(nodeId, out var current) ? current : null;
             _agents[nodeId] = new AgentState(
                 nodeId,
@@ -126,6 +133,34 @@ public sealed partial class ClusterTelemetryService(
         {
             logger.LogDebug(ex, "Unable to read local TaskForge node telemetry file.");
         }
+    }
+
+
+    private static string? ResolveLocalAgentUrl(JsonObject payload, string nodeId)
+    {
+        var direct = ClusterTelemetryNormalizer.Text(payload["node"]?["agent_url"])?.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(direct) && Uri.TryCreate(direct, UriKind.Absolute, out _)) return direct;
+        if (payload["topology"] is not JsonArray topology) return null;
+        var local = topology.OfType<JsonObject>()
+            .FirstOrDefault(x => string.Equals(ClusterTelemetryNormalizer.Text(x["id"]), nodeId, StringComparison.OrdinalIgnoreCase));
+        if (local is null) return null;
+        var configured = ClusterTelemetryNormalizer.Text(local["agent_url"])?.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(configured) && Uri.TryCreate(configured, UriKind.Absolute, out _)) return configured;
+        var ip = ClusterTelemetryNormalizer.Text(local["wireguard"]?["ip"]) ?? ClusterTelemetryNormalizer.Text(local["wireguard_ip"]);
+        var port = ClusterTelemetryNormalizer.Number(local["health_port"]);
+        var agentPort = port.HasValue && port.Value >= 1 && port.Value <= 65535 ? (int)port.Value : 9187;
+        return string.IsNullOrWhiteSpace(ip) ? null : $"http://{ip}:{agentPort}";
+    }
+
+    private bool IsLocalAgentUrl(string baseUrl)
+    {
+        var local = _localAgentUrl;
+        if (string.IsNullOrWhiteSpace(local)) return false;
+        if (string.Equals(baseUrl.TrimEnd('/'), local.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)) return true;
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var candidate) || !Uri.TryCreate(local, UriKind.Absolute, out var expected)) return false;
+        return string.Equals(candidate.Scheme, expected.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(candidate.Host, expected.Host, StringComparison.OrdinalIgnoreCase)
+            && candidate.Port == expected.Port;
     }
 
     private static DateTimeOffset? ReadTelemetryTimestamp(JsonObject payload)
@@ -738,6 +773,8 @@ public sealed partial class ClusterTelemetryService(
         if (!applicationReady) reasons.Add(isActive ? "traffic-not-ready" : "hot-start-not-ready");
         if (!updaterReady) reasons.Add("updater-not-ready");
         if (isActive && !noAppProfile && !tlsReady) reasons.Add("tls-not-ready");
+        var bundleRevision = p["node"]?["bundle_revision"]?.GetValue<string>() ?? string.Empty;
+        var diagnosticsAvailable = online && int.TryParse(bundleRevision, out var diagnosticsRevision) && diagnosticsRevision >= DiagnosticsMinAgentRevision;
         return new Dictionary<string, object?>
         {
             ["id"] = id,
@@ -764,7 +801,8 @@ public sealed partial class ClusterTelemetryService(
             ["appProfile"] = appProfile,
             ["deploymentMode"] = p["node"]?["deployment_mode"]?.GetValue<string>() ?? "unknown",
             ["bundleVersion"] = p["node"]?["bundle_version"]?.GetValue<string>() ?? string.Empty,
-            ["bundleRevision"] = p["node"]?["bundle_revision"]?.GetValue<string>() ?? string.Empty,
+            ["bundleRevision"] = bundleRevision,
+            ["diagnosticsAvailable"] = diagnosticsAvailable,
             ["role"] = role,
             ["leader"] = p["ha"]?["leader"]?.GetValue<string>() ?? string.Empty,
             ["appMode"] = p["ha"]?["app_mode"]?.GetValue<string>() ?? "off",

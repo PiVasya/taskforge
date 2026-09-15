@@ -2,6 +2,15 @@ export const DASH = '\u2014';
 export const number = (value) => ((typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value))) ? Number(value) : null;
 export const array = (value) => Array.isArray(value) ? value : [];
 export const primaryRole = (role) => ['primary', 'master', 'leader'].includes(String(role || '').toLowerCase());
+export const DIAGNOSTICS_MIN_AGENT_REVISION = 65;
+export function diagnosticsEligibility(node) {
+  if (!node?.online) return { ready: false, reason: 'offline' };
+  const revision = number(node.bundleRevision);
+  if (node.diagnosticsAvailable === false || revision === null || revision < DIAGNOSTICS_MIN_AGENT_REVISION)
+    return { ready: false, reason: 'agent-too-old', revision };
+  return { ready: true, reason: null, revision };
+}
+
 export function bytes(value) {
   const n = number(value);
   if (n === null || n < 0) return DASH;

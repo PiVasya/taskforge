@@ -144,3 +144,10 @@ test('Primary progress exposes role, apps, DNS, route and HTTPS as separate live
   assert.equal(progress.stages.find(x => x.id === 'route').detail, '1/3');
   assert.match(progress.summary, /Проверяется публичный маршрут/);
 });
+
+test('cluster diagnostics only target online agents that implement diagnostics', () => {
+  assert.deepEqual(model.diagnosticsEligibility({ online: false, bundleRevision: '66' }), { ready: false, reason: 'offline' });
+  assert.deepEqual(model.diagnosticsEligibility({ online: true, bundleRevision: '64' }), { ready: false, reason: 'agent-too-old', revision: 64 });
+  assert.deepEqual(model.diagnosticsEligibility({ online: true, bundleRevision: '65' }), { ready: true, reason: null, revision: 65 });
+  assert.deepEqual(model.diagnosticsEligibility({ online: true, bundleRevision: '66', diagnosticsAvailable: false }), { ready: false, reason: 'agent-too-old', revision: 66 });
+});

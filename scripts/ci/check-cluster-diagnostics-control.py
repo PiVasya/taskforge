@@ -6,7 +6,11 @@ ROOT = Path(__file__).resolve().parents[2]
 checks = {
     "observability control": (ROOT / "services/observability/api/Services/Cluster/ClusterDiagnosticsControl.cs", [
         'StartDiagnosticsAsync', '/ha/diagnostics', 'X-TaskForge-Cluster-Token',
-        'taskforge-cluster-agent-diagnostics-v1', '[TFDIAG API START]', '[TFDIAG API DOWNLOAD]'
+        'taskforge-cluster-agent-diagnostics-v1', 'UnixDomainSocketEndPoint', 'DIAGNOSTICS_AGENT_TOO_OLD', '[TFDIAG API START]', '[TFDIAG API DOWNLOAD]'
+    ]),
+    "local telemetry hairpin avoidance": (ROOT / "services/observability/api/Services/Cluster/ClusterTelemetryService.cs", [
+        'ResolveLocalAgentUrl', 'payload["topology"]', 'local["wireguard"]?["ip"]',
+        'AgentUrls.Where(url => !IsLocalAgentUrl(url))', '_agents.TryRemove("url:" + _localAgentUrl'
     ]),
     "admin endpoints": (ROOT / "services/observability/api/Endpoints/SystemStatus/SystemStatusEndpoints.cs", [
         '/api/admin/cluster/diagnostics', '/download', 'ProxyDiagnosticsArchiveAsync'
@@ -15,10 +19,14 @@ checks = {
         'startClusterDiagnostics', 'getClusterDiagnosticsJob', 'downloadClusterDiagnostics', "responseType: 'blob'"
     ]),
     "cluster dialog": (ROOT / "apps/web/src/features/cluster/ClusterDiagnosticsDialog.jsx", [
-        'Собрать логи', "id: 'quick'", "id: 'standard'", "id: 'full'", 'maxLogMb', 'since'
+        'Собрать логи', "id: 'quick'", "id: 'standard'", "id: 'full'", 'diagnosticsEligibility', 'maxLogMb', 'since'
     ]),
     "cluster page": (ROOT / "apps/web/src/pages/admin/AdminSystemStatusPage.jsx", [
         'ClusterDiagnosticsDialog', 'setDiagnosticsOpen(true)', 'Собрать логи'
+    ]),
+    "prod local socket wiring": (ROOT / "deploy/prod/compose/50-integrations.yaml", [
+        'ClusterTelemetry__LocalAgentSocketPath: /run/taskforge-cluster-host/node-agent.sock',
+        '/.runtime/cluster:/run/taskforge-cluster-host:ro'
     ]),
     "gateway streaming": (ROOT / "apps/gateway/snippets/api-routes.conf", [
         '^/api/admin/cluster/diagnostics/[^/]+/[^/]+/download$', 'proxy_buffering off;', 'proxy_read_timeout 30m;'
