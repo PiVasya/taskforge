@@ -10,6 +10,51 @@ import (
 	"time"
 )
 
+func retryTransientHarnessAdministration(t *testing.T, ctx context.Context, engine, stage string, operation func() error) error {
+	t.Helper()
+	for attempt := 0; attempt < 3; attempt++ {
+		err := operation()
+		if err == nil || !isTransientAdministrationFailure(err) || attempt == 2 || ctx.Err() != nil {
+			return err
+		}
+		t.Logf("transient %s connection failure for %s test engine; retrying (%d/3)", stage, engine, attempt+2)
+		timer := time.NewTimer(time.Duration(attempt+1) * 200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil
+}
+
+func TestRealEngineHarnessRetryIsTransientOnly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	attempts := 0
+	err := retryTransientHarnessAdministration(t, ctx, "postgresql", "self-test", func() error {
+		attempts++
+		if attempts == 1 {
+			return &transientAdministrationFailure{Unavailable("temporary test transport failure")}
+		}
+		return nil
+	})
+	if err != nil || attempts != 2 {
+		t.Fatalf("transient harness retry: attempts=%d err=%v", attempts, err)
+	}
+
+	attempts = 0
+	permanent := Unavailable("permanent test failure")
+	err = retryTransientHarnessAdministration(t, ctx, "postgresql", "self-test", func() error {
+		attempts++
+		return permanent
+	})
+	if err != permanent || attempts != 1 {
+		t.Fatalf("permanent harness failure was retried: attempts=%d err=%v", attempts, err)
+	}
+}
+
 func engineHarness(t *testing.T, engine string) *harness {
 	t.Helper()
 	if os.Getenv("SQL_TEST_ENGINE_GATE") != "1" {
@@ -27,10 +72,17 @@ func engineHarness(t *testing.T, engine string) *harness {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if e = a.Startup(ctx); e != nil {
+	if e = retryTransientHarnessAdministration(t, ctx, engine, "startup", func() error {
+		return a.Startup(ctx)
+	}); e != nil {
 		t.Fatal("dedicated engine startup:", e)
 	}
-	reg, e := a.Registration(ctx)
+	var reg Registration
+	e = retryTransientHarnessAdministration(t, ctx, engine, "registration", func() error {
+		var err error
+		reg, err = a.Registration(ctx)
+		return err
+	})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -50,7 +102,9 @@ func engineHarness(t *testing.T, engine string) *harness {
 		if e := pool.Close(ctx); e != nil {
 			t.Error("pool close:", e)
 		}
-		if e := a.Startup(ctx); e != nil {
+		if e := retryTransientHarnessAdministration(t, ctx, engine, "namespace cleanup", func() error {
+			return a.Startup(ctx)
+		}); e != nil {
 			t.Error("namespace cleanup:", e)
 		}
 	})
