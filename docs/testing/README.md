@@ -8,11 +8,11 @@ For a machine with .NET, Node, Go and Docker available, the full local equivalen
 bash scripts/tests/all.sh
 ```
 
-The full runner attempts every major suite even when an earlier suite fails, then prints one consolidated failure summary. The .NET runner likewise executes every discovered test project before returning failure. This makes one run useful for diagnosis instead of revealing one project at a time. Nested `tests/` trees are excluded from production SDK default items so test `bin/obj` output can never be copied recursively into an API build.
+The full runner attempts every major suite even when an earlier suite fails, then prints one consolidated failure summary. The .NET runner likewise builds every production service and executes every discovered test project before returning failure. This makes one run useful for diagnosis instead of revealing one project at a time. Nested `tests/` trees are excluded from production SDK default items so test `bin/obj` output can never be copied recursively into an API build.
 
 Use the layer-specific commands below when iterating on one part of the project.
 
-## 1. .NET behavior tests
+## 1. .NET production build and behavior tests
 
 Command:
 
@@ -20,7 +20,7 @@ Command:
 bash scripts/tests/dotnet.sh
 ```
 
-The script discovers every `*Tests.csproj` below `services/`, runs every project with `dotnet test -c Release`, and reports all failing projects at the end instead of stopping at the first failure.
+The script first discovers every production `*.csproj` below `services/` (excluding `tests/`) and runs `dotnet build -c Release` for all of them. It then discovers every `*Tests.csproj` and runs every test project with `dotnet test -c Release`. Build and test failures are collected and reported together so one CI run exposes all .NET compile/test failures before any Docker image push starts.
 
 Current service tests cover, among other things:
 
@@ -110,6 +110,6 @@ This layer checks things that are intentionally static: workflow/Docker matrix a
 
 ## CI ownership
 
-The normal and full-rebuild workflows keep separate jobs for repository boundaries, .NET behavior, frontend behavior/build, OJ security, Browser security, SQL runtime/integration and Compose validation. Docker image builds depend on all of them.
+The normal and full-rebuild workflows keep separate jobs for repository boundaries, .NET production build + behavior tests, frontend behavior/build, OJ security, Browser security, SQL runtime/integration and Compose validation. Docker image builds depend on all of them, so a C# compile failure is reported before image build/push jobs start.
 
 `scripts/ci/check-csharp-source-invariants.py` and `scripts/ci/check-authoring-regressions.py` remain only as compatibility entrypoints for old local commands/source-retention. Active CI does not use either as a source-grep policy engine.

@@ -18,7 +18,7 @@ run_suite() {
 }
 
 run_suite 'Repository / release boundaries' bash scripts/tests/repository.sh
-run_suite '.NET behavior' bash scripts/tests/dotnet.sh
+run_suite '.NET production build + behavior' bash scripts/tests/dotnet.sh
 run_suite 'OJ security' bash scripts/security/check-oj-security.sh
 run_suite 'Browser API security' bash scripts/security/check-browser-api-security.sh
 run_suite 'SQL Go/native' bash scripts/check-sql-go.sh

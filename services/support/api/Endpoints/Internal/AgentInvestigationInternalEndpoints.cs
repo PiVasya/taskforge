@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TaskForge.Support.Api.Contracts;
 using TaskForge.Support.Api.Data;
 
 using static TaskForge.Support.Api.Services.Mapping.SupportApiMappingService;

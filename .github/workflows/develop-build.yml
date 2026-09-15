@@ -247,7 +247,7 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Run .NET behavior tests
+      - name: Build all production .NET projects and run behavior tests
         run: bash scripts/tests/dotnet.sh
 
   frontend-tests:

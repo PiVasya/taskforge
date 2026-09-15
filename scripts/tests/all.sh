@@ -20,7 +20,7 @@ run_suite() {
 }
 
 run_suite 'Repository / release boundaries' bash scripts/tests/repository.sh
-run_suite '.NET behavior' bash scripts/tests/dotnet.sh
+run_suite '.NET production build + behavior' bash scripts/tests/dotnet.sh
 run_suite 'Frontend behavior + production build' bash scripts/tests/frontend.sh
 run_suite 'Minecraft link invariants' bash scripts/ci/check-minecraft-link-invariants.sh
 run_suite 'OJ security' bash scripts/security/check-oj-security.sh
