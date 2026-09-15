@@ -444,6 +444,16 @@ func (a *ServerAdapter) verifyGuard(ctx context.Context) error {
 	return a.withAdminStage(ctx, "", "guard", func(*native.Session) error { return nil })
 }
 func (a *ServerAdapter) Startup(ctx context.Context) error {
+	// Startup is an idempotent namespace reconciliation. A query timeout or a
+	// cancelled sandbox can briefly interrupt a fresh PostgreSQL/MySQL admin
+	// connection even though the dedicated engine is already healthy again.
+	// Retry only failures classified as transient; marker mismatches, unsafe
+	// namespaces and other permanent failures still fail closed immediately.
+	return a.retryIdempotentAdministration(ctx, "startup", func() error {
+		return a.startupOnce(ctx)
+	})
+}
+func (a *ServerAdapter) startupOnce(ctx context.Context) error {
 	if e := a.verifyGuard(ctx); e != nil {
 		return e
 	}
