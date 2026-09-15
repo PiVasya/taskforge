@@ -20,6 +20,7 @@ builder.Services.AddOptions<TaskForgeInternalApiOptions>()
     .ValidateOnStart();
 
 builder.Services.AddHttpClient<TaskForgeInternalApiClient>();
+builder.Services.AddTaskForgeAgentRuntime(builder.Configuration);
 builder.Services.AddSingleton<TaskForgeAgentWakeService>();
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TaskForgeAgentWakeService>());
 
@@ -30,7 +31,7 @@ app.UseTaskForgeDebugRequestLogging("ai-worker");
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
-    mode = "backend-push-stub",
+    mode = "backend-push-agent",
     utc = DateTimeOffset.UtcNow
 }));
 
@@ -60,7 +61,7 @@ app.MapPost("/api/internal/wake", (
     {
         ok = true,
         accepted,
-        mode = "backend-push-stub"
+        mode = "backend-push-agent"
     });
 });
 

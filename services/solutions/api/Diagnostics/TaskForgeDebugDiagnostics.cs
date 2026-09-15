@@ -69,7 +69,10 @@ internal static class TaskForgeDebugDiagnostics
                 context.Request.ContentType ?? "none",
                 context.Request.ContentLength);
 
-            var requestBody = await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
+            var suppressBodyLogging = ShouldSuppressBodyLogging(context.Request.Path.Value);
+            var requestBody = suppressBodyLogging
+                ? null
+                : await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
             if (!string.IsNullOrWhiteSpace(requestBody))
             {
                 logger.LogInformation("TFDBG IN BODY trace={TraceId} service={Service} path={Path} body={Body}", traceId, serviceName, context.Request.Path.Value, requestBody);
@@ -80,7 +83,7 @@ internal static class TaskForgeDebugDiagnostics
                 }
             }
 
-            var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType, context.Request.Headers.Accept.ToString());
+            var captureResponse = !suppressBodyLogging && ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType, context.Request.Headers.Accept.ToString());
             var originalBody = context.Response.Body;
             var responseBuffer = captureResponse ? new MemoryStream() : null;
             if (captureResponse && responseBuffer is not null)
@@ -186,6 +189,13 @@ internal static class TaskForgeDebugDiagnostics
             ?? headers["X-TaskForge-Front-Trace-Id"].FirstOrDefault()
             ?? headers["X-Request-ID"].FirstOrDefault()
             ?? headers["X-TaskForge-Gateway-Request-Id"].FirstOrDefault();
+    }
+
+    private static bool ShouldSuppressBodyLogging(string? path)
+    {
+        var p = path ?? string.Empty;
+        return p.StartsWith("/api/internal/agent/", StringComparison.OrdinalIgnoreCase)
+            || p.StartsWith("/api/admin/ai/investigation", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldCaptureResponse(string? path, string? contentType, string? accept)

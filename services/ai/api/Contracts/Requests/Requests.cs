@@ -21,3 +21,16 @@ public sealed record AgentCompleteRequest(string WorkerId, JsonElement? Result);
 public sealed record AgentFailRequest(string WorkerId, JsonElement? Error);
 
 public sealed record AgentRunTestsRequest(Guid? RunId, string? WorkerId, string? Language, string? Code, JsonElement? TestCases);
+
+public sealed record AgentInvestigationToolRequest(
+    Guid? RunId,
+    string? WorkerId,
+    string? Action,
+    Guid? SupportTicketId,
+    Guid? UserId,
+    Guid? AssignmentId,
+    Guid? ItemId,
+    string? Kind,
+    DateTimeOffset? FromUtc,
+    DateTimeOffset? ToUtc,
+    int? Take);

@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,15 +9,18 @@ namespace TaskForge.AiAgent.Runtime;
 public sealed class TaskForgeAgentWakeService : BackgroundService
 {
     private readonly TaskForgeInternalApiClient _api;
+    private readonly TaskForgeAgentRuntime _runtime;
     private readonly ILogger<TaskForgeAgentWakeService> _logger;
     private readonly Channel<WakeSignal> _wakeSignals;
     private readonly string _workerId;
 
     public TaskForgeAgentWakeService(
         TaskForgeInternalApiClient api,
+        TaskForgeAgentRuntime runtime,
         ILogger<TaskForgeAgentWakeService> logger)
     {
         _api = api;
+        _runtime = runtime;
         _logger = logger;
         _wakeSignals = Channel.CreateBounded<WakeSignal>(new BoundedChannelOptions(1)
         {
@@ -26,7 +28,7 @@ public sealed class TaskForgeAgentWakeService : BackgroundService
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest
         });
-        var rawWorkerId = $"stub-agent-{Environment.MachineName}-{Guid.NewGuid():N}";
+        var rawWorkerId = $"agent-{Environment.MachineName}-{Guid.NewGuid():N}";
         _workerId = rawWorkerId.Length <= 48 ? rawWorkerId : rawWorkerId[..48];
     }
 
@@ -71,60 +73,11 @@ public sealed class TaskForgeAgentWakeService : BackgroundService
                 return;
             }
 
-            await CompleteStubJobAsync(job, stoppingToken);
+            await _runtime.HandleAsync(job, _workerId, stoppingToken);
         }
     }
 
     private readonly record struct WakeSignal(string Reason, Guid? RunId);
 
-    private async Task CompleteStubJobAsync(ClaimedAgentJob job, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _api.AppendStepAsync(job.RunId, _workerId, new AgentStepPayload
-            {
-                Kind = "worker",
-                Status = "completed",
-                ActionName = "stub_processing",
-                Title = "Задача обработана",
-                Summary = "AI worker получил задачу от backend и завершил временную тестовую обработку.",
-                Data = new JsonObject
-                {
-                    ["stub"] = true,
-                    ["jobType"] = job.JobType,
-                    ["receivedAtUtc"] = DateTimeOffset.UtcNow.ToString("O")
-                }
-            }, cancellationToken);
 
-            var result = new AgentResultEnvelope
-            {
-                Status = "completed",
-                ScenarioId = "temporary_stub",
-                AssistantMessage = "AI worker работает: задача получена и успешно обработана временной заглушкой.",
-                MemoryPatch = new JsonObject
-                {
-                    ["lastRunId"] = job.RunId.ToString(),
-                    ["lastIntent"] = "temporary_stub",
-                    ["stubCompletedAtUtc"] = DateTimeOffset.UtcNow.ToString("O")
-                }
-            };
-            result.Debug["stub"] = true;
-            result.Debug["workerId"] = _workerId;
-
-            await _api.CompleteAsync(job.RunId, _workerId, result, includeDebug: true, cancellationToken);
-            _logger.LogInformation("AI worker stub completed run: runId={RunId} conversationId={ConversationId}", job.RunId, job.ConversationId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "AI worker stub failed run {RunId}", job.RunId);
-            try
-            {
-                await _api.FailAsync(job.RunId, _workerId, ex, cancellationToken);
-            }
-            catch (Exception failEx)
-            {
-                _logger.LogError(failEx, "AI worker could not report failure for run {RunId}", job.RunId);
-            }
-        }
-    }
 }

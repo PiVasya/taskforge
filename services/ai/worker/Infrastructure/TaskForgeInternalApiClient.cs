@@ -119,6 +119,32 @@ public sealed class TaskForgeInternalApiClient
         return await PostJsonAsync("api/internal/agent/tools/run-tests", body, cancellationToken) ?? new JsonObject { ["ok"] = false };
     }
 
+
+    public async Task<JsonObject> RunInvestigationAsync(Guid runId, string workerId, string action, JsonObject? args, CancellationToken cancellationToken)
+    {
+        if (runId == Guid.Empty) throw new InvalidOperationException("RunInvestigationAsync requires runId.");
+        if (string.IsNullOrWhiteSpace(workerId)) throw new InvalidOperationException("RunInvestigationAsync requires workerId.");
+        if (string.IsNullOrWhiteSpace(action)) throw new InvalidOperationException("RunInvestigationAsync requires action.");
+
+        var body = new JsonObject
+        {
+            ["runId"] = runId.ToString(),
+            ["workerId"] = workerId,
+            ["action"] = action
+        };
+        if (args is not null)
+        {
+            foreach (var key in new[] { "supportTicketId", "userId", "assignmentId", "itemId", "kind", "fromUtc", "toUtc", "take" })
+            {
+                if (args.TryGetPropertyValue(key, out var value) && value is not null)
+                    body[key] = value.DeepClone();
+            }
+        }
+
+        return await PostJsonAsync("api/internal/agent/tools/investigate", body, cancellationToken)
+            ?? new JsonObject { ["ok"] = false, ["message"] = "Investigation tool returned an empty response." };
+    }
+
     private async Task<JsonObject?> PostJsonAsync(string path, object body, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(body, JsonOptions);

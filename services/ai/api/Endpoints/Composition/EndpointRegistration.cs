@@ -26,8 +26,10 @@ internal static partial class AiApiEndpoints
         MapAgentEndpoints(app);
         MapAccountIntelligenceEndpoints(app);
         MapAccountLifecycleEndpoints(app);
+        MapAdminInvestigationEndpoints(app);
         MapRealtimeEndpoints(app);
         MapWorkerInternalEndpoints(app);
+        MapWorkerInvestigationEndpoints(app);
 
         return app;
     }

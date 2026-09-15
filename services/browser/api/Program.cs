@@ -392,7 +392,8 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             "If a submit click reports a transport/server error, reconcile through the authoritative GET attempt/solution API before retrying so an accepted submission is not duplicated.",
             "For code verdicts, poll Preparing/Queued/Running through the returned solution GET with bounded backoff; JudgeUnavailable means infrastructure failed for that submission, so reconcile and back off instead of tight resubmission loops.",
             "A child course listed in the catalog can still be closed by root-graph progression. COURSE_NOT_AVAILABLE means solve the visible upstream gate and refresh the root learning map; it is not COURSE_NOT_FOUND.",
-            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden-data access; current resource policy removes human pacing from task solving (unlimited task energy/rate, unlimited test/math attempts, no test/math countdown, no auth cooldown after already-valid AI credentials) while invalid login guesses and Browser/network abuse stay protected."
+            "AI accounts are ordinary users. accountType=ai grants no elevated role or hidden-data access; current resource policy removes human pacing from task solving (unlimited task energy/rate, unlimited test/math attempts, no test/math countdown, no auth cooldown after already-valid AI credentials) while invalid login guesses and Browser/network abuse stay protected.",
+            "For authenticated Admin support/debug investigations, use /api/admin/ai/investigation/* read-only APIs before Browser UI. Fetch compact timelines/indexes first and open the browser only for visual reproduction."
         },
         onboarding = new
         {
@@ -459,6 +460,17 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
                 start = $"{root}/api/math-tasks/{{assignmentId}}/start",
                 submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
                 getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
+            },
+            adminInvestigation = new
+            {
+                requiresRole = "Admin",
+                capabilities = $"{root}/api/admin/ai/investigation",
+                support = $"{root}/api/admin/ai/investigation/support/{{ticketId}}?assignmentId={{assignmentId}}&fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                activity = $"{root}/api/admin/ai/investigation/users/{{userId}}/activity?fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                solutions = $"{root}/api/admin/ai/investigation/users/{{userId}}/solutions?assignmentId={{assignmentId}}&fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                solution = $"{root}/api/admin/ai/investigation/solutions/{{kind}}/{{itemId}}",
+                assignment = $"{root}/api/admin/ai/investigation/assignments/{{assignmentId}}",
+                policy = "Use these read-only Admin APIs before Browser UI; start from compact indexes and use Browser only for visual reproduction."
             },
             recoveryRule = "After an uncertain UI/HTTP submit, query the matching GET endpoint first. Retry the mutation only when the server has not recorded the submission."
         },

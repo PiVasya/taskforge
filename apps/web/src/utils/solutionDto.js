@@ -211,6 +211,19 @@ export function formatDateTime(value) {
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
 }
 
+
+export function getAssignmentId(solution) {
+  const value = firstPresent(
+    solution?.assignmentId,
+    solution?.AssignmentId,
+    solution?.taskAssignmentId,
+    solution?.TaskAssignmentId,
+    solution?.assignment?.id,
+    solution?.assignment?.Id
+  );
+  return value ? String(value) : '';
+}
+
 export function getAssignmentLabel(solution, fallback = 'Задание') {
   const title = String(firstPresent(
     solution?.assignmentTitle,

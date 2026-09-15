@@ -139,6 +139,17 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                     submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
                     getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
                 },
+                adminInvestigation = new
+                {
+                    requiresRole = "Admin",
+                    capabilities = $"{root}/api/admin/ai/investigation",
+                    support = $"{root}/api/admin/ai/investigation/support/{{ticketId}}?assignmentId={{assignmentId}}&fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                    activity = $"{root}/api/admin/ai/investigation/users/{{userId}}/activity?fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                    solutions = $"{root}/api/admin/ai/investigation/users/{{userId}}/solutions?assignmentId={{assignmentId}}&fromUtc={{fromUtc}}&toUtc={{toUtc}}&take={{take}}",
+                    solution = $"{root}/api/admin/ai/investigation/solutions/{{kind}}/{{itemId}}",
+                    assignment = $"{root}/api/admin/ai/investigation/assignments/{{assignmentId}}",
+                    policy = "For authenticated administrator support/debug investigations, use these read-only APIs first. Start with the compact support/timeline/solution index, fetch full solution or assignment details only when needed, and use Browser API only to reproduce visual/UI behavior."
+                },
                 recoveryRule = "If a UI or HTTP submit response is lost, query the matching attempt/solution GET before retrying the mutation."
             },
             remoteBrowserCompatibility = new
@@ -318,6 +329,17 @@ A nested course may already be present in `/api/courses` while still closed by t
 If a submit click or HTTP response reports a transport/server failure, **query the authoritative GET first**. Retry the mutation only when TaskForge has not recorded the attempt/solution. This avoids duplicate submissions when the UI loses a response after the server has already accepted it.
 
 For code submissions, `Preparing`, `Queued` and `Running` are pending verdicts: poll the returned solution through `GET /api/me/solutions/{solutionId}` with bounded backoff. `JudgeUnavailable` is a terminal infrastructure result for that submission, not a wrong answer; reconcile state and wait/back off instead of immediately flooding resubmits.
+
+## Administrator support investigation (Admin role only)
+When an authenticated administrator or administrator-owned AI run investigates a support report, do not scrape solution cards through Chromium. Use the read-only investigation APIs first:
+- Capabilities: `GET {{root}}/api/admin/ai/investigation`
+- Support ticket + correlated activity/solution index: `GET {{root}}/api/admin/ai/investigation/support/{ticketId}?fromUtc={fromUtc}&toUtc={toUtc}&take={take}`
+- User activity timeline: `GET {{root}}/api/admin/ai/investigation/users/{userId}/activity?fromUtc={fromUtc}&toUtc={toUtc}&take={take}`
+- Unified solution/attempt index: `GET {{root}}/api/admin/ai/investigation/users/{userId}/solutions?assignmentId={assignmentId}&fromUtc={fromUtc}&toUtc={toUtc}&take={take}`
+- Full solution/attempt detail: `GET {{root}}/api/admin/ai/investigation/solutions/{kind}/{itemId}`
+- Full assignment detail: `GET {{root}}/api/admin/ai/investigation/assignments/{assignmentId}`
+
+Use the compact support/timeline/solution index to find suspicious assignments first, then fetch only the interesting full records. Use Browser API after that only when visual/UI reproduction is actually needed. These routes require the ordinary TaskForge Admin role; `accountType=ai` by itself grants no access.
 
 ## API schema
 - OpenAPI: `{{root}}/api/browser/openapi.json`

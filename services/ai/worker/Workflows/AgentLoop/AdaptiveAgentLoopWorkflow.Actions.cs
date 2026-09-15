@@ -72,6 +72,18 @@ public sealed partial class AdaptiveAgentLoopWorkflow
                 return CourseAgentTools.ReviewPatchSet(state);
             case "review_delegated_result":
                 return CourseAgentTools.ReviewDelegatedResult(state);
+            case "investigate_support_ticket":
+                return await ExecuteInvestigationActionAsync(state, "investigate_support_ticket", args, cancellationToken);
+            case "get_support_chat":
+                return await ExecuteInvestigationActionAsync(state, "get_support_chat", args, cancellationToken);
+            case "get_user_recent_activity":
+                return await ExecuteInvestigationActionAsync(state, "get_user_recent_activity", args, cancellationToken);
+            case "list_user_solutions":
+                return await ExecuteInvestigationActionAsync(state, "list_user_solutions", args, cancellationToken);
+            case "get_solution":
+                return await ExecuteInvestigationActionAsync(state, "get_solution", args, cancellationToken);
+            case "get_assignment":
+                return await ExecuteInvestigationActionAsync(state, "get_assignment", args, cancellationToken);
             case "delegate_assignment_draft":
                 return await DelegateWorkflowAsync(state, _assignmentDraft, "assignment_draft_workflow", cancellationToken);
             case "delegate_course_audit":

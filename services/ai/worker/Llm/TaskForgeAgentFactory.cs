@@ -39,6 +39,7 @@ public sealed class TaskForgeAgentFactory
         var validationTools = _services.GetRequiredService<ValidationTools>();
         var approvalTools = _services.GetRequiredService<ApprovalTools>();
         var persistenceTools = _services.GetRequiredService<PersistenceTools>();
+        var investigationTools = _services.GetRequiredService<AdminInvestigationTools>();
 
         var tools = new List<AITool>
         {
@@ -51,7 +52,13 @@ public sealed class TaskForgeAgentFactory
             AIFunctionFactory.Create(validationTools.ValidateDraftShapeAsync),
             AIFunctionFactory.Create(validationTools.StaticDraftCritiqueAsync),
             AIFunctionFactory.Create(validationTools.RunCodeTestsAsync),
-            AIFunctionFactory.Create(approvalTools.RequestHumanApprovalAsync)
+            AIFunctionFactory.Create(approvalTools.RequestHumanApprovalAsync),
+            AIFunctionFactory.Create(investigationTools.InvestigateSupportTicketAsync),
+            AIFunctionFactory.Create(investigationTools.GetSupportChatAsync),
+            AIFunctionFactory.Create(investigationTools.GetUserRecentActivityAsync),
+            AIFunctionFactory.Create(investigationTools.ListUserSolutionsAsync),
+            AIFunctionFactory.Create(investigationTools.GetSolutionAsync),
+            AIFunctionFactory.Create(investigationTools.GetAssignmentAsync)
         };
 
         if (_options.EnableDangerousWriteTools)

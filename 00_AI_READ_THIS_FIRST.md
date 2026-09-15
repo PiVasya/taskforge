@@ -169,3 +169,10 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 
 - `/api/admin/cluster/primary` may execute only on the telemetry-confirmed current Primary. Its Patroni preflight and `/switchover` must therefore use the local Compose `postgres:8008` path, not the host self-WireGuard published port. The latter can hairpin/time out from a Docker bridge even while host/Node-Agent Patroni checks work.
 - A structured backend failure such as `PATRONI_CLUSTER_TIMEOUT` is a confirmed backend response before mutation and must be shown to the admin. Only response-less/generic transport 5xx or mutation-send uncertainty (`PATRONI_SWITCH_TIMEOUT`, `PATRONI_SWITCH_FAILED`) should enter state-observation mode without retry.
+
+## AI support-investigation invariant (2026-09)
+
+- Administrator support/debug investigations must prefer the read-only `/api/admin/ai/investigation/*` surface (or the worker-only `/api/internal/agent/tools/investigate`) for support chats, activity, solution indexes, solution detail and assignment detail. Browser automation is for visual reproduction/navigation after data inspection, not for scraping those records from the UI.
+- Worker investigation calls must stay bound to an active `runId + workerId` lease and to a conversation whose owner is currently an Admin. `accountType=ai` alone never grants investigation access.
+- Start with compact timelines/indexes and fetch full solution/assignment detail only for selected suspicious records; do not dump every full solution into model context by default.
+- Human admin solution cards may expose a direct icon-only link to `/assignment/{assignmentId}`, but must not add visible text clutter around that link.

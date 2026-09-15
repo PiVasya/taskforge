@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
-import { Trash2, Users, UserPlus, X } from 'lucide-react';
+import { ExternalLink, Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   getSolutionDetails,
   deleteUserSolutions,
@@ -28,6 +28,7 @@ import {
 import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/AdminSolutionViews';
 import {
   formatDateTime,
+  getAssignmentId,
   getImageSolutionCode,
   getImageSolutionDate,
   getImageSolutionPercent,
@@ -42,6 +43,23 @@ import {
   getSolutionSubmittedAt,
   getSolutionTitle,
 } from '../../utils/solutionDto';
+
+
+function AssignmentLinkButton({ assignmentId }) {
+  if (!assignmentId) return null;
+  return (
+    <a
+      href={`/assignment/${assignmentId}`}
+      target="_blank"
+      rel="noreferrer"
+      title="К заданию"
+      aria-label="К заданию"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-neutral-300 bg-transparent text-neutral-700 transition hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--accent)/0.45)] dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+    >
+      <ExternalLink size={14} aria-hidden="true" />
+    </a>
+  );
+}
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -513,6 +531,7 @@ export default function AdminSolutionsPage() {
                       <Badge intent="secondary">{liveKindLabel(item.kind)}</Badge>
                       {liveStatusLabel(item.status) ? <Badge>{liveStatusLabel(item.status)}</Badge> : null}
                       {item.score != null && Number.isFinite(Number(item.score)) ? <Badge intent="secondary">{Number(item.score)}%</Badge> : null}
+                      <AssignmentLinkButton assignmentId={item.assignmentId} />
                     </div>
                   </div>
                 </div>
@@ -568,6 +587,7 @@ export default function AdminSolutionsPage() {
                         {passed !== null || failed !== null ? (
                           <Badge intent="secondary">Пройдено: {passed ?? 0} / Провалено: {failed ?? 0}</Badge>
                         ) : null}
+                        <AssignmentLinkButton assignmentId={getAssignmentId(effective)} />
                         <Button
                           variant="outline"
                           className="inline-flex items-center gap-2"
@@ -668,6 +688,7 @@ export default function AdminSolutionsPage() {
                           </Badge>
                         ) : null}
 
+                        <AssignmentLinkButton assignmentId={getAssignmentId(effective)} />
                         <Button variant="outline" onClick={() => handleToggleImageSolution(item.id)} disabled={loadingDetails}>
                           {expanded ? 'Скрыть' : 'Открыть'}
                         </Button>
@@ -773,6 +794,7 @@ export default function AdminSolutionsPage() {
                         {a.allowReview === false ? (
                           <Badge intent="secondary">Скрыт для студента</Badge>
                         ) : null}
+                        <AssignmentLinkButton assignmentId={getAssignmentId(a)} />
                         <Button
                           variant="outline"
                           className="inline-flex items-center gap-2"
@@ -839,6 +861,7 @@ export default function AdminSolutionsPage() {
                       <div className="flex gap-2 items-center flex-wrap">
                         <Badge intent={a.passed ? 'success' : 'danger'}>{a.scorePercent}%</Badge>
                         <Badge intent="secondary">{a.earnedScore}/{a.totalScore}</Badge>
+                        <AssignmentLinkButton assignmentId={getAssignmentId(a)} />
                         <Button variant="outline" className="inline-flex items-center gap-2" onClick={() => handleToggleMathAttempt(a)}>
                           {expanded ? 'Скрыть' : 'Просмотреть'}
                         </Button>

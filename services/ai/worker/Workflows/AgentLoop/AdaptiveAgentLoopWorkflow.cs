@@ -6,6 +6,7 @@ using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Llm;
 using TaskForge.AiAgent.Options;
 using TaskForge.AiAgent.Runtime;
+using TaskForge.AiAgent.Tools;
 
 namespace TaskForge.AiAgent.Workflows.AgentLoop;
 
@@ -20,6 +21,7 @@ public sealed partial class AdaptiveAgentLoopWorkflow : ITaskForgeWorkflow
     private readonly CourseAuditWorkflow _courseAudit;
     private readonly CourseEditWorkflow _courseEdit;
     private readonly PolishAssignmentDraftWorkflow _polish;
+    private readonly AdminInvestigationTools _investigationTools;
     private readonly TaskForgeAgentOptions _options;
 
     public AdaptiveAgentLoopWorkflow(
@@ -32,6 +34,7 @@ public sealed partial class AdaptiveAgentLoopWorkflow : ITaskForgeWorkflow
         CourseAuditWorkflow courseAudit,
         CourseEditWorkflow courseEdit,
         PolishAssignmentDraftWorkflow polish,
+        AdminInvestigationTools investigationTools,
         IOptions<TaskForgeAgentOptions> options)
     {
         _decisionClient = decisionClient;
@@ -43,6 +46,7 @@ public sealed partial class AdaptiveAgentLoopWorkflow : ITaskForgeWorkflow
         _courseAudit = courseAudit;
         _courseEdit = courseEdit;
         _polish = polish;
+        _investigationTools = investigationTools;
         _options = options.Value;
     }
 

@@ -27,6 +27,7 @@ internal static partial class AssignmentApiEndpoints
         MapServiceInfoEndpoints(app);
         MapAssignmentsEndpoints(app);
         MapInternalEndpoints(app);
+        MapAgentInvestigationInternalEndpoints(app);
         MapAccountIntelligenceInternalEndpoints(app);
         MapAccountLifecycleInternalEndpoints(app);
         MapTaskTestsEndpoints(app);

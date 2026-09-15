@@ -23,6 +23,12 @@ public sealed class AgentLoopDecisionClient
         "propose_assignment_patch_set",
         "review_patch_set",
         "review_delegated_result",
+        "investigate_support_ticket",
+        "get_support_chat",
+        "get_user_recent_activity",
+        "list_user_solutions",
+        "get_solution",
+        "get_assignment",
         "delegate_assignment_draft",
         "delegate_course_audit",
         "delegate_course_edit",
@@ -94,6 +100,12 @@ public sealed class AgentLoopDecisionClient
 - propose_assignment_patch_set: подготовить безопасный patch set для массового редактирования заданий. В args передавай {"operation":"rerate_assignments"|"retag_assignments"|"update_titles"|"custom","field":"rating"}.
 - review_patch_set: проверить patch set перед завершением run.
 - review_delegated_result: проверить результат delegate_* перед завершением run.
+- investigate_support_ticket: одним read-only запросом получить чат поддержки, пользователя, недавнюю активность и компактный индекс code/SQL/image/test/math решений. В args можно передать supportTicketId, assignmentId, hours, take; если тикет привязан к текущему AI-диалогу, supportTicketId можно не указывать.
+- get_support_chat: получить полный чат поддержки напрямую через API. Не открывай страницу поддержки ради чтения текста.
+- get_user_recent_activity: получить timeline действий пользователя по заданиям. В args нужны userId; опционально hours/take.
+- list_user_solutions: получить компактный хронологический индекс всех типов решений/попыток пользователя. В args нужны userId; опционально assignmentId/hours/take. Сначала используй индекс, а не загружай детали сотен решений.
+- get_solution: получить полные детали одного выбранного решения. В args нужны kind=code|sql|image|test|math и itemId.
+- get_assignment: получить полное задание и прямой assignmentUrl. В args нужен assignmentId.
 - delegate_assignment_draft: создать/доработать задания через проверяемый генератор черновиков.
 - delegate_course_audit: анализ курса, пробелы, скачки сложности, карта проблем.
 - delegate_course_edit: предложение правок курса без прямой записи.
@@ -112,6 +124,10 @@ public sealed class AgentLoopDecisionClient
 8. После delegate_* не завершай сразу: сначала review_delegated_result. После propose_assignment_patch_set не завершай сразу: сначала review_patch_set.
 9. Не запускай delegate_* повторно, если delegatedResult уже есть. Повторная делегация будет отклонена системой.
 10. Не предлагай автоматическое применение правок без патчей и диффов. Массовые изменения должны идти через patch set.
+11. Если AI-диалог привязан к supportTicketId или запрос про жалобы/ошибки пользователей, сначала используй investigate_support_ticket. Для чтения поддержки, активности, решений и задания используй read-only investigation actions, а не UI/Browser.
+12. Не загружай полные детали всех решений подряд. Сначала list_user_solutions/investigate_support_ticket, затем get_solution только для подозрительных попыток и get_assignment для связанного задания.
+13. Browser/визуальная автоматизация нужна только чтобы воспроизвести UI-проблему после анализа данных; для чтения данных TaskForge она не является основным источником.
+14. Если compact investigation index вернул truncated=true, не делай вывод, что просмотрены все решения: сузь assignment/time window и повтори list_user_solutions или activity до достаточного покрытия.
 
 Верни ТОЛЬКО JSON без markdown. Предпочитай формат actions:
 {
@@ -176,6 +192,13 @@ RawPayload, доступный на этот run:
 
         if (!state.WorkingMemory.ContainsKey("intent"))
             return AgentLoopDecision.Fallback("classify_request", reason + " Нужно определить сценарий запроса.");
+
+        var needsSupportInvestigation = string.Equals(
+            state.WorkingMemory["intent"]?["needsSupportInvestigation"]?.ToString(),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        if (needsSupportInvestigation && !state.WorkingMemory.ContainsKey("supportInvestigation"))
+            return AgentLoopDecision.Fallback("investigate_support_ticket", reason + " Сначала быстро связываю обращение поддержки с активностью и решениями пользователя через read-only API.");
 
         var scenario = state.WorkingMemory["intent"]?["scenarioId"]?.ToString() ?? string.Empty;
         var needsCourseContext = NeedsCourseContext(state.Job.UserText) || string.Equals(state.WorkingMemory["intent"]?["needsCourseContext"]?.ToString(), "true", StringComparison.OrdinalIgnoreCase);

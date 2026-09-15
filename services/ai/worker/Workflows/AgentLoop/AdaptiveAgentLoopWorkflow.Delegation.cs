@@ -31,6 +31,8 @@ public sealed partial class AdaptiveAgentLoopWorkflow
         memory["conversationState"] = ClonePayloadProperty(payload, "conversationState") ?? new JsonObject();
         memory["contextWarnings"] = ClonePayloadProperty(payload, "contextWarnings") ?? new JsonArray();
         memory["rawUserRequest"] = state.Job.UserText;
+        memory["userId"] = ClonePayloadProperty(payload, "userId");
+        memory["supportTicketId"] = ClonePayloadProperty(payload, "supportTicketId");
         state.LoadedContext = true;
         state.Notes.Add("Context inspected and copied into shared working memory.");
 
@@ -51,12 +53,22 @@ public sealed partial class AdaptiveAgentLoopWorkflow
         var text = state.Job.UserText.ToLowerInvariant();
         var needsCourse = text.Contains("курс") || text.Contains("в стиле") || text.Contains("как в курсе") || text.Contains("пробел") || text.Contains("скач");
         var needsDrafts = intent.IsDraftScenario || LooksLikeDraftRequest(text);
+        var hasSupportTicket = state.WorkingMemory["supportTicketId"] is not null
+            && !string.IsNullOrWhiteSpace(state.WorkingMemory["supportTicketId"]?.ToString());
+        var needsInvestigation = hasSupportTicket
+            || text.Contains("поддерж")
+            || text.Contains("тикет")
+            || text.Contains("жалоб")
+            || text.Contains("решени") && (text.Contains("пользовател") || text.Contains("ученик") || text.Contains("ошиб"));
         var intentJson = intent.ToJsonObject();
         intentJson["needsCourseContext"] = needsCourse;
         intentJson["needsAssignmentDrafts"] = needsDrafts;
+        intentJson["needsSupportInvestigation"] = needsInvestigation;
         intentJson["detectedAtUtc"] = DateTimeOffset.UtcNow.ToString("O");
         state.WorkingMemory["intent"] = intentJson.DeepClone();
-        state.ScenarioId = intent.ScenarioId == "free_chat" && needsDrafts ? "style_matched_tasks" : intent.ScenarioId;
+        state.ScenarioId = needsInvestigation
+            ? "support_investigation"
+            : intent.ScenarioId == "free_chat" && needsDrafts ? "style_matched_tasks" : intent.ScenarioId;
         state.Notes.Add($"Request classified as {state.ScenarioId}.");
 
         return new JsonObject

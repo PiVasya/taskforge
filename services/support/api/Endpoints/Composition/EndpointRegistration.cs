@@ -20,6 +20,7 @@ internal static partial class SupportApiEndpoints
         MapServiceInfoEndpoints(app);
         MapTicketsEndpoints(app);
         MapIntegrationsEndpoints(app);
+        MapAgentInvestigationInternalEndpoints(app);
         MapRealtimeEndpoints(app);
         MapAccountLifecycleInternalEndpoints(app);
 

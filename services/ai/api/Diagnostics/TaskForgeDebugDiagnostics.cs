@@ -66,7 +66,10 @@ internal static class TaskForgeDebugDiagnostics
                 context.Request.ContentType ?? "none",
                 context.Request.ContentLength);
 
-            var requestBody = await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
+            var suppressBodyLogging = ShouldSuppressBodyLogging(context.Request.Path.Value);
+            var requestBody = suppressBodyLogging
+                ? null
+                : await TryReadRequestBodyAsync(context.Request, context.RequestAborted);
             if (!string.IsNullOrWhiteSpace(requestBody))
             {
                 logger.LogInformation("TFDBG IN BODY trace={TraceId} service={Service} path={Path} body={Body}", traceId, serviceName, context.Request.Path.Value, requestBody);
@@ -77,7 +80,7 @@ internal static class TaskForgeDebugDiagnostics
                 }
             }
 
-            var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
+            var captureResponse = !suppressBodyLogging && ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
             var originalBody = context.Response.Body;
             var responseBuffer = captureResponse ? new MemoryStream() : null;
             if (captureResponse && responseBuffer is not null)
@@ -185,6 +188,13 @@ internal static class TaskForgeDebugDiagnostics
             ?? headers["X-TaskForge-Gateway-Request-Id"].FirstOrDefault();
     }
 
+    private static bool ShouldSuppressBodyLogging(string? path)
+    {
+        var p = path ?? string.Empty;
+        return p.StartsWith("/api/internal/agent/", StringComparison.OrdinalIgnoreCase)
+            || p.StartsWith("/api/admin/ai/investigation", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool ShouldCaptureResponse(string? path, string? contentType)
     {
         var p = (path ?? string.Empty).ToLowerInvariant();
@@ -273,8 +283,13 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
         request.Headers.TryAddWithoutValidation("X-TaskForge-Trace-Id", traceId);
         request.Headers.TryAddWithoutValidation("X-TaskForge-Caller-Service", _serviceName.Value);
 
-        var body = await TryReadHttpContentAsync(request.Content, cancellationToken);
-        var requestSummary = TaskForgeDebugPayloadSummary.FromJsonLike(body);
+        var suppressPayloadLogging = IsSensitiveInvestigationCall(request);
+        var body = suppressPayloadLogging
+            ? "<suppressed investigation payload>"
+            : await TryReadHttpContentAsync(request.Content, cancellationToken);
+        var requestSummary = suppressPayloadLogging
+            ? new TaskForgeDebugPayloadSummary()
+            : TaskForgeDebugPayloadSummary.FromJsonLike(body);
         _logger.LogInformation(
             "TFDBG OUT START trace={TraceId} caller={Caller} target={Target} method={Method} url={Url} body={Body}",
             traceId,
@@ -292,8 +307,12 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
         try
         {
             var response = await base.SendAsync(request, cancellationToken);
-            var responseBody = await TryReadHttpContentAsync(response.Content, cancellationToken);
-            var responseSummary = TaskForgeDebugPayloadSummary.FromJsonLike(responseBody);
+            var responseBody = suppressPayloadLogging
+                ? "<suppressed investigation payload>"
+                : await TryReadHttpContentAsync(response.Content, cancellationToken);
+            var responseSummary = suppressPayloadLogging
+                ? new TaskForgeDebugPayloadSummary()
+                : TaskForgeDebugPayloadSummary.FromJsonLike(responseBody);
             var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             _logger.LogInformation(
                 "TFDBG OUT END trace={TraceId} caller={Caller} target={Target} method={Method} url={Url} status={Status} durationMs={DurationMs:F2} body={Body}",
@@ -333,6 +352,13 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
             _logger.LogError(ex, "TFDBG OUT EXCEPTION trace={TraceId} caller={Caller} method={Method} url={Url} durationMs={DurationMs:F2}", traceId, _serviceName.Value, request.Method.Method, request.RequestUri?.ToString(), elapsed);
             throw;
         }
+    }
+
+    private static bool IsSensitiveInvestigationCall(HttpRequestMessage request)
+    {
+        var path = request.RequestUri?.AbsolutePath ?? string.Empty;
+        return path.StartsWith("/api/internal/agent/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/api/admin/ai/investigation", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsUserSummaryCall(HttpRequestMessage request)

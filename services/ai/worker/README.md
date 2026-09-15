@@ -59,6 +59,12 @@ dotnet run --project services/ai/worker/TaskForge.AiAgent.csproj
 - `propose_assignment_patch_set` — подготовить ограниченный patch set с diff и причинами;
 - `review_patch_set` — проверить patch set до завершения run;
 - `review_delegated_result` — проверить результат рабочего workflow до завершения;
+- `investigate_support_ticket` — одним read-only вызовом связать тикет поддержки с активностью пользователя, сводкой по заданиям, индексом решений и временной шкалой;
+- `get_support_chat` — прочитать полный чат поддержки без Browser API;
+- `get_user_recent_activity` — получить timeline действий пользователя по заданиям;
+- `list_user_solutions` — получить компактный индекс code/SQL/image/test/math решений и попыток;
+- `get_solution` — загрузить полные детали только выбранной подозрительной попытки;
+- `get_assignment` — загрузить полное задание и прямую ссылку на него;
 - `delegate_assignment_draft` — перейти в генератор заданий;
 - `delegate_course_audit` — перейти в анализ курса;
 - `delegate_course_edit` — подготовить правки курса;
@@ -96,6 +102,7 @@ dotnet run --project services/ai/worker/TaskForge.AiAgent.csproj
 - Worker не пишет напрямую в основную БД курсов.
 - Все опасные изменения идут через artifacts/approval.
 - Модель OpenRouter можно менять без изменения кода через `TaskForgeAgent__Model`.
+- Для расследования обращений администраторский агент сначала использует read-only investigation API; Browser API нужен только для визуального воспроизведения UI-проблемы.
 - Слабые/дешёвые модели могут хуже выбирать маршрут, поэтому fallback и валидаторы обязательны.
 
 ## Batch agent actions and patch sets
