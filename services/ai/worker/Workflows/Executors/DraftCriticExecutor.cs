@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using Microsoft.Agents.AI;
 using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Llm;
 using TaskForge.AiAgent.Prompts;
@@ -16,7 +15,6 @@ public sealed partial class DraftCriticExecutor
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
     private readonly DirectLlmTextClient _textClient;
-    private AIAgent? _agent;
 
     public DraftCriticExecutor(ValidationTools validationTools, TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, DirectLlmTextClient textClient)
     {

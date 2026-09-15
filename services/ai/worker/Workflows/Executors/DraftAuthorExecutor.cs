@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.Options;
 using TaskForge.AiAgent.Contracts;
 using TaskForge.AiAgent.Llm;
@@ -18,7 +17,6 @@ public sealed partial class DraftAuthorExecutor
     private readonly AgentStepReporter _steps;
     private readonly TaskForgeAgentOptions _options;
     private readonly DirectLlmTextClient _textClient;
-    private AIAgent? _agent;
 
     public DraftAuthorExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, IOptions<TaskForgeAgentOptions> options, DirectLlmTextClient textClient)
     {

@@ -90,7 +90,7 @@ internal static partial class SolutionsApiEndpoints
                 .ToList();
 
             var activityRows = new List<LeaderboardActivityRow>();
-            activityRows.AddRange(codeRows.Where(x => x.UserId.HasValue).Select(x => new LeaderboardActivityRow(x.UserId.Value, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
+            activityRows.AddRange(codeRows.Where(x => x.UserId.HasValue).Select(x => new LeaderboardActivityRow(x.UserId.GetValueOrDefault(), x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
             activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
             if (!groupId.HasValue || groupUserIds is { Length: > 0 })
             {

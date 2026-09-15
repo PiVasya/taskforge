@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Microsoft.Agents.AI;
 using TaskForge.AiAgent.Llm;
 using TaskForge.AiAgent.Prompts;
 using TaskForge.AiAgent.Runtime;
@@ -19,7 +18,6 @@ public sealed class TeacherPreferenceExecutor
     private readonly AgentSessionStore _sessionStore;
     private readonly AgentStepReporter _steps;
     private readonly DirectLlmTextClient _textClient;
-    private AIAgent? _agent;
 
     public TeacherPreferenceExecutor(TaskForgeAgentFactory agentFactory, AgentSessionStore sessionStore, AgentStepReporter steps, DirectLlmTextClient textClient)
     {

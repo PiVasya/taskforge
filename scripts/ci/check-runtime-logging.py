@@ -29,8 +29,11 @@ for program in programs:
     # HTTP applications construct a WebApplication and must log every ordinary
     # inbound HTTP request. Background workers intentionally have no middleware.
     is_http = bool(re.search(r"\bWebApplication\b|builder\.Build\(\)", text)) and "Host.CreateApplicationBuilder" not in text
-    if is_http and "app.Run" in text and "UseTaskForgeDebugRequestLogging" not in text:
-        errors.append(f"{rel}: HTTP request logging middleware is not enabled")
+    if is_http and "app.Run" in text:
+        if "UseTaskForgeDebugRequestLogging" not in text:
+            errors.append(f"{rel}: HTTP request logging middleware is not enabled")
+        elif "UseTaskForgeDebugRequestLogging(this IApplicationBuilder" not in diag_text:
+            errors.append(f"{diag.relative_to(ROOT)}: Program enables inbound logging but the middleware extension is missing")
 
 # Every .NET runtime image must explicitly wire the switch that controls verbose
 # logs. Console ILogger output is stdout/stderr and therefore appears in docker logs.

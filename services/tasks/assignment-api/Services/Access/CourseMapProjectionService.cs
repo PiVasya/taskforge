@@ -368,7 +368,7 @@ internal sealed class CourseMapProjectionService
             // The solve page tells us exactly which assignment changed. Verify only
             // that id so the common solve -> next/course path stays cheap and fresh.
             solved = previous.SolvedAssignmentIds.ToHashSet();
-            var changedId = request.ChangedAssignmentId.Value;
+            var changedId = request.ChangedAssignmentId.GetValueOrDefault();
             var authoritative = await LoadChangedAssignmentSolvedStateAsync(userId, changedId, ct);
             TaskForgeDebugTrace.Map("DELTA_CHANGED_ASSIGNMENT",
                 ("user", userId),

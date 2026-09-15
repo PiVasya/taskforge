@@ -291,9 +291,41 @@ func (p *Pool) Acquire(ctx context.Context, a EngineAdapter, v Payload) (*Lease,
 				continue
 			}
 		}
-		if !e.lastFailure.IsZero() && time.Since(e.lastFailure) < p.options.RetryDelay {
-			p.mu.Unlock()
-			return nil, Unavailable("The SQL sandbox engine is recovering.")
+		if !e.lastFailure.IsZero() {
+			retryIn := p.options.RetryDelay - time.Since(e.lastFailure)
+			if retryIn > 0 {
+				changed := e.changed
+				p.mu.Unlock()
+				retry := time.NewTimer(retryIn)
+				select {
+				case <-ctx.Done():
+					if !retry.Stop() {
+						select {
+						case <-retry.C:
+						default:
+						}
+					}
+					return nil, ctx.Err()
+				case <-wait.C:
+					if !retry.Stop() {
+						select {
+						case <-retry.C:
+						default:
+						}
+					}
+					return nil, Unavailable("The SQL sandbox engine is recovering.")
+				case <-changed:
+					if !retry.Stop() {
+						select {
+						case <-retry.C:
+						default:
+						}
+					}
+					continue
+				case <-retry.C:
+					continue
+				}
+			}
 		}
 		// At most ONE foreground create, never a synchronous full-pool refill.
 		e.creating++
