@@ -342,7 +342,14 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
     {
         if (content is null) return null;
         var media = content.Headers.ContentType?.MediaType ?? string.Empty;
-        if (media.Contains("octet-stream", StringComparison.OrdinalIgnoreCase) || media.Contains("multipart", StringComparison.OrdinalIgnoreCase))
+        if (media.Contains("octet-stream", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("multipart", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("gzip", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("zip", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("pdf", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
         {
             return $"<{media} length={content.Headers.ContentLength?.ToString() ?? "unknown"}>";
         }

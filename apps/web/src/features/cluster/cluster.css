@@ -372,3 +372,56 @@ html.neo-brutal .tf-cluster .tf-cluster-table :where(th,td) { border-color: rgb(
   .tf-cluster-dialog-actions .tf-cluster-button { flex: 1; }
   .tf-cluster-promote-button { width: 100%; order: 5; }
 }
+
+/* Cluster diagnostics */
+.tf-cluster-diagnostics-control { border-color: color-mix(in srgb, var(--cl-good) 42%, var(--cl-line)) !important; }
+.tf-cluster-diagnostics-control:not(:disabled):hover { color: var(--cl-good); background: var(--cl-good-soft); border-color: var(--cl-good) !important; }
+.tf-cluster-diagnostics-dialog { width: min(900px, 100%); }
+.tf-cluster-diagnostics-body { display: grid; gap: 12px; padding: 16px 20px; }
+.tf-cluster-diagnostics-section { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--cl-line); border-radius: 11px; background: var(--cl-alt); }
+.tf-cluster-diagnostics-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tf-cluster-diagnostics-section-head strong, .tf-cluster-diagnostics-section-head small { display: block; }
+.tf-cluster-diagnostics-section-head strong { font-size: 12px; }
+.tf-cluster-diagnostics-section-head small { margin-top: 2px; color: var(--cl-muted); font-size: 9px; }
+.tf-cluster-diagnostics-nodes { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.tf-cluster .tf-cluster-diagnostics-node { min-width: 0; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 10px; text-align: left; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster .tf-cluster-diagnostics-node.is-selected { border-color: var(--cl-accent); background: var(--cl-accent-soft); box-shadow: inset 0 0 0 1px var(--cl-accent); }
+.tf-cluster .tf-cluster-diagnostics-node:disabled { opacity: .56; cursor: not-allowed; }
+.tf-cluster-diagnostics-node > span:nth-child(2) { min-width: 0; }
+.tf-cluster-diagnostics-node strong, .tf-cluster-diagnostics-node small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-cluster-diagnostics-node strong { font-size: 11px; }
+.tf-cluster-diagnostics-node small { margin-top: 2px; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster-diagnostics-modes { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.tf-cluster .tf-cluster-diagnostics-mode { min-width: 0; min-height: 92px; padding: 11px; text-align: left; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster .tf-cluster-diagnostics-mode.is-selected { border-color: var(--cl-accent); background: var(--cl-accent-soft); box-shadow: inset 0 0 0 1px var(--cl-accent); }
+.tf-cluster-diagnostics-mode strong, .tf-cluster-diagnostics-mode span { display: block; }
+.tf-cluster-diagnostics-mode strong { font-size: 11px; }
+.tf-cluster-diagnostics-mode span { margin-top: 5px; color: var(--cl-muted); font-size: 9px; line-height: 1.45; }
+.tf-cluster-diagnostics-limits { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.tf-cluster-diagnostics-limits label { display: grid; gap: 5px; }
+.tf-cluster-diagnostics-limits label > span { display: flex; align-items: center; gap: 6px; color: var(--cl-muted); font-size: 9px; }
+.tf-cluster-diagnostics-limits select { width: 100%; min-height: 34px; padding: 0 10px; border: 1px solid var(--cl-line); border-radius: 8px; background: var(--cl-surface); color: var(--cl-text); font: inherit; font-size: 11px; }
+.tf-cluster-diagnostics-limits select:disabled { opacity: .55; }
+.tf-cluster-diagnostics-hint { padding: 8px 10px; border: 1px dashed var(--cl-line); border-radius: 8px; color: var(--cl-muted); background: color-mix(in srgb, var(--cl-surface) 78%, transparent); font-size: 9px; }
+.tf-cluster-diagnostics-section > .tf-cluster-callout { margin: 0; }
+.tf-cluster-diagnostics-jobs { display: grid; gap: 7px; }
+.tf-cluster-diagnostics-job { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster-diagnostics-job.is-good { border-color: color-mix(in srgb, var(--cl-good) 48%, var(--cl-line)); }
+.tf-cluster-diagnostics-job.is-bad { border-color: color-mix(in srgb, var(--cl-bad) 48%, var(--cl-line)); }
+.tf-cluster-diagnostics-job-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--cl-accent); background: var(--cl-accent-soft); }
+.tf-cluster-diagnostics-job.is-good .tf-cluster-diagnostics-job-icon { color: var(--cl-good); background: var(--cl-good-soft); }
+.tf-cluster-diagnostics-job.is-bad .tf-cluster-diagnostics-job-icon { color: var(--cl-bad); background: var(--cl-bad-soft); }
+.tf-cluster-diagnostics-job-main { min-width: 0; }
+.tf-cluster-diagnostics-job-main > div { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tf-cluster-diagnostics-job-main strong { font-size: 11px; }
+.tf-cluster-diagnostics-job-main small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: white; background: var(--cl-accent-strong); border-color: var(--cl-accent-strong); }
+html.dark .tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: rgb(var(--page-bg)); background: rgb(var(--brand-400)); border-color: rgb(var(--brand-400)); }
+html.neo-brutal .tf-cluster :where(.tf-cluster-diagnostics-section, .tf-cluster-diagnostics-node, .tf-cluster-diagnostics-mode, .tf-cluster-diagnostics-job) { border: 2px solid rgb(var(--neo-ink)); border-radius: 7px; }
+@media (max-width: 760px) {
+  .tf-cluster-diagnostics-body { padding: 12px; }
+  .tf-cluster-diagnostics-nodes, .tf-cluster-diagnostics-modes { grid-template-columns: 1fr; }
+  .tf-cluster-diagnostics-limits { grid-template-columns: 1fr; }
+  .tf-cluster-diagnostics-job { grid-template-columns: auto minmax(0,1fr); }
+  .tf-cluster-diagnostics-job > .tf-cluster-button { grid-column: 1 / -1; width: 100%; }
+}

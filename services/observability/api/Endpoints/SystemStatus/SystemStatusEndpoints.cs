@@ -52,6 +52,69 @@ internal static partial class ObservabilityApiEndpoints
             }
         });
 
+        app.MapPost("/api/admin/cluster/diagnostics", async (
+            ClusterDiagnosticsRequest request,
+            ClusterTelemetryService telemetry,
+            HttpResponse response,
+            CancellationToken ct) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            try
+            {
+                var result = await telemetry.StartDiagnosticsAsync(request, ct);
+                return Results.Json(result, statusCode: StatusCodes.Status202Accepted);
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                return Results.Json(new
+                {
+                    status = ex.StatusCode,
+                    code = ex.Code,
+                    message = ex.Message,
+                    severity = ex.StatusCode >= 500 ? "error" : "warning"
+                }, statusCode: ex.StatusCode);
+            }
+        });
+
+        app.MapGet("/api/admin/cluster/diagnostics/{node}/{jobId}", async (
+            string node,
+            string jobId,
+            ClusterTelemetryService telemetry,
+            HttpResponse response,
+            CancellationToken ct) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            try
+            {
+                var result = await telemetry.GetDiagnosticsJobAsync(node, jobId, ct);
+                return Results.Json(result);
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                return Results.Json(new { status = ex.StatusCode, code = ex.Code, message = ex.Message, severity = ex.StatusCode >= 500 ? "error" : "warning" }, statusCode: ex.StatusCode);
+            }
+        });
+
+        app.MapGet("/api/admin/cluster/diagnostics/{node}/{jobId}/download", async (
+            string node,
+            string jobId,
+            ClusterTelemetryService telemetry,
+            HttpContext context,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await telemetry.ProxyDiagnosticsArchiveAsync(node, jobId, context.Response, ct);
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                if (context.Response.HasStarted) return;
+                context.Response.StatusCode = ex.StatusCode;
+                context.Response.ContentType = "application/json; charset=utf-8";
+                await context.Response.WriteAsJsonAsync(new { status = ex.StatusCode, code = ex.Code, message = ex.Message, severity = ex.StatusCode >= 500 ? "error" : "warning" }, ct);
+            }
+        });
+
         app.MapGet("/api/system-status", () =>
             Microsoft.AspNetCore.Http.Results.Ok(new { status = "ok", generatedAt = DateTimeOffset.UtcNow }));
 

@@ -190,6 +190,9 @@ internal static class TaskForgeDebugDiagnostics
         var p = (path ?? string.Empty).ToLowerInvariant();
         if (p.Contains("/hubs") || p.Contains("/hub")) return false;
         if (p.Contains("/api/files") || p.Contains("/files/")) return false;
+        // Diagnostics downloads can be hundreds of MB. They are already logged by
+        // metadata in ClusterDiagnosticsControl and must remain true streaming.
+        if (p.Contains("/api/admin/cluster/diagnostics/") && p.EndsWith("/download", StringComparison.Ordinal)) return false;
         var ct = (contentType ?? string.Empty).ToLowerInvariant();
         if (ct.Contains("multipart") || ct.Contains("octet-stream")) return false;
         return true;
@@ -342,7 +345,14 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
     {
         if (content is null) return null;
         var media = content.Headers.ContentType?.MediaType ?? string.Empty;
-        if (media.Contains("octet-stream", StringComparison.OrdinalIgnoreCase) || media.Contains("multipart", StringComparison.OrdinalIgnoreCase))
+        if (media.Contains("octet-stream", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("multipart", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("gzip", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("zip", StringComparison.OrdinalIgnoreCase)
+            || media.Contains("pdf", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
         {
             return $"<{media} length={content.Headers.ContentLength?.ToString() ?? "unknown"}>";
         }

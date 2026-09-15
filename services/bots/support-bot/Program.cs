@@ -23,6 +23,8 @@ builder.Services.AddHostedService<Worker>(sp => sp.GetRequiredService<Worker>())
 
 var app = builder.Build();
 
+app.UseTaskForgeDebugRequestLogging("support-bot");
+
 app.MapGet("/health/ready", (Worker worker) => Results.Ok(new
 {
     status = "ready",

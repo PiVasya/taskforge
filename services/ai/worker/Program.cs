@@ -25,6 +25,8 @@ builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TaskFo
 
 var app = builder.Build();
 
+app.UseTaskForgeDebugRequestLogging("ai-worker");
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",

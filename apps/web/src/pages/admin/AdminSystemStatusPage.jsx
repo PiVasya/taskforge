@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowRight, Box, CheckCircle2, Cloud, Database,
+  Activity, AlertTriangle, ArrowRight, Box, CheckCircle2, Cloud, Database, FileArchive,
   Pause, Play, RefreshCw, Repeat2, Server, ShieldCheck,
 } from 'lucide-react';
 import { getSystemStatus, switchClusterPrimary } from '../../api/systemStatus';
@@ -9,6 +9,7 @@ import { useNotify } from '../../components/notify/NotifyProvider';
 import ClusterMap from '../../features/cluster/ClusterMap';
 import ClusterNodeDetails from '../../features/cluster/ClusterNodeDetails';
 import PrimarySwitchDialog from '../../features/cluster/PrimarySwitchDialog';
+import ClusterDiagnosticsDialog from '../../features/cluster/ClusterDiagnosticsDialog';
 import { ClusterEvents, ImageMatrix } from '../../features/cluster/ClusterTables';
 import { Empty, Tag } from '../../features/cluster/ClusterShared';
 import {
@@ -100,6 +101,7 @@ export default function AdminSystemStatusPage() {
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchInitialTarget, setSwitchInitialTarget] = useState(null);
   const [switchBusy, setSwitchBusy] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState(() => readPendingSwitch());
   const request = useRef(null);
   const notifyRef = useRef(notify);
@@ -262,6 +264,7 @@ export default function AdminSystemStatusPage() {
       </div>
       <div className="tf-cluster-header-actions">
         <span className="tf-cluster-updated">Снимок · {dateTime(data?.generatedAt)}</span>
+        <button type="button" className="tf-cluster-button tf-cluster-diagnostics-control" disabled={!data || nodes.length === 0} onClick={() => setDiagnosticsOpen(true)} title="Собрать штатный диагностический архив с выбранных серверов"><FileArchive size={15} />Собрать логи</button>
         <button type="button" className="tf-cluster-button tf-cluster-primary-control" disabled={switchDisabled} onClick={() => openPrimarySwitch()} title={switchDisabled ? 'Дождитесь полностью готовой и единственной Primary' : 'Безопасно переключить Primary'}><Repeat2 size={15} />Сменить Primary</button>
         <button type="button" className="tf-cluster-button" onClick={() => setAuto(v => !v)} aria-pressed={auto} title="Обновлять состояние каждые 10 секунд">{auto ? <Pause size={14} /> : <Play size={14} />}{auto ? 'Авто · 10 с' : 'Авто выключено'}</button>
         <button type="button" className="tf-cluster-button is-primary" disabled={loading} onClick={() => load()}><RefreshCw size={15} className={loading ? 'tf-cluster-spin' : ''} />Обновить</button>
@@ -294,6 +297,14 @@ export default function AdminSystemStatusPage() {
       </> : <div className="tf-cluster-panel"><Empty>Агенты ещё не передали данные о нодах.</Empty></div>}
       <ClusterEvents events={data.events} />
     </>}
+
+    <ClusterDiagnosticsDialog
+      open={diagnosticsOpen}
+      nodes={nodes}
+      initialNodeId={selected?.id || activeId}
+      onClose={() => setDiagnosticsOpen(false)}
+      notify={notify}
+    />
 
     <PrimarySwitchDialog
       open={switchOpen}
