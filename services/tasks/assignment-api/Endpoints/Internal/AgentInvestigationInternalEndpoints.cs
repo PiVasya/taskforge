@@ -22,7 +22,7 @@ internal static partial class AssignmentApiEndpoints
             var from = fromUtc ?? to.AddHours(-24);
             var limit = System.Math.Clamp(take <= 0 ? 200 : take, 1, 500);
 
-            var rowsWithSentinel = await db.ActivityEvents.AsNoTracking()
+            var rowsWithSentinel = await db.AssignmentActivityEvents.AsNoTracking()
                 .Where(x => x.UserId == userId && x.CreatedAt >= from && x.CreatedAt <= to)
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(limit + 1)
