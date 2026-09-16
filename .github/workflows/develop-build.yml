@@ -54,6 +54,17 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
+      dotnet_matrix: ${{ steps.matrix.outputs.dotnet_matrix }}
+      dotnet_count: ${{ steps.matrix.outputs.dotnet_count }}
+      frontend: ${{ steps.matrix.outputs.frontend }}
+      minecraft: ${{ steps.matrix.outputs.minecraft }}
+      oj: ${{ steps.matrix.outputs.oj }}
+      browser: ${{ steps.matrix.outputs.browser }}
+      compose: ${{ steps.matrix.outputs.compose }}
+      repo_workflow: ${{ steps.matrix.outputs.repo_workflow }}
+      repo_migrations: ${{ steps.matrix.outputs.repo_migrations }}
+      repo_runtime: ${{ steps.matrix.outputs.repo_runtime }}
+      cluster: ${{ steps.matrix.outputs.cluster }}
       sql_contract: ${{ steps.matrix.outputs.sql_contract }}
       sql_engines: ${{ steps.matrix.outputs.sql_engines }}
     steps:
@@ -165,37 +176,12 @@ jobs:
             fi
           fi
 
-          # Current-event changes are the primary input for expensive tests. Docker
-          # image selection may use a cumulative last-success baseline; later we reuse
-          # that baseline only through the narrow SQL classifier so an unresolved SQL
-          # change stays fenced without making unrelated pending changes start SQL.
-          test_changed_files=""
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            test_changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            if [[ "$GITHUB_REF" == refs/heads/* ]]; then
-              before="${{ github.event.before }}"
-              if [ -n "$before" ] \
-                && [ "$before" != "0000000000000000000000000000000000000000" ] \
-                && git cat-file -e "${before}^{commit}" 2>/dev/null; then
-                test_changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
-              else
-                test_changed_files="$(git diff-tree --no-commit-id --name-only -r "${{ github.sha }}")"
-              fi
-            else
-              test_changed_files="$(git ls-files)"
-            fi
-          fi
-
-          echo "Build-impact files:"
+          # Docker image selection and test selection share the same pending diff,
+          # but each test suite has its own narrow classifier. This keeps failed
+          # subsystem changes fenced without waking unrelated suites.
+          echo "Pending files since the last successful workflow:"
           if [ -n "$changed_files" ]; then
             printf '%s\n' "$changed_files"
-          else
-            echo "  <none>"
-          fi
-          echo "Current-event files used for expensive test selection:"
-          if [ -n "$test_changed_files" ]; then
-            printf '%s\n' "$test_changed_files"
           else
             echo "  <none>"
           fi
@@ -238,40 +224,65 @@ jobs:
             echo "If image-wide build args changed, run the dedicated docker images full rebuild workflow explicitly."
           fi
 
-          current_sql_contract="$(printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --field contract)"
-          current_sql_engines="$(printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --field engines)"
-          pending_sql_contract="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field contract)"
-          pending_sql_engines="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field engines)"
+          # Test selection is independent from Docker image selection. Each suite
+          # receives only the paths relevant to its own subsystem. The pending diff
+          # since the last successful workflow keeps a failed subsystem fenced, but
+          # unrelated suites stay asleep.
+          test_impact_json="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/test-change-impact.py --json)"
+          echo "Pending independent test impact: $test_impact_json"
+          printf '%s\n' "$changed_files" | python3 ./scripts/ci/test-change-impact.py --explain
 
-          sql_contract="false"
-          sql_engines="false"
-          if [ "$current_sql_contract" = "true" ] || [ "$pending_sql_contract" = "true" ]; then
-            sql_contract="true"
-          fi
-          if [ "$current_sql_engines" = "true" ] || [ "$pending_sql_engines" = "true" ]; then
-            sql_engines="true"
-          fi
+          impact_field() {
+            printf '%s\n' "$changed_files" | python3 ./scripts/ci/test-change-impact.py --field "$1"
+          }
 
-          # The cumulative check above is SQL-specific only. It keeps a failed SQL
-          # change fenced until a successful workflow without making generic pending
-          # frontend/API changes start database containers.
+          frontend="$(impact_field frontend)"
+          minecraft="$(impact_field minecraft)"
+          oj="$(impact_field oj)"
+          browser="$(impact_field browser)"
+          compose="$(impact_field compose)"
+          repo_workflow="$(impact_field repo_workflow)"
+          repo_migrations="$(impact_field repo_migrations)"
+          repo_runtime="$(impact_field repo_runtime)"
+          cluster="$(impact_field cluster)"
 
-          # Full/tag validation is intentionally exhaustive. A manual sql-worker
-          # rebuild validates the provider runtime even without a source diff.
+          dotnet_matrix="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/dotnet-change-matrix.py)"
+          dotnet_count="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/dotnet-change-matrix.py --count)"
+
+          sql_contract="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field contract)"
+          sql_engines="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field engines)"
+
+          # Explicit full validation remains exhaustive by design. Normal pushes/PRs
+          # never get promoted to this mode implicitly.
           if [ "$build_all" = "true" ]; then
+            frontend="true"
+            minecraft="true"
+            oj="true"
+            browser="true"
+            compose="true"
+            repo_workflow="true"
+            repo_migrations="true"
+            repo_runtime="true"
+            cluster="true"
             sql_contract="true"
             sql_engines="true"
+            dotnet_matrix="$(printf 'Directory.Build.props\n' | python3 ./scripts/ci/dotnet-change-matrix.py)"
+            dotnet_count="$(printf 'Directory.Build.props\n' | python3 ./scripts/ci/dotnet-change-matrix.py --count)"
           elif is_requested "sql-worker"; then
             sql_engines="true"
           fi
 
-          echo "sql_contract=$sql_contract" >> "$GITHUB_OUTPUT"
-          echo "sql_engines=$sql_engines" >> "$GITHUB_OUTPUT"
-          echo "SQL contract gate selected: $sql_contract"
-          echo "SQL real-engine gate selected: $sql_engines"
-          echo "Current-event SQL impact:"
-          printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --explain
-          echo "Pending SQL impact since last successful image workflow:"
+          for name in frontend minecraft oj browser compose repo_workflow repo_migrations repo_runtime cluster sql_contract sql_engines; do
+            value="${!name}"
+            echo "$name=$value" >> "$GITHUB_OUTPUT"
+            echo "Test gate $name=$value"
+          done
+          echo "dotnet_matrix=$dotnet_matrix" >> "$GITHUB_OUTPUT"
+          echo "dotnet_count=$dotnet_count" >> "$GITHUB_OUTPUT"
+          echo "Affected .NET project count: $dotnet_count"
+          printf '%s\n' "$changed_files" | python3 ./scripts/ci/dotnet-change-matrix.py --explain
+
+          echo "SQL impact details:"
           printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --explain
 
           items=()
@@ -301,23 +312,70 @@ jobs:
           fi
 
   workflow-integrity:
+    needs: changes
+    if: ${{ needs.changes.outputs.repo_workflow == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check repository and release boundaries
-        run: bash scripts/tests/repository.sh
+      - name: Check workflow, Docker matrix and test classifiers
+        run: |
+          python3 scripts/ci/check-workflow-integrity.py
+          python3 scripts/ci/test-ci-change-impact.py
+          python3 scripts/ci/test-sql-change-impact.py
+          python3 scripts/ci/check-docker-build-contexts.py
+          bash scripts/ci/check-workflow-matrix.sh
+
+  migration-safety:
+    needs: changes
+    if: ${{ needs.changes.outputs.repo_migrations == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check migration tooling boundaries
+        run: python3 scripts/ci/check-migration-tooling-safety.py
+
+  runtime-config-invariants:
+    needs: changes
+    if: ${{ needs.changes.outputs.repo_runtime == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check runtime configuration and logging contracts
+        run: |
+          python3 scripts/ci/check-runtime-config-boundaries.py
+          python3 scripts/ci/check-runtime-logging.py
+
+  cluster-invariants:
+    needs: changes
+    if: ${{ needs.changes.outputs.cluster == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install cluster check dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
+      - name: Check cluster control and HA behavior
+        run: |
+          python3 scripts/ci/check-cluster-diagnostics-control.py
+          bash scripts/ci/check-cluster-ha.sh
 
   dotnet-behavior-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.dotnet_count != '0' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.changes.outputs.dotnet_matrix) }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Build all production .NET projects and run behavior tests
-        run: bash scripts/tests/dotnet.sh
+      - name: Build and test only ${{ matrix.project }}
+        run: bash scripts/tests/dotnet-project.sh "${{ matrix.project }}"
 
   frontend-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -330,6 +388,8 @@ jobs:
         run: bash scripts/tests/frontend.sh
 
   minecraft-link-invariants:
+    needs: changes
+    if: ${{ needs.changes.outputs.minecraft == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -337,6 +397,8 @@ jobs:
         run: bash scripts/ci/check-minecraft-link-invariants.sh
 
   oj-security-invariants:
+    needs: changes
+    if: ${{ needs.changes.outputs.oj == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -357,6 +419,8 @@ jobs:
         run: dotnet run --project tools/csharp-runner-policy-check/TaskForge.CSharpRunner.PolicyCheck.csproj -c Release
 
   browser-security-invariants:
+    needs: changes
+    if: ${{ needs.changes.outputs.browser == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -367,13 +431,12 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check Browser API security invariants
         run: bash scripts/security/check-browser-api-security.sh
-
       - name: Compile Browser API before Docker build
         run: bash scripts/ci/check-browser-api-build.sh
 
-  sql-runtime-check:
+  sql-contract-check:
     needs: changes
-    if: ${{ needs.changes.outputs.sql_contract == 'true' || needs.changes.outputs.sql_engines == 'true' }}
+    if: ${{ needs.changes.outputs.sql_contract == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -381,34 +444,43 @@ jobs:
         with:
           python-version: '3.13'
       - run: python3 -m pip install PyYAML==6.0.2
-      - name: SQL structural and immutable-boundary checks
-        run: python3 ./scripts/ci/check-sql-runtime.py
-
       - uses: actions/setup-dotnet@v5
-        if: ${{ needs.changes.outputs.sql_contract == 'true' }}
         with:
           dotnet-version: '10.0.x'
+      - name: SQL structural and immutable-boundary checks
+        run: python3 ./scripts/ci/check-sql-runtime.py
       - name: SQL domain and wire-contract checks
-        if: ${{ needs.changes.outputs.sql_contract == 'true' }}
         run: bash ./scripts/check-sql-domain.sh
 
+  sql-engine-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.sql_engines == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install PyYAML==6.0.2
       - uses: actions/setup-go@v6
-        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
         with:
           go-version: '1.26.8'
           cache: true
           cache-dependency-path: services/execution/sql-worker/go.mod
       - name: Install native SQL client build dependencies
-        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
         run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libpq-dev libmariadb-dev libsqlite3-dev
+      - name: SQL structural checks
+        run: python3 ./scripts/ci/check-sql-runtime.py
+      - name: Provider readiness regression
+        run: bash scripts/tests/sql-engine-gate-readiness.sh
       - name: Go/SQLite SQL worker checks
-        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
         run: bash ./scripts/check-sql-go.sh
       - name: Real PostgreSQL/MySQL/RabbitMQ interoperability
-        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
         run: bash ./scripts/sql/test-engines.sh
 
   compose-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.compose == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -416,19 +488,23 @@ jobs:
         run: bash scripts/tests/compose.sh
 
   build:
-    needs: [changes, compose-check, workflow-integrity, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
+    needs: [changes, compose-check, workflow-integrity, migration-safety, runtime-config-invariants, cluster-invariants, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-contract-check, sql-engine-check]
     if: >-
       ${{
         always() &&
         needs.changes.result == 'success' &&
-        needs.compose-check.result == 'success' &&
-        needs.workflow-integrity.result == 'success' &&
-        needs.dotnet-behavior-tests.result == 'success' &&
-        needs.frontend-tests.result == 'success' &&
-        needs.minecraft-link-invariants.result == 'success' &&
-        needs.oj-security-invariants.result == 'success' &&
-        needs.browser-security-invariants.result == 'success' &&
-        (needs.sql-runtime-check.result == 'success' || needs.sql-runtime-check.result == 'skipped') &&
+        (needs.compose-check.result == 'success' || needs.compose-check.result == 'skipped') &&
+        (needs.workflow-integrity.result == 'success' || needs.workflow-integrity.result == 'skipped') &&
+        (needs.migration-safety.result == 'success' || needs.migration-safety.result == 'skipped') &&
+        (needs.runtime-config-invariants.result == 'success' || needs.runtime-config-invariants.result == 'skipped') &&
+        (needs.cluster-invariants.result == 'success' || needs.cluster-invariants.result == 'skipped') &&
+        (needs.dotnet-behavior-tests.result == 'success' || needs.dotnet-behavior-tests.result == 'skipped') &&
+        (needs.frontend-tests.result == 'success' || needs.frontend-tests.result == 'skipped') &&
+        (needs.minecraft-link-invariants.result == 'success' || needs.minecraft-link-invariants.result == 'skipped') &&
+        (needs.oj-security-invariants.result == 'success' || needs.oj-security-invariants.result == 'skipped') &&
+        (needs.browser-security-invariants.result == 'success' || needs.browser-security-invariants.result == 'skipped') &&
+        (needs.sql-contract-check.result == 'success' || needs.sql-contract-check.result == 'skipped') &&
+        (needs.sql-engine-check.result == 'success' || needs.sql-engine-check.result == 'skipped') &&
         needs.changes.outputs.matrix != '{"include":[]}'
       }}
     runs-on: ubuntu-latest

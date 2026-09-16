@@ -152,82 +152,119 @@ def main() -> int:
     if 'TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE' in sql_update_text or 'TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE' in all_tests_text:
         errors.append("SQL Go/SQLite gate may not be skipped in favor of the provider-only real-engine suite")
 
-    if "needs.changes.outputs.sql_contract == 'true' || needs.changes.outputs.sql_engines == 'true'" not in normal_workflow_text:
-        errors.append("normal SQL runtime job must be skipped at job level when no SQL-specific change exists")
-    if 'scripts/ci/sql-change-impact.py --field contract' not in normal_workflow_text or 'scripts/ci/sql-change-impact.py --field engines' not in normal_workflow_text:
-        errors.append("normal workflow must use the narrow SQL change-impact classifier")
-    sql_selection_match = re.search(r'sql_contract=.*?(?=\n          items=\(\))', normal_workflow_text, re.DOTALL)
-    sql_selection_block = sql_selection_match.group(0) if sql_selection_match else ""
-    for forbidden_path in ("services/education/api/", "services/ai/api/", "apps/web/src/features/sql-task/", "Directory.Build.props", "global.json"):
-        if forbidden_path in sql_selection_block:
-            errors.append(f"generic/non-engine path may not directly select the SQL-specific gate: {forbidden_path}")
-    if 'bash ./scripts/check-sql-update.sh' in re.search(r'^  sql-runtime-check:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)', normal_workflow_text, re.MULTILINE | re.DOTALL).group('body'):
-        errors.append("normal SQL job must not run the all-in-one SQL update suite; use split contract/engine steps")
-    if "needs.sql-runtime-check.result == 'skipped'" not in normal_workflow_text:
-        errors.append("Docker build must allow the intentionally skipped optional SQL job")
+    # Normal CI must path-gate independent suites. Full rebuild intentionally stays exhaustive.
+    required_outputs = (
+        'dotnet_matrix', 'dotnet_count', 'frontend', 'minecraft', 'oj', 'browser',
+        'compose', 'repo_workflow', 'repo_migrations', 'repo_runtime', 'cluster',
+        'sql_contract', 'sql_engines',
+    )
+    for output in required_outputs:
+        if f'{output}: ${{{{ steps.matrix.outputs.{output} }}}}' not in normal_workflow_text:
+            errors.append(f'normal workflow changes job does not expose independent test output: {output}')
 
-    required_test_jobs = {
-        "workflow-integrity",
-        "dotnet-behavior-tests",
-        "frontend-tests",
-        "oj-security-invariants",
-        "browser-security-invariants",
-        "sql-runtime-check",
-        "compose-check",
+    for classifier in ('scripts/ci/test-change-impact.py', 'scripts/ci/dotnet-change-matrix.py', 'scripts/ci/sql-change-impact.py'):
+        if classifier not in normal_workflow_text:
+            errors.append(f'normal workflow does not use required change-impact classifier: {classifier}')
+
+    normal_jobs = {
+        'workflow-integrity': "needs.changes.outputs.repo_workflow == 'true'",
+        'migration-safety': "needs.changes.outputs.repo_migrations == 'true'",
+        'runtime-config-invariants': "needs.changes.outputs.repo_runtime == 'true'",
+        'cluster-invariants': "needs.changes.outputs.cluster == 'true'",
+        'dotnet-behavior-tests': "needs.changes.outputs.dotnet_count != '0'",
+        'frontend-tests': "needs.changes.outputs.frontend == 'true'",
+        'minecraft-link-invariants': "needs.changes.outputs.minecraft == 'true'",
+        'oj-security-invariants': "needs.changes.outputs.oj == 'true'",
+        'browser-security-invariants': "needs.changes.outputs.browser == 'true'",
+        'sql-contract-check': "needs.changes.outputs.sql_contract == 'true'",
+        'sql-engine-check': "needs.changes.outputs.sql_engines == 'true'",
+        'compose-check': "needs.changes.outputs.compose == 'true'",
     }
-    required_build_needs = set(required_test_jobs)
+    for job_name, condition in normal_jobs.items():
+        job_match = re.search(
+            rf'^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+            normal_workflow_text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if job_match is None:
+            errors.append(f'develop-build.yml misses independent test job: {job_name}')
+            continue
+        if condition not in job_match.group('body'):
+            errors.append(f'develop-build.yml {job_name} is not gated by its own impact output')
+
+    dotnet_job = re.search(
+        r'^  dotnet-behavior-tests:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+        normal_workflow_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if dotnet_job:
+        body = dotnet_job.group('body')
+        if 'fromJson(needs.changes.outputs.dotnet_matrix)' not in body:
+            errors.append('normal .NET tests must use an affected-project matrix')
+        if 'bash scripts/tests/dotnet-project.sh' not in body:
+            errors.append('normal .NET tests must build/test only the affected service project')
+        if 'bash scripts/tests/dotnet.sh' in body:
+            errors.append('normal .NET job may not rebuild every .NET service for one project change')
+
+    sql_contract_job = re.search(
+        r'^  sql-contract-check:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+        normal_workflow_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if sql_contract_job:
+        body = sql_contract_job.group('body')
+        if 'bash ./scripts/check-sql-domain.sh' not in body or 'test-engines.sh' in body:
+            errors.append('SQL contract job must stay independent from real engine containers')
+
+    sql_engine_job = re.search(
+        r'^  sql-engine-check:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+        normal_workflow_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if sql_engine_job:
+        body = sql_engine_job.group('body')
+        for command in ('bash ./scripts/check-sql-go.sh', 'bash ./scripts/sql/test-engines.sh'):
+            if command not in body:
+                errors.append(f'SQL engine job misses canonical provider check: {command}')
+
+    build_match = re.search(r'^  build:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)', normal_workflow_text, re.MULTILINE | re.DOTALL)
+    if not build_match:
+        errors.append('develop-build.yml has no build job')
+    else:
+        build_body = build_match.group('body')
+        for job_name in normal_jobs:
+            if job_name not in build_body:
+                errors.append(f'develop-build.yml build does not wait for optional gate: {job_name}')
+            if f"needs.{job_name}.result == 'skipped'" not in build_body:
+                errors.append(f'develop-build.yml build does not allow intentionally skipped gate: {job_name}')
+
+    # The manual full-rebuild workflow is intentionally exhaustive and keeps the canonical full suites.
+    full_text = FULL_REBUILD_WORKFLOW.read_text(encoding='utf-8')
+    full_required = {
+        'workflow-integrity': 'bash scripts/tests/repository.sh',
+        'dotnet-behavior-tests': 'bash scripts/tests/dotnet.sh',
+        'frontend-tests': 'bash scripts/tests/frontend.sh',
+        'minecraft-link-invariants': 'bash scripts/ci/check-minecraft-link-invariants.sh',
+        'oj-security-invariants': 'bash scripts/security/check-oj-security.sh',
+        'browser-security-invariants': 'bash scripts/security/check-browser-api-security.sh',
+        'sql-runtime-check': 'bash ./scripts/check-sql-update.sh',
+        'compose-check': 'bash scripts/tests/compose.sh',
+    }
+    for job_name, command in full_required.items():
+        job_match = re.search(
+            rf'^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+            full_text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if job_match is None:
+            errors.append(f'develop-full-rebuild.yml misses exhaustive job: {job_name}')
+        elif command not in job_match.group('body'):
+            errors.append(f'develop-full-rebuild.yml {job_name} does not run canonical suite: {command}')
+
     for workflow_path in (WORKFLOW, FULL_REBUILD_WORKFLOW):
-        workflow_text = workflow_path.read_text(encoding="utf-8")
-        job_names = set(re.findall(r"^  ([a-z0-9][a-z0-9-]*):\n", workflow_text, re.MULTILINE))
-        missing_jobs = sorted(required_test_jobs - job_names)
-        if missing_jobs:
-            errors.append(f"{workflow_path.name} misses required test jobs: " + ", ".join(missing_jobs))
-        if "check-csharp-source-invariants.py" in workflow_text or "check-authoring-regressions.py" in workflow_text:
-            errors.append(f"{workflow_path.name} still runs a retired source-grep regression checker")
-
-        required_commands = {
-            "workflow-integrity": ("bash scripts/tests/repository.sh",),
-            "dotnet-behavior-tests": ("bash scripts/tests/dotnet.sh",),
-            "frontend-tests": ("bash scripts/tests/frontend.sh",),
-            "oj-security-invariants": ("bash scripts/security/check-oj-security.sh",),
-            "browser-security-invariants": ("bash scripts/security/check-browser-api-security.sh",),
-            "compose-check": ("bash scripts/tests/compose.sh",),
-        }
-        if workflow_path == WORKFLOW:
-            required_commands["sql-runtime-check"] = (
-                "python3 ./scripts/ci/check-sql-runtime.py",
-                "bash ./scripts/check-sql-domain.sh",
-                "bash ./scripts/check-sql-go.sh",
-                "bash ./scripts/sql/test-engines.sh",
-            )
-        else:
-            required_commands["sql-runtime-check"] = (
-                "bash ./scripts/check-sql-update.sh",
-                "bash ./scripts/sql/test-engines.sh",
-            )
-        for job_name, commands in required_commands.items():
-            job_match = re.search(
-                rf"^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)",
-                workflow_text,
-                re.MULTILINE | re.DOTALL,
-            )
-            body = job_match.group("body") if job_match is not None else ""
-            for command in commands:
-                if command not in body:
-                    errors.append(f"{workflow_path.name} {job_name} does not run canonical suite: {command}")
-
-        build_match = re.search(r"^  build:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)", workflow_text, re.MULTILINE | re.DOTALL)
-        if not build_match:
-            errors.append(f"{workflow_path.name} has no build job")
-            continue
-        needs_match = re.search(r"^    needs: \[(?P<items>[^]]+)\]", build_match.group("body"), re.MULTILINE)
-        if not needs_match:
-            errors.append(f"{workflow_path.name} build job has no explicit needs list")
-            continue
-        build_needs = {item.strip() for item in needs_match.group("items").split(",")}
-        missing_needs = sorted(required_build_needs - build_needs)
-        if missing_needs:
-            errors.append(f"{workflow_path.name} build does not wait for: " + ", ".join(missing_needs))
+        workflow_text = workflow_path.read_text(encoding='utf-8')
+        if 'check-csharp-source-invariants.py' in workflow_text or 'check-authoring-regressions.py' in workflow_text:
+            errors.append(f'{workflow_path.name} still runs a retired source-grep regression checker')
 
     if errors:
         print("\n\n".join(errors), file=sys.stderr)
