@@ -3,6 +3,7 @@ package native
 import (
 	"context"
 	"errors"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,5 +23,17 @@ func TestContextDeadlineErrorUsesMonotonicDeadlineEvenBeforeErrPublication(t *te
 	}
 	if err := contextDeadlineError(deadlineOnlyContext{deadline: time.Now().Add(time.Second)}); err != nil {
 		t.Fatalf("future deadline must remain usable, got %v", err)
+	}
+}
+
+func TestPostgresPollTreatsEINTRAsRetryableWakeup(t *testing.T) {
+	if got := normalizePollResult(-1, int(syscall.EINTR)); got != 0 {
+		t.Fatalf("EINTR must be treated as a retryable wakeup, got %d", got)
+	}
+	if got := normalizePollResult(-1, int(syscall.EIO)); got != -1 {
+		t.Fatalf("real poll errors must remain errors, got %d", got)
+	}
+	if got := normalizePollResult(1, 0); got != 1 {
+		t.Fatalf("ready poll result changed unexpectedly, got %d", got)
 	}
 }

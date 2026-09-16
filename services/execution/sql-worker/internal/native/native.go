@@ -22,7 +22,8 @@ static PGconn *tf_pg_open(const char *host,const char *port,const char *user,con
 static void tf_pg_quiet(void *arg,const char *message){(void)arg;(void)message;}
 static void tf_pg_setquiet(PGconn *c){PQsetNoticeProcessor(c,tf_pg_quiet,NULL);}
 static int tf_pg_send(PGconn *c,const char *sql){return PQsendQueryParams(c,sql,0,NULL,NULL,NULL,NULL,0);}
-static int tf_poll(int fd,int writing,int ms){struct pollfd p={fd,writing?POLLOUT:POLLIN,0};int r=poll(&p,1,ms);return r<0&&errno!=EINTR?-1:r;}
+static int tf_poll_normalize(int result,int errnum){return result<0&&errnum==EINTR?0:result;}
+static int tf_poll(int fd,int writing,int ms){struct pollfd p={fd,writing?POLLOUT:POLLIN,0};int r=poll(&p,1,ms);return tf_poll_normalize(r,errno);}
 static MYSQL *tf_my_open(const char *host,unsigned int port,const char *user,const char *password,const char *database){
  MYSQL *c=mysql_init(NULL);if(!c)return NULL;unsigned int connect=3,read=15,write=5,zero=0;my_bool reconnect=0;
  mysql_options(c,MYSQL_OPT_CONNECT_TIMEOUT,&connect);mysql_options(c,MYSQL_OPT_READ_TIMEOUT,&read);mysql_options(c,MYSQL_OPT_WRITE_TIMEOUT,&write);
@@ -430,6 +431,9 @@ func (s *Session) pgReady(ctx context.Context, write bool) error {
 			return s.pgError(nil)
 		}
 	}
+}
+func normalizePollResult(result, errnum int) int {
+	return int(C.tf_poll_normalize(C.int(result), C.int(errnum)))
 }
 func boolInt(v bool) C.int {
 	if v {
