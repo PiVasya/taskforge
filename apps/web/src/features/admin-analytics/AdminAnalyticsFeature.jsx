@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import './admin-analytics.css';
 import {
   BarChart3,
   Database,

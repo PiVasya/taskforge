@@ -106,6 +106,23 @@ if (!/styles\/theme\.css/.test(index) || !/components\/shell\/shell\.css/.test(i
 const globalCss = read('index.css').trim().split(/\r?\n/).filter(Boolean);
 if (globalCss.length > 6) fail('index.css became monolithic again');
 
+const landingCss = read('features/landing/landing.css');
+const landingUtilitySelectors = [...landingCss.matchAll(/([^{}]+)\{/g)]
+  .map((match) => match[1].trim())
+  .filter((selector) => selector.includes('[class*=\"'));
+for (const selector of landingUtilitySelectors) {
+  if (!selector.startsWith('.landing-page :where(') && !selector.startsWith('.dark .landing-page :where(')) {
+    fail(`landing.css utility override escaped .landing-page scope: ${selector.split(/\r?\n/)[0]}`);
+  }
+}
+const landingForeignClassSelectors = landingCss.split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter((line) => line.startsWith('.'))
+  .filter((line) => !line.startsWith('.landing-') && !line.startsWith('.dark .landing-'));
+if (landingForeignClassSelectors.length) {
+  fail(`landing.css owns non-landing class selectors: ${landingForeignClassSelectors.slice(0, 3).join(', ')}`);
+}
+
 const quota = read('contexts/QuotaContext.jsx');
 if (/setInterval\(/.test(quota)) fail('QuotaProvider owns a per-provider interval instead of the shared second clock');
 if (!/TasksQuotaContext/.test(quota) || !/TopQuotaContext/.test(quota)) {
