@@ -135,11 +135,20 @@
   gap: 10px;
   border-radius: 18px;
   padding: 13px 18px;
+  border: 0;
+  font: inherit;
   font-weight: 800;
   transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
-.landing-btn:hover {
+.landing-btn:disabled {
+  cursor: wait;
+  opacity: .72;
+  transform: none;
+  box-shadow: none;
+}
+
+.landing-btn:not(:disabled):hover {
   transform: translateY(-2px);
 }
 
@@ -149,7 +158,7 @@
   box-shadow: 0 16px 34px rgba(var(--accent) / 0.28);
 }
 
-.landing-btn-primary:hover {
+.landing-btn-primary:not(:disabled):hover {
   color: white;
   box-shadow: 0 20px 42px rgba(var(--accent) / 0.34);
 }
@@ -160,7 +169,7 @@
   color: rgb(var(--text));
 }
 
-.landing-btn-ghost:hover {
+.landing-btn-ghost:not(:disabled):hover {
   background: rgba(var(--border) / 0.14);
 }
 

@@ -17,6 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { getLandingSessionCta } from "../features/landing/landingSessionModel";
 
 const featureTabs = [
   {
@@ -268,10 +269,7 @@ export default function LandingPage() {
     [activeFeatureId],
   );
 
-  const primaryHref = access ? "/news" : "/register";
-  const primaryText = access ? "Перейти в TaskForge" : "Начать обучение";
-  const secondaryHref = access ? "/courses" : "/login";
-  const secondaryText = access ? "Открыть курсы" : "Войти";
+  const sessionCta = getLandingSessionCta({ ready, access });
 
   return (
     <>
@@ -298,14 +296,23 @@ export default function LandingPage() {
             </p>
 
             <div className="landing-hero-actions">
-              <Link to={primaryHref} className="landing-btn landing-btn-primary">
-                <PlayCircle size={19} />
-                <span>{ready ? primaryText : "Открыть TaskForge"}</span>
-                <ArrowRight size={18} />
-              </Link>
-              <Link to={secondaryHref} className="landing-btn landing-btn-ghost">
-                <span>{secondaryText}</span>
-              </Link>
+              {sessionCta.pending ? (
+                <button type="button" className="landing-btn landing-btn-primary" disabled>
+                  <PlayCircle size={19} />
+                  <span>Проверяем сессию…</span>
+                </button>
+              ) : (
+                <>
+                  <Link to={sessionCta.primary.href} className="landing-btn landing-btn-primary">
+                    <PlayCircle size={19} />
+                    <span>{sessionCta.primary.text}</span>
+                    <ArrowRight size={18} />
+                  </Link>
+                  <Link to={sessionCta.secondary.href} className="landing-btn landing-btn-ghost">
+                    <span>{sessionCta.secondary.text}</span>
+                  </Link>
+                </>
+              )}
             </div>
 
             <div className="landing-hero-points" aria-label="Ключевые преимущества">
@@ -426,15 +433,22 @@ export default function LandingPage() {
 
         <section className="landing-final-cta">
           <div>
-            <div className="landing-section-kicker">Старт</div>
-            <h2>Готов начать обучение?</h2>
-            <p>Создай аккаунт, выбери курс и переходи к первому заданию.</p>
+            <div className="landing-section-kicker">{sessionCta.final.kicker}</div>
+            <h2>{sessionCta.final.title}</h2>
+            <p>{sessionCta.final.text}</p>
           </div>
           <div className="landing-final-actions">
-            <Link to={primaryHref} className="landing-btn landing-btn-primary">
-              <Rocket size={19} />
-              <span>{primaryText}</span>
-            </Link>
+            {sessionCta.pending ? (
+              <button type="button" className="landing-btn landing-btn-primary" disabled>
+                <Rocket size={19} />
+                <span>Проверяем сессию…</span>
+              </button>
+            ) : (
+              <Link to={sessionCta.primary.href} className="landing-btn landing-btn-primary">
+                <Rocket size={19} />
+                <span>{sessionCta.primary.text}</span>
+              </Link>
+            )}
             <Link to="/privacy" className="landing-btn landing-btn-ghost">
               Политика конфиденциальности
             </Link>

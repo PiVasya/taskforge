@@ -21,6 +21,7 @@ printf '\n========== FRONTEND MODEL TESTS ==========\n'
 node --test scripts/sql-tests/*.test.mjs
 node --test scripts/agent-tests/*.test.mjs
 node --test scripts/admin-solutions-tests/*.test.mjs
+node --test scripts/landing-tests/*.test.mjs
 node --test scripts/cluster-tests/*.test.mjs
 
 printf '\n========== FRONTEND JEST TESTS ==========\n'
