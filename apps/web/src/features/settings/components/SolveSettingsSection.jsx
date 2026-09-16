@@ -19,6 +19,27 @@ function SolveSettingsSection({ form, setField }) {
           <ChoiceButton active={form.codeEditorStyle === 'mono'} title="Простой чёрно-белый" onClick={() => setField('codeEditorStyle', 'mono')} />
         </div>
       </Card>
+      <Card className="p-4 space-y-4">
+        <div>
+          <div className="font-semibold">Курсы и задания</div>
+          <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Выберите, как открывать содержимое курса: картой или привычными карточками.</div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ChoiceButton
+            active={form.courseContentLayout !== 'cards'}
+            title="Карта"
+            desc="Связи, ветки и прогресс на одной схеме."
+            onClick={() => setField('courseContentLayout', 'flow')}
+          />
+          <ChoiceButton
+            active={form.courseContentLayout === 'cards'}
+            title="Карточки"
+            desc="Компактный список курсов и заданий без карты."
+            onClick={() => setField('courseContentLayout', 'cards')}
+          />
+        </div>
+      </Card>
+
     </div>
   );
 }
