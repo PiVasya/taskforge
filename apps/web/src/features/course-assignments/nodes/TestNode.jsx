@@ -30,7 +30,7 @@ export default function TestNode({ data, selected }) {
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={ListChecks} title={assignment.title} />
       <AssignmentFooter assignment={assignment} fallback={questionLabel} />
-      <NodeHover entity={assignment} meta={questionCount != null ? questionLabel : null} onAction={data?.onOpen} />
+      <NodeHover entity={assignment} meta={questionCount != null ? questionLabel : null} />
     </div>
   );
 }

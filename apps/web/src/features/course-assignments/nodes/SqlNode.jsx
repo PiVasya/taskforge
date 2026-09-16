@@ -27,7 +27,7 @@ export default function SqlNode({ data, selected }) {
       <NodeTopline icon={Database} title={assignment.title} />
       <AssignmentFooter assignment={assignment} fallback="SQL" />
       <div className="course-map-code-watermark">{'SELECT *'}</div>
-      <NodeHover entity={assignment} meta="SQL" onAction={data?.onOpen} />
+      <NodeHover entity={assignment} meta="SQL" />
     </div>
   );
 }

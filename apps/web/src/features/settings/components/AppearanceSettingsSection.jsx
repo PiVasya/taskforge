@@ -52,6 +52,31 @@ function AppearanceSettingsSection({ form, setField }) {
         </div>
       </Card>
       <Card className="p-4 space-y-4">
+        <div>
+          <div className="font-semibold">Курсы и задания</div>
+          <div className="mt-1 text-sm text-neutral-500">Выберите удобный способ просмотра содержимого курса.</div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Отображение курсов и заданий">
+          <Button
+            variant={form.courseContentLayout !== 'cards' ? 'primary' : 'outline'}
+            className="h-auto min-h-16 items-start justify-start px-4 py-3 text-left"
+            aria-pressed={form.courseContentLayout !== 'cards'}
+            onClick={() => setField('courseContentLayout', 'flow')}
+          >
+            <span><span className="block font-semibold">Карта</span><span className="mt-0.5 block text-xs font-normal opacity-75">Связи, ветки и прогресс на одной схеме.</span></span>
+          </Button>
+          <Button
+            variant={form.courseContentLayout === 'cards' ? 'primary' : 'outline'}
+            className="h-auto min-h-16 items-start justify-start px-4 py-3 text-left"
+            aria-pressed={form.courseContentLayout === 'cards'}
+            onClick={() => setField('courseContentLayout', 'cards')}
+          >
+            <span><span className="block font-semibold">Карточки</span><span className="mt-0.5 block text-xs font-normal opacity-75">Компактный список курсов и заданий.</span></span>
+          </Button>
+        </div>
+      </Card>
+
+      <Card className="p-4 space-y-4">
         <div className="font-semibold">Левое меню</div>
         <div className="flex flex-wrap gap-2">
           <Button variant={form.showSidebarToggle !== false ? 'primary' : 'outline'} onClick={() => setField('showSidebarToggle', true)}>Показывать стрелку</Button>

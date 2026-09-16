@@ -27,7 +27,7 @@ export default function MathNode({ data, selected }) {
       <NodeTopline icon={Sigma} title={assignment.title} />
       <AssignmentFooter assignment={assignment} fallback="Задание" />
       <div className="course-map-math-watermark">Σ x² √</div>
-      <NodeHover entity={assignment} onAction={data?.onOpen} />
+      <NodeHover entity={assignment} />
     </div>
   );
 }

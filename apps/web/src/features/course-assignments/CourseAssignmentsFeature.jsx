@@ -23,6 +23,7 @@ import { resolveCardDropIntent, resolveFlowNodeDropIntent } from "../../utils/gr
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorMode } from '../../contexts/EditorModeContext';
+import { useCourseUiSettings } from '../../contexts/UiSettingsContext';
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 
 import {
@@ -92,8 +93,10 @@ export default function CourseAssignmentsPage() {
   const notify = useNotify();
   const queryClient = useQueryClient();
   const { isEditorMode } = useEditorMode();
+  const { courseContentLayout } = useCourseUiSettings();
+  const learnerCards = !isEditorMode && courseContentLayout === 'cards';
   const assignmentsKey = useMemo(() => ['course-assignments', courseId], [courseId]);
-  const courseBundleKey = useMemo(() => ['course-bundle', courseId, isEditorMode ? 'editor' : 'learner'], [courseId, isEditorMode]);
+  const courseBundleKey = useMemo(() => ['course-bundle', courseId, isEditorMode ? 'editor' : learnerCards ? 'learner-cards' : 'learner-flow'], [courseId, isEditorMode, learnerCards]);
 
   const assignmentsQuery = useQuery({
     queryKey: assignmentsKey,
@@ -104,7 +107,7 @@ export default function CourseAssignmentsPage() {
         sort: typeof item.sort === 'number' ? item.sort : index,
       }));
     },
-    enabled: Boolean(courseId) && Boolean(isEditorMode),
+    enabled: Boolean(courseId) && Boolean(isEditorMode || learnerCards),
     staleTime: 20_000,
     keepPreviousData: true,
   });
@@ -113,7 +116,7 @@ export default function CourseAssignmentsPage() {
     queryKey: courseBundleKey,
     queryFn: async () => {
       const loadedCourse = await getCourse(courseId);
-      if (!isEditorMode) {
+      if (!isEditorMode && !learnerCards) {
         return {
           course: loadedCourse || null,
           allCourses: loadedCourse ? [loadedCourse] : [],
@@ -121,7 +124,7 @@ export default function CourseAssignmentsPage() {
           courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
         };
       }
-      const coursesPayload = await getCourses().catch(() => []);
+      const coursesPayload = await getCourses({ tree: true }).catch(() => []);
       const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
       const all = Array.isArray(payloadItems) ? payloadItems : [];
       const children = all
@@ -139,14 +142,14 @@ export default function CourseAssignmentsPage() {
     keepPreviousData: true,
   });
 
-  const items = isEditorMode ? (assignmentsQuery.data || EMPTY_LIST) : EMPTY_LIST;
+  const items = (isEditorMode || learnerCards) ? (assignmentsQuery.data || EMPTY_LIST) : EMPTY_LIST;
   const courseBundle = courseBundleQuery.data || EMPTY_COURSE_BUNDLE;
   const course = courseBundle.course || null;
   const childCourses = courseBundle.childCourses || EMPTY_LIST;
   const allCourses = courseBundle.allCourses || EMPTY_LIST;
   const courseCanEdit = courseBundle.courseCanEdit !== false;
-  const loading = courseBundleQuery.isLoading || (isEditorMode && assignmentsQuery.isLoading);
-  const err = isEditorMode && assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '';
+  const loading = courseBundleQuery.isLoading || ((isEditorMode || learnerCards) && assignmentsQuery.isLoading);
+  const err = (isEditorMode || learnerCards) && assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '';
 
   const setItems = React.useCallback((updater) => {
     queryClient.setQueryData(assignmentsKey, (previous = []) => (
@@ -208,7 +211,7 @@ export default function CourseAssignmentsPage() {
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
-  const showFlowLayout = isEditorMode ? (courseCanEdit && contentLayout === 'flow') : true;
+  const showFlowLayout = isEditorMode ? (courseCanEdit && contentLayout === 'flow') : !learnerCards;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -350,7 +353,7 @@ export default function CourseAssignmentsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!isEditorMode || !progressContext || assignmentsQuery.isLoading || !progressContext.requestKey) {
+    if (showFlowLayout || !progressContext || assignmentsQuery.isLoading || !progressContext.requestKey) {
       return () => {
         cancelled = true;
       };
@@ -407,7 +410,7 @@ export default function CourseAssignmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [assignmentsQuery.isLoading, childCourses, courseId, isEditorMode, items, progressContext, progressRevision]);
+  }, [assignmentsQuery.isLoading, childCourses, courseId, items, progressContext, progressRevision, showFlowLayout]);
 
 
   const filtered = useMemo(() => {
@@ -463,9 +466,9 @@ export default function CourseAssignmentsPage() {
   }, [items]);
 
   const courseProgress = useMemo(() => {
-    if (!isEditorMode && learnerFlowProgress) return learnerFlowProgress;
+    if (!isEditorMode && showFlowLayout && learnerFlowProgress) return learnerFlowProgress;
     return courseProgressByCourseId[courseId] || directCourseProgress;
-  }, [courseProgressByCourseId, courseId, directCourseProgress, isEditorMode, learnerFlowProgress]);
+  }, [courseProgressByCourseId, courseId, directCourseProgress, isEditorMode, learnerFlowProgress, showFlowLayout]);
 
   const setSortMode = (mode) => {
     const next = new URLSearchParams(params);
@@ -1157,7 +1160,7 @@ export default function CourseAssignmentsPage() {
 
       {!loading && !showFlowLayout && filtered.length === 0 && (
         <div className="card-muted p-8 text-center text-neutral-500 mt-6" onContextMenu={(event) => openContextMenu(event)}>
-          Пока заданий нет. Создайте первое ✨
+          {isEditorMode ? 'Пока здесь ничего нет. Создайте первое задание или вложенный курс.' : (q.trim() ? 'По вашему запросу ничего не найдено.' : 'В этом курсе пока нет доступных заданий или вложенных курсов.')}
         </div>
       )}
 

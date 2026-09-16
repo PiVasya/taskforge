@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   fxVariant: '2',
   codeSolveLayout: 'split',
   codeEditorStyle: 'color',
+  courseContentLayout: 'flow',
   sidebarCollapsed: false,
   showSidebarToggle: true,
 });
@@ -31,12 +32,14 @@ const ThemeContext = createContext(null);
 const BackgroundContext = createContext(null);
 const EditorUiContext = createContext(null);
 const NavigationContext = createContext(null);
+const CourseUiContext = createContext(null);
 const SettingsActionsContext = createContext(null);
 
 ThemeContext.displayName = 'ThemeContext';
 BackgroundContext.displayName = 'BackgroundContext';
 EditorUiContext.displayName = 'EditorUiContext';
 NavigationContext.displayName = 'NavigationContext';
+CourseUiContext.displayName = 'CourseUiContext';
 SettingsActionsContext.displayName = 'SettingsActionsContext';
 
 function readJsonSettings() {
@@ -82,6 +85,9 @@ function normalizeSettings(input = {}) {
   const codeEditorStyle = read('codeEditorStyle', DEFAULT_SETTINGS.codeEditorStyle) === 'mono'
     ? 'mono'
     : 'color';
+  const courseContentLayout = read('courseContentLayout', DEFAULT_SETTINGS.courseContentLayout) === 'cards'
+    ? 'cards'
+    : 'flow';
 
   const storedBgFx = typeof stored.bgFx === 'boolean'
     ? stored.bgFx
@@ -102,6 +108,7 @@ function normalizeSettings(input = {}) {
     fxVariant: String(read('fxVariant', DEFAULT_SETTINGS.fxVariant)),
     codeSolveLayout,
     codeEditorStyle,
+    courseContentLayout,
     sidebarCollapsed:
       typeof input.sidebarCollapsed === 'boolean'
         ? input.sidebarCollapsed
@@ -129,6 +136,7 @@ function persistSettingsSnapshot(settings) {
     window.localStorage.setItem('fxVariant', settings.fxVariant);
     window.localStorage.setItem('codeSolveLayout', settings.codeSolveLayout);
     window.localStorage.setItem('codeEditorStyle', settings.codeEditorStyle);
+    window.localStorage.setItem('courseContentLayout', settings.courseContentLayout);
     window.localStorage.setItem(
       'showSidebarToggle',
       settings.showSidebarToggle ? '1' : '0',
@@ -147,6 +155,7 @@ function persistSettingsSnapshot(settings) {
       fxVariant: settings.fxVariant,
       codeSolveLayout: settings.codeSolveLayout,
       codeEditorStyle: settings.codeEditorStyle,
+      courseContentLayout: settings.courseContentLayout,
       showSidebarToggle: settings.showSidebarToggle,
     };
     window.localStorage.setItem(
@@ -293,6 +302,11 @@ export function UiSettingsProvider({ children }) {
     [settings.codeEditorStyle, settings.codeSolveLayout],
   );
 
+  const courseUiValue = useMemo(
+    () => ({ courseContentLayout: settings.courseContentLayout }),
+    [settings.courseContentLayout],
+  );
+
   const navigationValue = useMemo(
     () => ({
       sidebarCollapsed: settings.sidebarCollapsed,
@@ -318,9 +332,11 @@ export function UiSettingsProvider({ children }) {
       <ThemeContext.Provider value={themeValue}>
         <BackgroundContext.Provider value={backgroundValue}>
           <EditorUiContext.Provider value={editorValue}>
-            <NavigationContext.Provider value={navigationValue}>
-              {children}
-            </NavigationContext.Provider>
+            <CourseUiContext.Provider value={courseUiValue}>
+              <NavigationContext.Provider value={navigationValue}>
+                {children}
+              </NavigationContext.Provider>
+            </CourseUiContext.Provider>
           </EditorUiContext.Provider>
         </BackgroundContext.Provider>
       </ThemeContext.Provider>
@@ -350,6 +366,12 @@ export function useEditorUiSettings() {
   return useContext(EditorUiContext) || {
     codeSolveLayout: DEFAULT_SETTINGS.codeSolveLayout,
     codeEditorStyle: DEFAULT_SETTINGS.codeEditorStyle,
+  };
+}
+
+export function useCourseUiSettings() {
+  return useContext(CourseUiContext) || {
+    courseContentLayout: DEFAULT_SETTINGS.courseContentLayout,
   };
 }
 

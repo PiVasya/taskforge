@@ -55,6 +55,7 @@ import {
 import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { applyTaskGraphImport } from '../courseTaskGraphImport';
+import { buildCompletedCourseLearnerView, findCourseLearnerAssignmentAction } from '../courseMapLearnerViewModel';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
 import TestNode from '../nodes/TestNode';
@@ -88,6 +89,35 @@ function isBrowserReloadNavigation() {
   } catch {
     return false;
   }
+}
+
+const COMPLETED_COURSE_EXPANSION_KEY = 'taskforge-course-map-expanded-completed';
+
+function completedCourseExpansionStorageKey(rootId, userId) {
+  const courseKey = String(rootId || '').trim();
+  if (!courseKey) return '';
+  return `${COMPLETED_COURSE_EXPANSION_KEY}:${String(userId || 'anonymous')}:${courseKey}`;
+}
+
+function readExpandedCompletedCourseIds(rootId, userId) {
+  if (typeof window === 'undefined') return new Set();
+  const key = completedCourseExpansionStorageKey(rootId, userId);
+  if (!key) return new Set();
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(key) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistExpandedCompletedCourseIds(rootId, userId, values) {
+  if (typeof window === 'undefined') return;
+  const key = completedCourseExpansionStorageKey(rootId, userId);
+  if (!key) return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(Array.from(values || []).map(String).filter(Boolean)));
+  } catch {}
 }
 
 function userDisplayName(user) {
@@ -169,6 +199,7 @@ function edgeStyle(editorMode, edge = null) {
   if (accessSettings.sequentialEffect === 'start') classes.push('is-sequential-start');
   if (accessSettings.sequentialEffect === 'stop') classes.push('is-sequential-stop');
   if (synthetic) classes.push('is-locked');
+  if (String(edge?.className || '').includes('is-learner-collapsed') || edge?.data?.learnerCollapsed) classes.push('is-learner-collapsed');
   const effectBadges = editorMode && !synthetic ? edgeEffectBadges(accessSettings) : [];
   return {
     markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
@@ -315,6 +346,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [mapHeight, setMapHeight] = React.useState(null);
   const [courseProgressByNode, setCourseProgressByNode] = React.useState(() => new Map());
   const [sceneReady, setSceneReady] = React.useState(false);
+  const [expandedCompletedCourseIds, setExpandedCompletedCourseIds] = React.useState(() => new Set());
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
@@ -360,6 +392,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const viewKey = `${rootId}:${modeName}`;
   activeViewRef.current = viewKey;
   activeModeRef.current = modeName;
+
   const mergedCourseRows = React.useMemo(() => {
     const byId = new Map();
     for (const item of [...(Array.isArray(allCourses) ? allCourses : []), ...(Array.isArray(mapCourses) ? mapCourses : [])]) {
@@ -404,6 +437,15 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return restricted;
   }, [visibleCourses]);
   const currentUserId = String(user?.id || user?.userId || user?.uuid || '');
+
+  React.useEffect(() => {
+    if (editorMode) {
+      setExpandedCompletedCourseIds(new Set());
+      return;
+    }
+    setExpandedCompletedCourseIds(readExpandedCompletedCourseIds(rootId, currentUserId));
+  }, [currentUserId, editorMode, rootId]);
+
   const cacheCourseIds = React.useMemo(() => visibleCourses.map((item) => String(item?.id || '')).filter(Boolean), [visibleCourses]);
   const clearProgressionRetry = React.useCallback(() => {
     if (progressionRetryRef.current.timer && typeof window !== 'undefined') {
@@ -2732,6 +2774,70 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const documentNow = React.useMemo(() => serializeCourseMap(nodes, edges, viewportRef.current), [edges, nodes]);
   const unplaced = React.useMemo(() => findUnplacedEntities(documentNow, visibleCourses, assignments), [assignments, documentNow, visibleCourses]);
 
+  const completedCourseCollapseBaseline = React.useMemo(() => buildCompletedCourseLearnerView(nodes, edges, {
+    enabled: !editorMode && !String(query || '').trim(),
+    expandedCourseIds: [],
+  }), [edges, editorMode, nodes, query]);
+
+  const completedCourseLearnerView = React.useMemo(() => buildCompletedCourseLearnerView(nodes, edges, {
+    enabled: !editorMode && !String(query || '').trim(),
+    expandedCourseIds: Array.from(expandedCompletedCourseIds),
+  }), [edges, editorMode, expandedCompletedCourseIds, nodes, query]);
+
+  const courseLearnerActionByNode = React.useMemo(() => {
+    const result = new Map();
+    if (editorMode) return result;
+    for (const node of nodes) {
+      if (node?.type !== 'course') continue;
+      const action = findCourseLearnerAssignmentAction(node.id, nodes, edges);
+      if (action.assignmentId) result.set(String(node.id), action);
+    }
+    return result;
+  }, [edges, editorMode, nodes]);
+
+  const toggleCompletedCourse = React.useCallback((nodeId) => {
+    const key = String(nodeId || '');
+    if (!key) return;
+    setExpandedCompletedCourseIds((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      persistExpandedCompletedCourseIds(rootId, currentUserId, next);
+      return next;
+    });
+  }, [currentUserId, rootId]);
+
+  const renderedNodes = React.useMemo(() => {
+    if (editorMode) return nodes;
+    const canCollapse = !String(query || '').trim();
+    return completedCourseLearnerView.nodes.map((node) => {
+      if (node?.type !== 'course') return node;
+      const nodeId = String(node.id || '');
+      const eligible = canCollapse && completedCourseCollapseBaseline.collapsedCourseIds.has(nodeId);
+      const collapsed = eligible && completedCourseLearnerView.collapsedCourseIds.has(nodeId);
+      const learnerAction = courseLearnerActionByNode.get(nodeId) || null;
+      return {
+        ...node,
+        data: {
+          ...(node.data || {}),
+          collapsed,
+          canCollapseCompletedCourse: eligible,
+          collapsedTaskCount: Number(completedCourseCollapseBaseline.hiddenCountByCourseId.get(nodeId) || 0),
+          onToggleCollapsed: eligible ? () => toggleCompletedCourse(nodeId) : null,
+          courseActionLabel: learnerAction?.hasUnsolved ? 'Продолжить курс' : learnerAction?.assignmentId ? 'Последняя задача' : '',
+          onCourseAction: learnerAction?.assignmentId ? () => openAssignment(learnerAction.assignmentId) : null,
+        },
+      };
+    });
+  }, [completedCourseCollapseBaseline, completedCourseLearnerView, courseLearnerActionByNode, editorMode, nodes, openAssignment, query, toggleCompletedCourse]);
+
+  const renderedEdges = React.useMemo(() => {
+    if (editorMode) return edges;
+    return completedCourseLearnerView.edges.map((edge) => edge?.data?.learnerCollapsed
+      ? { ...edge, ...edgeStyle(false, edge) }
+      : edge);
+  }, [completedCourseLearnerView, edges, editorMode]);
+
   React.useEffect(() => {
     if (!editorMode || modeTransitionRef.current || loadedViewRef.current !== viewKey) return;
     const signature = `${viewKey}:${nodes.length}:${edges.length}:${assignments.length}:${visibleCourses.length}:${unplaced.length}`;
@@ -2932,8 +3038,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         }}
       >
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={renderedNodes}
+          edges={renderedEdges}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}

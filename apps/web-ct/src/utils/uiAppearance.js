@@ -31,6 +31,10 @@ function normalizeUiSettings(input = {}) {
       input.codeEditorStyle != null
         ? (input.codeEditorStyle === 'mono' ? 'mono' : 'color')
         : (stored.codeEditorStyle === 'mono' ? 'mono' : 'color'),
+    courseContentLayout:
+      (input.courseContentLayout || stored.courseContentLayout || localStorage.getItem('courseContentLayout')) === 'cards'
+        ? 'cards'
+        : 'flow',
     showSidebarToggle:
       typeof input.showSidebarToggle === 'boolean'
         ? input.showSidebarToggle
@@ -65,6 +69,7 @@ export function persistUiSettingsFromBackend(settings) {
     localStorage.setItem('fxVariant', merged.fxVariant);
     localStorage.setItem('codeSolveLayout', merged.codeSolveLayout);
     localStorage.setItem('codeEditorStyle', merged.codeEditorStyle);
+    localStorage.setItem('courseContentLayout', merged.courseContentLayout);
     localStorage.setItem('showSidebarToggle', merged.showSidebarToggle ? '1' : '0');
     localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(merged));
   } catch {}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderTree } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderTree } from 'lucide-react';
 import { activateCourseMapNodeForAgent, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
 
 function taskWord(value) {
@@ -21,15 +21,21 @@ export default function CourseNode({ data, selected }) {
   const total = Math.max(0, Number(progress.total) || 0);
   const solved = Math.max(0, Math.min(total, Number(progress.solved) || 0));
   const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+  const completed = total > 0 && solved >= total;
+  const collapsedTaskCount = Math.max(0, Number(data?.collapsedTaskCount) || 0);
+  const collapseLabel = data?.collapsed
+    ? `Раскрыть ${collapsedTaskCount} ${taskWord(collapsedTaskCount)}`
+    : 'Свернуть решённые';
   return (
     <div
-      className={`course-map-node course-map-node--course${selected ? ' is-selected' : ''}${hiddenFromStudents ? ' is-hidden-from-students' : ''}`}
+      className={`course-map-node course-map-node--course${selected ? ' is-selected' : ''}${completed ? ' is-completed-course' : ''}${data?.collapsed ? ' is-collapsed-course' : ''}${hiddenFromStudents ? ' is-hidden-from-students' : ''}`}
       data-taskforge-automation-id={`course-${course.id || data?.entityId}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="course"
       data-taskforge-entity-id={course.id || data?.entityId}
       data-taskforge-agent-kind="course"
       data-taskforge-agent-action="focus-course"
+      data-taskforge-agent-state={completed ? 'completed' : 'incomplete'}
       onClick={(event) => activateCourseMapNodeForAgent(event, data, data?.onFocus || data?.onOpen)}
       data-taskforge-admin-hidden={hiddenFromStudents ? 'true' : undefined}
       aria-label={`Курс ${course.title || 'Без названия'}. ${hiddenFromStudents ? 'Скрыт от учеников. ' : groupRestricted ? 'Доступ по группам. ' : ''}Решено ${solved} из ${total}.`}
@@ -39,9 +45,21 @@ export default function CourseNode({ data, selected }) {
       <NodeTopline icon={FolderTree} title={course.title} badge={hiddenFromStudents ? 'СКРЫТ' : groupRestricted ? 'ГРУППЫ' : null} />
       {hiddenFromStudents ? <div className="course-map-hidden-course-warning">{inheritedHidden ? 'Скрыт вместе с родительским курсом' : 'Не существует для учеников'}</div> : null}
       {groupRestricted && inheritedGroupRestriction ? <div className="course-map-hidden-course-warning">Ограничен группами родительского курса</div> : null}
-      <div className="course-map-course-progress-row"><span>Решено {solved} из {total}</span><span>{percent}%</span></div>
+      <div className="course-map-course-progress-row"><span>{completed ? 'Курс пройден' : `Решено ${solved} из ${total}`}</span><span>{percent}%</span></div>
       <div className="course-map-course-progress" aria-label={`Решено ${solved} из ${total}`}><span style={{ width: `${percent}%` }} /></div>
-      <NodeHover entity={course} actionLabel="Показать ветку" onAction={data?.onFocus} placement="right">
+      {data?.canCollapseCompletedCourse ? (
+        <button
+          type="button"
+          className="course-map-course-collapse nodrag nopan"
+          onClick={(event) => { event.stopPropagation(); data?.onToggleCollapsed?.(); }}
+          aria-label={data?.collapsed ? `Раскрыть ${collapsedTaskCount} ${taskWord(collapsedTaskCount)}` : 'Свернуть решённые задания курса'}
+          title={data?.collapsed ? 'Раскрыть решённые задания' : 'Свернуть решённые задания'}
+        >
+          {data?.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          <span>{collapseLabel}</span>
+        </button>
+      ) : null}
+      <NodeHover entity={course} actionLabel={data?.courseActionLabel || 'Продолжить курс'} onAction={data?.onCourseAction} placement="right">
         {hiddenFromStudents ? <div className="course-map-hover-hidden-note">{inheritedHidden ? 'Этот курс скрыт, потому что скрыт один из его родителей.' : 'Курс и всё его поддерево скрыты от обычных пользователей.'}</div> : null}
         {groupRestricted && inheritedGroupRestriction ? <div className="course-map-hover-hidden-note">Доступ ограничен группами в родительском курсе.</div> : null}
         <div className="course-map-hover-course-stat">

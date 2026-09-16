@@ -511,18 +511,27 @@
 .course-map-node-hover-action {
   display: flex;
   width: 100%;
+  min-height: 36px;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 10px;
-  padding-top: 9px;
-  border: 0;
-  border-top: 1px solid rgba(var(--border) / .55);
-  background: transparent;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--accent) / .22);
+  border-radius: 10px;
+  background: rgba(var(--accent) / .07);
   color: rgb(var(--accent));
   cursor: pointer;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.course-map-node-hover-action:hover,
+.course-map-node-hover-action:focus-visible {
+  border-color: rgba(var(--accent) / .5);
+  background: rgba(var(--accent) / .13);
+  outline: none;
 }
 
 .course-map-node-hover-action svg {
@@ -2036,3 +2045,112 @@ html.neo-brutal .course-map-node--locked:hover .course-map-locked-requirement {
 
 .course-map-node--sql { border-color: rgba(81, 149, 223, .6); }
 .course-map-node--sql .course-map-code-watermark { color: rgba(81,149,223,.16); font-size: 26px; }
+
+/* Learner progress compaction */
+.course-map-node.is-solved {
+  opacity: 0.84;
+  filter: saturate(.58) contrast(.97);
+  background:
+    linear-gradient(135deg, rgba(var(--card) / 0.998), rgba(var(--card) / 0.985)),
+    rgba(var(--fg) / 0.018);
+  box-shadow: 0 7px 20px rgba(18, 20, 28, 0.08), 0 0 0 1px rgba(var(--fg) / 0.018);
+}
+
+.course-map-node.is-solved:hover,
+.course-map-node.is-solved.is-selected,
+.course-map-node.is-solved:focus-within {
+  opacity: 1;
+  filter: saturate(.86) contrast(1);
+}
+
+.course-map-node--course.is-completed-course {
+  border-color: rgba(var(--accent) / 0.42);
+}
+
+.course-map-node--course.is-collapsed-course {
+  min-height: 104px;
+  box-shadow: 0 9px 24px rgba(18, 20, 28, 0.1), 0 0 0 1px rgba(var(--accent) / 0.06);
+}
+
+.course-map-course-collapse {
+  position: relative;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 5px 9px;
+  border: 1px solid rgba(var(--accent) / 0.3);
+  border-radius: 999px;
+  background: rgba(var(--accent) / 0.08);
+  color: rgb(var(--accent));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.course-map-course-collapse:hover,
+.course-map-course-collapse:focus-visible {
+  border-color: rgba(var(--accent) / 0.6);
+  background: rgba(var(--accent) / 0.14);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.course-map-course-collapse span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-map-edge.is-learner-collapsed .react-flow__edge-path {
+  stroke-dasharray: 7 5;
+  stroke-width: 2.1;
+  opacity: 0.72;
+}
+
+/* Completed-course learner polish */
+.course-map-node--course.is-completed-course .course-map-course-progress-row {
+  color: color-mix(in srgb, rgb(var(--accent)) 68%, rgb(var(--text)) 32%);
+}
+
+.course-map-node--course.is-completed-course .course-map-course-progress > span {
+  box-shadow: 0 0 0 1px rgba(var(--accent) / .08), 0 0 12px rgba(var(--accent) / .12);
+}
+
+.course-map-course-collapse svg {
+  flex: 0 0 auto;
+}
+
+html.neo-brutal .course-map-node-hover-action {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: .45rem;
+  background: rgb(var(--brand-100));
+  color: rgb(var(--neo-ink));
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-node-hover-action:hover,
+html.neo-brutal .course-map-node-hover-action:focus-visible {
+  background: rgb(var(--brand-200));
+  box-shadow: 3px 3px 0 0 rgb(var(--neo-ink));
+  transform: translate(-1px, -1px);
+}
+
+html.neo-brutal .course-map-course-collapse {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: 999px;
+  background: rgb(var(--brand-100));
+  color: rgb(var(--neo-ink));
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-course-collapse:hover,
+html.neo-brutal .course-map-course-collapse:focus-visible {
+  background: rgb(var(--brand-200));
+  box-shadow: 3px 3px 0 0 rgb(var(--neo-ink));
+}

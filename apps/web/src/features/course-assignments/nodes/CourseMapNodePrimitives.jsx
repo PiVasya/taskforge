@@ -108,7 +108,7 @@ export function AssignmentFooter({ assignment, fallback }) {
   );
 }
 
-export function NodeHover({ entity, meta, actionLabel = 'Перейти к заданию', onAction, placement = 'bottom', children }) {
+export function NodeHover({ entity, meta, actionLabel = 'Открыть', onAction, placement = 'bottom', children }) {
   const description = previewAssignmentDescription(entity?.description || '') || 'Описание пока не добавлено.';
   return (
     <div className={`course-map-node-hover course-map-node-hover--${placement}`}>

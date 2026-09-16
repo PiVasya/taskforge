@@ -45,6 +45,7 @@ export function defaultUiSettings() {
     fxVariant: localStorage.getItem('fxVariant') || '2',
     codeSolveLayout: localStorage.getItem('codeSolveLayout') || 'split',
     codeEditorStyle: localStorage.getItem('codeEditorStyle') === 'mono' ? 'mono' : 'color',
+    courseContentLayout: localStorage.getItem('courseContentLayout') === 'cards' ? 'cards' : 'flow',
     showSidebarToggle: localStorage.getItem('showSidebarToggle') !== '0',
   };
 }

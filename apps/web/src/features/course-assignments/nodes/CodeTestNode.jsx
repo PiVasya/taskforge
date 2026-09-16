@@ -28,7 +28,7 @@ export default function CodeTestNode({ data, selected }) {
       <NodeTopline icon={Code2} title={assignment.title} />
       <AssignmentFooter assignment={assignment} fallback="Код" />
       <div className="course-map-code-watermark">{'{ }  ;'}</div>
-      <NodeHover entity={assignment} meta={language || null} onAction={data?.onOpen} />
+      <NodeHover entity={assignment} meta={language || null} />
     </div>
   );
 }

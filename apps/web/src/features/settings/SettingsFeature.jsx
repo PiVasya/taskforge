@@ -50,6 +50,7 @@ function normalizeRemoteUiSettings(remote, previous) {
     fxVariant: String(remote.fxVariant ?? previous.fxVariant),
     codeSolveLayout: remote.codeSolveLayout || previous.codeSolveLayout || 'split',
     codeEditorStyle: remote.codeEditorStyle === 'mono' ? 'mono' : 'color',
+    courseContentLayout: remote.courseContentLayout === 'cards' ? 'cards' : 'flow',
     showSidebarToggle: remote.showSidebarToggle !== false,
   };
 }
@@ -258,6 +259,7 @@ export default function SettingsFeature() {
           fxVariant: Number(form.fxVariant),
           codeSolveLayout: form.codeSolveLayout,
           codeEditorStyle: form.codeEditorStyle === 'mono' ? 'mono' : 'color',
+          courseContentLayout: form.courseContentLayout === 'cards' ? 'cards' : 'flow',
           showSidebarToggle: form.showSidebarToggle !== false,
         };
         const saved = await saveMyUiSettings(payload);

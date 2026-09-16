@@ -28,7 +28,7 @@ export default function ImageCodeNode({ data, selected }) {
       <NodeTopline icon={Image} title={assignment.title} />
       <AssignmentFooter assignment={assignment} fallback="Задание" />
       <div className="course-map-image-grid">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
-      <NodeHover entity={assignment} meta={language || null} onAction={data?.onOpen} />
+      <NodeHover entity={assignment} meta={language || null} />
     </div>
   );
 }
