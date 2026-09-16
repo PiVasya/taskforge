@@ -395,7 +395,7 @@ func (s *Session) pgError(res *C.PGresult) *Error {
 }
 func (s *Session) pgReady(ctx context.Context, write bool) error {
 	for {
-		if e := ctx.Err(); e != nil {
+		if e := contextDeadlineError(ctx); e != nil {
 			return e
 		}
 		if s.pg == nil {
@@ -407,14 +407,14 @@ func (s *Session) pgReady(ctx context.Context, write bool) error {
 				return nil
 			}
 			if n < 0 {
-				if e := ctx.Err(); e != nil {
+				if e := contextDeadlineError(ctx); e != nil {
 					return e
 				}
 				return s.pgError(nil)
 			}
 		} else {
 			if C.PQconsumeInput(s.pg) != 1 {
-				if e := ctx.Err(); e != nil {
+				if e := contextDeadlineError(ctx); e != nil {
 					return e
 				}
 				return s.pgError(nil)
@@ -424,7 +424,7 @@ func (s *Session) pgReady(ctx context.Context, write bool) error {
 			}
 		}
 		if C.tf_poll(C.PQsocket(s.pg), boolInt(write), 50) < 0 {
-			if e := ctx.Err(); e != nil {
+			if e := contextDeadlineError(ctx); e != nil {
 				return e
 			}
 			return s.pgError(nil)

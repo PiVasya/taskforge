@@ -19,6 +19,20 @@ type JobRunner struct {
 	Metrics   *Metrics
 }
 
+// leaseContextExpired also checks the monotonic deadline directly. A provider or
+// helper can return at the exact lease deadline before the context timer goroutine
+// has published ctx.Err(). In that race the worker must still fence the result and
+// must never turn an expired lease into a learner-visible verdict.
+func leaseContextExpired(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return true
+	}
+	return false
+}
+
 func ValidatePayload(job Job, profile Profile) error {
 	p := job.Payload
 	if p.ContractVersion != ContractVersion || !contains([]string{"sql-check", "sql-preview", "sql-materialize"}, job.Kind) {
@@ -116,7 +130,7 @@ func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile P
 		}
 		r.Metrics.Inc("sql_attempt_duration_seconds_sum", a.Engine(), time.Since(started).Seconds())
 		r.Metrics.Inc("sql_attempt_duration_seconds_count", a.Engine(), 1)
-		if ctx.Err() != nil {
+		if leaseContextExpired(ctx) {
 			out = Outcome{}
 			err = ErrLostLease
 			return
