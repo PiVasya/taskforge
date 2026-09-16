@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Input, Select, Badge } from '../../components/ui';
-import { ExternalLink, Trash2, Users, UserPlus, X } from 'lucide-react';
+import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   getSolutionDetails,
   deleteUserSolutions,
@@ -21,11 +21,10 @@ import useAdminSolutionLiveFeed from './useAdminSolutionLiveFeed';
 import {
   filterLiveItems,
   filterLiveItemsByTab,
-  solutionKindLabel,
   solutionLiveStateLabel,
-  solutionStatusLabel,
 } from './adminSolutionLiveModel';
 import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/AdminSolutionViews';
+import AdminSolutionLiveCard, { AssignmentLinkButton } from './components/AdminSolutionLiveCard';
 import {
   formatDateTime,
   getAssignmentId,
@@ -45,21 +44,6 @@ import {
 } from '../../utils/solutionDto';
 
 
-function AssignmentLinkButton({ assignmentId }) {
-  if (!assignmentId) return null;
-  return (
-    <a
-      href={`/assignment/${assignmentId}`}
-      target="_blank"
-      rel="noreferrer"
-      title="К заданию"
-      aria-label="К заданию"
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-neutral-300 bg-transparent text-neutral-700 transition hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--accent)/0.45)] dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-    >
-      <ExternalLink size={14} aria-hidden="true" />
-    </a>
-  );
-}
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -187,8 +171,6 @@ export default function AdminSolutionsPage() {
   );
 
   const liveStateLabel = solutionLiveStateLabel(liveState);
-  const liveKindLabel = solutionKindLabel;
-  const liveStatusLabel = solutionStatusLabel;
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -519,22 +501,7 @@ export default function AdminSolutionsPage() {
 
             <div className="space-y-2">
               {!groupMembersLoading && visibleLiveItems.map((item) => (
-                <div key={item.key} className="rounded-xl border border-neutral-200 dark:border-neutral-800/40 bg-[rgb(var(--card))] p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{item.assignmentTitle}</div>
-                      <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                        {item.userLabel} • {formatDateTime(item.occurredAtUtc)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge intent="secondary">{liveKindLabel(item.kind)}</Badge>
-                      {liveStatusLabel(item.status) ? <Badge>{liveStatusLabel(item.status)}</Badge> : null}
-                      {item.score != null && Number.isFinite(Number(item.score)) ? <Badge intent="secondary">{Number(item.score)}%</Badge> : null}
-                      <AssignmentLinkButton assignmentId={item.assignmentId} />
-                    </div>
-                  </div>
-                </div>
+                <AdminSolutionLiveCard key={item.key} item={item} />
               ))}
             </div>
           </Card>
