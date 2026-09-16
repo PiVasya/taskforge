@@ -18,3 +18,8 @@ Worker поддерживает read-model рейтинга `UserRatings`.
 Если задание удалено из `tasks-api`, его metadata больше не возвращается, и такое задание перестаёт давать очки при ближайшем пересчёте пользователя или при суточном full rebuild.
 
 Миграции принадлежат `../api`; worker не владеет схемой БД.
+
+
+## Startup/recovery
+
+`tasks-api` является зависимостью read-model пересчёта. Запросы activity/assignment summaries используют ограниченный retry с backoff для connection failures, HTTP 408/429 и 5xx; постоянные 4xx не повторяются. После восстановления worker пишет отдельную запись об успешном recovery и продолжает тот же пересчёт, а не ждёт следующего периодического цикла. Runtime-образ содержит `libgssapi-krb5-2`, необходимую Npgsql на Debian runtime при загрузке Kerberos/GSSAPI support.

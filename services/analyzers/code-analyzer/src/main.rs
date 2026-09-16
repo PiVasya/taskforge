@@ -215,6 +215,59 @@ fn find_identifier_sequence_pos(source: &str, phrase: &str) -> Option<usize> {
     None
 }
 
+fn find_identifier_path_pos(source: &str, path: &str) -> Option<usize> {
+    let parts: Vec<&str> = path
+        .split('.')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.len() < 2 || parts.iter().any(|part| !part.chars().all(is_ident_char)) {
+        return None;
+    }
+
+    let first = parts[0];
+    let mut search_from = 0usize;
+    while search_from < source.len() {
+        let relative = source[search_from..].find(first)?;
+        let start = search_from + relative;
+        let before = source[..start].chars().next_back();
+        let after_first = start + first.len();
+        let after = source[after_first..].chars().next();
+        if before.map(is_ident_char).unwrap_or(false) || after.map(is_ident_char).unwrap_or(false) {
+            search_from = after_first;
+            continue;
+        }
+
+        let mut pos = after_first;
+        let mut matched = true;
+        for part in parts.iter().skip(1) {
+            pos = skip_ws(source, pos);
+            if !match_char_at(source, pos, '.') {
+                matched = false;
+                break;
+            }
+            pos += 1;
+            pos = skip_ws(source, pos);
+            if !match_part_at(source, pos, part) {
+                matched = false;
+                break;
+            }
+            let end = pos + part.len();
+            if source[end..].chars().next().map(is_ident_char).unwrap_or(false) {
+                matched = false;
+                break;
+            }
+            pos = end;
+        }
+
+        if matched {
+            return Some(start);
+        }
+        search_from = after_first;
+    }
+    None
+}
+
 fn task_rule_needs_strings(rule: &str) -> bool {
     let trimmed = rule.trim();
     if trimmed.contains('"') || trimmed.contains('\'') {
@@ -253,6 +306,14 @@ fn find_task_rule_pos(cleaned: &str, no_comments: &str, rule: &str) -> Option<us
 
     if compact.chars().all(is_ident_char) {
         return find_identifier_pos(base, &compact);
+    }
+
+    if compact.contains('.')
+        && compact
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(is_ident_char))
+    {
+        return find_identifier_path_pos(base, trimmed);
     }
 
     find_ws_insensitive_pos(base, trimmed)
@@ -1179,9 +1240,358 @@ fn fp_str(id: &str, needle: &str, desc: &str) -> ForbiddenPattern {
     }
 }
 
+fn csharp_masked_output(chars: &[char]) -> Vec<char> {
+    chars
+        .iter()
+        .map(|ch| if *ch == '\n' { '\n' } else { ' ' })
+        .collect()
+}
+
+fn csharp_quote_run(chars: &[char], mut index: usize) -> usize {
+    let start = index;
+    while index < chars.len() && chars[index] == '"' {
+        index += 1;
+    }
+    index - start
+}
+
+fn csharp_dollar_run(chars: &[char], mut index: usize) -> usize {
+    let start = index;
+    while index < chars.len() && chars[index] == '$' {
+        index += 1;
+    }
+    index - start
+}
+
+fn skip_csharp_line_comment(chars: &[char], index: &mut usize) {
+    *index += 2;
+    while *index < chars.len() && chars[*index] != '\n' {
+        *index += 1;
+    }
+}
+
+fn skip_csharp_block_comment(chars: &[char], index: &mut usize) {
+    *index += 2;
+    while *index < chars.len() {
+        if chars[*index] == '*' && *index + 1 < chars.len() && chars[*index + 1] == '/' {
+            *index += 2;
+            return;
+        }
+        *index += 1;
+    }
+}
+
+fn skip_csharp_regular_string(chars: &[char], index: &mut usize, quote_index: usize, verbatim: bool) {
+    *index = quote_index + 1;
+    while *index < chars.len() {
+        let c = chars[*index];
+        if verbatim {
+            if c == '"' {
+                if *index + 1 < chars.len() && chars[*index + 1] == '"' {
+                    *index += 2;
+                    continue;
+                }
+                *index += 1;
+                return;
+            }
+            *index += 1;
+            continue;
+        }
+
+        if c == '\\' {
+            *index += if *index + 1 < chars.len() { 2 } else { 1 };
+            continue;
+        }
+        if c == '"' {
+            *index += 1;
+            return;
+        }
+        *index += 1;
+    }
+}
+
+fn skip_csharp_char_literal(chars: &[char], index: &mut usize) {
+    *index += 1;
+    while *index < chars.len() {
+        if chars[*index] == '\\' {
+            *index += if *index + 1 < chars.len() { 2 } else { 1 };
+            continue;
+        }
+        if chars[*index] == '\'' {
+            *index += 1;
+            return;
+        }
+        *index += 1;
+    }
+}
+
+fn skip_csharp_raw_string(chars: &[char], index: &mut usize, quote_index: usize, quote_count: usize) {
+    *index = quote_index + quote_count;
+    while *index < chars.len() {
+        if chars[*index] == '"' && csharp_quote_run(chars, *index) >= quote_count {
+            *index += quote_count;
+            return;
+        }
+        *index += 1;
+    }
+}
+
+fn csharp_interpolated_prefix(chars: &[char], index: usize) -> Option<(usize, bool)> {
+    if index + 1 < chars.len() && chars[index] == '$' && chars[index + 1] == '"' {
+        return Some((index + 1, false));
+    }
+    if index + 2 < chars.len()
+        && chars[index] == '$'
+        && chars[index + 1] == '@'
+        && chars[index + 2] == '"'
+    {
+        return Some((index + 2, true));
+    }
+    if index + 2 < chars.len()
+        && chars[index] == '@'
+        && chars[index + 1] == '$'
+        && chars[index + 2] == '"'
+    {
+        return Some((index + 2, true));
+    }
+    None
+}
+
+fn scan_csharp_interpolation_expression(chars: &[char], out: &mut [char], index: &mut usize) {
+    let mut brace_depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    while *index < chars.len() {
+        let c = chars[*index];
+        let next = chars.get(*index + 1).copied();
+
+        if c == '/' && next == Some('/') {
+            skip_csharp_line_comment(chars, index);
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            skip_csharp_block_comment(chars, index);
+            continue;
+        }
+
+        if let Some((quote_index, verbatim)) = csharp_interpolated_prefix(chars, *index) {
+            scan_csharp_interpolated_string(chars, out, index, quote_index, verbatim);
+            continue;
+        }
+
+        if c == '@' && next == Some('"') {
+            let quote_index = *index + 1;
+            skip_csharp_regular_string(chars, index, quote_index, true);
+            continue;
+        }
+        if c == '"' {
+            let quote_index = *index;
+            let quote_count = csharp_quote_run(chars, quote_index);
+            if quote_count >= 3 {
+                skip_csharp_raw_string(chars, index, quote_index, quote_count);
+            } else {
+                skip_csharp_regular_string(chars, index, quote_index, false);
+            }
+            continue;
+        }
+        if c == '\'' {
+            skip_csharp_char_literal(chars, index);
+            continue;
+        }
+
+        // At interpolation top level, comma and colon start alignment/format clauses. They are
+        // string-format syntax, not executable C# and must not satisfy required/forbidden rules.
+        // `::` is a real C# alias qualifier, so keep both colons as executable code.
+        if c == ':' && next == Some(':') {
+            out[*index] = ':';
+            out[*index + 1] = ':';
+            *index += 2;
+            continue;
+        }
+        if brace_depth == 0 && paren_depth == 0 && bracket_depth == 0
+            && (c == ',' || c == ':')
+        {
+            while *index < chars.len() && chars[*index] != '}' {
+                *index += 1;
+            }
+            if *index < chars.len() {
+                *index += 1;
+            }
+            return;
+        }
+
+        match c {
+            '{' => {
+                out[*index] = c;
+                brace_depth += 1;
+                *index += 1;
+                continue;
+            }
+            '}' => {
+                if brace_depth == 0 {
+                    *index += 1;
+                    return;
+                }
+                out[*index] = c;
+                brace_depth -= 1;
+                *index += 1;
+                continue;
+            }
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            _ => {}
+        }
+
+        out[*index] = c;
+        *index += 1;
+    }
+}
+
+fn scan_csharp_interpolated_string(
+    chars: &[char],
+    out: &mut [char],
+    index: &mut usize,
+    quote_index: usize,
+    verbatim: bool,
+) {
+    *index = quote_index + 1;
+    while *index < chars.len() {
+        let c = chars[*index];
+        let next = chars.get(*index + 1).copied();
+
+        if verbatim {
+            if c == '"' {
+                if next == Some('"') {
+                    *index += 2;
+                    continue;
+                }
+                *index += 1;
+                return;
+            }
+        } else {
+            if c == '\\' {
+                *index += if next.is_some() { 2 } else { 1 };
+                continue;
+            }
+            if c == '"' {
+                *index += 1;
+                return;
+            }
+        }
+
+        if c == '{' {
+            if next == Some('{') {
+                *index += 2;
+                continue;
+            }
+            *index += 1;
+            scan_csharp_interpolation_expression(chars, out, index);
+            continue;
+        }
+        if c == '}' && next == Some('}') {
+            *index += 2;
+            continue;
+        }
+        *index += 1;
+    }
+}
+
+/// C# interpolated-string text is not executable, but expressions inside `{ ... }` are.
+/// Keep those expressions visible to both security rules and per-task structural rules while
+/// masking ordinary string text/comments. This is deliberately lexical rather than a substring
+/// workaround so identifiers in string text cannot satisfy or violate task rules.
+fn strip_csharp_comments_and_strings(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = csharp_masked_output(&chars);
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let c = chars[index];
+        let next = chars.get(index + 1).copied();
+
+        if c == '/' && next == Some('/') {
+            skip_csharp_line_comment(&chars, &mut index);
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            skip_csharp_block_comment(&chars, &mut index);
+            continue;
+        }
+
+        // Raw interpolated strings are recognized before the regular `$"` form. For one `$`,
+        // preserve executable `{...}` expressions; for multiple `$` delimiters we conservatively
+        // mask the whole raw literal rather than risk treating literal braces as code.
+        if c == '$' {
+            let dollars = csharp_dollar_run(&chars, index);
+            let quote_index = index + dollars;
+            if dollars > 0 && quote_index < chars.len() {
+                let quote_count = csharp_quote_run(&chars, quote_index);
+                if quote_count >= 3 {
+                    if dollars == 1 {
+                        index = quote_index + quote_count;
+                        while index < chars.len() {
+                            if chars[index] == '"' && csharp_quote_run(&chars, index) >= quote_count {
+                                index += quote_count;
+                                break;
+                            }
+                            if chars[index] == '{' && chars.get(index + 1).copied() != Some('{') {
+                                index += 1;
+                                scan_csharp_interpolation_expression(&chars, &mut out, &mut index);
+                                continue;
+                            }
+                            if chars[index] == '{' && chars.get(index + 1).copied() == Some('{') {
+                                index += 2;
+                                continue;
+                            }
+                            index += 1;
+                        }
+                    } else {
+                        skip_csharp_raw_string(&chars, &mut index, quote_index, quote_count);
+                    }
+                    continue;
+                }
+            }
+        }
+
+        if let Some((quote_index, verbatim)) = csharp_interpolated_prefix(&chars, index) {
+            scan_csharp_interpolated_string(&chars, &mut out, &mut index, quote_index, verbatim);
+            continue;
+        }
+        if c == '@' && next == Some('"') {
+            let quote_index = index + 1;
+            skip_csharp_regular_string(&chars, &mut index, quote_index, true);
+            continue;
+        }
+        if c == '"' {
+            let quote_index = index;
+            let quote_count = csharp_quote_run(&chars, quote_index);
+            if quote_count >= 3 {
+                skip_csharp_raw_string(&chars, &mut index, quote_index, quote_count);
+            } else {
+                skip_csharp_regular_string(&chars, &mut index, quote_index, false);
+            }
+            continue;
+        }
+        if c == '\'' {
+            skip_csharp_char_literal(&chars, &mut index);
+            continue;
+        }
+
+        out[index] = c;
+        index += 1;
+    }
+
+    out.into_iter().collect()
+}
+
 /// Strips comments and string literals for a given language.
 /// This is a lightweight sanitizer designed for speed. It's not a full lexer.
 fn strip_comments_and_strings(lang: &str, src: &str) -> String {
+    if lang == "csharp" {
+        return strip_csharp_comments_and_strings(src);
+    }
     // Comment styles by language
     let has_hash_line_comment = matches!(lang, "python" | "py");
     let has_dash_dash_line_comment = matches!(lang, "sql" | "postgres" | "postgresql");
@@ -1611,6 +2021,92 @@ mod tests {
         assert!(find_task_rule_pos("diff = 1", "diff = 1", "if").is_none());
         assert!(find_task_rule_pos("values.append(x)", "values.append(x)", "append").is_some());
         assert!(find_task_rule_pos("if x > 0:\n    pass", "if x > 0:\n    pass", "if").is_some());
+    }
+
+    #[test]
+    fn csharp_task_rules_see_executable_interpolation_expressions() {
+        let source = r#"var a = new Stack<int>();
+int Count = a.Count;
+Console.Write($"{a.Pop()} {a.Count}");
+Console.WriteLine($"{a.Peek()} {a.Count}");
+Console.WriteLine($"{queue.Dequeue()}");"#;
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+
+        for rule in ["Pop", "Pop(", "Peek", "Peek(", "Dequeue", "Dequeue(", "Count"] {
+            assert!(
+                find_task_rule_pos(&cleaned, &no_comments, rule).is_some(),
+                "expected rule {rule:?} to match executable interpolation expression; cleaned={cleaned:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_security_rules_see_executable_interpolation_expressions() {
+        let source = r#"Console.Write($"{System.IO.File.ReadAllText(path)}");"#;
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+        let findings = security_policy::analyze_lexical(
+            "csharp",
+            "standard",
+            source,
+            &no_comments,
+            &cleaned,
+        );
+        assert!(findings.iter().any(|finding| finding.id == "cs.files"));
+    }
+
+    #[test]
+    fn csharp_interpolation_text_does_not_satisfy_task_rules() {
+        let source = r#"Console.Write($"Pop Peek Dequeue Count double do {{ literal }}");"#;
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+
+        for rule in ["Pop", "Peek", "Dequeue", "Count", "do"] {
+            assert!(
+                find_task_rule_pos(&cleaned, &no_comments, rule).is_none(),
+                "string text must not satisfy rule {rule:?}; cleaned={cleaned:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_interpolation_format_text_is_not_treated_as_executable_code() {
+        let source = r#"Console.Write($"{value:Pop Count do}");"#;
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+
+        for rule in ["Pop", "Count", "do"] {
+            assert!(find_task_rule_pos(&cleaned, &no_comments, rule).is_none());
+        }
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "value").is_some());
+    }
+
+    #[test]
+    fn csharp_verbatim_and_raw_interpolation_keep_executable_expressions() {
+        let source = "Console.Write($@\"value={a.Pop()}\");\nConsole.Write($\"\"\"raw {a.Peek()}\"\"\");";
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "Pop").is_some());
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "Peek").is_some());
+    }
+
+    #[test]
+    fn csharp_do_rule_does_not_match_double_identifiers() {
+        let source = "double value = double.Parse(input); doubleValue += 1;";
+        let cleaned = strip_comments_and_strings("csharp", source);
+        let no_comments = strip_comments_only("csharp", source);
+
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "do").is_none());
+        assert!(find_task_rule_pos(&cleaned, &no_comments, "double.Parse").is_some());
+        assert!(find_task_rule_pos("mydouble.ParseExtra(input)", "mydouble.ParseExtra(input)", "double.Parse").is_none());
+        assert!(find_task_rule_pos("double . Parse(input)", "double . Parse(input)", "double.Parse").is_some());
+
+        let real_do = "do { value++; } while (value < 3);";
+        let real_do_cleaned = strip_comments_and_strings("csharp", real_do);
+        let real_do_comments = strip_comments_only("csharp", real_do);
+        assert!(find_task_rule_pos(&real_do_cleaned, &real_do_comments, "do").is_some());
     }
 
 

@@ -294,13 +294,15 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
     private async Task<List<TaskActivityRow>> LoadTaskRowsAsync(Guid[]? userIds, CancellationToken ct)
     {
         var baseUrl = ServiceUrl("TasksApi", "http://tasks-api:8080");
-        using var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/activity/leaderboard")
-        {
-            Content = JsonContent.Create(new ActivityLeaderboardRequest(null, null, userIds, null), options: JsonOptions)
-        };
-        AddInternalKey(msg);
         var client = httpClientFactory.CreateClient();
-        using var response = await client.SendAsync(msg, ct);
+        using var response = await SendTasksApiAsync(
+            client,
+            () => new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/activity/leaderboard")
+            {
+                Content = JsonContent.Create(new ActivityLeaderboardRequest(null, null, userIds, null), options: JsonOptions)
+            },
+            "activity-leaderboard",
+            ct);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<List<TaskActivityRow>>(JsonOptions, ct) ?? [];
     }
@@ -315,12 +317,14 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
         var rows = new List<AssignmentSummary>();
         foreach (var chunk in ids.Chunk(2000))
         {
-            using var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/assignments/summaries")
-            {
-                Content = JsonContent.Create(new AssignmentIdsRequest(chunk), options: JsonOptions)
-            };
-            AddInternalKey(msg);
-            using var response = await client.SendAsync(msg, ct);
+            using var response = await SendTasksApiAsync(
+                client,
+                () => new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/assignments/summaries")
+                {
+                    Content = JsonContent.Create(new AssignmentIdsRequest(chunk), options: JsonOptions)
+                },
+                "assignment-summaries",
+                ct);
             response.EnsureSuccessStatusCode();
             rows.AddRange(await response.Content.ReadFromJsonAsync<List<AssignmentSummary>>(JsonOptions, ct) ?? []);
         }
@@ -365,6 +369,27 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
         await using var cmd = new NpgsqlCommand("DELETE FROM \"UserRatings\" WHERE \"UserId\" = @userId;", connection);
         cmd.Parameters.AddWithValue("userId", userId);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private Task<HttpResponseMessage> SendTasksApiAsync(
+        HttpClient client,
+        Func<HttpRequestMessage> requestFactory,
+        string operation,
+        CancellationToken ct)
+    {
+        var attempts = Math.Clamp(configuration.GetValue("Rating:TasksApiRetryAttempts", TasksApiRetryPolicy.DefaultMaxAttempts), 1, 12);
+        return TasksApiRetryPolicy.SendAsync(
+            client,
+            () =>
+            {
+                var request = requestFactory();
+                AddInternalKey(request);
+                return request;
+            },
+            logger,
+            operation,
+            ct,
+            attempts);
     }
 
     private string ServiceUrl(string name, string fallback)

@@ -6,6 +6,10 @@ COPY services/solutions/rating-worker services/solutions/rating-worker
 RUN dotnet publish services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && /sbin/ldconfig -p | grep -q 'libgssapi_krb5.so.2' \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .
 ARG TASKFORGE_DEBUG_LOGS=1

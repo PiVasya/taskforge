@@ -163,6 +163,7 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 - Не добавлять обходные прямые execution paths. Worker, execution API и image assignment API обязаны анализировать код и передавать неизменённую аттестацию в runner.
 - Private key анализатора монтируется только в `code-analyzer`; runner-ы получают только public key. Версия политики и schema должны оставаться синхронными во всех verifier-ах.
 - Не ослаблять post-compile/AST/bytecode/PE/ELF-проверки, seccomp, `no_new_privs`, process-group cleanup, лимиты и отдельные internal runner networks.
+- Для C# выражения внутри интерполированных строк являются исполняемым кодом: `required_calls`, `forbidden_calls` и системная security-policy обязаны видеть выражения внутри `{...}`, но текст самой строки и format/alignment clauses не должны давать совпадения. Простые ключевые слова/идентификаторы проверять по token boundaries, поэтому правило `do` не должно совпадать с `double`/`doubleValue`.
 - После любых изменений OJ обязательно запускать `./scripts/security/check-oj-security.sh`. CI должен оставаться заблокированным этим security invariant job.
 
 ## Primary switch local Patroni invariant (2026-09)

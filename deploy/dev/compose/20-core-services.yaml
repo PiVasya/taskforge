@@ -358,6 +358,7 @@ services:
       Rating__DirtyIntervalMinutes: ${RATING_DIRTY_INTERVAL_MINUTES:-10}
       Rating__FullRebuildIntervalHours: ${RATING_FULL_REBUILD_INTERVAL_HOURS:-24}
       Rating__DirtyBatchSize: ${RATING_DIRTY_BATCH_SIZE:-500}
+      Rating__TasksApiRetryAttempts: ${RATING_TASKS_API_RETRY_ATTEMPTS:-8}
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -368,6 +369,8 @@ services:
       Cache__ActivityTtlSeconds: ${CACHE_ACTIVITY_TTL_SECONDS:-30}
     depends_on:
       postgres:
+        condition: service_healthy
+      tasks-api:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
