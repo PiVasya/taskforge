@@ -196,6 +196,14 @@
   filter: saturate(0.95);
 }
 
+.assignment-card--locked {
+  border-color: rgba(var(--border) / 0.72);
+  background: rgba(var(--muted) / 0.22);
+  opacity: 0.84;
+  filter: saturate(0.72);
+  box-shadow: none;
+}
+
 .assignment-card-heading {
   display: flex;
   align-items: center;

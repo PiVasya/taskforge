@@ -107,20 +107,123 @@ function contentSortValue(item) {
 }
 
 function contentTitle(item) {
-  return item?.kind === "course"
-    ? String(item.course?.title || "")
-    : previewAssignmentTitle(item.assignment?.title, "");
+  if (item?.kind === "course") return String(item.course?.title || "");
+  if (item?.kind === "locked") return String(item.locked?.title || "Продолжение закрыто");
+  return previewAssignmentTitle(item?.assignment?.title, "");
 }
 
 function contentCreatedAt(item) {
-  return item?.kind === "course" ? item.course?.createdAt : item.assignment?.createdAt;
+  if (item?.kind === "course") return item.course?.createdAt;
+  if (item?.kind === "locked") return null;
+  return item?.assignment?.createdAt;
 }
 
 function compareContentItems(a, b) {
   const bySort = contentSortValue(a) - contentSortValue(b);
   if (bySort !== 0) return bySort;
-  if (a.kind !== b.kind) return a.kind === "course" ? -1 : 1;
+  if (a.kind !== b.kind) {
+    const rank = { course: 0, assignment: 1, locked: 2 };
+    return (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9);
+  }
   return contentTitle(a).localeCompare(contentTitle(b), "ru", { sensitivity: "base" });
+}
+
+
+function collectLearnerVisibleEntityIds(learningMap) {
+  const courseIds = new Set();
+  const assignmentIds = new Set();
+  const nodes = Array.isArray(learningMap?.document?.nodes) ? learningMap.document.nodes : [];
+
+  for (const node of nodes) {
+    const entityId = String(node?.entityId || '').trim();
+    if (!entityId || String(node?.type || '').toLowerCase() === 'locked') continue;
+    if (String(node?.type || '').toLowerCase() === 'course') courseIds.add(entityId);
+    else assignmentIds.add(entityId);
+  }
+
+  return { courseIds, assignmentIds };
+}
+
+
+function filterLearnerCardCourses(courses, parentCourseId, visibleCourseIds) {
+  const visible = visibleCourseIds instanceof Set
+    ? visibleCourseIds
+    : new Set((Array.isArray(visibleCourseIds) ? visibleCourseIds : []).map((id) => String(id)));
+  const parentId = String(parentCourseId || '');
+  return (Array.isArray(courses) ? courses : []).filter((course) => (
+    String(course?.parentCourseId || '') === parentId
+    && visible.has(String(course?.id || ''))
+  ));
+}
+
+function filterLearnerCardAssignments(assignments, visibleAssignmentIds) {
+  const visible = visibleAssignmentIds instanceof Set
+    ? visibleAssignmentIds
+    : new Set((Array.isArray(visibleAssignmentIds) ? visibleAssignmentIds : []).map((id) => String(id)));
+  return (Array.isArray(assignments) ? assignments : []).filter((assignment) => (
+    visible.has(String(assignment?.id || ''))
+  ));
+}
+
+function collectLearnerCardLocks(learningMap, courseId) {
+  const requestedCourseId = String(courseId || '').trim();
+  if (!requestedCourseId) return [];
+
+  const nodes = Array.isArray(learningMap?.document?.nodes) ? learningMap.document.nodes.filter(Boolean) : [];
+  const edges = Array.isArray(learningMap?.document?.edges) ? learningMap.document.edges.filter(Boolean) : [];
+  const byId = new Map(nodes.map((node) => [String(node?.id || ''), node]).filter(([id]) => id));
+  const incoming = new Map();
+
+  for (const edge of edges) {
+    const source = String(edge?.source || '').trim();
+    const target = String(edge?.target || '').trim();
+    if (!source || !target || !byId.has(source) || !byId.has(target)) continue;
+    if (!incoming.has(target)) incoming.set(target, []);
+    incoming.get(target).push(source);
+  }
+
+  const nearestCourseIds = (startId) => {
+    const found = new Set();
+    const seen = new Set();
+    const queue = [...(incoming.get(startId) || [])];
+
+    while (queue.length) {
+      const nodeId = queue.shift();
+      if (!nodeId || seen.has(nodeId)) continue;
+      seen.add(nodeId);
+      const node = byId.get(nodeId);
+      if (!node) continue;
+      if (String(node?.type || '').toLowerCase() === 'course') {
+        const entityId = String(node?.entityId || '').trim();
+        if (entityId) found.add(entityId);
+        continue;
+      }
+      queue.push(...(incoming.get(nodeId) || []));
+    }
+    return found;
+  };
+
+  return nodes
+    .filter((node) => String(node?.type || '').toLowerCase() === 'locked')
+    .filter((node) => nearestCourseIds(String(node?.id || '')).has(requestedCourseId))
+    .map((node, index) => {
+      const sourceEntityIds = (incoming.get(String(node?.id || '')) || [])
+        .map((sourceId) => byId.get(sourceId))
+        .filter(Boolean)
+        .filter((source) => String(source?.type || '').toLowerCase() !== 'locked')
+        .map((source) => String(source?.entityId || '').trim())
+        .filter(Boolean);
+      const settings = node?.settings || node?.data?.settings || {};
+      return {
+        id: String(node?.id || `locked-${index}`),
+        title: String(settings?.title || 'Продолжение закрыто'),
+        requirement: String(settings?.requirement || 'Решите предыдущее задание, чтобы открыть продолжение.'),
+        sourceEntityIds: [...new Set(sourceEntityIds)],
+        x: Number(node?.position?.x) || 0,
+        y: Number(node?.position?.y) || 0,
+      };
+    })
+    .sort((a, b) => (a.x - b.x) || (a.y - b.y) || a.id.localeCompare(b.id, 'ru'));
 }
 
 function makeCourseContentItem(course) {
@@ -145,6 +248,23 @@ function makeAssignmentContentItem(assignment, index = 0) {
     description: assignment.description || "",
     tags: assignment.tags || "",
     assignment,
+  };
+}
+
+function makeLockedContentItem(lock, sort = Number.MAX_SAFE_INTEGER) {
+  return {
+    kind: 'locked',
+    key: contentKey('locked', lock?.id || `lock-${sort}`),
+    id: lock?.id || '',
+    sort,
+    title: lock?.title || 'Продолжение закрыто',
+    description: lock?.requirement || 'Решите предыдущее задание, чтобы открыть продолжение.',
+    locked: {
+      id: lock?.id || '',
+      title: lock?.title || 'Продолжение закрыто',
+      requirement: lock?.requirement || 'Решите предыдущее задание, чтобы открыть продолжение.',
+      sourceEntityIds: Array.isArray(lock?.sourceEntityIds) ? lock.sourceEntityIds : [],
+    },
   };
 }
 
@@ -223,8 +343,13 @@ export {
   contentTitle,
   contentCreatedAt,
   compareContentItems,
+  collectLearnerVisibleEntityIds,
+  filterLearnerCardCourses,
+  filterLearnerCardAssignments,
+  collectLearnerCardLocks,
   makeCourseContentItem,
   makeAssignmentContentItem,
+  makeLockedContentItem,
   CREATE_OPTIONS,
   buildDefaultAssignmentPayload,
 };

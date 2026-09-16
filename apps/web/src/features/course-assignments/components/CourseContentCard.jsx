@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database } from 'lucide-react';
+import { Database, LockKeyhole } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Badge, Card } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
@@ -53,7 +53,31 @@ function CourseContentCard({
   onContextMenu,
 }) {
   const navigate = useNavigate();
-  const draggable = canEdit && sortMode === 'default';
+  const draggable = entry.kind !== 'locked' && canEdit && sortMode === 'default';
+
+  if (entry.kind === 'locked') {
+    const title = entry?.locked?.title || 'Продолжение закрыто';
+    const requirement = entry?.locked?.requirement || 'Решите предыдущее задание, чтобы открыть продолжение.';
+    return (
+      <Card
+        className="assignment-card assignment-card--locked h-full border-dashed"
+        data-taskforge-agent-role="course-card-locked"
+        data-taskforge-agent-kind="locked"
+        data-taskforge-agent-state="locked"
+        aria-label={`${title}. ${requirement}`}
+      >
+        <div className="assignment-card-main min-w-0">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[rgba(var(--border)/0.7)] bg-[rgba(var(--muted)/0.28)] px-2.5 py-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+            <LockKeyhole size={14} /> Закрыто
+          </div>
+          <div className="assignment-card-title-wrap">
+            <div className="assignment-card-title">{title}</div>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-neutral-500 dark:text-neutral-400">{requirement}</p>
+        </div>
+      </Card>
+    );
+  }
 
   const sharedDragProps = draggable ? {
     draggable: true,
