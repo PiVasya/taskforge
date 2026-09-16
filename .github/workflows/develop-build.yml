@@ -2,7 +2,8 @@ name: docker images
 
 # Current policy: TaskForge is still in development, so GHCR images are built with
 # verbose TaskForge diagnostics enabled. Do not change this to "0" unless the user
-# explicitly asks to build quiet images. A workflow change forces a full rebuild.
+# explicitly asks to build quiet images. Normal CI never turns a workflow-file
+# change into an implicit full rebuild; use the dedicated full-rebuild workflow.
 env:
   TASKFORGE_BUILD_DEBUG_LOGS: "1"
   # Public by request: let browser DevTools resolve the original React sources.
@@ -27,9 +28,9 @@ on:
           - "0"
         default: "1"
       build_all:
-        description: Build all project images. Leave enabled when changing the debug-log switch.
+        description: Explicitly build all project images. Prefer the dedicated full-rebuild workflow for this.
         type: boolean
-        default: true
+        default: false
       images:
         description: Optional comma-separated image names to build, for example identity-api,front,ai-worker
         type: string
@@ -53,6 +54,8 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
+      sql_contract: ${{ steps.matrix.outputs.sql_contract }}
+      sql_engines: ${{ steps.matrix.outputs.sql_engines }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -143,9 +146,15 @@ jobs:
                 echo "Last successful docker-images baseline: $baseline_sha"
                 changed_files="$(git diff --name-only "$baseline_sha" "${{ github.sha }}")"
               else
-                echo "No usable successful docker-images baseline found; forcing a full rebuild to avoid stale images."
-                force_build_all="true"
-                changed_files="$(git ls-files)"
+                echo "No usable successful docker-images baseline found; falling back to this push diff only."
+                before="${{ github.event.before }}"
+                if [ -n "$before" ] \
+                  && [ "$before" != "0000000000000000000000000000000000000000" ] \
+                  && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+                  changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+                else
+                  changed_files="$(git diff-tree --no-commit-id --name-only -r "${{ github.sha }}")"
+                fi
               fi
             else
               # Release tags must represent a complete image set, not only files touched by
@@ -156,9 +165,37 @@ jobs:
             fi
           fi
 
-          echo "Changed files:"
+          # Current-event changes are the primary input for expensive tests. Docker
+          # image selection may use a cumulative last-success baseline; later we reuse
+          # that baseline only through the narrow SQL classifier so an unresolved SQL
+          # change stays fenced without making unrelated pending changes start SQL.
+          test_changed_files=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test_changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [[ "$GITHUB_REF" == refs/heads/* ]]; then
+              before="${{ github.event.before }}"
+              if [ -n "$before" ] \
+                && [ "$before" != "0000000000000000000000000000000000000000" ] \
+                && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+                test_changed_files="$(git diff --name-only "$before" "${{ github.sha }}")"
+              else
+                test_changed_files="$(git diff-tree --no-commit-id --name-only -r "${{ github.sha }}")"
+              fi
+            else
+              test_changed_files="$(git ls-files)"
+            fi
+          fi
+
+          echo "Build-impact files:"
           if [ -n "$changed_files" ]; then
             printf '%s\n' "$changed_files"
+          else
+            echo "  <none>"
+          fi
+          echo "Current-event files used for expensive test selection:"
+          if [ -n "$test_changed_files" ]; then
+            printf '%s\n' "$test_changed_files"
           else
             echo "  <none>"
           fi
@@ -196,16 +233,46 @@ jobs:
             return 1
           }
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "$requested_images" ]; then
-            # Debug logging is baked into images. Manual workflow runs rebuild all by default
-            # so flipping debug_logs=1/0 actually changes every image.
-            build_all="true"
+          if [ "${{ github.event_name }}" = "push" ] && path_changed ".github/workflows/develop-build.yml"; then
+            echo "Workflow file changed; normal CI will NOT rebuild every image automatically."
+            echo "If image-wide build args changed, run the dedicated docker images full rebuild workflow explicitly."
           fi
 
-          if [ "${{ github.event_name }}" = "push" ] && path_changed ".github/workflows/develop-build.yml"; then
-            echo "Workflow file changed; forcing full rebuild because image build args may have changed."
-            build_all="true"
+          current_sql_contract="$(printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --field contract)"
+          current_sql_engines="$(printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --field engines)"
+          pending_sql_contract="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field contract)"
+          pending_sql_engines="$(printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --field engines)"
+
+          sql_contract="false"
+          sql_engines="false"
+          if [ "$current_sql_contract" = "true" ] || [ "$pending_sql_contract" = "true" ]; then
+            sql_contract="true"
           fi
+          if [ "$current_sql_engines" = "true" ] || [ "$pending_sql_engines" = "true" ]; then
+            sql_engines="true"
+          fi
+
+          # The cumulative check above is SQL-specific only. It keeps a failed SQL
+          # change fenced until a successful workflow without making generic pending
+          # frontend/API changes start database containers.
+
+          # Full/tag validation is intentionally exhaustive. A manual sql-worker
+          # rebuild validates the provider runtime even without a source diff.
+          if [ "$build_all" = "true" ]; then
+            sql_contract="true"
+            sql_engines="true"
+          elif is_requested "sql-worker"; then
+            sql_engines="true"
+          fi
+
+          echo "sql_contract=$sql_contract" >> "$GITHUB_OUTPUT"
+          echo "sql_engines=$sql_engines" >> "$GITHUB_OUTPUT"
+          echo "SQL contract gate selected: $sql_contract"
+          echo "SQL real-engine gate selected: $sql_engines"
+          echo "Current-event SQL impact:"
+          printf '%s\n' "$test_changed_files" | python3 ./scripts/ci/sql-change-impact.py --explain
+          echo "Pending SQL impact since last successful image workflow:"
+          printf '%s\n' "$changed_files" | python3 ./scripts/ci/sql-change-impact.py --explain
 
           items=()
           add() {
@@ -305,27 +372,40 @@ jobs:
         run: bash scripts/ci/check-browser-api-build.sh
 
   sql-runtime-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.sql_contract == 'true' || needs.changes.outputs.sql_engines == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.8'
-          cache: false
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libpq-dev libmariadb-dev libsqlite3-dev
       - run: python3 -m pip install PyYAML==6.0.2
-      - name: SQL invariants, immutable user migrations and model build
-        run: bash ./scripts/check-sql-update.sh
-      - name: Actual SQL engines, Go isolation and RabbitMQ interoperability
+      - name: SQL structural and immutable-boundary checks
+        run: python3 ./scripts/ci/check-sql-runtime.py
+
+      - uses: actions/setup-dotnet@v5
+        if: ${{ needs.changes.outputs.sql_contract == 'true' }}
+        with:
+          dotnet-version: '10.0.x'
+      - name: SQL domain and wire-contract checks
+        if: ${{ needs.changes.outputs.sql_contract == 'true' }}
+        run: bash ./scripts/check-sql-domain.sh
+
+      - uses: actions/setup-go@v6
+        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
+        with:
+          go-version: '1.26.8'
+          cache: true
+          cache-dependency-path: services/execution/sql-worker/go.mod
+      - name: Install native SQL client build dependencies
+        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libpq-dev libmariadb-dev libsqlite3-dev
+      - name: Go/SQLite SQL worker checks
+        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
+        run: bash ./scripts/check-sql-go.sh
+      - name: Real PostgreSQL/MySQL/RabbitMQ interoperability
+        if: ${{ needs.changes.outputs.sql_engines == 'true' }}
         run: bash ./scripts/sql/test-engines.sh
 
   compose-check:
@@ -337,7 +417,20 @@ jobs:
 
   build:
     needs: [changes, compose-check, workflow-integrity, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
-    if: ${{ needs.changes.outputs.matrix != '{"include":[]}' }}
+    if: >-
+      ${{
+        always() &&
+        needs.changes.result == 'success' &&
+        needs.compose-check.result == 'success' &&
+        needs.workflow-integrity.result == 'success' &&
+        needs.dotnet-behavior-tests.result == 'success' &&
+        needs.frontend-tests.result == 'success' &&
+        needs.minecraft-link-invariants.result == 'success' &&
+        needs.oj-security-invariants.result == 'success' &&
+        needs.browser-security-invariants.result == 'success' &&
+        (needs.sql-runtime-check.result == 'success' || needs.sql-runtime-check.result == 'skipped') &&
+        needs.changes.outputs.matrix != '{"include":[]}'
+      }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

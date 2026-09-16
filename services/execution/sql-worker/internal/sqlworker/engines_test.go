@@ -60,10 +60,22 @@ func engineHarness(t *testing.T, engine string) *harness {
 	if os.Getenv("SQL_TEST_ENGINE_GATE") != "1" {
 		t.Skip("requires isolated Docker PostgreSQL 18 / MySQL 8.4 engines")
 	}
-	host, port, digest := "sql-postgres", "5432", os.Getenv("SQL_TEST_PG_DIGEST")
+	host, port, digest := strings.TrimSpace(os.Getenv("SQL_TEST_PG_HOST")), strings.TrimSpace(os.Getenv("SQL_TEST_PG_PORT")), os.Getenv("SQL_TEST_PG_DIGEST")
+	if host == "" {
+		host = "sql-postgres"
+	}
+	if port == "" {
+		port = "5432"
+	}
 	user := "postgres"
 	if engine == "mysql" {
-		host, port, user, digest = "sql-mysql", "3306", "root", os.Getenv("SQL_TEST_MY_DIGEST")
+		host, port, user, digest = strings.TrimSpace(os.Getenv("SQL_TEST_MY_HOST")), strings.TrimSpace(os.Getenv("SQL_TEST_MY_PORT")), "root", os.Getenv("SQL_TEST_MY_DIGEST")
+		if host == "" {
+			host = "sql-mysql"
+		}
+		if port == "" {
+			port = "3306"
+		}
 	}
 	cfg := ServerConfig{Config: native.Config{Engine: engine, Host: host, Port: port, User: user, Password: os.Getenv("SQL_TEST_PASSWORD")}, RuntimeDigest: digest, Marker: os.Getenv("SQL_TEST_MARKER")}
 	a, e := NewServerAdapter(cfg, "go-engine-test-"+t.Name(), "sha256:"+textHash("go-test-client-runtime"))

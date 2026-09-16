@@ -229,6 +229,14 @@ func TestRealRabbitWakeup(t *testing.T) {
 	if host == "" {
 		t.Fatal("SQL_TEST_RABBIT_HOST is required")
 	}
+	amqpPort := strings.TrimSpace(os.Getenv("SQL_TEST_RABBIT_AMQP_PORT"))
+	if amqpPort == "" {
+		amqpPort = "5672"
+	}
+	httpPort := strings.TrimSpace(os.Getenv("SQL_TEST_RABBIT_HTTP_PORT"))
+	if httpPort == "" {
+		httpPort = "15672"
+	}
 	password := os.Getenv("SQL_TEST_PASSWORD")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -238,7 +246,7 @@ func TestRealRabbitWakeup(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Listen(ctx, Config{host, "5672", "/", "taskforge", password}, func() {
+		Listen(ctx, Config{host, amqpPort, "/", "taskforge", password}, func() {
 			select {
 			case wake <- struct{}{}:
 			default:
@@ -259,7 +267,7 @@ func TestRealRabbitWakeup(t *testing.T) {
 		t.Fatal("RabbitMQ AMQP handshake failed")
 	}
 	body := `{"properties":{},"routing_key":"","payload":"{}","payload_encoding":"string"}`
-	req, e := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s:15672/api/exchanges/%%2F/%s/publish", host, Exchange), strings.NewReader(body))
+	req, e := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s:%s/api/exchanges/%%2F/%s/publish", host, httpPort, Exchange), strings.NewReader(body))
 	if e != nil {
 		t.Fatal(e)
 	}

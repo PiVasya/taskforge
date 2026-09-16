@@ -15,22 +15,12 @@ dotnet build ./services/education/api/TaskForge.Education.Api.csproj -c Release 
 dotnet build ./services/ai/api/TaskForge.Ai.Api.csproj -c Release --nologo
 
 printf '\n========== GO / SQLITE RUNTIME ==========\n'
-sql_go_deferred=0
-if [ "${TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE:-0}" = "1" ]; then
-  sql_go_deferred=1
-  printf 'DEFERRED: host native Go/SQLite gate is covered by the immediately following Docker real-engine suite.\n'
-else
-  bash ./scripts/check-sql-go.sh
-fi
+bash ./scripts/check-sql-go.sh
 
 printf '\n========== SQL FRONTEND MODEL CONTRACTS ==========\n'
 node ./apps/web/scripts/sql-tests/model.test.mjs
 
-if [ "$sql_go_deferred" = "1" ]; then
-  printf '\nPASS: SQL source/domain/frontend-model gate; Go/SQLite execution is deferred to the real-engine Docker suite.\n'
-else
-  printf '\nPASS: SQL source/domain/Go/SQLite/frontend-model gate.\n'
-fi
+printf '\nPASS: SQL source/domain/Go/SQLite/frontend-model gate.\n'
 printf 'Real engine gate: bash ./scripts/sql/test-engines.sh\n'
 printf 'Full frontend gate: bash ./scripts/tests/frontend.sh\n'
 printf 'No production database was accessed. No migrations were generated/applied.\n'

@@ -57,12 +57,19 @@ def main():
     for relative in ('scripts/check-sql-update.sh','scripts/sql/test-engines.sh'):
         text=(ROOT/relative).read_text()
         require('PYTHONPATH=' not in text and '-m unittest' not in text,'Retired Python SQL test gate remains')
-    for relative in ('.github/workflows/develop-build.yml','.github/workflows/develop-full-rebuild.yml'):
-        workflow=yaml.safe_load((ROOT/relative).read_text())
-        job=workflow['jobs']['sql-runtime-check']
-        require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in job['steps']),'SQL CI must install Go')
-        text=json.dumps(job)
-        require('test-engines.sh' in text and 'check-sql-update.sh' in text,'SQL CI gates were removed')
+    normal=yaml.safe_load((ROOT/'.github/workflows/develop-build.yml').read_text())
+    normal_job=normal['jobs']['sql-runtime-check']
+    require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in normal_job['steps']),'SQL engine CI must install Go when selected')
+    normal_text=json.dumps(normal_job)
+    require('test-engines.sh' in normal_text and 'check-sql-go.sh' in normal_text and 'check-sql-domain.sh' in normal_text,'Split SQL contract/engine CI gates were removed')
+    require('check-sql-update.sh' not in normal_text,'Normal CI must not run the all-in-one SQL suite for every SQL-adjacent change')
+    require('sql_contract' in normal_text and 'sql_engines' in normal_text,'Normal SQL CI must be path-gated')
+
+    full=yaml.safe_load((ROOT/'.github/workflows/develop-full-rebuild.yml').read_text())
+    full_job=full['jobs']['sql-runtime-check']
+    require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in full_job['steps']),'Full rebuild SQL CI must install Go')
+    full_text=json.dumps(full_job)
+    require('test-engines.sh' in full_text and 'check-sql-update.sh' in full_text,'Full rebuild SQL gates were removed')
     source=(worker/'internal/sqlworker/harden_linux.go').read_text()
     require('SECCOMP_FILTER_FLAG_TSYNC' in source,'Go seccomp must cover every thread')
     require('CLONE_THREAD' in source,'Go runtime thread-only clone policy missing')

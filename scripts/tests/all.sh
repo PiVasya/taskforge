@@ -26,7 +26,7 @@ run_suite 'Minecraft link invariants' bash scripts/ci/check-minecraft-link-invar
 run_suite 'OJ security' bash scripts/security/check-oj-security.sh
 run_suite 'Browser API security' bash scripts/security/check-browser-api-security.sh
 run_suite 'Compose validation' bash scripts/tests/compose.sh
-run_suite 'SQL domain / update gate' env TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE=1 bash scripts/check-sql-update.sh
+run_suite 'SQL domain / update gate' bash scripts/check-sql-update.sh
 run_suite 'SQL real engines' bash scripts/sql/test-engines.sh
 
 if [ "${#failures[@]}" -ne 0 ]; then

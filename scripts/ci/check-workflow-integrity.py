@@ -130,6 +130,42 @@ def main() -> int:
     if matrix_not_prod:
         errors.append("Matrix images not used by prod compose:\n  " + "\n  ".join(matrix_not_prod))
 
+    normal_workflow_text = WORKFLOW.read_text(encoding="utf-8")
+    sql_engine_gate_text = (ROOT / "scripts/sql/test-engines.sh").read_text(encoding="utf-8")
+    sql_dockerfile_text = (ROOT / "services/execution/sql-worker/Dockerfile").read_text(encoding="utf-8")
+
+    if 'forcing a full rebuild to avoid stale images' in normal_workflow_text:
+        errors.append("develop-build.yml may not turn a missing baseline into an implicit full rebuild")
+    if 'Workflow file changed; forcing full rebuild' in normal_workflow_text:
+        errors.append("develop-build.yml may not rebuild every image merely because the workflow file changed")
+    if 'default: true' in re.search(r"build_all:.*?(?=\n      [a-z_]+:|\nconcurrency:)", normal_workflow_text, re.DOTALL).group(0):
+        errors.append("normal workflow build_all must be opt-in; use the dedicated full-rebuild workflow")
+    if 'docker build ' in sql_engine_gate_text or 'docker buildx build ' in sql_engine_gate_text:
+        errors.append("real SQL engine tests must not build a TaskForge Docker image")
+    if "-run '^TestRealEngine'" not in sql_engine_gate_text or "-run '^TestRealRabbitWakeup$'" not in sql_engine_gate_text:
+        errors.append("real SQL engine gate must run only the provider-specific integration tests")
+    if 'FROM build AS integration-build' not in sql_dockerfile_text:
+        errors.append("sql-worker release build must not compile integration test binaries in its shared build stage")
+
+    sql_update_text = (ROOT / "scripts/check-sql-update.sh").read_text(encoding="utf-8")
+    all_tests_text = (ROOT / "scripts/tests/all.sh").read_text(encoding="utf-8")
+    if 'TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE' in sql_update_text or 'TASKFORGE_SQL_GO_COVERED_BY_REAL_ENGINE_GATE' in all_tests_text:
+        errors.append("SQL Go/SQLite gate may not be skipped in favor of the provider-only real-engine suite")
+
+    if "needs.changes.outputs.sql_contract == 'true' || needs.changes.outputs.sql_engines == 'true'" not in normal_workflow_text:
+        errors.append("normal SQL runtime job must be skipped at job level when no SQL-specific change exists")
+    if 'scripts/ci/sql-change-impact.py --field contract' not in normal_workflow_text or 'scripts/ci/sql-change-impact.py --field engines' not in normal_workflow_text:
+        errors.append("normal workflow must use the narrow SQL change-impact classifier")
+    sql_selection_match = re.search(r'sql_contract=.*?(?=\n          items=\(\))', normal_workflow_text, re.DOTALL)
+    sql_selection_block = sql_selection_match.group(0) if sql_selection_match else ""
+    for forbidden_path in ("services/education/api/", "services/ai/api/", "apps/web/src/features/sql-task/", "Directory.Build.props", "global.json"):
+        if forbidden_path in sql_selection_block:
+            errors.append(f"generic/non-engine path may not directly select the SQL-specific gate: {forbidden_path}")
+    if 'bash ./scripts/check-sql-update.sh' in re.search(r'^  sql-runtime-check:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)', normal_workflow_text, re.MULTILINE | re.DOTALL).group('body'):
+        errors.append("normal SQL job must not run the all-in-one SQL update suite; use split contract/engine steps")
+    if "needs.sql-runtime-check.result == 'skipped'" not in normal_workflow_text:
+        errors.append("Docker build must allow the intentionally skipped optional SQL job")
+
     required_test_jobs = {
         "workflow-integrity",
         "dotnet-behavior-tests",
@@ -142,7 +178,7 @@ def main() -> int:
     required_build_needs = set(required_test_jobs)
     for workflow_path in (WORKFLOW, FULL_REBUILD_WORKFLOW):
         workflow_text = workflow_path.read_text(encoding="utf-8")
-        job_names = set(re.findall(r"^  ([a-z0-9][a-z0-9-]*):\n    runs-on:", workflow_text, re.MULTILINE))
+        job_names = set(re.findall(r"^  ([a-z0-9][a-z0-9-]*):\n", workflow_text, re.MULTILINE))
         missing_jobs = sorted(required_test_jobs - job_names)
         if missing_jobs:
             errors.append(f"{workflow_path.name} misses required test jobs: " + ", ".join(missing_jobs))
@@ -155,9 +191,20 @@ def main() -> int:
             "frontend-tests": ("bash scripts/tests/frontend.sh",),
             "oj-security-invariants": ("bash scripts/security/check-oj-security.sh",),
             "browser-security-invariants": ("bash scripts/security/check-browser-api-security.sh",),
-            "sql-runtime-check": ("bash ./scripts/check-sql-update.sh", "bash ./scripts/sql/test-engines.sh"),
             "compose-check": ("bash scripts/tests/compose.sh",),
         }
+        if workflow_path == WORKFLOW:
+            required_commands["sql-runtime-check"] = (
+                "python3 ./scripts/ci/check-sql-runtime.py",
+                "bash ./scripts/check-sql-domain.sh",
+                "bash ./scripts/check-sql-go.sh",
+                "bash ./scripts/sql/test-engines.sh",
+            )
+        else:
+            required_commands["sql-runtime-check"] = (
+                "bash ./scripts/check-sql-update.sh",
+                "bash ./scripts/sql/test-engines.sh",
+            )
         for job_name, commands in required_commands.items():
             job_match = re.search(
                 rf"^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)",

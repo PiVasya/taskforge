@@ -11,9 +11,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN mkdir -p /out && test "${TASKFORGE_BUILD_DEBUG_LOGS}" = 1 \
     && go vet ./... \
-    && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/sql-worker ./cmd/sql-worker \
-    && go test -c -race -trimpath -buildvcs=false -o /out/sqlworker.test ./internal/sqlworker \
-    && go test -c -race -trimpath -buildvcs=false -o /out/wakeup.test ./internal/wakeup
+    && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/sql-worker ./cmd/sql-worker
 
 FROM debian:bookworm-slim AS runtime
 ARG TASKFORGE_BUILD_DEBUG_LOGS=1
@@ -32,10 +30,15 @@ EXPOSE 8081
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 CMD ["/app/sql-worker", "health"]
 ENTRYPOINT ["/app/sql-worker"]
 
-# Only the explicit Docker integration gate builds this target. These test
-# binaries, credentials and scripts are NOT included in the production image.
+# Optional image-local integration target for manual debugging. Normal CI runs
+# real PostgreSQL/MySQL/RabbitMQ tests from the host and never builds this target.
+# Test binaries, credentials and scripts are NOT included in the production image.
+FROM build AS integration-build
+RUN go test -c -race -trimpath -buildvcs=false -o /out/sqlworker.test ./internal/sqlworker \
+    && go test -c -race -trimpath -buildvcs=false -o /out/wakeup.test ./internal/wakeup
+
 FROM runtime AS integration
-COPY --from=build --chmod=0555 /out/sqlworker.test /out/wakeup.test /checks/
+COPY --from=integration-build --chmod=0555 /out/sqlworker.test /out/wakeup.test /checks/
 COPY run-integration.sh /checks/run-integration.sh
 ENV SQL_TEST_HELPER=/app/sql-worker SQL_RUN_LOAD_TESTS=1
 ENTRYPOINT ["/checks/run-integration.sh"]

@@ -5,6 +5,7 @@ cd "$ROOT"
 
 printf '\n========== REPOSITORY / RELEASE BOUNDARIES ==========\n'
 python3 scripts/ci/check-workflow-integrity.py
+python3 scripts/ci/test-sql-change-impact.py
 python3 scripts/ci/check-docker-build-contexts.py
 python3 scripts/ci/check-migration-tooling-safety.py
 python3 scripts/ci/check-runtime-config-boundaries.py
