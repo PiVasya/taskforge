@@ -54,13 +54,13 @@ function sourceLabel(source) {
 
 function MessageBubble({ message, isAdminView, onReply, onContextMenu }) {
   const mine = message.isFromAdmin;
-  const author = mine ? 'Поддержка' : (message.authorName || 'Пользователь');
+  const author = message.authorName || (mine ? 'Поддержка' : 'Пользователь');
   const meta = [message.createdAt ? new Date(message.createdAt).toLocaleString() : null, sourceLabel(message.source)].filter(Boolean).join(' · ');
   return (
     <div className={mine ? 'flex justify-end' : 'flex justify-start'} onContextMenuCapture={(event) => onContextMenu?.(event, message)}>
       <div className={mine ? 'max-w-[85%] text-right' : 'max-w-[85%] text-left'}>
         <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
-          <span className="font-medium text-neutral-700 dark:text-neutral-200">{isAdminView ? author : (mine ? 'Поддержка' : 'Вы')}</span>
+          <span className="font-medium text-neutral-700 dark:text-neutral-200">{mine ? author : (isAdminView ? author : 'Вы')}</span>
           {isAdminView && !mine && message.authorLogin ? <span> · @{message.authorLogin}</span> : null}
           {isAdminView && !mine && message.authorEmail ? <span> · {message.authorEmail}</span> : null}
         </div>

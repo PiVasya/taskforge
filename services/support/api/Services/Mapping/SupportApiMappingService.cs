@@ -75,7 +75,9 @@ internal static class SupportApiMappingService
     internal static object ToMessageDto(SupportMessage x, UserSummaryDto? user, SupportMessage? replyTo = null, UserSummaryDto? replyUser = null)
     {
         var isAdmin = string.Equals(x.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase);
-        var authorName = isAdmin ? "Поддержка" : UserLabel(user);
+        var authorName = isAdmin
+            ? (user == null ? "Поддержка" : UserLabel(user))
+            : UserLabel(user);
         return new
         {
             id = x.Id,
@@ -99,7 +101,9 @@ internal static class SupportApiMappingService
                 messageId = replyTo.Id,
                 textPreview = Preview(replyTo.Text),
                 authorRole = replyTo.AuthorRole,
-                authorName = string.Equals(replyTo.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase) ? "Поддержка" : UserLabel(replyUser),
+                authorName = string.Equals(replyTo.AuthorRole, "admin", StringComparison.OrdinalIgnoreCase)
+                    ? (replyUser == null ? "Поддержка" : UserLabel(replyUser))
+                    : UserLabel(replyUser),
                 createdAt = replyTo.CreatedAt
             },
             createdAt = x.CreatedAt,

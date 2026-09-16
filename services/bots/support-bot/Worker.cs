@@ -313,23 +313,97 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         var source = await LoadSupportMessageByTelegramIdAsync(message.ReplyToMessage!.MessageId, _supportGroupId, ct);
         if (source == null) return;
 
-        var authorName = TelegramAuthorName(message);
+        var telegramUserId = message.From?.Id;
+        if (!telegramUserId.HasValue || telegramUserId.Value == 0)
+        {
+            await SendTelegramResponderLinkRequiredAsync(message, anonymous: true, ct);
+            return;
+        }
+
+        var responderLookup = await LoadTelegramResponderContactAsync(telegramUserId.Value, ct);
+        if (responderLookup.LookupFailed)
+        {
+            await SendTelegramResponderLookupUnavailableAsync(message, ct);
+            return;
+        }
+
+        var contact = responderLookup.Contact;
+        if (contact?.UserId == null)
+        {
+            await SendTelegramResponderLinkRequiredAsync(message, anonymous: false, ct);
+            return;
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/internal/support/telegram/admin-reply")
         {
             Content = JsonContent.Create(new TelegramAdminReplyRequest(
                 source.TicketId,
-                authorName,
+                contact.DisplayName,
                 message.Text,
                 message.Chat.Id,
                 message.MessageId,
-                source.MessageId), options: JsonOptions)
+                source.MessageId,
+                contact.UserId.Value), options: JsonOptions)
         };
         AddInternalKey(request);
         using var response = await SupportClient().SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogWarning("Failed to save Telegram admin reply for ticket {TicketId}. Status: {Status}", source.TicketId, response.StatusCode);
+            logger.LogWarning(
+                "Failed to save Telegram admin reply for ticket {TicketId}. TaskForgeUserId={TaskForgeUserId} Status={Status}",
+                source.TicketId,
+                contact.UserId.Value,
+                response.StatusCode);
+            await _bot!.SendTextMessageAsync(
+                _supportGroupId,
+                $"{TelegramAuthorName(message)}, ответ не отправлен пользователю: TaskForge не смог сохранить сообщение. Попробуйте ещё раз чуть позже.",
+                cancellationToken: ct);
         }
+    }
+
+    private async Task<(TelegramContactDto? Contact, bool LookupFailed)> LoadTelegramResponderContactAsync(long telegramUserId, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"api/internal/integrations/telegram/by-chat/{telegramUserId}");
+        AddInternalKey(request);
+        using var response = await IdentityClient().SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return (null, false);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Failed to resolve Telegram support responder in TaskForge. TelegramUserId={TelegramUserId} Status={Status}",
+                telegramUserId,
+                response.StatusCode);
+            return (null, true);
+        }
+
+        return (await response.Content.ReadFromJsonAsync<TelegramContactDto>(JsonOptions, ct), false);
+    }
+
+    private async Task SendTelegramResponderLookupUnavailableAsync(Message message, CancellationToken ct)
+    {
+        if (_bot == null || _supportGroupId == 0) return;
+        await _bot.SendTextMessageAsync(
+            _supportGroupId,
+            $"{TelegramAuthorName(message)}, сейчас не удалось проверить привязку Telegram к TaskForge. " +
+            "Ответ пользователю не отправлен. Попробуйте ещё раз чуть позже.",
+            cancellationToken: ct);
+    }
+
+    private async Task SendTelegramResponderLinkRequiredAsync(Message message, bool anonymous, CancellationToken ct)
+    {
+        if (_bot == null || _supportGroupId == 0) return;
+
+        var who = TelegramAuthorName(message);
+        var prefix = anonymous
+            ? "Не удалось определить Telegram-аккаунт отвечающего."
+            : $"{who}, этот Telegram не привязан к аккаунту TaskForge.";
+
+        await _bot.SendTextMessageAsync(
+            _supportGroupId,
+            prefix + "\n\nЧтобы отвечать пользователям из Telegram, привяжите свой аккаунт: " +
+            "TaskForge -> Профиль -> Интеграции -> Telegram -> Сгенерировать код, " +
+            "затем отправьте боту в личные сообщения /link КОД.\n\nЭтот ответ пользователю не отправлен.",
+            cancellationToken: ct);
     }
 
     private async Task HandlePrivateMessageAsync(Message msg, CancellationToken ct)
@@ -526,9 +600,11 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         _ => string.IsNullOrWhiteSpace(source) ? "Сайт" : source
     };
 
-    private static string FormatPrivateAdminReply(PendingAdminReplyDto reply) =>
-        "🛠️ Ответ поддержки\n\n" +
-        (reply.Text ?? string.Empty);
+    private static string FormatPrivateAdminReply(PendingAdminReplyDto reply)
+    {
+        var author = string.IsNullOrWhiteSpace(reply.AuthorName) ? "Поддержка" : reply.AuthorName.Trim();
+        return $"🛠️ Ответ поддержки · {author}\n\n" + (reply.Text ?? string.Empty);
+    }
 
     private static string TelegramAuthorName(Message message)
     {
@@ -608,6 +684,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         public Guid MessageId { get; set; }
         public Guid TicketId { get; set; }
         public Guid? UserId { get; set; }
+        public Guid? AuthorUserId { get; set; }
+        public string? AuthorName { get; set; }
         public string? Subject { get; set; }
         public string? Text { get; set; }
         public string? Source { get; set; }
@@ -640,5 +718,5 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
     private sealed record TelegramUserMessageRequest(Guid UserId, string Message, bool ForceNewTicket);
 
-    private sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId, Guid? ReplyToMessageId);
+    private sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId, Guid? ReplyToMessageId, Guid? AdminUserId);
 }

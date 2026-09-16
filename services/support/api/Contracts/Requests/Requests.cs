@@ -14,6 +14,6 @@ public sealed record TelegramMarkMessageRequest(long ChatId, int MessageId);
 
 public sealed record TelegramUserMessageRequest(Guid UserId, string? Message, bool ForceNewTicket);
 
-public sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId, Guid? ReplyToMessageId);
+public sealed record TelegramAdminReplyRequest(Guid TicketId, string? AuthorName, string? Message, long? TelegramChatId, int? TelegramMessageId, Guid? ReplyToMessageId, Guid? AdminUserId);
 
 public sealed record UserIdsRequest(Guid[] UserIds);

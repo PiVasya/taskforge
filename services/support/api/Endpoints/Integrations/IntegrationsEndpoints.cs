@@ -82,7 +82,7 @@ internal static partial class SupportApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { messageId = msg.Id, ticketId = msg.TicketId });
         });
 
-        app.MapGet("/api/internal/support/telegram/pending-admin-replies", async (SupportDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/internal/support/telegram/pending-admin-replies", async (SupportDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var rows = await db.Messages.AsNoTracking()
                 .Where(x => x.AuthorRole == "admin" && (x.Source == "Web" || x.Source == "TelegramGroup"))
@@ -92,15 +92,20 @@ internal static partial class SupportApiEndpoints
 
             var ticketIds = rows.Select(x => x.TicketId).Distinct().ToArray();
             var tickets = await db.Tickets.AsNoTracking().Where(x => ticketIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+            var authorIds = rows.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().ToArray();
+            var authors = await LoadUserSummariesAsync(authorIds, cfg, httpFactory, ct);
 
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(m =>
             {
                 tickets.TryGetValue(m.TicketId, out var ticket);
+                var author = m.UserId.HasValue ? authors.GetValueOrDefault(m.UserId.Value) : null;
                 return new
                 {
                     messageId = m.Id,
                     ticketId = m.TicketId,
                     userId = ticket?.UserId ?? m.UserId,
+                    authorUserId = m.UserId,
+                    authorName = author == null ? "Поддержка" : UserLabel(author),
                     subject = "Чат с поддержкой",
                     title = "Чат с поддержкой",
                     text = m.Text,
@@ -141,13 +146,33 @@ internal static partial class SupportApiEndpoints
             var ticket = await db.Tickets.FindAsync([req.TicketId], ct);
             if (ticket == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Обращение не найдено." });
 
+            if (!req.AdminUserId.HasValue || req.AdminUserId.Value == Guid.Empty)
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new
+                {
+                    message = "Telegram-аккаунт отвечающего не привязан к TaskForge.",
+                    code = "SUPPORT_TELEGRAM_ADMIN_LINK_REQUIRED"
+                });
+            }
+
+            var adminUserId = req.AdminUserId.Value;
+            var authorUsers = await LoadUserSummariesAsync(new[] { adminUserId }, cfg, httpFactory, ct);
+            if (!authorUsers.ContainsKey(adminUserId))
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new
+                {
+                    message = "Связанный аккаунт TaskForge не найден.",
+                    code = "SUPPORT_TELEGRAM_ADMIN_ACCOUNT_NOT_FOUND"
+                });
+            }
+
             var now = DateTimeOffset.UtcNow;
             ticket.UpdatedAt = now;
             ticket.Subject = "Чат с поддержкой";
             var msg = new SupportMessage
             {
                 TicketId = ticket.Id,
-                UserId = null,
+                UserId = adminUserId,
                 AuthorRole = "admin",
                 Text = text,
                 Source = "TelegramGroup",
@@ -164,10 +189,15 @@ internal static partial class SupportApiEndpoints
             {
                 replyTo = await db.Messages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == req.ReplyToMessageId.Value && x.TicketId == ticket.Id, ct);
             }
-            var replyUsers = replyTo?.UserId is { } replyUid
-                ? await LoadUserSummariesAsync(new[] { replyUid }, cfg, httpFactory, ct)
-                : new Dictionary<Guid, UserSummaryDto>();
-            var dto = ToMessageDto(msg, null, replyTo, replyTo?.UserId is { } ruid ? replyUsers.GetValueOrDefault(ruid) : null);
+
+            var relatedIds = new List<Guid> { adminUserId };
+            if (replyTo?.UserId is { } replyUid) relatedIds.Add(replyUid);
+            var users = await LoadUserSummariesAsync(relatedIds, cfg, httpFactory, ct);
+            var dto = ToMessageDto(
+                msg,
+                users.GetValueOrDefault(adminUserId),
+                replyTo,
+                replyTo?.UserId is { } ruid ? users.GetValueOrDefault(ruid) : null);
             await BroadcastSupportMessageAsync(hub, ticket.Id, ticket.UserId, dto, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, messageId = msg.Id, ticketId = ticket.Id });
         });
