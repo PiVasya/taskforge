@@ -130,7 +130,12 @@ func (c *InternalClient) Register(ctx context.Context, registration Registration
 	}
 	seen := map[string]bool{p.Fingerprint: true}
 	for _, alias := range compatible {
-		if !hashRE.MatchString(alias.Fingerprint) || !uuidRE.MatchString(alias.ID) || alias.Key != registration.Engine || alias.Engine != registration.Engine || alias.EngineVersion != registration.EngineVersion || alias.AdapterVersion != registration.AdapterVersion {
+		// Tasks API is the authority that certifies immutable cross-runtime aliases.
+		// EngineVersion intentionally does not have to equal the currently running
+		// server version: a narrowly audited compatibility family may preserve older
+		// published fingerprints across runtime upgrades. The worker still validates
+		// the profile shape/engine/adapter before advertising that exact alias.
+		if !hashRE.MatchString(alias.Fingerprint) || !uuidRE.MatchString(alias.ID) || alias.Key != registration.Engine || alias.Engine != registration.Engine || strings.TrimSpace(alias.EngineVersion) == "" || !digestRE.MatchString(alias.RuntimeDigest) || alias.AdapterVersion != registration.AdapterVersion || alias.Settings == nil {
 			return RegisteredProfiles{}, Unavailable("The SQL compatibility endpoint returned an invalid profile alias.")
 		}
 		if seen[alias.Fingerprint] {

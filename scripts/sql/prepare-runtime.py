@@ -14,16 +14,21 @@ import secrets
 import subprocess
 import tempfile
 
-# MySQL 8.4.0 is intentionally represented by two official runtime variants of the
-# same server release. Oracle Linux 9 is preferred on x86-64-v2 capable hosts;
-# Oracle Linux 8 is the baseline-compatible variant for older/masked x86-64 CPUs.
-# The Tasks API explicitly certifies only this immutable pair as mutually compatible.
-MYSQL_PREFERRED_DIGEST = 'sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0'
+# Existing published TaskForge assignments are pinned to the immutable MySQL
+# 8.4.11 Oracle Linux 9 runtime below. Modern nodes therefore prefer that exact
+# runtime again, while Oracle Linux 8 remains the baseline-compatible fallback for
+# older/masked x86-64 CPUs. r70's 8.4.0 OL9 digest stays in the audited
+# compatibility family so assignments published during that rollout remain valid,
+# but new modern-node selection converges on the 8.4.11 production runtime.
+MYSQL_PREFERRED_DIGEST = 'sha256:3466ba4a4828aa8d46fb7c3bc16b67b781c98413cf4ea0fac6feaa6e881faa26'
+MYSQL_R70_OL9_DIGEST = 'sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0'
 MYSQL_CPUV1_DIGEST = 'sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33'
 MYSQL_PREFERRED_IMAGE = 'mysql@' + MYSQL_PREFERRED_DIGEST
+MYSQL_R70_OL9_IMAGE = 'mysql@' + MYSQL_R70_OL9_DIGEST
 MYSQL_CPUV1_IMAGE = 'mysql@' + MYSQL_CPUV1_DIGEST
-MYSQL_CERTIFIED_DIGESTS = frozenset({MYSQL_PREFERRED_DIGEST, MYSQL_CPUV1_DIGEST})
-MYSQL_RUNTIME_FAMILY = 'mysql-8.4.0-ol8-ol9-v1'
+MYSQL_CERTIFIED_DIGESTS = frozenset({MYSQL_PREFERRED_DIGEST, MYSQL_R70_OL9_DIGEST, MYSQL_CPUV1_DIGEST})
+MYSQL_SELECTABLE_DIGESTS = frozenset({MYSQL_PREFERRED_DIGEST, MYSQL_CPUV1_DIGEST})
+MYSQL_RUNTIME_FAMILY = 'mysql-8.4-taskforge-v2'
 _X86_64_V2_FLAGS = ('cx16', 'lahf_lm', 'popcnt', 'pni', 'ssse3', 'sse4_1', 'sse4_2')
 
 
@@ -95,18 +100,24 @@ def select_mysql_image(base, values):
     if observed_x86_v2_failure(project):
         return MYSQL_CPUV1_IMAGE,'observed-x86-64-v2-failure'
 
-    # Like MinIO's cpu.env override, a previously selected certified variant is a
-    # stable node-local hardware decision. Correct it only when the current host
-    # demonstrably needs the baseline-compatible image.
+    # A selection is stable only inside the current runtime-family revision. This
+    # lets r72 deliberately move modern r70 nodes from MySQL 8.4.0 OL9 back to the
+    # exact 8.4.11 runtime used by already-published assignments, while preserving
+    # the OL8 fallback on hosts that really require the older CPU baseline.
     existing=values.get('SQL_MYSQL_IMAGE')
     existing_digest=image_digest(existing)
+    existing_family=values.get('SQL_MYSQL_RUNTIME_FAMILY')
     needs_cpuv1=host_needs_cpuv1()
-    if existing_digest in MYSQL_CERTIFIED_DIGESTS:
+    if existing_family == MYSQL_RUNTIME_FAMILY and existing_digest in MYSQL_SELECTABLE_DIGESTS:
         if needs_cpuv1 and existing_digest != MYSQL_CPUV1_DIGEST:
             return MYSQL_CPUV1_IMAGE,'corrected-stale-hardware-selection'
+        if not needs_cpuv1 and existing_digest == MYSQL_CPUV1_DIGEST:
+            return MYSQL_PREFERRED_IMAGE,'corrected-stale-hardware-selection'
         return existing,'stable-hardware-selection'
     if needs_cpuv1:
         return MYSQL_CPUV1_IMAGE,'host-cpu-capability'
+    if existing_digest in MYSQL_CERTIFIED_DIGESTS:
+        return MYSQL_PREFERRED_IMAGE,'runtime-family-upgrade'
     return MYSQL_PREFERRED_IMAGE,'preferred-x86-64-v2-runtime'
 
 
@@ -164,7 +175,7 @@ def main():
     certified=digest in MYSQL_CERTIFIED_DIGESTS
     family=MYSQL_RUNTIME_FAMILY if certified else 'operator-custom'
     values['SQL_MYSQL_RUNTIME_FAMILY']=family
-    values['SQL_MYSQL_RUNTIME_VARIANT']='cpuv1' if digest==MYSQL_CPUV1_DIGEST else ('preferred' if digest==MYSQL_PREFERRED_DIGEST else 'operator')
+    values['SQL_MYSQL_RUNTIME_VARIANT']='cpuv1' if digest==MYSQL_CPUV1_DIGEST else ('preferred' if digest==MYSQL_PREFERRED_DIGEST else ('r70-ol9' if digest==MYSQL_R70_OL9_DIGEST else 'operator'))
     print('MYSQL pinned to '+resolved+' reason='+mysql_reason+' family='+family)
 
     write_atomic(args.env_file,values,args.base_env)

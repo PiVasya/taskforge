@@ -18,21 +18,25 @@ public static class SqlProfileCompatibility
     private const string LegacyGoExecutionSemanticsVersion = "sql-runtime-v1";
     private const string GoImplementation = "go-native-v1";
 
-    // Official MySQL 8.4.0 is published in two immutable Linux runtime variants.
-    // They run the same MySQL server release but target different glibc/CPU baselines.
-    // Only this audited pair is allowed to bridge RuntimeDigest identity; arbitrary
-    // images never become compatible merely because they report MySQL 8.4.0.
-    private static readonly HashSet<string> MySql840CpuVariantRuntimeDigests = new(StringComparer.Ordinal)
+    // TaskForge has published immutable assignments against three audited MySQL
+    // runtime identities during the 8.4 LTS rollout. The 8.4.11 OL9 image is the
+    // historical production runtime used by existing assignments; r70 introduced
+    // the 8.4.0 OL9/OL8 CPU pair. These exact identities share the same execution
+    // semantics/client contract and are intentionally bridged so immutable published
+    // profiles remain executable after failover or runtime-family upgrades. Unknown
+    // 8.4.x versions/digests remain incompatible.
+    private static readonly HashSet<string> CertifiedMySqlRuntimeIdentities = new(StringComparer.Ordinal)
     {
-        "sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0", // Oracle Linux 9
-        "sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33"  // Oracle Linux 8 / cpuv1
+        "8.4.11|sha256:3466ba4a4828aa8d46fb7c3bc16b67b781c98413cf4ea0fac6feaa6e881faa26", // historical OL9
+        "8.4.0|sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0", // r70 OL9
+        "8.4.0|sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33"  // r70 OL8 / cpuv1
     };
 
     public static bool IsCompatible(SqlEngineProfile current, SqlEngineProfile candidate)
     {
         if (!string.Equals(current.Key, candidate.Key, StringComparison.Ordinal)
             || !string.Equals(current.Engine, candidate.Engine, StringComparison.Ordinal)
-            || !string.Equals(current.EngineVersion, candidate.EngineVersion, StringComparison.Ordinal)
+            || !EngineVersionsCompatible(current, candidate)
             || !string.Equals(current.AdapterVersion, candidate.AdapterVersion, StringComparison.Ordinal)
             || current.SettingsSchemaVersion != candidate.SettingsSchemaVersion)
             return false;
@@ -68,15 +72,11 @@ public static class SqlProfileCompatibility
             if (string.Equals(leftProfile.RuntimeDigest, rightProfile.RuntimeDigest, StringComparison.Ordinal))
                 return true;
 
-            // Mirror the MinIO CPU-variant model without weakening SQL profile identity:
-            // A/B may select different official images only when both are the certified
-            // variants of the exact same MySQL 8.4.0 server release. Their fingerprints
-            // remain distinct; the compatibility endpoint exposes the explicit alias.
-            if (string.Equals(leftProfile.Engine, "mysql", StringComparison.Ordinal)
-                && string.Equals(leftProfile.EngineVersion, "8.4.0", StringComparison.Ordinal)
-                && string.Equals(rightProfile.EngineVersion, "8.4.0", StringComparison.Ordinal)
-                && MySql840CpuVariantRuntimeDigests.Contains(leftProfile.RuntimeDigest)
-                && MySql840CpuVariantRuntimeDigests.Contains(rightProfile.RuntimeDigest))
+            // Runtime identity remains immutable. The compatibility endpoint exposes
+            // aliases only when both profiles belong to the audited TaskForge family;
+            // all semantic settings are still compared below before compatibility is
+            // accepted.
+            if (CertifiedMySqlRuntime(leftProfile) && CertifiedMySqlRuntime(rightProfile))
                 return true;
 
             return false;
@@ -93,6 +93,18 @@ public static class SqlProfileCompatibility
         if (right.Legacy && !LegacySqliteDigestMatches(rightProfile, right.LegacyExecutorFingerprint)) return false;
         return true;
     }
+
+
+    private static bool EngineVersionsCompatible(SqlEngineProfile left, SqlEngineProfile right)
+    {
+        if (string.Equals(left.EngineVersion, right.EngineVersion, StringComparison.Ordinal))
+            return true;
+        return CertifiedMySqlRuntime(left) && CertifiedMySqlRuntime(right);
+    }
+
+    private static bool CertifiedMySqlRuntime(SqlEngineProfile profile)
+        => string.Equals(profile.Engine, "mysql", StringComparison.Ordinal)
+            && CertifiedMySqlRuntimeIdentities.Contains(profile.EngineVersion + "|" + profile.RuntimeDigest);
 
     private static bool LegacySqliteDigestMatches(SqlEngineProfile profile, string? executorFingerprint)
         => SqlWire.IsHash(executorFingerprint)

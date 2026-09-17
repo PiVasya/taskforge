@@ -76,6 +76,41 @@ internal static partial class ObservabilityApiEndpoints
             }
         });
 
+        app.MapGet("/api/admin/cluster/diagnostics/archives", async (
+            ClusterTelemetryService telemetry,
+            HttpResponse response,
+            CancellationToken ct) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            try
+            {
+                return Results.Json(await telemetry.ListDiagnosticsArchivesAsync(ct));
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                return Results.Json(new { status = ex.StatusCode, code = ex.Code, message = ex.Message, severity = ex.StatusCode >= 500 ? "error" : "warning" }, statusCode: ex.StatusCode);
+            }
+        });
+
+        app.MapGet("/api/admin/cluster/diagnostics/archives/{archiveId}/download", async (
+            string archiveId,
+            ClusterTelemetryService telemetry,
+            HttpContext context,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await telemetry.ProxyStoredDiagnosticsArchiveAsync(archiveId, context.Response, ct);
+            }
+            catch (ClusterDiagnosticsException ex)
+            {
+                if (context.Response.HasStarted) return;
+                context.Response.StatusCode = ex.StatusCode;
+                context.Response.ContentType = "application/json; charset=utf-8";
+                await context.Response.WriteAsJsonAsync(new { status = ex.StatusCode, code = ex.Code, message = ex.Message, severity = ex.StatusCode >= 500 ? "error" : "warning" }, ct);
+            }
+        });
+
         app.MapGet("/api/admin/cluster/diagnostics/{node}/{jobId}", async (
             string node,
             string jobId,

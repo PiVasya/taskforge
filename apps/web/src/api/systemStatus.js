@@ -34,3 +34,23 @@ export async function downloadClusterDiagnostics(node, jobId) {
   }
   return { blob: response.data, fileName };
 }
+
+export async function getClusterDiagnosticsArchives({ signal } = {}) {
+  const { data } = await api.get('/api/admin/cluster/diagnostics/archives', { signal });
+  return data;
+}
+
+export async function downloadStoredClusterDiagnostics(archiveId) {
+  const response = await api.get(`/api/admin/cluster/diagnostics/archives/${encodeURIComponent(archiveId)}/download`, {
+    responseType: 'blob',
+    timeout: 30 * 60 * 1000,
+  });
+  const disposition = response.headers?.['content-disposition'] || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  const quoted = /filename="([^"]+)"/i.exec(disposition)?.[1];
+  let fileName = quoted || 'taskforge_diagnostics.tar.gz';
+  if (encoded) {
+    try { fileName = decodeURIComponent(encoded); } catch { fileName = encoded; }
+  }
+  return { blob: response.data, fileName };
+}

@@ -123,6 +123,26 @@ func TestProfileRegistrationRollingUpgradeFallsBackToExactProfile(t *testing.T) 
 	}
 }
 
+func TestProfileRegistrationAcceptsTasksCertifiedCrossVersionAlias(t *testing.T) {
+	reg := Registration{Engine: "mysql", EngineVersion: "8.4.0", RuntimeDigest: "sha256:" + textHash("runtime-current"), AdapterVersion: AdapterVersion, Settings: map[string]any{"semantic": "sql-runtime-v1"}}
+	profile := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: "mysql", Engine: reg.Engine, EngineVersion: reg.EngineVersion, RuntimeDigest: reg.RuntimeDigest, AdapterVersion: reg.AdapterVersion, Settings: reg.Settings, Fingerprint: textHash("profile-current")}
+	legacy := Profile{ID: "10000000-0000-4000-8000-000000000002", Key: "mysql", Engine: "mysql", EngineVersion: "8.4.11", RuntimeDigest: "sha256:" + textHash("runtime-historical"), AdapterVersion: reg.AdapterVersion, Settings: map[string]any{"semantic": "sql-runtime-v1"}, Fingerprint: textHash("profile-historical")}
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]Profile{profile, legacy})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(profile)
+	})
+	registered, err := c.Register(context.Background(), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered.Compatible) != 1 || registered.Compatible[0].Fingerprint != legacy.Fingerprint || registered.Compatible[0].EngineVersion != "8.4.11" {
+		t.Fatalf("Tasks-certified cross-version immutable alias was not preserved: %+v", registered.Compatible)
+	}
+}
+
 func TestProfileRegistrationRejectsForeignCompatibilityAlias(t *testing.T) {
 	reg := Registration{Engine: "sqlite", EngineVersion: "3", RuntimeDigest: "sha256:" + textHash("runtime"), AdapterVersion: AdapterVersion, Settings: map[string]any{"semantic": "one"}}
 	profile := Profile{ID: "10000000-0000-4000-8000-000000000001", Key: "sqlite", Engine: reg.Engine, EngineVersion: reg.EngineVersion, RuntimeDigest: reg.RuntimeDigest, AdapterVersion: reg.AdapterVersion, Settings: reg.Settings, Fingerprint: textHash("profile")}

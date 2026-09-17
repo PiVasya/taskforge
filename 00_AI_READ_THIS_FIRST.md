@@ -5,14 +5,16 @@ The Go SQL runtime release builds on user source develop(212), including the use
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
 
-The authoritative A/B/C production package is the independent v40-r70 archive. Its
-entrypoint is `./cluster.sh`. A/B are full; C remains lite. r70 preserves r68 real diagnostics
-progress and r69 bounded optional-SQL reconciliation, but replaces the global old-CPU MySQL pin
-with MinIO-style capability selection: full nodes choose one of the two certified official MySQL
-8.4.0 Oracle Linux 9/8 runtime variants. Their profile fingerprints remain distinct and Tasks API
-explicitly aliases only this immutable same-release pair. The older cluster scripts inside this
-source tree are not a replacement for that package. Do not restore historical deployment
-instructions as the current production procedure.
+The authoritative A/B/C production package paired with this update is the independent v40-r72
+archive. Its entrypoint is `./cluster.sh`. A/B are full; C remains lite. Fresh production
+diagnostics proved that historical published MySQL assignments use the immutable MySQL 8.4.11
+OL9 runtime while r70 workers advertised only current/compatible 8.4.0 targets, causing a
+capability rejection before job creation. The matching r72 package restores the exact published
+8.4.11 runtime on capable hosts and keeps the certified OL8/cpuv1 fallback. Tasks API compatibility
+is deliberately limited to the three audited immutable runtime identities; it is never a wildcard
+for MySQL 8.4.x. This source update also persists completed cluster diagnostics to MinIO for seven
+days by default and exposes all retained archives in the cluster UI. The older cluster scripts
+inside this source tree are not a replacement for the standalone r72 package.
 
 # AI rules for this project
 

@@ -449,3 +449,15 @@ html.neo-brutal .tf-cluster :where(.tf-cluster-diagnostics-section, .tf-cluster-
   .tf-cluster-diagnostics-job { grid-template-columns: auto minmax(0,1fr); }
   .tf-cluster-diagnostics-job > .tf-cluster-button { grid-column: 1 / -1; width: 100%; }
 }
+.tf-cluster-diagnostics-archive-list { display: grid; gap: 7px; }
+.tf-cluster-diagnostics-archive { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster-diagnostics-archive-main { min-width: 0; }
+.tf-cluster-diagnostics-archive-main > div { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tf-cluster-diagnostics-archive-main strong { max-width: min(520px, 62vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.tf-cluster-diagnostics-archive-main small { display: block; margin-top: 3px; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster-diagnostics-hint.is-error { color: var(--cl-bad); border-color: color-mix(in srgb, var(--cl-bad) 45%, var(--cl-line)); }
+html.neo-brutal .tf-cluster .tf-cluster-diagnostics-archive { border: 2px solid rgb(var(--neo-ink)); border-radius: 7px; }
+@media (max-width: 720px) {
+  .tf-cluster-diagnostics-archive { grid-template-columns: auto minmax(0,1fr); }
+  .tf-cluster-diagnostics-archive > .tf-cluster-button { grid-column: 1 / -1; justify-self: stretch; }
+}

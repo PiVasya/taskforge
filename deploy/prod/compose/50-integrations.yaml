@@ -28,6 +28,8 @@ services:
       S3__Bucket: ${S3_BUCKET:-taskforge-files}
       S3__Region: ${S3_REGION:-us-east-1}
       S3__UsePathStyle: ${S3_USE_PATH_STYLE:-true}
+      ClusterDiagnosticsStorage__RetentionDays: ${CLUSTER_DIAGNOSTICS_RETENTION_DAYS:-7}
+      ClusterDiagnosticsStorage__Prefix: ${CLUSTER_DIAGNOSTICS_S3_PREFIX:-cluster-diagnostics}
       ConnectionStrings__Redis: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Redis__ConnectionString: ${REDIS_HOST:-redis}:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD},abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}

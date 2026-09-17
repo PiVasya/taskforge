@@ -98,7 +98,7 @@ services:
     pids_limit: 96
     ulimits: *id003
     logging: *id004
-    image: ${SQL_MYSQL_IMAGE:-mysql@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0}
+    image: ${SQL_MYSQL_IMAGE:-mysql@sha256:3466ba4a4828aa8d46fb7c3bc16b67b781c98413cf4ea0fac6feaa6e881faa26}
     profiles:
     - sql
     user: 999:999

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -28,6 +29,11 @@ public sealed record ClusterDiagnosticsBatchResult(
     string Since,
     int MaxLogMb);
 
+public sealed record ClusterDiagnosticsArchiveListResult(
+    IReadOnlyList<ClusterDiagnosticsStoredArchive> Archives,
+    int RetentionDays,
+    DateTimeOffset GeneratedAt);
+
 public sealed class ClusterDiagnosticsException : Exception
 {
     public ClusterDiagnosticsException(int statusCode, string code, string message) : base(message)
@@ -46,6 +52,9 @@ public sealed partial class ClusterTelemetryService
     private const int DiagnosticsMinAgentRevision = 65;
     private static readonly JsonSerializerOptions DiagnosticsJson = new(JsonSerializerDefaults.Web);
     private sealed record DiagnosticsTarget(string NodeId, string BaseUrl, string Token, string? UnixSocketPath);
+    private sealed record TrackedDiagnosticsArchiveJob(string Node, string JobId, DateTimeOffset AcceptedAt, DateTimeOffset NextAttemptAt);
+    private readonly ConcurrentDictionary<string, TrackedDiagnosticsArchiveJob> _diagnosticsArchiveJobs = new(StringComparer.OrdinalIgnoreCase);
+    private DateTimeOffset _lastDiagnosticsArchiveCleanupUtc = DateTimeOffset.MinValue;
 
     private string LocalAgentSocketPath => ClusterConfiguration["ClusterTelemetry:LocalAgentSocketPath"]
         ?? "/run/taskforge-cluster-host/node-agent.sock";
@@ -129,6 +138,11 @@ public sealed partial class ClusterTelemetryService
         });
 
         var jobs = await Task.WhenAll(tasks);
+        foreach (var job in jobs)
+        {
+            if (job.Accepted && !string.IsNullOrWhiteSpace(job.JobId))
+                TrackDiagnosticsArchiveJob(job.Node, job.JobId);
+        }
         return new ClusterDiagnosticsBatchResult(jobs, mode, since, maxLogMb);
     }
 
@@ -145,7 +159,9 @@ public sealed partial class ClusterTelemetryService
         if (!response.IsSuccessStatusCode)
             throw DiagnosticsAgentError(response.StatusCode, raw, "Не удалось получить состояние сборки логов.");
         using var doc = JsonDocument.Parse(raw);
-        return doc.RootElement.Clone();
+        var result = doc.RootElement.Clone();
+        TrackDiagnosticsArchiveJob(nodeId, jobId);
+        return result;
     }
 
     public async Task ProxyDiagnosticsArchiveAsync(string nodeId, string jobId, HttpResponse output, CancellationToken ct)
@@ -171,6 +187,157 @@ public sealed partial class ClusterTelemetryService
         Console.WriteLine($"[TFDIAG API DOWNLOAD] node={nodeId} job={jobId} file={safe} bytes={output.ContentLength?.ToString() ?? "unknown"} utc={DateTimeOffset.UtcNow:O}");
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         await stream.CopyToAsync(output.Body, ct);
+    }
+
+    public async Task<ClusterDiagnosticsArchiveListResult> ListDiagnosticsArchivesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var archives = await DiagnosticsArchiveStore.ListAsync(ct);
+            return new ClusterDiagnosticsArchiveListResult(archives, DiagnosticsArchiveStore.RetentionDays, DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ClusterLogger.LogWarning(ex, "Unable to list stored cluster diagnostics archives from MinIO.");
+            throw new ClusterDiagnosticsException(StatusCodes.Status503ServiceUnavailable, "DIAGNOSTICS_ARCHIVE_STORAGE_UNAVAILABLE", "Хранилище сохранённых архивов диагностики временно недоступно.");
+        }
+    }
+
+    public async Task ProxyStoredDiagnosticsArchiveAsync(string archiveId, HttpResponse output, CancellationToken ct)
+    {
+        try
+        {
+            await DiagnosticsArchiveStore.WriteDownloadAsync(archiveId, output, ct);
+        }
+        catch (ClusterDiagnosticsException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ClusterLogger.LogWarning(ex, "Unable to stream stored cluster diagnostics archive from MinIO.");
+            throw new ClusterDiagnosticsException(StatusCodes.Status503ServiceUnavailable, "DIAGNOSTICS_ARCHIVE_STORAGE_UNAVAILABLE", "Сохранённый архив диагностики временно недоступен.");
+        }
+    }
+
+    private void TrackDiagnosticsArchiveJob(string nodeId, string jobId)
+    {
+        ValidateNodeId(nodeId);
+        ValidateJobId(jobId);
+        var now = DateTimeOffset.UtcNow;
+        _diagnosticsArchiveJobs.TryAdd(DiagnosticsArchiveJobKey(nodeId, jobId), new TrackedDiagnosticsArchiveJob(nodeId, jobId, now, now));
+    }
+
+    private static string DiagnosticsArchiveJobKey(string nodeId, string jobId) => nodeId + ":" + jobId;
+
+    private async Task RunDiagnosticsArchiveLoopAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await PersistCompletedDiagnosticsArchivesAsync(stoppingToken);
+                var now = DateTimeOffset.UtcNow;
+                if (now - _lastDiagnosticsArchiveCleanupUtc >= TimeSpan.FromHours(1))
+                {
+                    // Throttle cleanup attempts as well as successful cleanups. A temporary
+                    // MinIO outage must not turn the five-second persistence loop into log spam.
+                    _lastDiagnosticsArchiveCleanupUtc = now;
+                    await DiagnosticsArchiveStore.CleanupExpiredAsync(stoppingToken);
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Diagnostics persistence is deliberately best-effort: MinIO or a
+                // remote agent outage must never affect cluster telemetry/readiness.
+                ClusterLogger.LogWarning(ex, "Cluster diagnostics archive persistence iteration failed.");
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+        }
+    }
+
+    private async Task PersistCompletedDiagnosticsArchivesAsync(CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var pair in _diagnosticsArchiveJobs.ToArray())
+        {
+            var tracked = pair.Value;
+            if (tracked.NextAttemptAt > now) continue;
+            if (now - tracked.AcceptedAt > TimeSpan.FromDays(3))
+            {
+                _diagnosticsArchiveJobs.TryRemove(pair.Key, out _);
+                continue;
+            }
+
+            try
+            {
+                var status = await GetDiagnosticsJobAsync(tracked.Node, tracked.JobId, ct);
+                var state = status.TryGetProperty("status", out var stateValue) && stateValue.ValueKind == JsonValueKind.String
+                    ? stateValue.GetString()?.Trim().ToLowerInvariant()
+                    : null;
+                if (state == "failed")
+                {
+                    _diagnosticsArchiveJobs.TryRemove(pair.Key, out _);
+                    continue;
+                }
+                if (state != "completed")
+                {
+                    DelayDiagnosticsArchiveRetry(pair.Key, tracked, TimeSpan.FromSeconds(5));
+                    continue;
+                }
+
+                await PersistDiagnosticsArchiveAsync(tracked.Node, tracked.JobId, ct);
+                _diagnosticsArchiveJobs.TryRemove(pair.Key, out _);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                DelayDiagnosticsArchiveRetry(pair.Key, tracked, TimeSpan.FromSeconds(30));
+                ClusterLogger.LogWarning(ex, "Unable to persist diagnostics archive node={Node} job={JobId}; retry scheduled.", tracked.Node, tracked.JobId);
+            }
+        }
+    }
+
+    private void DelayDiagnosticsArchiveRetry(string key, TrackedDiagnosticsArchiveJob tracked, TimeSpan delay)
+    {
+        _diagnosticsArchiveJobs.TryUpdate(key, tracked with { NextAttemptAt = DateTimeOffset.UtcNow.Add(delay) }, tracked);
+    }
+
+    private async Task PersistDiagnosticsArchiveAsync(string nodeId, string jobId, CancellationToken ct)
+    {
+        var target = ResolveDiagnosticsTarget(nodeId, jobId);
+        using var client = CreateDiagnosticsClient(target);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{target.BaseUrl}/ha/diagnostics/{Uri.EscapeDataString(jobId)}/archive");
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Cluster-Token", target.Token);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var raw = await response.Content.ReadAsStringAsync(ct);
+            throw DiagnosticsAgentError(response.StatusCode, raw, "Архив диагностики пока недоступен для сохранения.");
+        }
+
+        var supplied = response.Content.Headers.ContentDisposition?.FileNameStar ?? response.Content.Headers.ContentDisposition?.FileName;
+        var safe = SafeArchiveName(supplied?.Trim('"') ?? $"taskforge_diagnostics_{nodeId}_{jobId}.tar.gz");
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var stored = await DiagnosticsArchiveStore.SaveAsync(
+            nodeId, jobId, safe, stream, response.Content.Headers.ContentType?.ToString(), response.Content.Headers.ContentLength, ct);
+        Console.WriteLine($"[TFDIAG MINIO STORED] node={nodeId} job={jobId} archiveId={stored.Id} file={stored.FileName} bytes={stored.SizeBytes} expires={stored.ExpiresAt:O} utc={DateTimeOffset.UtcNow:O}");
     }
 
     private DiagnosticsTarget ResolveDiagnosticsTarget(string nodeId, string jobId)

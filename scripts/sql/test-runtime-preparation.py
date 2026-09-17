@@ -11,17 +11,19 @@ ROOT=Path(__file__).resolve().parents[2]
 SCRIPT=ROOT/'scripts/sql/prepare-runtime.py'
 spec=importlib.util.spec_from_file_location('prepare_runtime',SCRIPT)
 prepare=importlib.util.module_from_spec(spec);spec.loader.exec_module(prepare)
-PREFERRED='mysql@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0'
+PREFERRED='mysql@sha256:3466ba4a4828aa8d46fb7c3bc16b67b781c98413cf4ea0fac6feaa6e881faa26'
+R70_OL9='mysql@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0'
 CPUV1='mysql@sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33'
 assert prepare.MYSQL_PREFERRED_IMAGE==PREFERRED
 assert prepare.MYSQL_CPUV1_IMAGE==CPUV1
-assert prepare.MYSQL_CERTIFIED_DIGESTS==frozenset({PREFERRED.split('@',1)[1],CPUV1.split('@',1)[1]})
+assert prepare.MYSQL_CERTIFIED_DIGESTS==frozenset({PREFERRED.split('@',1)[1],R70_OL9.split('@',1)[1],CPUV1.split('@',1)[1]})
+assert prepare.MYSQL_SELECTABLE_DIGESTS==frozenset({PREFERRED.split('@',1)[1],CPUV1.split('@',1)[1]})
 
 def fake_pin(image,pull):
     digest=image.split('@',1)[1] if '@' in image else 'sha256:'+'9'*64
     return image,digest
 
-def run_prepare(needs_cpuv1, observed_failure=False, override='', existing_mysql='mysql@sha256:'+'e'*64):
+def run_prepare(needs_cpuv1, observed_failure=False, override='', existing_mysql='mysql@sha256:'+'e'*64, existing_family=''):
     tmp=tempfile.TemporaryDirectory(); root=Path(tmp.name); env=root/'sql-runtime.env'; base=root/'taskforge.env'
     env.write_text('\n'.join([
         'SQL_SANDBOX_MARKER='+'a'*64,
@@ -29,6 +31,7 @@ def run_prepare(needs_cpuv1, observed_failure=False, override='', existing_mysql
         'SQL_MYSQL_PASSWORD='+'c'*64,
         'SQL_POSTGRES_IMAGE=postgres@sha256:'+'d'*64,
         'SQL_MYSQL_IMAGE='+existing_mysql,
+        *(['SQL_MYSQL_RUNTIME_FAMILY='+existing_family] if existing_family else []),
     ])+'\n')
     base.write_text(('SQL_MYSQL_IMAGE='+override+'\n') if override else '')
     argv=['prepare-runtime.py','--env-file',str(env),'--base-env',str(base),'--node','B','--profile','full','--pull']
@@ -66,17 +69,25 @@ try:
 finally: tmp.cleanup()
 
 
-tmp,current,pin,out=run_prepare(False, existing_mysql=CPUV1)
+tmp,current,pin,out=run_prepare(True, existing_mysql=CPUV1, existing_family=prepare.MYSQL_RUNTIME_FAMILY)
 try:
     assert current['SQL_MYSQL_IMAGE']==CPUV1
     assert current['SQL_MYSQL_RUNTIME_VARIANT']=='cpuv1'
     assert 'stable-hardware-selection' in out
 finally: tmp.cleanup()
 
-tmp,current,pin,out=run_prepare(True, existing_mysql=PREFERRED)
+tmp,current,pin,out=run_prepare(True, existing_mysql=PREFERRED, existing_family=prepare.MYSQL_RUNTIME_FAMILY)
 try:
     assert current['SQL_MYSQL_IMAGE']==CPUV1
     assert 'corrected-stale-hardware-selection' in out
+finally: tmp.cleanup()
+
+
+tmp,current,pin,out=run_prepare(False, existing_mysql=R70_OL9, existing_family='mysql-8.4.0-ol8-ol9-v1')
+try:
+    assert current['SQL_MYSQL_IMAGE']==PREFERRED
+    assert current['SQL_MYSQL_RUNTIME_VARIANT']=='preferred'
+    assert 'runtime-family-upgrade' in out
 finally: tmp.cleanup()
 
 override='registry.example/mysql-custom@sha256:'+'f'*64
@@ -97,4 +108,4 @@ for rel in ('deploy/prod/compose/35-sql.yaml','deploy/dev/compose/35-sql.yaml'):
 
 assert PREFERRED in (ROOT/'scripts/sql/test-engines.sh').read_text()
 
-print('PASS: SQL runtime selects certified MySQL 8.4.0 OL9/OL8 variants by host capability with bounded crash restarts')
+print('PASS: SQL runtime converges modern nodes on published MySQL 8.4.11, preserves OL8 cpuv1 fallback, and upgrades r70 family state safely')

@@ -8,12 +8,14 @@ namespace TaskForge.Observability.Api.Services.Cluster;
 public sealed partial class ClusterTelemetryService(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    ILogger<ClusterTelemetryService> logger) : BackgroundService
+    ILogger<ClusterTelemetryService> logger,
+    ClusterDiagnosticsArchiveStore diagnosticsArchiveStore) : BackgroundService
 {
     // Stable member accessors are also used by the partial admin-control implementation.
     private IHttpClientFactory ClusterHttpClientFactory => httpClientFactory;
     private IConfiguration ClusterConfiguration => configuration;
     private ILogger<ClusterTelemetryService> ClusterLogger => logger;
+    private ClusterDiagnosticsArchiveStore DiagnosticsArchiveStore => diagnosticsArchiveStore;
 
     private sealed record AgentState(
         string NodeId,
@@ -61,7 +63,10 @@ public sealed partial class ClusterTelemetryService(
 
     private string LocalTelemetryPath => configuration["ClusterTelemetry:LocalTelemetryPath"] ?? string.Empty;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        => Task.WhenAll(RunTelemetryLoopAsync(stoppingToken), RunDiagnosticsArchiveLoopAsync(stoppingToken));
+
+    private async Task RunTelemetryLoopAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {

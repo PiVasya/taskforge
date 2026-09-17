@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AlertTriangle, Boxes, CheckCircle2, Clock3, Download, FileArchive, HardDrive, Loader2, Server, X } from 'lucide-react';
-import { downloadClusterDiagnostics, getClusterDiagnosticsJob, startClusterDiagnostics } from '../../api/systemStatus';
+import { downloadClusterDiagnostics, downloadStoredClusterDiagnostics, getClusterDiagnosticsArchives, getClusterDiagnosticsJob, startClusterDiagnostics } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
 import {
   bytes,
@@ -68,6 +68,22 @@ function formatElapsed(seconds) {
   return mins ? `${hours} ч ${mins} мин` : `${hours} ч`;
 }
 
+function formatArchiveDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function readStoredJobs() {
   if (typeof window === 'undefined') return [];
   try {
@@ -85,6 +101,10 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   const [since, setSince] = useState('6h');
   const [maxLogMb, setMaxLogMb] = useState(32);
   const [jobs, setJobs] = useState(() => readStoredJobs());
+  const [archives, setArchives] = useState([]);
+  const [archiveRetentionDays, setArchiveRetentionDays] = useState(7);
+  const [archivesLoading, setArchivesLoading] = useState(false);
+  const [archivesError, setArchivesError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(null);
   const [lastPollAt, setLastPollAt] = useState(0);
@@ -122,6 +142,36 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [open, jobs]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let disposed = false;
+    let controller = null;
+    const load = async (showLoader = false) => {
+      controller?.abort();
+      controller = new AbortController();
+      if (showLoader) setArchivesLoading(true);
+      try {
+        const data = await getClusterDiagnosticsArchives({ signal: controller.signal });
+        if (disposed || controller.signal.aborted) return;
+        setArchives(Array.isArray(data?.archives) ? data.archives : []);
+        setArchiveRetentionDays(Number(data?.retentionDays) || 7);
+        setArchivesError(null);
+      } catch (error) {
+        if (disposed || controller.signal.aborted) return;
+        setArchivesError(handleApiError(error, false, 'Не удалось получить сохранённые архивы')?.primaryMessage || 'MinIO временно недоступен');
+      } finally {
+        if (!disposed) setArchivesLoading(false);
+      }
+    };
+    void load(true);
+    const timer = window.setInterval(() => load(false), 5000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      controller?.abort();
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -218,20 +268,28 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
     setDownloading(key);
     try {
       const { blob, fileName } = await downloadClusterDiagnostics(job.node, job.jobId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, fileName);
     } catch (error) {
       handleApiError(error, notify, 'Не удалось скачать архив диагностики');
     } finally {
       setDownloading(null);
     }
   };
+
+  const downloadStored = async archive => {
+    if (!archive?.id || downloading) return;
+    const key = `archive:${archive.id}`;
+    setDownloading(key);
+    try {
+      const { blob, fileName } = await downloadStoredClusterDiagnostics(archive.id);
+      saveBlob(blob, fileName || archive.fileName);
+    } catch (error) {
+      handleApiError(error, notify, 'Не удалось скачать сохранённый архив');
+    } finally {
+      setDownloading(null);
+    }
+  };
+
 
   return <div className="tf-cluster-dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="tf-cluster-dialog tf-cluster-diagnostics-dialog" role="dialog" aria-modal="true" aria-labelledby="cluster-diagnostics-title">
@@ -273,6 +331,28 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
           </div>
           {mode === 'quick' && <div className="tf-cluster-diagnostics-hint">Quick: host/status/doctor/systemd/Docker state без журналов контейнеров и Docker events.</div>}
           {mode === 'full' && <div className="tf-cluster-callout is-warn"><AlertTriangle size={17} /><div><strong>Полная история без лимита.</strong><div>Если контейнеры давно работают и много пишут в stdout/stderr, архив может занять сотни мегабайт или больше.</div></div></div>}
+        </section>
+
+        <section className="tf-cluster-diagnostics-section tf-cluster-diagnostics-archives">
+          <div className="tf-cluster-diagnostics-section-head">
+            <div><strong>Сохранённые архивы</strong><small>После завершения сборки архив автоматически сохраняется в MinIO на {archiveRetentionDays} дн. Просроченные файлы удаляются автоматически.</small></div>
+            {archivesLoading && <span className="tf-cluster-diagnostics-freshness"><Loader2 size={12} className="tf-cluster-spin" /> обновляем</span>}
+          </div>
+          {archivesError && <div className="tf-cluster-diagnostics-hint is-error">{archivesError}</div>}
+          {!archivesLoading && !archivesError && archives.length === 0 && <div className="tf-cluster-diagnostics-hint">Сохранённых архивов пока нет. Завершённые сборки появятся здесь автоматически.</div>}
+          {archives.length > 0 && <div className="tf-cluster-diagnostics-archive-list">
+            {archives.map(archive => {
+              const key = `archive:${archive.id}`;
+              return <div key={archive.id} className="tf-cluster-diagnostics-archive">
+                <span className="tf-cluster-diagnostics-job-icon"><FileArchive size={17} /></span>
+                <div className="tf-cluster-diagnostics-archive-main">
+                  <div><strong>{archive.fileName || 'taskforge_diagnostics.tar.gz'}</strong><Tag>Сервер {archive.node}</Tag>{archive.sizeBytes != null && <Tag>{bytes(archive.sizeBytes)}</Tag>}</div>
+                  <small>Собран {formatArchiveDate(archive.createdAt)} · хранится до {formatArchiveDate(archive.expiresAt)}</small>
+                </div>
+                <button type="button" className="tf-cluster-button is-primary" disabled={!!downloading} onClick={() => downloadStored(archive)}><Download size={14} />{downloading === key ? 'Скачиваем…' : 'Скачать'}</button>
+              </div>;
+            })}
+          </div>}
         </section>
 
         {jobs.length > 0 && <section className="tf-cluster-diagnostics-section tf-cluster-diagnostics-live" aria-live="polite">

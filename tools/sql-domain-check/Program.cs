@@ -292,29 +292,44 @@ internal static class Program
             imageChanged.Fingerprint = SqlContentKeys.Profile(imageChanged);
             Assert(!SqlProfileCompatibility.IsCompatible(old, imageChanged));
         });
-        Test("certified MySQL 8.4.0 CPU runtime variants are compatible without collapsing profile identity", () =>
+        Test("certified TaskForge MySQL runtime family preserves immutable published profiles", () =>
         {
+            var historical = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
             var ol9 = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
             var ol8 = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
+            historical.EngineVersion = "8.4.11";
+            historical.RuntimeDigest = "sha256:3466ba4a4828aa8d46fb7c3bc16b67b781c98413cf4ea0fac6feaa6e881faa26";
             ol9.EngineVersion = "8.4.0";
-            ol8.EngineVersion = "8.4.0";
             ol9.RuntimeDigest = "sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0";
+            ol8.EngineVersion = "8.4.0";
             ol8.RuntimeDigest = "sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33";
+            historical.Fingerprint = SqlContentKeys.Profile(historical);
             ol9.Fingerprint = SqlContentKeys.Profile(ol9);
             ol8.Fingerprint = SqlContentKeys.Profile(ol8);
-            Assert(ol9.Fingerprint != ol8.Fingerprint);
+            Assert(historical.Fingerprint != ol9.Fingerprint && ol9.Fingerprint != ol8.Fingerprint);
+            Assert(SqlProfileCompatibility.IsCompatible(historical, ol9));
+            Assert(SqlProfileCompatibility.IsCompatible(ol9, historical));
+            Assert(SqlProfileCompatibility.IsCompatible(historical, ol8));
+            Assert(SqlProfileCompatibility.IsCompatible(ol8, historical));
             Assert(SqlProfileCompatibility.IsCompatible(ol9, ol8));
             Assert(SqlProfileCompatibility.IsCompatible(ol8, ol9));
 
-            var unknown = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
-            unknown.EngineVersion = "8.4.0";
-            unknown.RuntimeDigest = "sha256:" + new string('d', 64);
-            unknown.Fingerprint = SqlContentKeys.Profile(unknown);
-            Assert(!SqlProfileCompatibility.IsCompatible(ol9, unknown));
+            var unknownDigest = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
+            unknownDigest.EngineVersion = "8.4.11";
+            unknownDigest.RuntimeDigest = "sha256:" + new string('d', 64);
+            unknownDigest.Fingerprint = SqlContentKeys.Profile(unknownDigest);
+            Assert(!SqlProfileCompatibility.IsCompatible(historical, unknownDigest));
+            Assert(!SqlProfileCompatibility.IsCompatible(ol9, unknownDigest));
 
-            ol8.EngineVersion = "8.4.1";
-            ol8.Fingerprint = SqlContentKeys.Profile(ol8);
-            Assert(!SqlProfileCompatibility.IsCompatible(ol9, ol8));
+            var unknownVersion = CurrentRuntimeProfile(SqlEngineNames.MySql, "mariadb-3.4", "sha256:" + new string('c', 64));
+            unknownVersion.EngineVersion = "8.4.1";
+            unknownVersion.RuntimeDigest = ol8.RuntimeDigest;
+            unknownVersion.Fingerprint = SqlContentKeys.Profile(unknownVersion);
+            Assert(!SqlProfileCompatibility.IsCompatible(ol9, unknownVersion));
+
+            // Exact unknown identities remain self-compatible; only cross-runtime
+            // bridging is restricted to the explicit audited family.
+            Assert(SqlProfileCompatibility.IsCompatible(unknownDigest, unknownDigest));
         });
         Test("current server runtimes can serve matching legacy Go profiles", () =>
         {
