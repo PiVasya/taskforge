@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  BookOpen,
   CheckCircle2,
   ChevronDown,
   Code2,
@@ -12,9 +11,7 @@ import {
   RefreshCw,
   Rocket,
   Sparkles,
-  Target,
   Trophy,
-  Zap,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { getLandingSessionCta } from "../features/landing/landingSessionModel";
@@ -75,24 +72,6 @@ const featureTabs = [
       "счётчик курса обновляется",
       "результат сохраняется в истории решений",
     ],
-  },
-];
-
-const journeyCards = [
-  {
-    icon: BookOpen,
-    title: "Открыл курс",
-    text: "Сразу понятно, с какой темы начать и какие задания уже выполнены.",
-  },
-  {
-    icon: Target,
-    title: "Решил задачу",
-    text: "Читаешь условие, пишешь решение и отправляешь его на проверку.",
-  },
-  {
-    icon: Zap,
-    title: "Получил результат",
-    text: "Видишь вердикт, пройденные тесты и обновлённый прогресс.",
   },
 ];
 
@@ -191,14 +170,20 @@ function SolutionCheckDemo() {
       </div>
 
       <div className="landing-submit-row">
-        <button type="button" className="landing-demo-submit" onClick={() => setRunKey((value) => value + 1)}>
+        <button
+          type="button"
+          className="landing-demo-submit"
+          onClick={() => setRunKey((value) => value + 1)}
+          aria-label="Повторить демонстрацию проверки"
+        >
           <PlayCircle size={17} />
-          <span>Отправить решение</span>
+          <span>Повторить демонстрацию</span>
         </button>
         <div className="landing-submit-track" aria-hidden="true">
           <span />
         </div>
       </div>
+      <p className="landing-demo-note">Это демонстрация интерфейса: код не отправляется на сервер.</p>
 
       <div className="landing-check-steps">
         {checkSteps.map((step, index) => (
@@ -215,7 +200,7 @@ function SolutionCheckDemo() {
           <strong>Accepted</strong>
           <span>Вывод совпал с ожидаемым, прогресс обновлён.</span>
         </div>
-        <button type="button" onClick={() => setRunKey((value) => value + 1)} aria-label="Повторить анимацию проверки">
+        <button type="button" onClick={() => setRunKey((value) => value + 1)} aria-label="Повторить демонстрацию проверки">
           <RefreshCw size={16} />
         </button>
       </div>
@@ -370,26 +355,6 @@ export default function LandingPage() {
             </div>
 
             <FeaturePanel feature={activeFeature} />
-          </div>
-        </section>
-
-        <section className="landing-section landing-audience-section" id="journey">
-          <div className="landing-section-head compact">
-            <div className="landing-section-kicker">Маршрут</div>
-            <h2>Один понятный путь вместо лишнего шума</h2>
-          </div>
-
-          <div className="landing-audience-grid">
-            {journeyCards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <article key={card.title} className="landing-audience-card">
-                  <div className="landing-audience-icon"><Icon size={24} /></div>
-                  <h3>{card.title}</h3>
-                  <p>{card.text}</p>
-                </article>
-              );
-            })}
           </div>
         </section>
 

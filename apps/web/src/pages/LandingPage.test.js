@@ -66,6 +66,24 @@ describe('LandingPage session-aware calls to action', () => {
     expect(container.textContent).not.toContain('Создай аккаунт, выбери курс и переходи к первому заданию.');
   });
 
+  test('landing keeps one process explanation instead of repeating the same journey', async () => {
+    await renderWithAuth({ ready: true, access: null });
+
+    expect(container.textContent).toContain('От курса до принятого решения');
+    expect(container.textContent).not.toContain('Один понятный путь вместо лишнего шума');
+    expect(container.textContent).not.toContain('Открыл курс');
+    expect(container.textContent).not.toContain('Решил задачу');
+    expect(container.textContent).not.toContain('Получил результат');
+  });
+
+  test('solution check is explicitly a demonstration and does not promise a real submit', async () => {
+    await renderWithAuth({ ready: true, access: null });
+
+    expect(container.textContent).toContain('Повторить демонстрацию');
+    expect(container.textContent).toContain('Это демонстрация интерфейса: код не отправляется на сервер.');
+    expect(container.textContent).not.toContain('Отправить решение');
+  });
+
   test('session check exposes no guest navigation before authentication state is known', async () => {
     await renderWithAuth({ ready: false, access: null });
 

@@ -588,7 +588,6 @@ html.neo-brutal :where(
   .landing-check-demo,
   .landing-metric-card,
   .landing-feature-panel,
-  .landing-audience-card,
   .landing-flow-card,
   .landing-flow-step,
   .landing-faq-item,
@@ -685,7 +684,7 @@ html.neo-brutal .landing-feature-tab:hover {
   box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
 }
 
-html.neo-brutal :where(.landing-feature-icon, .landing-audience-icon, .landing-preview-score, .changelog-icon, .changelog-number, .changelog-benefit-icon, .changelog-death-icon, .compiler-page__mark) {
+html.neo-brutal :where(.landing-feature-icon, .landing-preview-score, .changelog-icon, .changelog-number, .changelog-benefit-icon, .changelog-death-icon, .compiler-page__mark) {
   border: 2px solid rgb(var(--neo-ink)) !important;
   border-radius: 0.7rem !important;
   background: rgb(var(--brand-300)) !important;

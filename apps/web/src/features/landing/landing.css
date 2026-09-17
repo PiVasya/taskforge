@@ -350,7 +350,6 @@
 }
 
 .landing-metric-card,
-.landing-audience-card,
 .landing-flow-card,
 .landing-final-cta,
 .landing-feature-panel,
@@ -403,8 +402,7 @@
 .landing-section-head p,
 .landing-flow-card p,
 .landing-final-cta p,
-.landing-feature-panel p,
-.landing-audience-card p {
+.landing-feature-panel p {
   margin-top: 12px;
   color: rgb(var(--text-muted));
   line-height: 1.62;
@@ -443,8 +441,7 @@
   box-shadow: 0 18px 34px rgba(var(--accent) / 0.10);
 }
 
-.landing-feature-icon,
-.landing-audience-icon {
+.landing-feature-icon {
   display: grid;
   flex: 0 0 auto;
   width: 46px;
@@ -455,8 +452,7 @@
   color: rgb(var(--accent));
 }
 
-.landing-feature-tab strong,
-.landing-audience-card h3 {
+.landing-feature-tab strong {
   display: block;
   font-size: 17px;
 }
@@ -481,27 +477,6 @@
 .landing-feature-panel .landing-preview-card {
   margin-top: 22px;
   box-shadow: none;
-}
-
-.landing-audience-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.landing-audience-card {
-  border-radius: 26px;
-  padding: 24px;
-  transition: transform .18s ease, border-color .18s ease;
-}
-
-.landing-audience-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(var(--accent) / 0.38);
-}
-
-.landing-audience-card h3 {
-  margin-top: 16px;
 }
 
 .landing-flow-card {
@@ -635,7 +610,6 @@
 
 @media (max-width: 900px) {
   .landing-metrics,
-  .landing-audience-grid,
   .landing-flow-line {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -661,7 +635,6 @@
   }
 
   .landing-metrics,
-  .landing-audience-grid,
   .landing-flow-line {
     grid-template-columns: 1fr;
   }
@@ -699,8 +672,7 @@
   }
 
   .landing-btn,
-  .landing-feature-tab,
-  .landing-audience-card {
+  .landing-feature-tab {
     transition: none;
   }
 }
@@ -935,6 +907,15 @@
 @keyframes landing-submit-track {
   0% { width: 0; }
   100% { width: 100%; }
+}
+
+.landing-demo-note {
+  position: relative;
+  z-index: 1;
+  margin: 9px 0 0;
+  color: rgb(var(--muted));
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .landing-check-steps {
