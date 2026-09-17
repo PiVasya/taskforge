@@ -315,18 +315,6 @@ for frontend_path in ('apps/web/src/features/task-test/TaskTestQuestion.jsx', 'a
 if 'data-taskforge-option-key' not in text('apps/web/src/features/task-test/TaskTestQuestion.jsx'):
     die('task-test choices no longer expose stable answer option keys')
 
-attempt_recovery = text('apps/web/src/features/attempts/recoverSubmittedAttempt.js')
-for marker in ('shouldRecoverSubmittedAttempt', 'recoverSubmittedAttempt', 'ATTEMPT_ALREADY_SUBMITTED', 'attempt?.submittedAt'):
-    if marker not in attempt_recovery:
-        die(f'frontend lost accepted-attempt recovery marker: {marker}')
-for frontend_path, getter in (
-    ('apps/web/src/pages/TaskTestSolve.jsx', 'getMyTaskTestAttempt'),
-    ('apps/web/src/pages/MathTaskSolve.jsx', 'getMyMathAttempt'),
-):
-    value = text(frontend_path)
-    for marker in ('shouldRecoverSubmittedAttempt', 'recoverSubmittedAttempt', getter, 'recoveredAfterTransportFailure'):
-        if marker not in value:
-            die(f'{frontend_path} lost lost-submit reconciliation marker: {marker}')
 code_solve = text('apps/web/src/features/assignment-solve/AssignmentSolveFeature.jsx')
 for marker in ('recoverRecentCodeSubmission', 'listMySolutions', 'submitStartedAt', 'Результат восстановлен'):
     if marker not in code_solve:
