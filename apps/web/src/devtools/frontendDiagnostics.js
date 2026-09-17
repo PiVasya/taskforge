@@ -1,5 +1,6 @@
 import {
   DEFAULT_FRONTEND_LOG_LIMIT_MB,
+  advanceDiagnosticRateLimit,
   approximateDiagnosticBytes,
   clampFrontendLogLimitMb,
   describeDiagnosticTarget,
@@ -18,6 +19,7 @@ const MAX_QUEUE_BYTES = 2 * 1024 * 1024;
 const MAX_QUEUE_ITEMS = 1200;
 const FLUSH_DELAY_MS = 750;
 const MEMORY_SAMPLE_MS = 15_000;
+const MAX_LOG_EVENTS_PER_SECOND = 150;
 const SESSION_ID = (() => {
   try { return crypto.randomUUID(); } catch { return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 })();
@@ -28,6 +30,8 @@ let queueBytes = 0;
 let flushTimer = null;
 let flushPromise = null;
 let droppedInMemory = 0;
+let suppressedByRateLimit = 0;
+let diagnosticRateState = null;
 let storageError = '';
 let runtimeStop = null;
 let configListenerInstalled = false;
@@ -232,10 +236,9 @@ function currentRoute() {
   return sanitizeDiagnosticUrl(`${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`);
 }
 
-export function logFrontendEvent(category, event, detail = null, level = 'info') {
-  if (!getFrontendDiagnosticsConfig().enabled || !isBrowser()) return false;
+function enqueueFrontendDiagnostic(category, event, detail = null, level = 'info', ts = Date.now()) {
   const base = {
-    ts: Date.now(),
+    ts,
     monoMs: Math.round(browserNow()),
     sessionId: SESSION_ID,
     level: String(level || 'info').slice(0, 24),
@@ -260,6 +263,25 @@ export function logFrontendEvent(category, event, detail = null, level = 'info')
   if (queue.length >= 100 || queueBytes >= 512 * 1024) flushFrontendDiagnostics().catch(() => {});
   else scheduleFlush();
   return true;
+}
+
+export function logFrontendEvent(category, event, detail = null, level = 'info') {
+  if (!getFrontendDiagnosticsConfig().enabled || !isBrowser()) return false;
+  const now = Date.now();
+  const gate = advanceDiagnosticRateLimit(diagnosticRateState, now, MAX_LOG_EVENTS_PER_SECOND, 1000);
+  diagnosticRateState = gate.state;
+  if (gate.reportSuppressed > 0) {
+    enqueueFrontendDiagnostic('diagnostics', 'event-flood-suppressed', {
+      suppressed: gate.reportSuppressed,
+      windowMs: 1000,
+      maxEvents: MAX_LOG_EVENTS_PER_SECOND,
+    }, 'warn', now);
+  }
+  if (!gate.allowed) {
+    suppressedByRateLimit += 1;
+    return false;
+  }
+  return enqueueFrontendDiagnostic(category, event, detail, level, now);
 }
 
 function serializeConsoleArg(value) {
@@ -343,15 +365,17 @@ function installGlobalRuntimeLogging() {
   if (originalFetch) {
     const diagnosticsFetch = async (input, init = {}) => {
       const url = typeof input === 'string' ? input : input?.url || '';
+      const safeUrl = sanitizeDiagnosticUrl(url);
       const method = String(init?.method || input?.method || 'GET').toUpperCase();
+      const skipTelemetryNoise = safeUrl.startsWith('/api/activity/page-view');
       const startedAt = Date.now();
-      logFrontendEvent('fetch', 'request', { method, url: sanitizeDiagnosticUrl(url) });
+      if (!skipTelemetryNoise) logFrontendEvent('fetch', 'request', { method, url: safeUrl });
       try {
         const response = await originalFetch.call(window, input, init);
-        logFrontendEvent('fetch', 'response', { method, url: sanitizeDiagnosticUrl(url), status: response.status, durationMs: Date.now() - startedAt });
+        if (!skipTelemetryNoise) logFrontendEvent('fetch', 'response', { method, url: safeUrl, status: response.status, durationMs: Date.now() - startedAt });
         return response;
       } catch (error) {
-        logFrontendEvent('fetch', 'error', { method, url: sanitizeDiagnosticUrl(url), durationMs: Date.now() - startedAt, error }, 'error');
+        if (!skipTelemetryNoise) logFrontendEvent('fetch', 'error', { method, url: safeUrl, durationMs: Date.now() - startedAt, error }, 'error');
         throw error;
       }
     };
@@ -387,8 +411,10 @@ function installGlobalRuntimeLogging() {
       const resourceObserver = new PerformanceObserver((list) => {
         list.getEntries().forEach((entry) => {
           if (entry.duration < 1000) return;
+          const resourceName = sanitizeDiagnosticUrl(entry.name);
+          if (resourceName.startsWith('/api/activity/page-view') || resourceName.startsWith('/cdn-cgi/rum')) return;
           logFrontendEvent('performance', 'slow-resource', {
-            name: sanitizeDiagnosticUrl(entry.name),
+            name: resourceName,
             durationMs: Math.round(entry.duration),
             transferSize: Number(entry.transferSize || 0),
             initiatorType: entry.initiatorType,
@@ -468,7 +494,7 @@ export function instrumentSignalRConnection(connection, name, detail = {}) {
 
 export async function getFrontendDiagnosticsStats() {
   const config = getFrontendDiagnosticsConfig();
-  if (!isBrowser()) return { ...config, count: 0, bytes: 0, queued: queue.length, droppedInMemory, storageError };
+  if (!isBrowser()) return { ...config, count: 0, bytes: 0, queued: queue.length, droppedInMemory, suppressedByRateLimit, storageError };
   try {
     await flushFrontendDiagnostics();
     const db = await openDatabase();
@@ -487,10 +513,11 @@ export async function getFrontendDiagnosticsStats() {
       bytes: Number(total?.value || 0),
       queued: queue.length,
       droppedInMemory,
+      suppressedByRateLimit,
       storageError,
     };
   } catch (error) {
-    return { ...config, count: 0, bytes: 0, queued: queue.length, droppedInMemory, storageError: String(error?.message || error || '') };
+    return { ...config, count: 0, bytes: 0, queued: queue.length, droppedInMemory, suppressedByRateLimit, storageError: String(error?.message || error || '') };
   }
 }
 
@@ -499,6 +526,8 @@ export async function clearFrontendDiagnostics() {
   queue = [];
   queueBytes = 0;
   droppedInMemory = 0;
+  suppressedByRateLimit = 0;
+  diagnosticRateState = null;
   storageError = '';
   if (!isBrowser()) return;
   if (flushTimer != null) { window.clearTimeout(flushTimer); flushTimer = null; }

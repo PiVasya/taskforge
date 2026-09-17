@@ -56,3 +56,21 @@ test('prefetch cache is garbage-collected even when it never had a subscriber', 
   await new Promise((resolve) => setTimeout(resolve, 35));
   assert.equal(client.getQueryData(['course-bundle', 'child']), undefined);
 });
+
+test('diagnostic flood limiter records a bounded sample and reports suppressed bursts', () => {
+  let state = null;
+  let allowed = 0;
+  for (let index = 0; index < 500; index += 1) {
+    const gate = model.advanceDiagnosticRateLimit(state, 1000, 150, 1000);
+    state = gate.state;
+    if (gate.allowed) allowed += 1;
+  }
+  assert.equal(allowed, 150);
+  assert.equal(state.suppressed, 350);
+
+  const nextWindow = model.advanceDiagnosticRateLimit(state, 2001, 150, 1000);
+  assert.equal(nextWindow.allowed, true);
+  assert.equal(nextWindow.reportSuppressed, 350);
+  assert.equal(nextWindow.state.count, 1);
+  assert.equal(nextWindow.state.suppressed, 0);
+});

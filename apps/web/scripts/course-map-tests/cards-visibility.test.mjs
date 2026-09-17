@@ -111,3 +111,23 @@ test('locked card item is non-content metadata and keeps only the safe lock mess
   assert.equal(entry.assignment, undefined);
   assert.equal(entry.course, undefined);
 });
+
+test('identical course progress snapshots reuse state instead of forcing another render', () => {
+  const previous = {
+    'course-a': { total: 3, solved: 2, percent: 67, isComplete: false, loading: false },
+    'course-b': { total: 1, solved: 1, percent: 100, isComplete: true, loading: false },
+  };
+  const identical = {
+    'course-a': { total: 3, solved: 2, percent: 67, isComplete: false, loading: false },
+    'course-b': { total: 1, solved: 1, percent: 100, isComplete: true, loading: false },
+  };
+  const reused = model.reuseProgressMapIfEqual(previous, identical);
+  assert.equal(reused, previous);
+
+  const changed = model.reuseProgressMapIfEqual(previous, {
+    ...identical,
+    'course-a': { ...identical['course-a'], solved: 3, percent: 100, isComplete: true },
+  });
+  assert.notEqual(changed, previous);
+  assert.equal(changed['course-a'].solved, 3);
+});

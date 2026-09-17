@@ -29,6 +29,7 @@ import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, c
 
 import {
   isAssignmentSolved,
+  reuseProgressMapIfEqual,
   normalizeProgressRows,
   buildChildrenByParent,
   collectCourseSubtreeIds,
@@ -199,11 +200,12 @@ export default function CourseAssignmentsPage() {
     () => new Set((courseBundle.learnerVisibleAssignmentIds || EMPTY_LIST).map((id) => String(id))),
     [courseBundle.learnerVisibleAssignmentIds]
   );
-  const items = isEditorMode
-    ? (assignmentsQuery.data || EMPTY_LIST)
-    : learnerCards
-      ? filterLearnerCardAssignments(assignmentsQuery.data || EMPTY_LIST, learnerVisibleAssignmentIds)
-      : EMPTY_LIST;
+  const assignmentRows = assignmentsQuery.data || EMPTY_LIST;
+  const items = useMemo(() => {
+    if (isEditorMode) return assignmentRows;
+    if (learnerCards) return filterLearnerCardAssignments(assignmentRows, learnerVisibleAssignmentIds);
+    return EMPTY_LIST;
+  }, [assignmentRows, isEditorMode, learnerCards, learnerVisibleAssignmentIds]);
   const course = courseBundle.course || null;
   const childCourses = courseBundle.childCourses || EMPTY_LIST;
   const allCourses = courseBundle.allCourses || EMPTY_LIST;
@@ -462,8 +464,8 @@ export default function CourseAssignmentsPage() {
           const childSubtreeIds = collectCourseSubtreeIds(child.id, childrenByParent);
           nextChildProgress[child.id] = sumCourseProgress(childSubtreeIds, directProgress);
         }
-        setCourseProgressByCourseId({ [courseId]: currentProgress });
-        setChildProgressByCourseId(nextChildProgress);
+        setCourseProgressByCourseId((previous) => reuseProgressMapIfEqual(previous, { [courseId]: currentProgress }));
+        setChildProgressByCourseId((previous) => reuseProgressMapIfEqual(previous, nextChildProgress));
       })
       .catch(() => {
         if (cancelled) return;
@@ -475,8 +477,8 @@ export default function CourseAssignmentsPage() {
         for (const child of childCourses) {
           if (child?.id) failedChildren[child.id] = failedCurrent;
         }
-        setCourseProgressByCourseId({ [courseId]: failedCurrent });
-        setChildProgressByCourseId(failedChildren);
+        setCourseProgressByCourseId((previous) => reuseProgressMapIfEqual(previous, { [courseId]: failedCurrent }));
+        setChildProgressByCourseId((previous) => reuseProgressMapIfEqual(previous, failedChildren));
       });
 
     return () => {

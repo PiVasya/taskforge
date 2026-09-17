@@ -7,6 +7,38 @@ export const MAX_DIAGNOSTIC_STACK = 16000;
 const SENSITIVE_KEY_RE = /(authorization|access[_-]?token|refresh[_-]?token|password|passwd|cookie|set-cookie|secret|credential|csrf|private[_-]?key|api[_-]?key|phone|email|source[_-]?code|starter[_-]?code|reference[_-]?solution|solution[_-]?code|answer(?:s)?$)/i;
 const URL_SECRET_KEY_RE = /(token|code|password|secret|key|auth|email|phone)/i;
 
+
+export function advanceDiagnosticRateLimit(state, now, maxEvents = 150, windowMs = 1000) {
+  const currentTime = Number(now) || 0;
+  const limit = Math.max(1, Number(maxEvents) || 1);
+  const span = Math.max(1, Number(windowMs) || 1000);
+  const previous = state && Number.isFinite(state.startedAt)
+    ? state
+    : { startedAt: currentTime, count: 0, suppressed: 0 };
+
+  if (currentTime - previous.startedAt >= span || currentTime < previous.startedAt) {
+    return {
+      state: { startedAt: currentTime, count: 1, suppressed: 0 },
+      allowed: true,
+      reportSuppressed: Number(previous.suppressed || 0),
+    };
+  }
+
+  if (previous.count < limit) {
+    return {
+      state: { ...previous, count: previous.count + 1 },
+      allowed: true,
+      reportSuppressed: 0,
+    };
+  }
+
+  return {
+    state: { ...previous, suppressed: Number(previous.suppressed || 0) + 1 },
+    allowed: false,
+    reportSuppressed: 0,
+  };
+}
+
 export function clampFrontendLogLimitMb(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return DEFAULT_FRONTEND_LOG_LIMIT_MB;

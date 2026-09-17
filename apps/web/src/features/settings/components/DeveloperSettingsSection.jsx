@@ -40,7 +40,7 @@ function DeveloperModeSwitch({ enabled, onChange }) {
 
 export default function DeveloperSettingsSection({ notify }) {
   const [config, setConfig] = useState(() => getFrontendDiagnosticsConfig());
-  const [stats, setStats] = useState(() => ({ count: 0, bytes: 0, queued: 0, droppedInMemory: 0, storageError: '' }));
+  const [stats, setStats] = useState(() => ({ count: 0, bytes: 0, queued: 0, droppedInMemory: 0, suppressedByRateLimit: 0, storageError: '' }));
   const [busy, setBusy] = useState('');
 
   const refreshStats = useCallback(async () => {
@@ -157,6 +157,7 @@ export default function DeveloperSettingsSection({ notify }) {
             <span>Событий: {Number(stats.count || 0).toLocaleString('ru-RU')}</span>
             {stats.queued ? <span>В очереди записи: {stats.queued}</span> : null}
             {stats.droppedInMemory ? <span>Отброшено при перегрузке: {stats.droppedInMemory}</span> : null}
+            {stats.suppressedByRateLimit ? <span>Подавлено при шторме: {Number(stats.suppressedByRateLimit).toLocaleString('ru-RU')}</span> : null}
           </div>
           {stats.storageError ? (
             <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">Последняя ошибка хранилища: {stats.storageError}</div>

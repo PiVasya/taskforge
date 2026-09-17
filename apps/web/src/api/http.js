@@ -2,7 +2,13 @@ import axios from 'axios';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 const API_TELEMETRY_SLOW_MS = 750;
+const API_TELEMETRY_DUPLICATE_WINDOW_MS = 10_000;
+const API_TELEMETRY_GLOBAL_WINDOW_MS = 60_000;
+const API_TELEMETRY_MAX_PER_WINDOW = 30;
 let accessToken = null;
+let apiTelemetryWindowStartedAt = 0;
+let apiTelemetryWindowCount = 0;
+const apiTelemetryLastBySignature = new Map();
 
 export function setAccessToken(token) {
   accessToken = token || null;
@@ -36,6 +42,27 @@ function shouldSkipApiTelemetry(config = {}) {
   return false;
 }
 
+function allowApiTelemetry(signature, now = Date.now()) {
+  if (!apiTelemetryWindowStartedAt || now - apiTelemetryWindowStartedAt >= API_TELEMETRY_GLOBAL_WINDOW_MS || now < apiTelemetryWindowStartedAt) {
+    apiTelemetryWindowStartedAt = now;
+    apiTelemetryWindowCount = 0;
+  }
+  if (apiTelemetryWindowCount >= API_TELEMETRY_MAX_PER_WINDOW) return false;
+
+  const previous = Number(apiTelemetryLastBySignature.get(signature) || 0);
+  if (previous && now - previous < API_TELEMETRY_DUPLICATE_WINDOW_MS) return false;
+
+  apiTelemetryLastBySignature.set(signature, now);
+  apiTelemetryWindowCount += 1;
+  if (apiTelemetryLastBySignature.size > 256) {
+    const cutoff = now - API_TELEMETRY_GLOBAL_WINDOW_MS;
+    for (const [key, value] of apiTelemetryLastBySignature.entries()) {
+      if (value < cutoff) apiTelemetryLastBySignature.delete(key);
+    }
+  }
+  return true;
+}
+
 function safeErrorMessage(error) {
   const data = error?.response?.data;
   const raw = data?.userMessage || data?.message || data?.error || data?.detail || data?.title || error?.userMessage || error?.message;
@@ -56,10 +83,13 @@ function trackApiTelemetry(config = {}, statusCode, error) {
     const normalizedStatus = Number(statusCode || 0) || null;
     const isError = normalizedStatus != null && normalizedStatus >= 400;
     if (!isError && durationMs < API_TELEMETRY_SLOW_MS) return;
+    const action = isError ? 'api-error' : 'api-slow';
+    const signature = `${method}|${path}|${action}|${normalizedStatus || 0}`;
+    if (!allowApiTelemetry(signature)) return;
     const payload = {
       path,
       method,
-      action: isError ? 'api-error' : 'api-slow',
+      action,
       source: 'api-client',
       statusCode: normalizedStatus,
       durationMs,

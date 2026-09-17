@@ -1,5 +1,7 @@
 import api from './http';
 
+const courseProgressInFlight = new Map();
+
 
 export async function getAssignmentsByCourse(courseId) {
   const res = await api.get(`/api/courses/${courseId}/assignments`);
@@ -12,8 +14,17 @@ export async function getCourseProgressByCourses(courseIds) {
     .sort();
   if (ids.length === 0) return [];
 
-  const res = await api.post('/api/assignments/course-progress', { courseIds: ids });
-  return res.data;
+  const requestKey = ids.join('\u001f');
+  const existing = courseProgressInFlight.get(requestKey);
+  if (existing) return existing;
+
+  const request = api.post('/api/assignments/course-progress', { courseIds: ids })
+    .then((res) => res.data)
+    .finally(() => {
+      if (courseProgressInFlight.get(requestKey) === request) courseProgressInFlight.delete(requestKey);
+    });
+  courseProgressInFlight.set(requestKey, request);
+  return request;
 }
 
 

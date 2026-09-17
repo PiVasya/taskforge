@@ -34,6 +34,30 @@ function isAssignmentSolved(item) {
   return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
 }
 
+
+function progressSnapshotEqual(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return Number(left.total || 0) === Number(right.total || 0)
+    && Number(left.solved || 0) === Number(right.solved || 0)
+    && Number(left.percent || 0) === Number(right.percent || 0)
+    && Boolean(left.isComplete) === Boolean(right.isComplete)
+    && Boolean(left.loading) === Boolean(right.loading)
+    && Boolean(left.failed) === Boolean(right.failed);
+}
+
+function reuseProgressMapIfEqual(previous, next) {
+  if (previous === next) return previous;
+  const previousKeys = Object.keys(previous || {}).sort();
+  const nextKeys = Object.keys(next || {}).sort();
+  if (previousKeys.length !== nextKeys.length) return next;
+  for (let index = 0; index < previousKeys.length; index += 1) {
+    const key = previousKeys[index];
+    if (key !== nextKeys[index] || !progressSnapshotEqual(previous?.[key], next?.[key])) return next;
+  }
+  return previous;
+}
+
 function normalizeProgressRows(rows) {
   const map = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -333,6 +357,8 @@ export {
   previewAssignmentTitle,
   previewAssignmentDescription,
   isAssignmentSolved,
+  progressSnapshotEqual,
+  reuseProgressMapIfEqual,
   normalizeProgressRows,
   buildChildrenByParent,
   collectCourseSubtreeIds,
