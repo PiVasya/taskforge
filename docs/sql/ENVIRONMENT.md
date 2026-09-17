@@ -17,14 +17,15 @@ business DBs, migrations or volumes. The worker refuses an unprepared marker/pro
 | SQL_WORKER_ID | unique sql-A / sql-B / local worker identity |
 | SQL_SANDBOX_MARKER | generated 64-hex runtime-only namespace authorization marker |
 | SQL_POSTGRES_PASSWORD / SQL_MYSQL_PASSWORD | generated runtime-admin credentials; parent worker only |
-| SQL_POSTGRES_IMAGE / SQL_MYSQL_IMAGE | saved registry image@sha256 pins; initial defaults postgres:18-bookworm / mysql:8.4 |
+| SQL_POSTGRES_IMAGE / SQL_MYSQL_IMAGE | saved registry image@sha256 pins; PostgreSQL defaults to postgres:18-bookworm. MySQL selects a certified MySQL 8.4.0 runtime by host capability: Oracle Linux 9 digest `dab7049a...` on x86-64-v2 capable hosts or Oracle Linux 8/cpuv1 digest `f7a8e140...` on older/masked x86-64 hosts |
 | SQL_POSTGRES_RUNTIME_DIGEST / SQL_MYSQL_RUNTIME_DIGEST | matching sha256 fingerprints for registered profiles |
 | TASKFORGE_SQL_INIT_ROOT | wrapper-resolved init-script directory, not a user absolute project path |
 
-Preparation on another node must use the SAME PostgreSQL/MySQL image@sha256 pins
-and the SAME built sql-worker image. Share image pins, never node passwords/marker.
-Do not refresh floating tags independently on A and B. Existing pins are not replaced
-by a normal migrate. Intentional engine upgrades need controlled revalidation.
+Preparation on another node must use the SAME PostgreSQL image and the SAME built sql-worker
+image. MySQL may differ only between the two certified 8.4.0 CPU variants selected by the runtime
+preflight; arbitrary per-node MySQL pins are not compatible. Share release policy, never node
+passwords/marker. Do not refresh floating tags independently on A and B. Intentional engine
+upgrades outside the certified pair need controlled revalidation.
 
 ## Configurable resource settings in the normal environment
 

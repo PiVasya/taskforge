@@ -92,13 +92,13 @@ services:
     cap_drop: *id002
     read_only: true
     init: true
-    restart: unless-stopped
+    restart: "on-failure:5"
     oom_score_adj: 700
     cpu_shares: 128
     pids_limit: 96
     ulimits: *id003
     logging: *id004
-    image: ${SQL_MYSQL_IMAGE:-mysql:8.4}
+    image: ${SQL_MYSQL_IMAGE:-mysql@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0}
     profiles:
     - sql
     user: 999:999

@@ -5,12 +5,14 @@ The Go SQL runtime release builds on user source develop(212), including the use
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
 
-The authoritative A/B/C production package is the independent v40-r67 archive. Its
-entrypoint is `./cluster.sh`. A/B are full; C remains lite. r67 preserves the r66 SQL
-reconciliation and r65 diagnostics control, and adds a local Unix-socket Node Agent control
-path so observability-api never hairpins through its own WireGuard address. The older cluster scripts inside this source tree are not a replacement
-for that package. Do not restore historical deployment instructions as the current
-production procedure.
+The authoritative A/B/C production package is the independent v40-r70 archive. Its
+entrypoint is `./cluster.sh`. A/B are full; C remains lite. r70 preserves r68 real diagnostics
+progress and r69 bounded optional-SQL reconciliation, but replaces the global old-CPU MySQL pin
+with MinIO-style capability selection: full nodes choose one of the two certified official MySQL
+8.4.0 Oracle Linux 9/8 runtime variants. Their profile fingerprints remain distinct and Tasks API
+explicitly aliases only this immutable same-release pair. The older cluster scripts inside this
+source tree are not a replacement for that package. Do not restore historical deployment
+instructions as the current production procedure.
 
 # AI rules for this project
 

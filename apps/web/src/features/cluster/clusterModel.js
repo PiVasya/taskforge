@@ -26,6 +26,47 @@ function diagnosticsText(...values) {
   return '';
 }
 
+const DIAGNOSTICS_PHASE_LABELS = {
+  queued: 'В очереди',
+  prepare: 'Подготовка',
+  host: 'Состояние хоста',
+  network: 'Сеть',
+  systemd: 'systemd и журналы',
+  cluster: 'Статус кластера',
+  'docker-inventory': 'Инвентаризация Docker',
+  'migration-logs': 'Миграционные логи',
+  containers: 'Контейнеры',
+  'docker-events': 'Docker events',
+  redaction: 'Удаление секретов',
+  archive: 'Упаковка архива',
+  completed: 'Готово',
+  failed: 'Ошибка',
+};
+
+const DIAGNOSTICS_STEP_LABELS = {
+  initialize: 'Подготовка рабочего каталога',
+  manifest: 'Манифест',
+  'host-state': 'CPU, память и диски',
+  'network-state': 'Интерфейсы, маршруты и WireGuard',
+  journals: 'Node Agent и Docker journal',
+  'status-doctor': 'status + doctor',
+  enumerate: 'Поиск TaskForge-контейнеров',
+  complete: 'Этап завершён',
+  collect: 'Сбор данных',
+  inspect: 'Docker inspect',
+  'inspect-done': 'Docker inspect готов',
+  logs: 'docker logs',
+  'container-done': 'Контейнер собран',
+  sanitize: 'Редактирование секретов',
+  compress: 'Сжатие tar.gz',
+  ready: 'Архив готов',
+};
+
+export function diagnosticsPhaseLabel(phase) {
+  const key = String(phase || '').trim().toLowerCase();
+  return DIAGNOSTICS_PHASE_LABELS[key] || key.replace(/[-_]+/g, ' ') || '';
+}
+
 export function diagnosticsJobProgress(job, now = Date.now()) {
   const status = String(job?.status || '').toLowerCase();
   const progress = job?.progress && typeof job.progress === 'object' ? job.progress : {};
@@ -41,45 +82,67 @@ export function diagnosticsJobProgress(job, now = Date.now()) {
     progress?.total, progress?.count,
   );
   const phase = diagnosticsText(job?.phase, job?.stage, progress?.phase, progress?.stage);
+  const step = diagnosticsText(job?.step, progress?.step);
   const currentItem = diagnosticsText(
     job?.currentItem, job?.current_item, job?.currentContainer, job?.current_container,
     progress?.currentItem, progress?.current_item, progress?.current,
   );
+  const currentIndex = diagnosticsNumber(job?.currentIndex, job?.current_index, progress?.currentIndex, progress?.current_index);
+  const containersCompleted = diagnosticsNumber(
+    job?.containersCompleted, job?.containers_completed, progress?.containersCompleted, progress?.containers_completed,
+  );
+  const containersTotal = diagnosticsNumber(
+    job?.containersTotal, job?.containers_total, progress?.containersTotal, progress?.containers_total,
+  );
+  const filesCollected = diagnosticsNumber(job?.filesCollected, job?.files_collected, progress?.filesCollected, progress?.files_collected);
+  const bytesCollected = diagnosticsNumber(job?.bytesCollected, job?.bytes_collected, progress?.bytesCollected, progress?.bytes_collected);
+  const archiveBytes = diagnosticsNumber(job?.archiveBytes, job?.archive_bytes, progress?.archiveBytes, progress?.archive_bytes);
   const startedRaw = job?.startedAt || job?.started_at || job?.acceptedAt || job?.accepted_at;
   const startedMs = startedRaw ? new Date(startedRaw).getTime() : Number(job?.acceptedAt || 0);
   const elapsedSeconds = Number.isFinite(startedMs) && startedMs > 0
     ? Math.max(0, Math.floor((Number(now) - startedMs) / 1000))
     : 0;
 
+  const hasRealCounters = explicitPercent !== null || (completedItems !== null && totalItems !== null && totalItems > 0);
   let percent = null;
-  let indeterminate = false;
-  if (status === 'completed' || status === 'failed') percent = 100;
+  if (status === 'completed') percent = 100;
   else if (explicitPercent !== null) percent = Math.max(0, Math.min(99, explicitPercent));
   else if (completedItems !== null && totalItems !== null && totalItems > 0)
     percent = Math.max(0, Math.min(99, completedItems / totalItems * 100));
-  else if (['starting', 'queued', 'running'].includes(status)) indeterminate = true;
 
+  const phaseLabel = diagnosticsPhaseLabel(phase);
+  const stepLabel = DIAGNOSTICS_STEP_LABELS[String(step || '').toLowerCase()] || String(step || '').replace(/[-_]+/g, ' ');
   let detail = '';
-  if (currentItem) detail = currentItem;
-  else if (phase) detail = phase.replace(/[-_]+/g, ' ');
-  else if (status === 'starting') detail = 'Связываемся с Node Agent';
+  if (phase === 'containers' && containersTotal > 0 && currentIndex > 0) {
+    detail = `Контейнер ${Math.min(currentIndex, containersTotal)} из ${containersTotal}${currentItem ? ` · ${currentItem}` : ''}${stepLabel ? ` · ${stepLabel}` : ''}`;
+  } else if (currentItem) {
+    detail = currentItem;
+  } else if (phaseLabel || stepLabel) {
+    detail = [phaseLabel, stepLabel].filter(Boolean).join(' · ');
+  } else if (status === 'starting') detail = 'Связываемся с Node Agent';
   else if (status === 'queued') detail = 'Node Agent принял задачу и готовит сбор';
-  else if (status === 'running') {
-    const mode = String(job?.mode || '').toLowerCase();
-    if (mode === 'quick') detail = 'Собираются состояние хоста, кластера, Docker и systemd';
-    else if (mode === 'full') detail = 'Собирается полная история docker logs; это может занять заметное время';
-    else detail = 'Собираются системные данные, Docker events и логи контейнеров';
-  } else if (status === 'completed') detail = 'Архив готов к скачиванию';
+  else if (status === 'running') detail = 'Node Agent собирает диагностику; подробные счётчики недоступны на этой версии агента';
+  else if (status === 'completed') detail = 'Архив готов к скачиванию';
   else if (status === 'failed') detail = diagnosticsText(job?.message, job?.error) || 'Сбор завершился ошибкой';
 
   return {
     status,
     percent,
-    indeterminate,
+    hasRealCounters,
+    indeterminate: false,
     completedItems,
     totalItems,
     phase,
+    phaseLabel,
+    step,
+    stepLabel,
     currentItem,
+    currentIndex,
+    containersCompleted,
+    containersTotal,
+    filesCollected,
+    bytesCollected,
+    archiveBytes,
     elapsedSeconds,
     detail,
   };

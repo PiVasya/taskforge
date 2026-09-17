@@ -171,12 +171,45 @@ test('diagnostics progress prefers real agent counters and keeps running jobs be
   assert.equal(progress.elapsedSeconds, 10);
 });
 
-test('diagnostics progress is animated instead of inventing percentages when agent has no counters', () => {
+test('diagnostics progress does not fake a progress bar when agent has no counters', () => {
   const progress = model.diagnosticsJobProgress({ status: 'running', mode: 'full', acceptedAt: 1_000 }, 6_000);
   assert.equal(progress.percent, null);
-  assert.equal(progress.indeterminate, true);
-  assert.match(progress.detail, /полная история docker logs/i);
+  assert.equal(progress.indeterminate, false);
+  assert.equal(progress.hasRealCounters, false);
+  assert.match(progress.detail, /подробные счётчики недоступны/i);
   assert.equal(progress.elapsedSeconds, 5);
+});
+
+test('r68 diagnostics progress exposes real container index, stage and collected bytes', () => {
+  const progress = model.diagnosticsJobProgress({
+    status: 'running',
+    started_at: '2026-09-17T12:00:00Z',
+    progress: {
+      phase: 'containers',
+      step: 'logs',
+      completed: 31,
+      total: 80,
+      percent: 38,
+      current_item: 'taskforge-prod-tasks-api-1',
+      current_index: 14,
+      containers_completed: 13,
+      containers_total: 36,
+      files_collected: 47,
+      bytes_collected: 12582912,
+      archive_bytes: 0,
+    },
+  }, Date.parse('2026-09-17T12:00:10Z'));
+  assert.equal(progress.hasRealCounters, true);
+  assert.equal(progress.percent, 38);
+  assert.equal(progress.phaseLabel, 'Контейнеры');
+  assert.equal(progress.stepLabel, 'docker logs');
+  assert.equal(progress.currentIndex, 14);
+  assert.equal(progress.containersCompleted, 13);
+  assert.equal(progress.containersTotal, 36);
+  assert.equal(progress.filesCollected, 47);
+  assert.equal(progress.bytesCollected, 12582912);
+  assert.match(progress.detail, /Контейнер 14 из 36/);
+  assert.match(progress.detail, /tasks-api/);
 });
 
 test('diagnostics batch progress counts finished nodes without pretending an active node is partially complete', () => {

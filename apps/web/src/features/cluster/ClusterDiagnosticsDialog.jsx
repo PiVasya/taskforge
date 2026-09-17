@@ -24,6 +24,7 @@ const SINCE_OPTIONS = [
 const MAX_MB_OPTIONS = [8, 16, 32, 64, 128, 256];
 const JOB_STORAGE_KEY = 'taskforge-cluster-diagnostics-jobs-v2';
 const JOB_STORAGE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const DIAGNOSTICS_PROGRESS_AGENT_REVISION = 68;
 const terminal = status => ['completed', 'failed'].includes(String(status || '').toLowerCase());
 
 function jobTone(status) {
@@ -241,7 +242,7 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
 
       <div className="tf-cluster-diagnostics-body">
         <section className="tf-cluster-diagnostics-section">
-          <div className="tf-cluster-diagnostics-section-head"><div><strong>Серверы</strong><small>Архив создаётся отдельно на каждой ноде. Нужен Node Agent r{DIAGNOSTICS_MIN_AGENT_REVISION}+.</small></div>{eligibleNodes.length > 1 && <button type="button" className="tf-cluster-button" onClick={() => setSelected(allEligibleSelected ? [] : eligibleNodes.map(node => node.id))}>{allEligibleSelected ? 'Снять все' : 'Все доступные'}</button>}</div>
+          <div className="tf-cluster-diagnostics-section-head"><div><strong>Серверы</strong><small>Архив создаётся отдельно на каждой ноде. Сбор поддерживается с Agent r{DIAGNOSTICS_MIN_AGENT_REVISION}+, поконтейнерный прогресс — с r{DIAGNOSTICS_PROGRESS_AGENT_REVISION}+.</small></div>{eligibleNodes.length > 1 && <button type="button" className="tf-cluster-button" onClick={() => setSelected(allEligibleSelected ? [] : eligibleNodes.map(node => node.id))}>{allEligibleSelected ? 'Снять все' : 'Все доступные'}</button>}</div>
           <div className="tf-cluster-diagnostics-nodes">
             {nodes.map(node => {
               const eligibility = diagnosticsEligibility(node);
@@ -295,23 +296,41 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
               const key = `${job.node}:${job.jobId || 'none'}`;
               const progress = diagnosticsJobProgress(job, now);
               const node = nodes.find(item => String(item?.id) === String(job.node));
-              const containerCount = Array.isArray(node?.services) ? node.services.length : 0;
+              const agentRevision = Number(node?.bundleRevision || 0);
+              const supportsDetailedProgress = Number.isFinite(agentRevision) && agentRevision >= DIAGNOSTICS_PROGRESS_AGENT_REVISION;
               const itemCounter = progress.totalItems > 0 && progress.completedItems != null
                 ? `${progress.completedItems}/${progress.totalItems}`
+                : null;
+              const containerCounter = progress.containersTotal > 0 && progress.containersCompleted != null
+                ? `${Math.min(progress.containersCompleted, progress.containersTotal)}/${progress.containersTotal}`
+                : null;
+              const containerPercent = progress.containersTotal > 0 && progress.containersCompleted != null
+                ? Math.max(0, Math.min(100, progress.containersCompleted / progress.containersTotal * 100))
                 : null;
               const detail = job.pollError || progress.detail || job.archiveName || job.message || (job.jobId ? `Job ${job.jobId}` : 'Ожидание ответа Node Agent');
               return <div key={key} className={`tf-cluster-diagnostics-job is-${jobTone(job.status)}`}>
                 <span className="tf-cluster-diagnostics-job-icon">{job.status === 'completed' ? <CheckCircle2 size={17} /> : job.status === 'failed' ? <AlertTriangle size={17} /> : <Loader2 size={17} className="tf-cluster-spin" />}</span>
                 <div className="tf-cluster-diagnostics-job-main">
-                  <div><strong>Сервер {job.node}</strong><Tag tone={jobTone(job.status)}>{jobLabel(job.status)}</Tag>{job.sizeBytes != null && <Tag>{bytes(job.sizeBytes)}</Tag>}</div>
+                  <div><strong>Сервер {job.node}</strong><Tag tone={jobTone(job.status)}>{jobLabel(job.status)}</Tag>{progress.phaseLabel && !terminal(job.status) && <Tag>{progress.phaseLabel}</Tag>}{job.sizeBytes != null && <Tag>{bytes(job.sizeBytes)}</Tag>}</div>
                   <small className={job.pollError ? 'is-error' : ''}>{detail}</small>
-                  <div className={`tf-cluster-diagnostics-job-progress ${progress.indeterminate ? 'is-indeterminate' : ''}`}>
-                    <span style={progress.indeterminate ? undefined : { width: `${progress.percent ?? 0}%` }} />
-                  </div>
+                  {progress.hasRealCounters || terminal(job.status) ? <>
+                    <div className="tf-cluster-diagnostics-job-progress" aria-label={itemCounter ? `Завершено ${itemCounter} шагов` : 'Диагностика завершена'}>
+                      <span style={{ width: `${progress.percent ?? (job.status === 'completed' ? 100 : 0)}%` }} />
+                    </div>
+                    {itemCounter && <div className="tf-cluster-diagnostics-progress-caption"><span>Шаги сборщика</span><strong>{itemCounter}</strong></div>}
+                  </> : <div className="tf-cluster-diagnostics-progress-unavailable">
+                    {supportsDetailedProgress ? 'Ждём первый реальный счётчик от Node Agent…' : `Agent r${agentRevision || '?'} не отдаёт поконтейнерный прогресс. Нужен r${DIAGNOSTICS_PROGRESS_AGENT_REVISION}+.`}
+                  </div>}
+                  {containerCounter && <div className="tf-cluster-diagnostics-container-progress">
+                    <div><span><Boxes size={12} /> Контейнеры</span><strong>{containerCounter} собрано</strong></div>
+                    <div className="tf-cluster-diagnostics-job-progress"><span style={{ width: `${containerPercent}%` }} /></div>
+                    {progress.phase === 'containers' && progress.currentIndex > 0 && <small>Сейчас: контейнер {progress.currentIndex} из {progress.containersTotal}{progress.currentItem ? ` · ${progress.currentItem}` : ''}{progress.stepLabel ? ` · ${progress.stepLabel}` : ''}</small>}
+                  </div>}
                   <div className="tf-cluster-diagnostics-job-meta">
                     <span><Clock3 size={12} /> {formatElapsed(progress.elapsedSeconds)}</span>
-                    {itemCounter && <span><Activity size={12} /> {itemCounter} элементов</span>}
-                    {containerCount > 0 && <span><Boxes size={12} /> {containerCount} контейнеров на ноде</span>}
+                    {progress.filesCollected != null && <span><Activity size={12} /> {progress.filesCollected} файлов</span>}
+                    {progress.bytesCollected != null && <span><HardDrive size={12} /> {bytes(progress.bytesCollected)} собрано</span>}
+                    {progress.archiveBytes > 0 && progress.phase === 'archive' && <span><FileArchive size={12} /> {bytes(progress.archiveBytes)} в архиве</span>}
                   </div>
                 </div>
                 {job.status === 'completed' && <button type="button" className="tf-cluster-button is-primary" disabled={!!downloading} onClick={() => download(job)}><Download size={14} />{downloading === key ? 'Скачиваем…' : 'Скачать'}</button>}

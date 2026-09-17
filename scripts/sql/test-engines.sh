@@ -63,7 +63,7 @@ trap cleanup EXIT
 marker="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 password="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 pgimage="${SQL_TEST_POSTGRES_IMAGE:-postgres:18-bookworm}"
-myimage="${SQL_TEST_MYSQL_IMAGE:-mysql:8.4}"
+myimage="${SQL_TEST_MYSQL_IMAGE:-mysql@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0}"
 rabbitimage="${SQL_TEST_RABBIT_IMAGE:-rabbitmq:4-management}"
 
 # These are disposable provider images only. The TaskForge sql-worker image is

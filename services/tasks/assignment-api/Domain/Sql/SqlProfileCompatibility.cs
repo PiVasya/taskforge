@@ -18,6 +18,16 @@ public static class SqlProfileCompatibility
     private const string LegacyGoExecutionSemanticsVersion = "sql-runtime-v1";
     private const string GoImplementation = "go-native-v1";
 
+    // Official MySQL 8.4.0 is published in two immutable Linux runtime variants.
+    // They run the same MySQL server release but target different glibc/CPU baselines.
+    // Only this audited pair is allowed to bridge RuntimeDigest identity; arbitrary
+    // images never become compatible merely because they report MySQL 8.4.0.
+    private static readonly HashSet<string> MySql840CpuVariantRuntimeDigests = new(StringComparer.Ordinal)
+    {
+        "sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0", // Oracle Linux 9
+        "sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33"  // Oracle Linux 8 / cpuv1
+    };
+
     public static bool IsCompatible(SqlEngineProfile current, SqlEngineProfile candidate)
     {
         if (!string.Equals(current.Key, candidate.Key, StringComparison.Ordinal)
@@ -54,7 +64,23 @@ public static class SqlProfileCompatibility
         SqlEngineProfile rightProfile, Normalized right)
     {
         if (!string.Equals(leftProfile.Engine, "sqlite", StringComparison.Ordinal))
-            return string.Equals(leftProfile.RuntimeDigest, rightProfile.RuntimeDigest, StringComparison.Ordinal);
+        {
+            if (string.Equals(leftProfile.RuntimeDigest, rightProfile.RuntimeDigest, StringComparison.Ordinal))
+                return true;
+
+            // Mirror the MinIO CPU-variant model without weakening SQL profile identity:
+            // A/B may select different official images only when both are the certified
+            // variants of the exact same MySQL 8.4.0 server release. Their fingerprints
+            // remain distinct; the compatibility endpoint exposes the explicit alias.
+            if (string.Equals(leftProfile.Engine, "mysql", StringComparison.Ordinal)
+                && string.Equals(leftProfile.EngineVersion, "8.4.0", StringComparison.Ordinal)
+                && string.Equals(rightProfile.EngineVersion, "8.4.0", StringComparison.Ordinal)
+                && MySql840CpuVariantRuntimeDigests.Contains(leftProfile.RuntimeDigest)
+                && MySql840CpuVariantRuntimeDigests.Contains(rightProfile.RuntimeDigest))
+                return true;
+
+            return false;
+        }
 
         // Old SQLite used sha256(executorFingerprint) as RuntimeDigest. That value described
         // the whole worker build, not SQLite itself. It can only be ignored when the profile

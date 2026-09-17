@@ -58,12 +58,16 @@ def main():
         text=(ROOT/relative).read_text()
         require('PYTHONPATH=' not in text and '-m unittest' not in text,'Retired Python SQL test gate remains')
     normal=yaml.safe_load((ROOT/'.github/workflows/develop-build.yml').read_text())
-    normal_job=normal['jobs']['sql-runtime-check']
-    require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in normal_job['steps']),'SQL engine CI must install Go when selected')
-    normal_text=json.dumps(normal_job)
-    require('test-engines.sh' in normal_text and 'check-sql-go.sh' in normal_text and 'check-sql-domain.sh' in normal_text,'Split SQL contract/engine CI gates were removed')
-    require('check-sql-update.sh' not in normal_text,'Normal CI must not run the all-in-one SQL suite for every SQL-adjacent change')
-    require('sql_contract' in normal_text and 'sql_engines' in normal_text,'Normal SQL CI must be path-gated')
+    contract_job=normal['jobs']['sql-contract-check']
+    engine_job=normal['jobs']['sql-engine-check']
+    require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in engine_job['steps']),'SQL engine CI must install Go when selected')
+    contract_text=json.dumps(contract_job)
+    engine_text=json.dumps(engine_job)
+    require('check-sql-domain.sh' in contract_text,'SQL contract CI lost the canonical domain check')
+    require('test-engines.sh' in engine_text and 'check-sql-go.sh' in engine_text,'SQL engine CI lost the canonical provider checks')
+    require('test-runtime-preparation.py' in engine_text,'SQL engine CI must verify adaptive runtime selection')
+    require('check-sql-update.sh' not in contract_text + engine_text,'Normal CI must not run the all-in-one SQL suite for every SQL-adjacent change')
+    require('sql_contract' in str(contract_job.get('if','')) and 'sql_engines' in str(engine_job.get('if','')),'Normal SQL CI must remain independently path-gated')
 
     full=yaml.safe_load((ROOT/'.github/workflows/develop-full-rebuild.yml').read_text())
     full_job=full['jobs']['sql-runtime-check']
