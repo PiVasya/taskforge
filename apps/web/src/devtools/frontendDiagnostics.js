@@ -150,42 +150,49 @@ async function appendBatch(batch) {
   if (total > limitMb * 1024 * 1024) await trimToLimit(limitMb * 1024 * 1024);
 }
 
+async function trimEventsPass(db, initialTotal, maxBytes) {
+  const maxDeletesPerPass = 2000;
+  const maxBytesPerPass = 8 * 1024 * 1024;
+  const tx = db.transaction([EVENTS_STORE, META_STORE], 'readwrite');
+  const done = transactionDone(tx);
+  const events = tx.objectStore(EVENTS_STORE);
+  const meta = tx.objectStore(META_STORE);
+  let total = initialTotal;
+  let deleted = 0;
+  let removedBytes = 0;
+
+  await new Promise((resolve, reject) => {
+    const cursorRequest = events.openCursor();
+    cursorRequest.onerror = () => reject(cursorRequest.error || new Error('IndexedDB cursor failed'));
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      const passLimitReached = deleted >= maxDeletesPerPass || removedBytes >= maxBytesPerPass;
+      if (!cursor || total <= maxBytes || passLimitReached) {
+        meta.put({ key: 'totalBytes', value: Math.max(0, total), updatedAt: Date.now() });
+        resolve();
+        return;
+      }
+      const size = Number(cursor.value?.sizeBytes || 0);
+      total -= size;
+      removedBytes += size;
+      deleted += 1;
+      cursor.delete();
+      cursor.continue();
+    };
+  });
+  await done;
+  return { total, deleted };
+}
+
 async function trimToLimit(maxBytes) {
   if (!isBrowser()) return;
   const db = await openDatabase();
   let total = await readTotalBytes(db);
-  const maxDeletesPerPass = 2000;
-  const maxBytesPerPass = 8 * 1024 * 1024;
 
   while (total > maxBytes) {
-    const tx = db.transaction([EVENTS_STORE, META_STORE], 'readwrite');
-    const done = transactionDone(tx);
-    const events = tx.objectStore(EVENTS_STORE);
-    const meta = tx.objectStore(META_STORE);
-    let deleted = 0;
-    let removedBytes = 0;
-
-    await new Promise((resolve, reject) => {
-      const cursorRequest = events.openCursor();
-      cursorRequest.onerror = () => reject(cursorRequest.error || new Error('IndexedDB cursor failed'));
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result;
-        const passLimitReached = deleted >= maxDeletesPerPass || removedBytes >= maxBytesPerPass;
-        if (!cursor || total <= maxBytes || passLimitReached) {
-          meta.put({ key: 'totalBytes', value: Math.max(0, total), updatedAt: Date.now() });
-          resolve();
-          return;
-        }
-        const size = Number(cursor.value?.sizeBytes || 0);
-        total -= size;
-        removedBytes += size;
-        deleted += 1;
-        cursor.delete();
-        cursor.continue();
-      };
-    });
-    await done;
-    if (deleted === 0) break;
+    const pass = await trimEventsPass(db, total, maxBytes);
+    total = pass.total;
+    if (pass.deleted === 0) break;
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
 }

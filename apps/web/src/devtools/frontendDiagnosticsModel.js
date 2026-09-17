@@ -31,7 +31,7 @@ function sanitizeString(value, key = '') {
   if (SENSITIVE_KEY_RE.test(key)) return '[redacted]';
   let text = String(value);
   text = text
-    .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted-jwt]')
     .replace(/([?&](?:token|password|secret|key|auth)=)[^&#\s]*/gi, '$1[redacted]')
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]');
