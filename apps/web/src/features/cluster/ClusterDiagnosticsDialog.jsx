@@ -1,8 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, Download, FileArchive, HardDrive, Loader2, Server, X } from 'lucide-react';
+import { Activity, AlertTriangle, Boxes, CheckCircle2, Clock3, Download, FileArchive, HardDrive, Loader2, Server, X } from 'lucide-react';
 import { downloadClusterDiagnostics, getClusterDiagnosticsJob, startClusterDiagnostics } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
-import { bytes, diagnosticsEligibility, DIAGNOSTICS_MIN_AGENT_REVISION } from './clusterModel';
+import {
+  bytes,
+  diagnosticsBatchProgress,
+  diagnosticsEligibility,
+  diagnosticsJobProgress,
+  DIAGNOSTICS_MIN_AGENT_REVISION,
+} from './clusterModel';
 import { Tag } from './ClusterShared';
 
 const MODES = [
@@ -16,6 +22,8 @@ const SINCE_OPTIONS = [
   ['12h', '12 часов'], ['24h', '24 часа'], ['2d', '2 дня'], ['7d', '7 дней'],
 ];
 const MAX_MB_OPTIONS = [8, 16, 32, 64, 128, 256];
+const JOB_STORAGE_KEY = 'taskforge-cluster-diagnostics-jobs-v2';
+const JOB_STORAGE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const terminal = status => ['completed', 'failed'].includes(String(status || '').toLowerCase());
 
 function jobTone(status) {
@@ -25,19 +33,49 @@ function jobTone(status) {
 }
 
 function jobLabel(status) {
-  return ({ queued: 'В очереди', running: 'Собирается', completed: 'Готово', failed: 'Ошибка' })[status] || status || 'Ожидание';
+  return ({ starting: 'Запуск', queued: 'В очереди', running: 'Собирается', completed: 'Готово', failed: 'Ошибка' })[status] || status || 'Ожидание';
 }
 
 function normalizeStatus(job, status) {
+  const payload = status && typeof status === 'object' ? status : {};
   return {
     ...job,
-    status: status?.status || job.status,
-    archiveName: status?.archive_name || status?.archiveName || job.archiveName,
-    sizeBytes: status?.size_bytes ?? status?.sizeBytes ?? job.sizeBytes,
-    startedAt: status?.started_at || status?.startedAt || job.startedAt,
-    finishedAt: status?.finished_at || status?.finishedAt || job.finishedAt,
-    message: status?.message || status?.error || job.message,
+    ...payload,
+    node: job.node,
+    jobId: job.jobId,
+    accepted: job.accepted,
+    acceptedAt: job.acceptedAt,
+    mode: job.mode,
+    status: payload.status || job.status,
+    archiveName: payload.archive_name || payload.archiveName || job.archiveName,
+    sizeBytes: payload.size_bytes ?? payload.sizeBytes ?? job.sizeBytes,
+    startedAt: payload.started_at || payload.startedAt || job.startedAt,
+    finishedAt: payload.finished_at || payload.finishedAt || job.finishedAt,
+    message: payload.message || payload.error || job.message,
+    pollError: null,
   };
+}
+
+function formatElapsed(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  if (value < 60) return `${value} сек`;
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (minutes < 60) return rest ? `${minutes} мин ${rest} сек` : `${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins ? `${hours} ч ${mins} мин` : `${hours} ч`;
+}
+
+function readStoredJobs() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(JOB_STORAGE_KEY) || 'null');
+    if (!parsed || !Array.isArray(parsed.jobs) || Date.now() - Number(parsed.savedAt || 0) > JOB_STORAGE_MAX_AGE_MS) return [];
+    return parsed.jobs;
+  } catch {
+    return [];
+  }
 }
 
 export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, onClose, notify }) {
@@ -45,12 +83,15 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   const [mode, setMode] = useState('standard');
   const [since, setSince] = useState('6h');
   const [maxLogMb, setMaxLogMb] = useState(32);
-  const [jobs, setJobs] = useState([]);
+  const [jobs, setJobs] = useState(() => readStoredJobs());
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(null);
+  const [lastPollAt, setLastPollAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const pollAbort = useRef(null);
   const jobsRef = useRef([]);
   const eligibleNodes = useMemo(() => nodes.filter(node => diagnosticsEligibility(node).ready), [nodes]);
+  const batchProgress = useMemo(() => diagnosticsBatchProgress(jobs), [jobs]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +109,20 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (jobs.length) window.sessionStorage.setItem(JOB_STORAGE_KEY, JSON.stringify({ savedAt: Date.now(), jobs }));
+      else window.sessionStorage.removeItem(JOB_STORAGE_KEY);
+    } catch {}
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!open || !jobs.some(job => !terminal(job.status))) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [open, jobs]);
+
+  useEffect(() => {
     if (!open) return undefined;
     let disposed = false;
     const poll = async () => {
@@ -83,12 +138,20 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
           return normalizeStatus(job, status);
         } catch (error) {
           if (controller.signal.aborted) return job;
-          return { ...job, pollError: handleApiError(error, false, 'Не удалось проверить сбор логов')?.primaryMessage || 'Нет связи с Node Agent' };
+          return {
+            ...job,
+            pollError: handleApiError(error, false, 'Не удалось проверить сбор логов')?.primaryMessage || 'Нет связи с Node Agent',
+          };
         }
       }));
-      if (!disposed && !controller.signal.aborted) setJobs(next);
+      if (!disposed && !controller.signal.aborted) {
+        setJobs(next);
+        setLastPollAt(Date.now());
+        setNow(Date.now());
+      }
     };
-    const timer = window.setInterval(poll, 1800);
+    void poll();
+    const timer = window.setInterval(poll, 1500);
     return () => {
       disposed = true;
       window.clearInterval(timer);
@@ -105,17 +168,44 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
 
   const start = async () => {
     if (selected.length === 0 || busy || running) return;
+    const acceptedAt = Date.now();
+    const optimistic = selected.map(node => ({
+      node,
+      accepted: true,
+      jobId: null,
+      status: 'starting',
+      message: 'Связываемся с Node Agent…',
+      acceptedAt,
+      mode,
+      since,
+      maxLogMb,
+    }));
     setBusy(true);
-    setJobs([]);
+    setJobs(optimistic);
+    setNow(acceptedAt);
     try {
       const result = await startClusterDiagnostics({ nodes: selected, mode, since, maxLogMb });
-      const started = (result?.jobs || []).map(job => ({ ...job, status: job.status || (job.accepted ? 'queued' : 'failed') }));
+      const resultByNode = new Map((result?.jobs || []).map(job => [String(job.node), job]));
+      const started = optimistic.map(base => {
+        const job = resultByNode.get(String(base.node));
+        if (!job) return { ...base, accepted: false, status: 'failed', message: 'Node Agent не вернул идентификатор сборки.' };
+        return {
+          ...base,
+          ...job,
+          acceptedAt,
+          mode,
+          since,
+          maxLogMb,
+          status: job.status || (job.accepted ? 'queued' : 'failed'),
+        };
+      });
       setJobs(started);
       const accepted = started.filter(job => job.accepted).length;
       if (accepted) notify?.info(`Сбор логов запущен: ${accepted} ${accepted === 1 ? 'нода' : 'ноды'}.`);
       if (started.some(job => !job.accepted)) notify?.warn('На части нод сбор не запустился. Причина показана в окне диагностики.');
     } catch (error) {
-      handleApiError(error, notify, 'Не удалось запустить сбор логов');
+      const message = handleApiError(error, notify, 'Не удалось запустить сбор логов')?.primaryMessage || 'Не удалось запустить сбор логов';
+      setJobs(optimistic.map(job => ({ ...job, accepted: false, status: 'failed', message })));
     } finally {
       setBusy(false);
     }
@@ -145,7 +235,7 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   return <div className="tf-cluster-dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="tf-cluster-dialog tf-cluster-diagnostics-dialog" role="dialog" aria-modal="true" aria-labelledby="cluster-diagnostics-title">
       <div className="tf-cluster-dialog-head">
-        <div className="tf-cluster-title-group"><span className="tf-cluster-server-mark"><FileArchive size={22} /></span><div><h2 id="cluster-diagnostics-title">Собрать логи</h2><p>Запускает штатный cluster.sh diagnostics на выбранных серверах. Команда не меняет состояние кластера.</p></div></div>
+        <div className="tf-cluster-title-group"><span className="tf-cluster-server-mark"><FileArchive size={22} /></span><div><h2 id="cluster-diagnostics-title">Собрать логи</h2><p>Запускает штатный сборщик на выбранных серверах. Ноды обрабатываются независимо; сбор не меняет состояние кластера.</p></div></div>
         <button type="button" className="tf-cluster-icon" aria-label="Закрыть" disabled={busy} onClick={onClose}><X size={17} /></button>
       </div>
 
@@ -184,14 +274,46 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
           {mode === 'full' && <div className="tf-cluster-callout is-warn"><AlertTriangle size={17} /><div><strong>Полная история без лимита.</strong><div>Если контейнеры давно работают и много пишут в stdout/stderr, архив может занять сотни мегабайт или больше.</div></div></div>}
         </section>
 
-        {jobs.length > 0 && <section className="tf-cluster-diagnostics-section">
-          <div className="tf-cluster-diagnostics-section-head"><div><strong>Сборка</strong><small>Статус обновляется автоматически примерно раз в 2 секунды.</small></div></div>
+        {jobs.length > 0 && <section className="tf-cluster-diagnostics-section tf-cluster-diagnostics-live" aria-live="polite">
+          <div className="tf-cluster-diagnostics-section-head">
+            <div><strong>Сборка</strong><small>Статус обновляется автоматически. Сбор на серверах продолжится, даже если закрыть это окно.</small></div>
+            {lastPollAt > 0 && <span className="tf-cluster-diagnostics-freshness"><Activity size={12} /> обновлено {Math.max(0, Math.floor((now - lastPollAt) / 1000))} сек назад</span>}
+          </div>
+
+          <div className="tf-cluster-diagnostics-batch">
+            <div className="tf-cluster-diagnostics-batch-head">
+              <div><strong>{batchProgress.terminal}/{batchProgress.total} нод завершено</strong><small>{batchProgress.running ? `Сейчас собираются: ${batchProgress.running}` : batchProgress.failed ? `Ошибок: ${batchProgress.failed}` : 'Все выбранные ноды завершили сбор'}</small></div>
+              <span>{batchProgress.percent}%</span>
+            </div>
+            <div className="tf-cluster-diagnostics-progress" aria-label={`Завершено ${batchProgress.terminal} из ${batchProgress.total} нод`}>
+              <span style={{ width: `${batchProgress.percent}%` }} />
+            </div>
+          </div>
+
           <div className="tf-cluster-diagnostics-jobs">
             {jobs.map(job => {
               const key = `${job.node}:${job.jobId || 'none'}`;
+              const progress = diagnosticsJobProgress(job, now);
+              const node = nodes.find(item => String(item?.id) === String(job.node));
+              const containerCount = Array.isArray(node?.services) ? node.services.length : 0;
+              const itemCounter = progress.totalItems > 0 && progress.completedItems != null
+                ? `${progress.completedItems}/${progress.totalItems}`
+                : null;
+              const detail = job.pollError || progress.detail || job.archiveName || job.message || (job.jobId ? `Job ${job.jobId}` : 'Ожидание ответа Node Agent');
               return <div key={key} className={`tf-cluster-diagnostics-job is-${jobTone(job.status)}`}>
                 <span className="tf-cluster-diagnostics-job-icon">{job.status === 'completed' ? <CheckCircle2 size={17} /> : job.status === 'failed' ? <AlertTriangle size={17} /> : <Loader2 size={17} className="tf-cluster-spin" />}</span>
-                <div className="tf-cluster-diagnostics-job-main"><div><strong>Сервер {job.node}</strong><Tag tone={jobTone(job.status)}>{jobLabel(job.status)}</Tag>{job.sizeBytes != null && <Tag>{bytes(job.sizeBytes)}</Tag>}</div><small>{job.archiveName || job.message || job.pollError || (job.jobId ? `Job ${job.jobId}` : 'Сбор не запущен')}</small></div>
+                <div className="tf-cluster-diagnostics-job-main">
+                  <div><strong>Сервер {job.node}</strong><Tag tone={jobTone(job.status)}>{jobLabel(job.status)}</Tag>{job.sizeBytes != null && <Tag>{bytes(job.sizeBytes)}</Tag>}</div>
+                  <small className={job.pollError ? 'is-error' : ''}>{detail}</small>
+                  <div className={`tf-cluster-diagnostics-job-progress ${progress.indeterminate ? 'is-indeterminate' : ''}`}>
+                    <span style={progress.indeterminate ? undefined : { width: `${progress.percent ?? 0}%` }} />
+                  </div>
+                  <div className="tf-cluster-diagnostics-job-meta">
+                    <span><Clock3 size={12} /> {formatElapsed(progress.elapsedSeconds)}</span>
+                    {itemCounter && <span><Activity size={12} /> {itemCounter} элементов</span>}
+                    {containerCount > 0 && <span><Boxes size={12} /> {containerCount} контейнеров на ноде</span>}
+                  </div>
+                </div>
                 {job.status === 'completed' && <button type="button" className="tf-cluster-button is-primary" disabled={!!downloading} onClick={() => download(job)}><Download size={14} />{downloading === key ? 'Скачиваем…' : 'Скачать'}</button>}
               </div>;
             })}

@@ -1,4 +1,5 @@
 import api, { getAccessToken } from './http';
+import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 export async function getCourseMap(courseId) {
   const res = await api.get(`/api/courses/${courseId}/map`);
@@ -11,6 +12,8 @@ export async function getLearningCourseMap(courseId) {
 }
 
 async function openLearningMapStream(courseId, signal, retry = true, fresh = false) {
+  const startedAt = Date.now();
+  logFrontendEvent('stream', 'learning-map-open', { courseId: String(courseId || ''), retry, fresh });
   const headers = { Accept: 'application/x-ndjson' };
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -22,6 +25,8 @@ async function openLearningMapStream(courseId, signal, retry = true, fresh = fal
     headers,
     signal,
   });
+
+  logFrontendEvent('stream', 'learning-map-response', { courseId: String(courseId || ''), status: response.status, durationMs: Date.now() - startedAt, fresh });
 
   if (response.status === 401 && retry) {
     try {
@@ -58,6 +63,8 @@ export async function streamLearningCourseMap(courseId, {
   const decoder = new TextDecoder();
   let buffer = '';
   let meta = null;
+  let segmentCount = 0;
+  const streamStartedAt = Date.now();
 
   const handleLine = async (line) => {
     const trimmed = line.trim();
@@ -65,14 +72,20 @@ export async function streamLearningCourseMap(courseId, {
     const event = JSON.parse(trimmed);
     if (event?.type === 'meta') {
       meta = event.data || null;
+      logFrontendEvent('stream', 'learning-map-meta', { courseId: String(courseId || ''), projectionToken: meta?.projectionToken ? '[present]' : null });
       await onMeta?.(meta);
       return;
     }
     if (event?.type === 'segment') {
+      segmentCount += 1;
+      logFrontendEvent('stream', 'learning-map-segment', { courseId: String(courseId || ''), segmentCount });
       await onSegment?.(event.data || null, meta);
       return;
     }
-    if (event?.type === 'done') await onDone?.(event.data || null, meta);
+    if (event?.type === 'done') {
+      logFrontendEvent('stream', 'learning-map-done', { courseId: String(courseId || ''), segmentCount, durationMs: Date.now() - streamStartedAt });
+      await onDone?.(event.data || null, meta);
+    }
   };
 
   while (true) {

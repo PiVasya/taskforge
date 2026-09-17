@@ -151,3 +151,45 @@ test('cluster diagnostics only target online agents that implement diagnostics',
   assert.deepEqual(model.diagnosticsEligibility({ online: true, bundleRevision: '65' }), { ready: true, reason: null, revision: 65 });
   assert.deepEqual(model.diagnosticsEligibility({ online: true, bundleRevision: '66', diagnosticsAvailable: false }), { ready: false, reason: 'agent-too-old', revision: 66 });
 });
+
+test('diagnostics progress prefers real agent counters and keeps running jobs below 100 percent', () => {
+  const progress = model.diagnosticsJobProgress({
+    status: 'running',
+    mode: 'standard',
+    progress_percent: 42,
+    completed_items: 8,
+    total_items: 19,
+    current_item: 'tasks-api',
+    acceptedAt: 1_000,
+  }, 11_000);
+  assert.equal(progress.percent, 42);
+  assert.equal(progress.indeterminate, false);
+  assert.equal(progress.completedItems, 8);
+  assert.equal(progress.totalItems, 19);
+  assert.equal(progress.currentItem, 'tasks-api');
+  assert.equal(progress.detail, 'tasks-api');
+  assert.equal(progress.elapsedSeconds, 10);
+});
+
+test('diagnostics progress is animated instead of inventing percentages when agent has no counters', () => {
+  const progress = model.diagnosticsJobProgress({ status: 'running', mode: 'full', acceptedAt: 1_000 }, 6_000);
+  assert.equal(progress.percent, null);
+  assert.equal(progress.indeterminate, true);
+  assert.match(progress.detail, /полная история docker logs/i);
+  assert.equal(progress.elapsedSeconds, 5);
+});
+
+test('diagnostics batch progress counts finished nodes without pretending an active node is partially complete', () => {
+  assert.deepEqual(model.diagnosticsBatchProgress([
+    { status: 'completed' },
+    { status: 'running' },
+    { status: 'failed' },
+  ]), {
+    total: 3,
+    completed: 1,
+    failed: 1,
+    running: 1,
+    terminal: 2,
+    percent: 67,
+  });
+});

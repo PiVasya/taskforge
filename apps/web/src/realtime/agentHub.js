@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr';
+import { instrumentSignalRConnection, logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 let conn = null;
 let token = null;
@@ -23,7 +24,7 @@ export function getAgentHub(accessToken) {
   } catch {}
 
   token = accessToken || null;
-  conn = build(token);
+  conn = instrumentSignalRConnection(build(token), 'agent');
   startPromise = null;
   return conn;
 }
@@ -33,7 +34,9 @@ export async function ensureAgentHubStarted(accessToken) {
   if (c.state === signalR.HubConnectionState.Connected) return c;
 
   if (!startPromise) {
-    startPromise = c.start().catch((err) => {
+    logFrontendEvent('realtime', 'start', { hub: 'agent' });
+    startPromise = c.start().then(() => { logFrontendEvent('realtime', 'connected', { hub: 'agent', connectionId: c.connectionId || null }); return c; }).catch((err) => {
+      logFrontendEvent('realtime', 'connect-error', { hub: 'agent', error: err }, 'error');
       startPromise = null;
       throw err;
     });

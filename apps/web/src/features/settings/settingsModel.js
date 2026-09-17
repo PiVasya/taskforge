@@ -9,6 +9,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { key: 'preview', title: 'Предпросмотр' },
   { key: 'integrations', title: 'Связи' },
   { key: 'security', title: 'Безопасность' },
+  { key: 'developer', title: 'Разработчик' },
 ]);
 
 export const SETTINGS_SECTION_KEYS = new Set(SETTINGS_SECTIONS.map((section) => section.key));

@@ -11,6 +11,97 @@ export function diagnosticsEligibility(node) {
   return { ready: true, reason: null, revision };
 }
 
+function diagnosticsNumber(...values) {
+  for (const value of values) {
+    const parsed = number(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function diagnosticsText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+export function diagnosticsJobProgress(job, now = Date.now()) {
+  const status = String(job?.status || '').toLowerCase();
+  const progress = job?.progress && typeof job.progress === 'object' ? job.progress : {};
+  const explicitPercent = diagnosticsNumber(
+    job?.progressPercent, job?.progress_percent, job?.percent, typeof job?.progress === 'number' ? job.progress : null, progress?.percent, progress?.percentage,
+  );
+  const completedItems = diagnosticsNumber(
+    job?.completedItems, job?.completed_items, job?.processedItems, job?.processed_items,
+    job?.completedContainers, job?.completed_containers, job?.done, progress?.completed, progress?.done,
+  );
+  const totalItems = diagnosticsNumber(
+    job?.totalItems, job?.total_items, job?.totalContainers, job?.total_containers, job?.total,
+    progress?.total, progress?.count,
+  );
+  const phase = diagnosticsText(job?.phase, job?.stage, progress?.phase, progress?.stage);
+  const currentItem = diagnosticsText(
+    job?.currentItem, job?.current_item, job?.currentContainer, job?.current_container,
+    progress?.currentItem, progress?.current_item, progress?.current,
+  );
+  const startedRaw = job?.startedAt || job?.started_at || job?.acceptedAt || job?.accepted_at;
+  const startedMs = startedRaw ? new Date(startedRaw).getTime() : Number(job?.acceptedAt || 0);
+  const elapsedSeconds = Number.isFinite(startedMs) && startedMs > 0
+    ? Math.max(0, Math.floor((Number(now) - startedMs) / 1000))
+    : 0;
+
+  let percent = null;
+  let indeterminate = false;
+  if (status === 'completed' || status === 'failed') percent = 100;
+  else if (explicitPercent !== null) percent = Math.max(0, Math.min(99, explicitPercent));
+  else if (completedItems !== null && totalItems !== null && totalItems > 0)
+    percent = Math.max(0, Math.min(99, completedItems / totalItems * 100));
+  else if (['starting', 'queued', 'running'].includes(status)) indeterminate = true;
+
+  let detail = '';
+  if (currentItem) detail = currentItem;
+  else if (phase) detail = phase.replace(/[-_]+/g, ' ');
+  else if (status === 'starting') detail = 'Связываемся с Node Agent';
+  else if (status === 'queued') detail = 'Node Agent принял задачу и готовит сбор';
+  else if (status === 'running') {
+    const mode = String(job?.mode || '').toLowerCase();
+    if (mode === 'quick') detail = 'Собираются состояние хоста, кластера, Docker и systemd';
+    else if (mode === 'full') detail = 'Собирается полная история docker logs; это может занять заметное время';
+    else detail = 'Собираются системные данные, Docker events и логи контейнеров';
+  } else if (status === 'completed') detail = 'Архив готов к скачиванию';
+  else if (status === 'failed') detail = diagnosticsText(job?.message, job?.error) || 'Сбор завершился ошибкой';
+
+  return {
+    status,
+    percent,
+    indeterminate,
+    completedItems,
+    totalItems,
+    phase,
+    currentItem,
+    elapsedSeconds,
+    detail,
+  };
+}
+
+export function diagnosticsBatchProgress(jobs) {
+  const list = array(jobs);
+  const total = list.length;
+  const completed = list.filter((job) => String(job?.status || '').toLowerCase() === 'completed').length;
+  const failed = list.filter((job) => String(job?.status || '').toLowerCase() === 'failed').length;
+  const running = list.filter((job) => ['starting', 'queued', 'running'].includes(String(job?.status || '').toLowerCase())).length;
+  const terminal = completed + failed;
+  return {
+    total,
+    completed,
+    failed,
+    running,
+    terminal,
+    percent: total > 0 ? Math.round((terminal / total) * 100) : 0,
+  };
+}
+
 export function bytes(value) {
   const n = number(value);
   if (n === null || n < 0) return DASH;

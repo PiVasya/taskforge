@@ -104,61 +104,94 @@ export default function CourseAssignmentsPage() {
   const { isEditorMode } = useEditorMode();
   const { courseContentLayout } = useCourseUiSettings();
   const learnerCards = !isEditorMode && courseContentLayout === 'cards';
+  const courseBundleMode = isEditorMode ? 'editor' : learnerCards ? 'learner-cards' : 'learner-flow';
   const assignmentsKey = useMemo(() => ['course-assignments', courseId], [courseId]);
-  const courseBundleKey = useMemo(() => ['course-bundle', courseId, isEditorMode ? 'editor' : learnerCards ? 'learner-cards' : 'learner-flow'], [courseId, isEditorMode, learnerCards]);
+  const courseBundleKey = useMemo(() => ['course-bundle', courseId, courseBundleMode], [courseId, courseBundleMode]);
+
+  const loadAssignmentsForCourse = React.useCallback(async (targetCourseId) => {
+    const data = await getAssignmentsByCourse(targetCourseId);
+    return (data || []).map((item, index) => ({
+      ...item,
+      sort: typeof item.sort === 'number' ? item.sort : index,
+    }));
+  }, []);
+
+  const loadCourseBundleFor = React.useCallback(async (targetCourseId, { force = false } = {}) => {
+    const courseKey = ['course-meta', targetCourseId];
+    const loadedCoursePromise = queryClient.fetchQuery({
+      queryKey: courseKey,
+      queryFn: () => getCourse(targetCourseId),
+      staleTime: 30_000,
+      force,
+    });
+
+    if (!isEditorMode && !learnerCards) {
+      const loadedCourse = await loadedCoursePromise;
+      return {
+        course: loadedCourse || null,
+        allCourses: loadedCourse ? [loadedCourse] : [],
+        childCourses: [],
+        courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
+        learnerVisibleCourseIds: EMPTY_LIST,
+        learnerVisibleAssignmentIds: EMPTY_LIST,
+        learnerLocks: EMPTY_LIST,
+      };
+    }
+
+    const courseTreePromise = queryClient.fetchQuery({
+      queryKey: ['course-tree', 'all'],
+      queryFn: () => getCourses({ tree: true }).catch(() => []),
+      staleTime: 30_000,
+      force,
+    });
+    const learnerMapPromise = learnerCards
+      ? queryClient.fetchQuery({
+          queryKey: ['learning-course-map', targetCourseId],
+          queryFn: () => getLearningCourseMap(targetCourseId),
+          staleTime: 15_000,
+          force,
+        })
+      : Promise.resolve(null);
+
+    const [loadedCourse, coursesPayload, learnerMap] = await Promise.all([
+      loadedCoursePromise,
+      courseTreePromise,
+      learnerMapPromise,
+    ]);
+    const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
+    const all = Array.isArray(payloadItems) ? payloadItems : [];
+    const learnerVisibility = learnerCards
+      ? collectLearnerVisibleEntityIds(learnerMap)
+      : { courseIds: null, assignmentIds: null };
+    const children = (learnerCards
+      ? filterLearnerCardCourses(all, targetCourseId, learnerVisibility.courseIds)
+      : all.filter((item) => String(item?.parentCourseId || '') === String(targetCourseId)))
+      .sort(compareCourses);
+    return {
+      course: loadedCourse || null,
+      allCourses: all,
+      childCourses: children,
+      courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : true,
+      learnerVisibleCourseIds: learnerCards ? Array.from(learnerVisibility.courseIds) : EMPTY_LIST,
+      learnerVisibleAssignmentIds: learnerCards ? Array.from(learnerVisibility.assignmentIds) : EMPTY_LIST,
+      learnerLocks: learnerCards ? collectLearnerCardLocks(learnerMap, targetCourseId) : EMPTY_LIST,
+    };
+  }, [isEditorMode, learnerCards, queryClient]);
 
   const assignmentsQuery = useQuery({
     queryKey: assignmentsKey,
-    queryFn: async () => {
-      const data = await getAssignmentsByCourse(courseId);
-      return (data || []).map((item, index) => ({
-        ...item,
-        sort: typeof item.sort === 'number' ? item.sort : index,
-      }));
-    },
+    queryFn: () => loadAssignmentsForCourse(courseId),
     enabled: Boolean(courseId) && Boolean(isEditorMode || learnerCards),
     staleTime: 20_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const courseBundleQuery = useQuery({
     queryKey: courseBundleKey,
-    queryFn: async () => {
-      const loadedCourse = await getCourse(courseId);
-      if (!isEditorMode && !learnerCards) {
-        return {
-          course: loadedCourse || null,
-          allCourses: loadedCourse ? [loadedCourse] : [],
-          childCourses: [],
-          courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
-        };
-      }
-      const [coursesPayload, learnerMap] = await Promise.all([
-        getCourses({ tree: true }).catch(() => []),
-        learnerCards ? getLearningCourseMap(courseId) : Promise.resolve(null),
-      ]);
-      const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
-      const all = Array.isArray(payloadItems) ? payloadItems : [];
-      const learnerVisibility = learnerCards
-        ? collectLearnerVisibleEntityIds(learnerMap)
-        : { courseIds: null, assignmentIds: null };
-      const children = (learnerCards
-        ? filterLearnerCardCourses(all, courseId, learnerVisibility.courseIds)
-        : all.filter((item) => String(item?.parentCourseId || '') === String(courseId)))
-        .sort(compareCourses);
-      return {
-        course: loadedCourse || null,
-        allCourses: all,
-        childCourses: children,
-        courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : true,
-        learnerVisibleCourseIds: learnerCards ? Array.from(learnerVisibility.courseIds) : EMPTY_LIST,
-        learnerVisibleAssignmentIds: learnerCards ? Array.from(learnerVisibility.assignmentIds) : EMPTY_LIST,
-        learnerLocks: learnerCards ? collectLearnerCardLocks(learnerMap, courseId) : EMPTY_LIST,
-      };
-    },
+    queryFn: () => loadCourseBundleFor(courseId),
     enabled: Boolean(courseId),
     staleTime: 30_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const courseBundle = courseBundleQuery.data || EMPTY_COURSE_BUNDLE;
@@ -242,6 +275,25 @@ export default function CourseAssignmentsPage() {
   const sortMode = params.get('sort') || 'default';
   const showFlowLayout = isEditorMode ? (courseCanEdit && contentLayout === 'flow') : !learnerCards;
 
+  const prefetchLearnerCourse = React.useCallback((targetCourseId) => {
+    if (!learnerCards || !targetCourseId) return Promise.resolve();
+    const id = String(targetCourseId);
+    return Promise.all([
+      queryClient.prefetchQuery({
+        queryKey: ['course-bundle', id, courseBundleMode],
+        queryFn: () => loadCourseBundleFor(id),
+        staleTime: 30_000,
+        gcTime: 60_000,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: ['course-assignments', id],
+        queryFn: () => loadAssignmentsForCourse(id),
+        staleTime: 20_000,
+        gcTime: 60_000,
+      }),
+    ]);
+  }, [courseBundleMode, learnerCards, loadAssignmentsForCourse, loadCourseBundleFor, queryClient]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -316,60 +368,20 @@ export default function CourseAssignmentsPage() {
 
   const reloadAssignments = React.useCallback(async () => queryClient.fetchQuery({
     queryKey: assignmentsKey,
-    queryFn: async () => {
-      const data = await getAssignmentsByCourse(courseId);
-      return (data || []).map((item, index) => ({
-        ...item,
-        sort: typeof item.sort === 'number' ? item.sort : index,
-      }));
-    },
+    queryFn: () => loadAssignmentsForCourse(courseId),
     staleTime: 0,
     force: true,
-  }), [assignmentsKey, courseId, queryClient]);
+  }), [assignmentsKey, courseId, loadAssignmentsForCourse, queryClient]);
 
   const reloadCourseData = React.useCallback(async () => {
     const next = await queryClient.fetchQuery({
       queryKey: courseBundleKey,
-      queryFn: async () => {
-        const loadedCourse = await getCourse(courseId);
-        if (!isEditorMode && !learnerCards) {
-          return {
-            course: loadedCourse || null,
-            allCourses: loadedCourse ? [loadedCourse] : [],
-            childCourses: [],
-            courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
-            learnerVisibleCourseIds: EMPTY_LIST,
-            learnerVisibleAssignmentIds: EMPTY_LIST,
-            learnerLocks: EMPTY_LIST,
-          };
-        }
-        const [coursesPayload, learnerMap] = await Promise.all([
-          getCourses({ tree: true }).catch(() => []),
-          learnerCards ? getLearningCourseMap(courseId) : Promise.resolve(null),
-        ]);
-        const payloadItems = Array.isArray(coursesPayload?.items) ? coursesPayload.items : coursesPayload;
-        const all = Array.isArray(payloadItems) ? payloadItems : [];
-        const learnerVisibility = learnerCards
-          ? collectLearnerVisibleEntityIds(learnerMap)
-          : { courseIds: null, assignmentIds: null };
-        return {
-          course: loadedCourse || null,
-          allCourses: all,
-          childCourses: (learnerCards
-            ? filterLearnerCardCourses(all, courseId, learnerVisibility.courseIds)
-            : all.filter((item) => String(item?.parentCourseId || '') === String(courseId)))
-            .sort(compareCourses),
-          courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : true,
-          learnerVisibleCourseIds: learnerCards ? Array.from(learnerVisibility.courseIds) : EMPTY_LIST,
-          learnerVisibleAssignmentIds: learnerCards ? Array.from(learnerVisibility.assignmentIds) : EMPTY_LIST,
-          learnerLocks: learnerCards ? collectLearnerCardLocks(learnerMap, courseId) : EMPTY_LIST,
-        };
-      },
+      queryFn: () => loadCourseBundleFor(courseId, { force: true }),
       staleTime: 0,
       force: true,
     });
     return next?.childCourses || [];
-  }, [courseBundleKey, courseId, isEditorMode, learnerCards, queryClient]);
+  }, [courseBundleKey, courseId, loadCourseBundleFor, queryClient]);
 
   const contentItems = useMemo(() => {
     const courses = (childCourses || []).map(makeCourseContentItem);
@@ -1213,6 +1225,7 @@ export default function CourseAssignmentsPage() {
           setDragOverContentEdge={setDragOverContentEdge}
           childProgressByCourseId={childProgressByCourseId}
           dragApi={dragApi}
+          onPrefetchCourse={prefetchLearnerCourse}
           onContextMenu={openContextMenu}
           onDropContent={handleDropOnContentItem}
         />

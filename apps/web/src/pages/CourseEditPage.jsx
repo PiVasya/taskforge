@@ -207,6 +207,8 @@ export default function CourseEditPage({ overlay = false }) {
       await updateCourse(courseId, payload);
       try {
         queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
+        queryClient.invalidateQueries({ queryKey: ['course-meta', courseId] });
+        queryClient.invalidateQueries({ queryKey: ['course-tree'] });
       } catch {}
       try {
         notify.success('Курс обновлён');
@@ -233,6 +235,8 @@ export default function CourseEditPage({ overlay = false }) {
     try {
       await deleteCourse(courseId);
       await queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
+      await queryClient.invalidateQueries({ queryKey: ['course-meta', courseId] });
+      await queryClient.invalidateQueries({ queryKey: ['course-tree'] });
       notify.success('Курс удалён');
       nav(returnTo || '/courses');
     } catch (e) {

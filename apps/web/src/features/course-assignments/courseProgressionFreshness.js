@@ -94,6 +94,7 @@ export function markAssignmentProgressionCompleted({ queryClient, courseId = '',
   }) : previous);
   queryClient?.invalidateQueries({ queryKey: ['course-assignments'], refetch: false });
   queryClient?.invalidateQueries({ queryKey: ['course-bundle'], refetch: false });
+  queryClient?.invalidateQueries({ queryKey: ['learning-course-map'], refetch: false });
 }
 
 export function listPendingCourseProgressionChanges({ courseIds = [], userId = '' } = {}) {

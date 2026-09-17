@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import { useEditorUiSettings, useUiTheme } from "../contexts/UiSettingsContext";
+import { logFrontendEvent } from "../devtools/frontendDiagnostics";
 
 function getMonacoVsPath() {
   const base = String(process.env.PUBLIC_URL || "").replace(/\/$/, "");
@@ -38,6 +39,7 @@ class MonacoCrashBoundary extends React.Component {
   }
 
   componentDidCatch(error) {
+    logFrontendEvent('react', 'monaco-error-boundary', { error }, 'error');
     this.props.onCrash?.(error);
   }
 

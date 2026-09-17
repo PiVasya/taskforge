@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 const API_TELEMETRY_SLOW_MS = 750;
 let accessToken = null;
@@ -228,7 +229,14 @@ export function normalizeApiError(error, fallback = 'Не удалось вып�
 
 api.interceptors.request.use((config) => {
   config.headers = config.headers || {};
-  config.metadata = { ...(config.metadata || {}), startedAt: Date.now() };
+  const requestId = config?.metadata?.diagnosticsRequestId || `http-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  config.metadata = { ...(config.metadata || {}), startedAt: Date.now(), diagnosticsRequestId: requestId };
+  logFrontendEvent('api', 'request', {
+    requestId,
+    method: String(config.method || 'GET').toUpperCase(),
+    path: telemetryPath(config.url || ''),
+    retryAfterRefresh: Boolean(config.__authRefreshAttempted),
+  });
   const token = accessToken;
 
   // Requests retried after /auth/refresh carry the headers of the failed request.
@@ -263,12 +271,30 @@ api.interceptors.response.use(
   (response) => {
     emitQuotaFromHeaders(response?.headers);
     trackApiTelemetry(response?.config || {}, response?.status);
+    const config = response?.config || {};
+    logFrontendEvent('api', 'response', {
+      requestId: config?.metadata?.diagnosticsRequestId || null,
+      method: String(config.method || 'GET').toUpperCase(),
+      path: telemetryPath(config.url || ''),
+      status: Number(response?.status || 0) || null,
+      durationMs: Math.max(0, Date.now() - Number(config?.metadata?.startedAt || Date.now())),
+    });
     return response;
   },
   async (error) => {
     const original = error.config || {};
     const status = error?.response?.status;
     const url = (original.url || '').toLowerCase();
+    logFrontendEvent('api', 'error', {
+      requestId: original?.metadata?.diagnosticsRequestId || null,
+      method: String(original.method || 'GET').toUpperCase(),
+      path: telemetryPath(original.url || ''),
+      status: Number(status || 0) || null,
+      durationMs: Math.max(0, Date.now() - Number(original?.metadata?.startedAt || Date.now())),
+      errorCode: error?.response?.data?.code || error?.code || null,
+      message: safeErrorMessage(error) || error?.message || null,
+    }, 'error');
+
     const refreshableAuthError = status === 401
       && !url.includes('/api/auth/login')
       && !url.includes('/api/auth/refresh')

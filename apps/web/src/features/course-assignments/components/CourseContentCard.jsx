@@ -1,11 +1,11 @@
 import React from 'react';
-import { Database, LockKeyhole } from 'lucide-react';
+import { Database, GripVertical, LockKeyhole } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Badge, Card } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import { isAssignmentSolved, previewAssignmentDescription, previewAssignmentTitle } from '../courseAssignmentsModel';
 
-function StaticLink({ to, children, agentId, agentRole, agentAction, agentState, agentKind, onContextMenu }) {
+function StaticLink({ to, children, agentId, agentRole, agentAction, agentState, agentKind, onContextMenu, onPrefetch }) {
   return (
     <Link
       to={to}
@@ -16,6 +16,9 @@ function StaticLink({ to, children, agentId, agentRole, agentAction, agentState,
       data-taskforge-agent-state={agentState}
       data-taskforge-agent-kind={agentKind}
       onContextMenuCapture={onContextMenu}
+      onPointerEnter={onPrefetch}
+      onPointerDown={onPrefetch}
+      onFocus={onPrefetch}
     >
       {children}
     </Link>
@@ -50,6 +53,7 @@ function CourseContentCard({
   dropEdge,
   progress,
   dragApi,
+  onPrefetchCourse,
   onContextMenu,
 }) {
   const navigate = useNavigate();
@@ -79,15 +83,26 @@ function CourseContentCard({
     );
   }
 
-  const sharedDragProps = draggable ? {
-    draggable: true,
-    onDragStart: (event) => dragApi.onStart(event, entry),
+  const dragTargetProps = draggable ? {
     onDragEnter: (event) => dragApi.onEnter(event, entry),
     onDragOver: (event) => dragApi.onOver(event, entry),
     onDragLeave: (event) => dragApi.onLeave(event, entry),
     onDrop: (event) => dragApi.onDrop(event, entry),
-    onDragEnd: dragApi.onEnd,
   } : {};
+  const dragHandle = draggable ? (
+    <span
+      className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(var(--border)/0.7)] bg-[rgba(var(--card)/0.92)] text-neutral-400 shadow-sm cursor-grab active:cursor-grabbing"
+      draggable
+      title="Перетащить"
+      aria-label="Перетащить карточку"
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onDragStart={(event) => dragApi.onStart(event, entry)}
+      onDragEnd={dragApi.onEnd}
+    >
+      <GripVertical size={16} />
+    </span>
+  ) : null;
 
   if (entry.kind === 'course') {
     const child = entry.course;
@@ -106,12 +121,11 @@ function CourseContentCard({
       </div>
     );
     const className = [
-      'assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5 border-[rgba(var(--accent)/0.35)]',
+      'assignment-card relative h-full transition hover:shadow-lg hover:-translate-y-0.5 border-[rgba(var(--accent)/0.35)] cursor-pointer',
       isDragged ? 'assignment-card--dragging' : '',
       dropMode && dropMode !== 'inside' ? 'dnd-insert-target' : '',
       dropMode === 'inside' ? 'dnd-nest-target' : '',
       dropEdge && dropMode !== 'inside' ? `dnd-insert-${dropEdge}` : '',
-      draggable ? 'cursor-move' : 'cursor-pointer',
     ].filter(Boolean).join(' ');
     const staticCard = <Card className={className}>{main}</Card>;
     const editorCard = (
@@ -119,7 +133,7 @@ function CourseContentCard({
         role="link"
         tabIndex={0}
         data-dnd-content-key={entry.key}
-        {...sharedDragProps}
+        {...dragTargetProps}
         onContextMenuCapture={(event) => onContextMenu?.(event, entry, canEdit)}
         onClick={() => dragApi.openAfterDrag(editorHref)}
         onKeyDown={(event) => {
@@ -129,15 +143,16 @@ function CourseContentCard({
           }
         }}
         className={className}
-        title={sortMode === 'default' ? 'Край карточки меняет порядок, центр другого курса вкладывает курс внутрь' : 'Открыть курс'}
+        title="Открыть курс"
       >
+        {dragHandle}
         {main}
         {dropMode === 'inside' ? <div className="dnd-nest-hint">Вложить курс сюда</div> : null}
       </Card>
     );
     return (
-      <IfEditor otherwise={<StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}>
-        {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}
+      <IfEditor otherwise={<StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onPrefetch={() => onPrefetchCourse?.(child.id)} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}>
+        {canEdit ? editorCard : <StaticLink to={viewHref} agentId={`course-${child.id}`} agentRole="course-card" agentAction="open-course" agentState={progress?.total > 0 && progress?.solved >= progress?.total ? "completed" : "incomplete"} onPrefetch={() => onPrefetchCourse?.(child.id)} onContextMenu={(event) => onContextMenu?.(event, entry, canEdit)}>{staticCard}</StaticLink>}
       </IfEditor>
     );
   }
@@ -168,13 +183,12 @@ function CourseContentCard({
     </div>
   );
   const className = [
-    'assignment-card h-full transition hover:shadow-lg hover:-translate-y-0.5',
+    'assignment-card relative h-full transition hover:shadow-lg hover:-translate-y-0.5 cursor-pointer',
     solved ? 'assignment-card--solved' : '',
     isDragged ? 'assignment-card--dragging' : '',
     dropMode && dropMode !== 'inside' ? 'dnd-insert-target' : '',
     dropMode === 'inside' ? 'dnd-nest-target' : '',
     dropEdge && dropMode !== 'inside' ? `dnd-insert-${dropEdge}` : '',
-    draggable ? 'cursor-move' : 'cursor-pointer',
   ].filter(Boolean).join(' ');
   const staticCard = <Card className={className}>{main}</Card>;
   const editorCard = (
@@ -182,7 +196,7 @@ function CourseContentCard({
       role="link"
       tabIndex={0}
       data-dnd-content-key={entry.key}
-      {...sharedDragProps}
+      {...dragTargetProps}
       onContextMenuCapture={(event) => onContextMenu?.(event, entry, canEdit)}
       onClick={() => dragApi.openAfterDrag(editorHref)}
       onKeyDown={(event) => {
@@ -192,8 +206,9 @@ function CourseContentCard({
         }
       }}
       className={className}
-      title={sortMode === 'default' ? 'Перетащи карточку, чтобы изменить общий порядок' : 'Открыть редактор задания'}
+      title="Открыть редактор задания"
     >
+      {dragHandle}
       {main}
     </Card>
   );

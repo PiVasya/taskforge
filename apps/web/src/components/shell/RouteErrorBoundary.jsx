@@ -1,4 +1,5 @@
 import React from 'react';
+import { logFrontendEvent } from '../../devtools/frontendDiagnostics';
 
 class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -11,6 +12,7 @@ class RouteErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
+    logFrontendEvent('react', 'route-error-boundary', { error, componentStack: info?.componentStack || '' }, 'error');
     console.error('[TaskForge route]', error, info);
   }
 

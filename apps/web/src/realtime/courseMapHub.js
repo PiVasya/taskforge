@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr';
+import { instrumentSignalRConnection } from '../devtools/frontendDiagnostics';
 
 const connections = new Map();
 
@@ -20,6 +21,7 @@ export function createCourseMapPresenceConnection(accessToken, courseId) {
     .configureLogging(signalR.LogLevel.None)
     .build();
 
+  instrumentSignalRConnection(connection, 'course-map', { courseId: String(courseId || '') });
   connections.set(key, connection);
   return connection;
 }

@@ -28,6 +28,7 @@ import ProfileSettingsSection from './components/ProfileSettingsSection';
 import ProfilePreviewSettingsSection from './components/ProfilePreviewSettingsSection';
 import IntegrationsSettingsSection from './components/IntegrationsSettingsSection';
 import SecuritySettingsSection from './components/SecuritySettingsSection';
+import DeveloperSettingsSection from './components/DeveloperSettingsSection';
 
 const PROFILE_QUERY_KEY = ['profile', 'me'];
 const UI_SETTINGS_QUERY_KEY = ['ui-settings', 'me'];
@@ -433,7 +434,9 @@ export default function SettingsFeature() {
         minecraft={{ status: minecraftStatus, nick: mcNick, setNick: setMcNick, inputCode: mcInputCode, setInputCode: setMcInputCode, expires: mcExpires, delivery: mcDelivery, loading: mcLoading || minecraftQuery.isFetching, error: mcError, refresh: refreshMinecraft, request: requestMinecraft, confirm: confirmMinecraft, unlink: unlinkMinecraftAccount }}
       />
     );
-    return <SecuritySettingsSection profile={profile} email={{ form: emailForm, setForm: setEmailForm, saving: savingEmail, error: emailError, submit: handleEmailSubmit }} password={{ form: passwordForm, setForm: setPasswordForm, saving: savingPassword, error: passwordError, submit: handlePasswordSubmit }} />;
+    if (activeSection === 'security') return <SecuritySettingsSection profile={profile} email={{ form: emailForm, setForm: setEmailForm, saving: savingEmail, error: emailError, submit: handleEmailSubmit }} password={{ form: passwordForm, setForm: setPasswordForm, saving: savingPassword, error: passwordError, submit: handlePasswordSubmit }} />;
+    if (activeSection === 'developer') return <DeveloperSettingsSection notify={notify} />;
+    return null;
   })();
 
   return (

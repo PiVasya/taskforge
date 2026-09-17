@@ -1,3 +1,4 @@
+import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 const IDLE_SNAPSHOT = Object.freeze({
   data: undefined,
   error: null,
@@ -146,6 +147,7 @@ export class QueryClient {
     entry.retry = retry;
     entry.retryDelay = retryDelay;
     entry.fetchStatus = 'fetching';
+    logFrontendEvent('query', 'fetch-start', { queryKey: entry.queryKey, force, staleTime });
     if (entry.status === 'idle') entry.status = 'pending';
     entry.error = null;
     updateSnapshot(entry);
@@ -162,6 +164,7 @@ export class QueryClient {
       entry.fetchStatus = 'idle';
       if (entry.status === 'pending' && entry.data === undefined) entry.status = 'idle';
       updateSnapshot(entry);
+      logFrontendEvent('query', 'fetch-aborted', { queryKey: entry.queryKey });
       return entry.data;
     };
 
@@ -198,6 +201,7 @@ export class QueryClient {
         entry.updatedAt = Date.now();
         entry.isInvalidated = false;
         updateSnapshot(entry);
+        logFrontendEvent('query', 'fetch-success', { queryKey: entry.queryKey, updatedAt: entry.updatedAt });
         return data;
       } catch (error) {
         if (
@@ -213,6 +217,7 @@ export class QueryClient {
         entry.fetchStatus = 'idle';
         entry.isInvalidated = false;
         updateSnapshot(entry);
+        logFrontendEvent('query', 'fetch-error', { queryKey: entry.queryKey, error }, 'error');
         throw error;
       } finally {
         if (entry.promise === promise) entry.promise = null;
@@ -224,8 +229,25 @@ export class QueryClient {
     return promise;
   }
 
+  scheduleGc(entry, gcTime = this.defaultGcTime) {
+    if (!entry || entry.observerCount > 0 || !Number.isFinite(gcTime) || gcTime < 0) return;
+    if (entry.gcTimer) clearTimeout(entry.gcTimer);
+    entry.gcTimer = setTimeout(() => {
+      entry.gcTimer = null;
+      if (entry.observerCount === 0) {
+        entry.abortController?.abort();
+        this.entries.delete(entry.hash);
+        logFrontendEvent('query', 'gc', { queryKey: entry.queryKey, source: 'prefetch-or-unobserved' });
+      }
+    }, gcTime);
+  }
+
   prefetchQuery(options) {
-    return this.fetchQuery(options).catch(() => undefined);
+    const entry = this.getEntry(options?.queryKey);
+    logFrontendEvent('query', 'prefetch', { queryKey: entry.queryKey });
+    return this.fetchQuery(options)
+      .catch(() => undefined)
+      .finally(() => this.scheduleGc(entry, options?.gcTime ?? this.defaultGcTime));
   }
 
   cancelQueries({ queryKey } = {}) {
@@ -243,6 +265,7 @@ export class QueryClient {
 
   invalidateQueries({ queryKey, refetch = true } = {}) {
     const tasks = [];
+    logFrontendEvent('query', 'invalidate', { queryKey: queryKey ?? null, refetch });
     for (const entry of this.entries.values()) {
       if (queryKey == null || keyStartsWith(entry.queryKey, queryKey)) {
         entry.isInvalidated = true;
@@ -263,6 +286,7 @@ export class QueryClient {
   }
 
   removeQueries({ queryKey } = {}) {
+    logFrontendEvent('query', 'remove', { queryKey: queryKey ?? null });
     for (const [hash, entry] of this.entries.entries()) {
       if (queryKey == null || keyStartsWith(entry.queryKey, queryKey)) {
         entry.abortController?.abort();
@@ -294,14 +318,7 @@ export class QueryClient {
         // request with no observers is cancelled immediately.
         entry.abortController?.abort();
       }
-      if (entry.observerCount === 0 && Number.isFinite(gcTime) && gcTime >= 0) {
-        entry.gcTimer = setTimeout(() => {
-          if (entry.observerCount === 0) {
-            entry.abortController?.abort();
-            this.entries.delete(entry.hash);
-          }
-        }, gcTime);
-      }
+      if (entry.observerCount === 0) this.scheduleGc(entry, gcTime);
     };
   }
 }

@@ -17,6 +17,7 @@ export default function CourseContentGrid({
   setDragOverContentEdge,
   childProgressByCourseId,
   dragApi,
+  onPrefetchCourse,
   onContextMenu,
   onDropContent,
 }) {
@@ -72,6 +73,7 @@ export default function CourseContentGrid({
             dropEdge={dropMode && dropMode !== 'inside' ? dragOverContentEdge : ''}
             progress={entry.kind === 'course' ? childProgressByCourseId[entry.id] : null}
             dragApi={dragApi}
+            onPrefetchCourse={onPrefetchCourse}
             onContextMenu={onContextMenu}
           />
         );

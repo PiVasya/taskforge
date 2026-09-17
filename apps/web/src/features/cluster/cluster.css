@@ -415,6 +415,31 @@ html.neo-brutal .tf-cluster .tf-cluster-table :where(th,td) { border-color: rgb(
 .tf-cluster-diagnostics-job-main > div { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .tf-cluster-diagnostics-job-main strong { font-size: 11px; }
 .tf-cluster-diagnostics-job-main small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster-diagnostics-freshness { display: inline-flex; align-items: center; gap: 5px; color: var(--cl-muted); font-size: 8px; white-space: nowrap; }
+.tf-cluster-diagnostics-batch { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster-diagnostics-batch-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tf-cluster-diagnostics-batch-head strong, .tf-cluster-diagnostics-batch-head small { display: block; }
+.tf-cluster-diagnostics-batch-head strong { font-size: 11px; }
+.tf-cluster-diagnostics-batch-head small { margin-top: 2px; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster-diagnostics-batch-head > span { color: var(--cl-accent); font-size: 12px; font-weight: 700; }
+.tf-cluster-diagnostics-progress, .tf-cluster-diagnostics-job-progress { position: relative; overflow: hidden; width: 100%; border-radius: 999px; background: color-mix(in srgb, var(--cl-line) 62%, transparent); }
+.tf-cluster-diagnostics-progress { height: 7px; }
+.tf-cluster-diagnostics-job-progress { height: 5px; margin-top: 7px; }
+.tf-cluster-diagnostics-progress > span, .tf-cluster-diagnostics-job-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--cl-accent); transition: width .28s ease; }
+.tf-cluster-diagnostics-job.is-good .tf-cluster-diagnostics-job-progress > span { background: var(--cl-good); }
+.tf-cluster-diagnostics-job.is-bad .tf-cluster-diagnostics-job-progress > span { background: var(--cl-bad); }
+.tf-cluster-diagnostics-job-progress.is-indeterminate > span { position: absolute; inset: 0 auto 0 -34%; width: 34%; animation: tf-cluster-diagnostics-progress 1.1s ease-in-out infinite; }
+.tf-cluster-diagnostics-job-meta { display: flex !important; align-items: center; gap: 10px !important; margin-top: 6px; color: var(--cl-muted); font-size: 8px; }
+.tf-cluster-diagnostics-job-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.tf-cluster-diagnostics-job-main small.is-error { color: var(--cl-bad); }
+@keyframes tf-cluster-diagnostics-progress {
+  0% { left: -34%; }
+  55% { left: 62%; }
+  100% { left: 110%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-cluster-diagnostics-job-progress.is-indeterminate > span { left: 0; width: 42%; animation: none; opacity: .72; }
+}
 .tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: white; background: var(--cl-accent-strong); border-color: var(--cl-accent-strong); }
 html.dark .tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: rgb(var(--page-bg)); background: rgb(var(--brand-400)); border-color: rgb(var(--brand-400)); }
 html.neo-brutal .tf-cluster :where(.tf-cluster-diagnostics-section, .tf-cluster-diagnostics-node, .tf-cluster-diagnostics-mode, .tf-cluster-diagnostics-job) { border: 2px solid rgb(var(--neo-ink)); border-radius: 7px; }

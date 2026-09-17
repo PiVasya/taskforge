@@ -11,7 +11,32 @@ import api from '../api/http';
 import { QueryClientProvider } from '../data/QueryClientProvider';
 import { AUTH_REQUIRED_EVENT } from '../auth/authEvents';
 import { loginPathForLocation } from '../auth/authRedirect';
+import { logFrontendEvent, startFrontendDiagnostics } from '../devtools/frontendDiagnostics';
 
+
+
+function FrontendDiagnosticsBridge() {
+  const { access, ready } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => startFrontendDiagnostics(), []);
+
+  useEffect(() => {
+    logFrontendEvent('navigation', 'route', {
+      pathname: location.pathname,
+      search: location.search || '',
+      hash: location.hash ? '#…' : '',
+      navigationKey: location.key || null,
+    });
+  }, [location.hash, location.key, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!ready) return;
+    logFrontendEvent('auth', access ? 'session-authenticated' : 'session-anonymous');
+  }, [access, ready]);
+
+  return null;
+}
 
 function RouteScrollReset() {
   const location = useLocation();
@@ -86,6 +111,7 @@ function SessionProviders({ children }) {
     <QuotaProvider enabled={Boolean(access)}>
       <div className="min-h-screen relative isolate flex flex-col">
         <PersistentBackground />
+        <FrontendDiagnosticsBridge />
         <RouteScrollReset />
         <AuthRequiredRedirect />
         <PageViewTracker />
