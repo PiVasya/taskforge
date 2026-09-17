@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../../components/ui';
-import TaskTestSolve from '../../pages/TaskTestSolve';
+import { TaskTestSolve } from '../task-test';
 import SqlTaskSolve from '../sql-task/SqlTaskSolve';
-import MathTaskSolve from '../../pages/MathTaskSolve';
+import { MathTaskSolve } from '../math-task';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import StatementViewer from '../../components/tiptap/StatementViewer';
 import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests } from '../../api/assignments';

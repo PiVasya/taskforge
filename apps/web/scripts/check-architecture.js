@@ -43,8 +43,14 @@ const requiredFiles = [
   'features/assignment-solve/solveDraftStore.js',
   'features/attempts/attemptAnswerStore.js',
   'features/attempts/AttemptCountdown.jsx',
+  'features/task-test/index.js',
   'features/task-test/TaskTestQuestion.jsx',
+  'features/task-test/TaskTestSolve.jsx',
+  'features/task-test/TaskTestEditor.jsx',
+  'features/math-task/index.js',
   'features/math-task/MathTaskBlock.jsx',
+  'features/math-task/MathTaskSolve.jsx',
+  'features/math-task/MathTaskEditor.jsx',
   'features/settings/SettingsFeature.jsx',
   'features/agent/AgentFeature.jsx',
   'features/agent/components/AgentComposer.jsx',
@@ -61,6 +67,32 @@ if (fs.existsSync(path.join(root, 'components', 'Layout.jsx'))) {
 
 const sourceFiles = walk(root).filter((file) => /\.(js|jsx)$/.test(file));
 const source = sourceFiles.map((file) => [file, fs.readFileSync(file, 'utf8')]);
+
+function importedSpecifiers(text) {
+  const result = [];
+  const patterns = [
+    /\bfrom\s+['"]([^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) result.push(match[1]);
+  }
+  return result;
+}
+
+for (const [file, text] of source) {
+  const relative = path.relative(root, file);
+  if (!relative.startsWith(`features${path.sep}`)) continue;
+  for (const specifier of importedSpecifiers(text)) {
+    if (!specifier.startsWith('.')) continue;
+    const resolved = path.resolve(path.dirname(file), specifier);
+    const pagesRoot = path.join(root, 'pages') + path.sep;
+    if (resolved.startsWith(pagesRoot)) {
+      fail(`feature depends on route layer: src/${relative} -> ${specifier}`);
+    }
+  }
+}
 
 for (const [file, text] of source) {
   const relative = path.relative(root, file);
@@ -166,8 +198,10 @@ const featureLineLimits = {
   'features/settings/SettingsFeature.jsx': 600,
   'features/agent/AgentFeature.jsx': 800,
   'features/admin-solutions/AdminSolutionsFeature.jsx': 1000,
-  'pages/TaskTestSolve.jsx': 350,
-  'pages/MathTaskSolve.jsx': 350,
+  'features/task-test/TaskTestSolve.jsx': 350,
+  'features/math-task/MathTaskSolve.jsx': 350,
+  'features/task-test/TaskTestEditor.jsx': 500,
+  'features/math-task/MathTaskEditor.jsx': 650,
 };
 for (const [relativePath, maximumLines] of Object.entries(featureLineLimits)) {
   const lineCount = read(relativePath).split(/\r?\n/).length;
@@ -194,8 +228,8 @@ if (!/AssignmentTaskConstraints/.test(assignmentFeature) || !/taskConstraints/.t
   fail('assignment solve feature lost the task-constraint panel');
 }
 
-const taskTest = read('pages/TaskTestSolve.jsx');
-const mathTask = read('pages/MathTaskSolve.jsx');
+const taskTest = read('features/task-test/TaskTestSolve.jsx');
+const mathTask = read('features/math-task/MathTaskSolve.jsx');
 if (/const \[answers, setAnswers\] = useState/.test(taskTest) || /const \[answers, setAnswers\] = useState/.test(mathTask)) {
   fail('test/math answer maps returned to page state and will rerender entire attempts per keypress');
 }
@@ -213,6 +247,10 @@ const pageWrappers = [
   'pages/AssignmentSolvePage.jsx',
   'pages/AssignmentEditPage.jsx',
   'pages/CourseAssignmentsPage.jsx',
+  'pages/TaskTestSolve.jsx',
+  'pages/MathTaskSolve.jsx',
+  'pages/TaskTestEditor.jsx',
+  'pages/MathTaskEditor.jsx',
   'pages/SettingsPage.jsx',
   'pages/AgentPage.jsx',
   'pages/admin/AdminAnalyticsPage.jsx',

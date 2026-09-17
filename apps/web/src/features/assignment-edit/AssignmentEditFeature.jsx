@@ -12,9 +12,9 @@ import { getMathTaskEdit, saveMathTaskEdit } from "../../api/mathTasks";
 
 import { Button, Field, Input, Textarea, Select, Badge } from "../../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
-import TaskTestEditor from "../../pages/TaskTestEditor";
+import { TaskTestEditor } from "../task-test";
 import SqlTaskEditor from '../sql-task/SqlTaskEditor';
-import MathTaskEditor from "../../pages/MathTaskEditor";
+import { MathTaskEditor } from "../math-task";
 import StatementEditor from "../../components/tiptap/StatementEditor";
 import { uploadImageTestReference, uploadImageTestExpectedImage } from "../../api/imageTests";
 import { EditorSection, SmallCheck } from './components/EditorSection';
