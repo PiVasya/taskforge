@@ -439,6 +439,10 @@ html.neo-brutal .tf-cluster .tf-cluster-table :where(th,td) { border-color: rgb(
 .tf-cluster-diagnostics-container-progress > small { margin: 0; white-space: normal; color: var(--cl-muted); font-size: 8px; line-height: 1.4; }
 .tf-cluster-diagnostics-container-progress .tf-cluster-diagnostics-job-progress { margin-top: 0; }
 .tf-cluster-diagnostics-job-main small.is-error { color: var(--cl-bad); }
+.tf-cluster-diagnostics-download-progress { display: grid; gap: 4px; margin-top: 8px; }
+.tf-cluster-diagnostics-download-progress .tf-cluster-diagnostics-job-progress { margin-top: 0; }
+.tf-cluster-diagnostics-download-progress.is-indeterminate .tf-cluster-diagnostics-job-progress > span { width: 34%; animation: tf-cluster-download-indeterminate 1.05s ease-in-out infinite; }
+@keyframes tf-cluster-download-indeterminate { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
 .tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: white; background: var(--cl-accent-strong); border-color: var(--cl-accent-strong); }
 html.dark .tf-cluster .tf-cluster-diagnostics-start:not(:disabled) { color: rgb(var(--page-bg)); background: rgb(var(--brand-400)); border-color: rgb(var(--brand-400)); }
 html.neo-brutal .tf-cluster :where(.tf-cluster-diagnostics-section, .tf-cluster-diagnostics-node, .tf-cluster-diagnostics-mode, .tf-cluster-diagnostics-job) { border: 2px solid rgb(var(--neo-ink)); border-radius: 7px; }

@@ -73,6 +73,24 @@ function formatArchiveDate(value) {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function downloadWasCanceled(error) {
+  return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
+}
+
+function DownloadProgress({ state, itemKey }) {
+  if (!state || state.key !== itemKey) return null;
+  const determinate = Number.isFinite(state.percent);
+  const percent = determinate ? Math.max(0, Math.min(100, state.percent)) : null;
+  const size = state.total ? `${bytes(state.loaded)} / ${bytes(state.total)}` : `${bytes(state.loaded)} получено`;
+  const rate = state.rate ? `${bytes(state.rate)}/с` : null;
+  return <div className={`tf-cluster-diagnostics-download-progress ${determinate ? '' : 'is-indeterminate'}`} aria-live="polite">
+    <div className="tf-cluster-diagnostics-job-progress" role="progressbar" aria-label="Скачивание архива" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
+      <span style={determinate ? { width: `${percent}%` } : undefined} />
+    </div>
+    <div className="tf-cluster-diagnostics-progress-caption"><span>{size}{rate ? ` · ${rate}` : ''}</span><strong>{determinate ? `${percent}%` : 'Скачиваем…'}</strong></div>
+  </div>;
+}
+
 function saveBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -106,7 +124,8 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   const [archivesLoading, setArchivesLoading] = useState(false);
   const [archivesError, setArchivesError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [downloading, setDownloading] = useState(null);
+  const [downloadState, setDownloadState] = useState(null);
+  const downloadAbort = useRef(null);
   const [lastPollAt, setLastPollAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const pollAbort = useRef(null);
@@ -262,32 +281,55 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
     }
   };
 
-  const download = async job => {
-    if (!job.jobId || job.status !== 'completed' || downloading) return;
-    const key = `${job.node}:${job.jobId}`;
-    setDownloading(key);
+  const runDownload = async (key, loader, fallbackFileName, errorTitle) => {
+    if (downloadState) return;
+    const controller = new AbortController();
+    downloadAbort.current = controller;
+    setDownloadState({ key, loaded: 0, total: null, percent: null, rate: null });
     try {
-      const { blob, fileName } = await downloadClusterDiagnostics(job.node, job.jobId);
-      saveBlob(blob, fileName);
+      const { blob, fileName } = await loader({
+        signal: controller.signal,
+        onProgress: progress => setDownloadState(current => current?.key === key ? { ...current, ...progress } : current),
+      });
+      if (!controller.signal.aborted) saveBlob(blob, fileName || fallbackFileName);
     } catch (error) {
-      handleApiError(error, notify, 'Не удалось скачать архив диагностики');
+      if (!downloadWasCanceled(error)) handleApiError(error, notify, errorTitle);
     } finally {
-      setDownloading(null);
+      if (downloadAbort.current === controller) downloadAbort.current = null;
+      setDownloadState(current => current?.key === key ? null : current);
     }
   };
 
-  const downloadStored = async archive => {
-    if (!archive?.id || downloading) return;
-    const key = `archive:${archive.id}`;
-    setDownloading(key);
-    try {
-      const { blob, fileName } = await downloadStoredClusterDiagnostics(archive.id);
-      saveBlob(blob, fileName || archive.fileName);
-    } catch (error) {
-      handleApiError(error, notify, 'Не удалось скачать сохранённый архив');
-    } finally {
-      setDownloading(null);
+  const cancelDownload = () => downloadAbort.current?.abort();
+
+  const download = job => {
+    if (!job.jobId || job.status !== 'completed') return;
+    const key = `${job.node}:${job.jobId}`;
+    if (downloadState?.key === key) {
+      cancelDownload();
+      return;
     }
+    void runDownload(
+      key,
+      options => downloadClusterDiagnostics(job.node, job.jobId, options),
+      job.archiveName || `taskforge_diagnostics_${job.node}_${job.jobId}.tar.gz`,
+      'Не удалось скачать архив диагностики',
+    );
+  };
+
+  const downloadStored = archive => {
+    if (!archive?.id) return;
+    const key = `archive:${archive.id}`;
+    if (downloadState?.key === key) {
+      cancelDownload();
+      return;
+    }
+    void runDownload(
+      key,
+      options => downloadStoredClusterDiagnostics(archive.id, options),
+      archive.fileName || 'taskforge_diagnostics.tar.gz',
+      'Не удалось скачать сохранённый архив',
+    );
   };
 
 
@@ -348,8 +390,9 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
                 <div className="tf-cluster-diagnostics-archive-main">
                   <div><strong>{archive.fileName || 'taskforge_diagnostics.tar.gz'}</strong><Tag>Сервер {archive.node}</Tag>{archive.sizeBytes != null && <Tag>{bytes(archive.sizeBytes)}</Tag>}</div>
                   <small>Собран {formatArchiveDate(archive.createdAt)} · хранится до {formatArchiveDate(archive.expiresAt)}</small>
+                  <DownloadProgress state={downloadState} itemKey={key} />
                 </div>
-                <button type="button" className="tf-cluster-button is-primary" disabled={!!downloading} onClick={() => downloadStored(archive)}><Download size={14} />{downloading === key ? 'Скачиваем…' : 'Скачать'}</button>
+                <button type="button" className="tf-cluster-button is-primary" disabled={!!downloadState && downloadState.key !== key} onClick={() => downloadStored(archive)}>{downloadState?.key === key ? <><X size={14} />Отменить</> : <><Download size={14} />Скачать</>}</button>
               </div>;
             })}
           </div>}
@@ -412,8 +455,9 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
                     {progress.bytesCollected != null && <span><HardDrive size={12} /> {bytes(progress.bytesCollected)} собрано</span>}
                     {progress.archiveBytes > 0 && progress.phase === 'archive' && <span><FileArchive size={12} /> {bytes(progress.archiveBytes)} в архиве</span>}
                   </div>
+                  <DownloadProgress state={downloadState} itemKey={key} />
                 </div>
-                {job.status === 'completed' && <button type="button" className="tf-cluster-button is-primary" disabled={!!downloading} onClick={() => download(job)}><Download size={14} />{downloading === key ? 'Скачиваем…' : 'Скачать'}</button>}
+                {job.status === 'completed' && <button type="button" className="tf-cluster-button is-primary" disabled={!!downloadState && downloadState.key !== key} onClick={() => download(job)}>{downloadState?.key === key ? <><X size={14} />Отменить</> : <><Download size={14} />Скачать</>}</button>}
               </div>;
             })}
           </div>

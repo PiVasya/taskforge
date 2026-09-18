@@ -22,10 +22,10 @@ checks = {
         '/api/admin/cluster/diagnostics', '/api/admin/cluster/diagnostics/archives', '/download', 'ProxyDiagnosticsArchiveAsync', 'ProxyStoredDiagnosticsArchiveAsync'
     ]),
     "browser client": (ROOT / "apps/web/src/api/systemStatus.js", [
-        'startClusterDiagnostics', 'getClusterDiagnosticsJob', 'downloadClusterDiagnostics', 'getClusterDiagnosticsArchives', 'downloadStoredClusterDiagnostics', "responseType: 'blob'"
+        'startClusterDiagnostics', 'getClusterDiagnosticsJob', 'downloadClusterDiagnostics', 'getClusterDiagnosticsArchives', 'downloadStoredClusterDiagnostics', "responseType: 'blob'", 'onDownloadProgress', 'onProgress', 'signal'
     ]),
     "cluster dialog": (ROOT / "apps/web/src/features/cluster/ClusterDiagnosticsDialog.jsx", [
-        'Собрать логи', "id: 'quick'", "id: 'standard'", "id: 'full'", 'diagnosticsEligibility', 'maxLogMb', 'since', 'Сохранённые архивы', 'getClusterDiagnosticsArchives'
+        'Собрать логи', "id: 'quick'", "id: 'standard'", "id: 'full'", 'diagnosticsEligibility', 'maxLogMb', 'since', 'Сохранённые архивы', 'getClusterDiagnosticsArchives', 'DownloadProgress', 'downloadState', 'Отменить'
     ]),
     "cluster page": (ROOT / "apps/web/src/pages/admin/AdminSystemStatusPage.jsx", [
         'ClusterDiagnosticsDialog', 'setDiagnosticsOpen(true)', 'Собрать логи'
