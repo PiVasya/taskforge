@@ -342,7 +342,7 @@ internal static class Program
                 var legacy = LegacyRuntimeProfile(engine, new string('7', 64), client);
                 var current = CurrentRuntimeProfile(engine, client, "sha256:" + new string('c', 64));
                 Assert(SqlProfileCompatibility.IsCompatible(current, legacy));
-                Assert(SqlProfileCompatibility.IsCompatible(legacy, current));
+                Assert(!SqlProfileCompatibility.IsCompatible(legacy, current));
             }
         });
         Test("legacy SQLite bridge accepts only the historical executor-derived runtime digest", () =>
@@ -355,12 +355,23 @@ internal static class Program
             old.Fingerprint = SqlContentKeys.Profile(old);
             Assert(!SqlProfileCompatibility.IsCompatible(current, old));
         });
+        Test("runtime v2 serves explicit v1 profiles only in the forward direction", () =>
+        {
+            var current = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('1', 64));
+            var previous = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('1', 64));
+            var settings = JsonSerializer.Deserialize<Dictionary<string, object?>>(previous.SettingsJson)!;
+            settings["executionSemanticsVersion"] = "sql-runtime-v1";
+            previous.SettingsJson = JsonSerializer.Serialize(settings);
+            previous.Fingerprint = SqlContentKeys.Profile(previous);
+            Assert(SqlProfileCompatibility.IsCompatible(current, previous));
+            Assert(!SqlProfileCompatibility.IsCompatible(previous, current));
+        });
         Test("legacy compatibility remains pinned to semantics v1", () =>
         {
             var old = LegacyRuntimeProfile(SqlEngineNames.PostgreSql, new string('0', 64), "libpq-18");
             var future = CurrentRuntimeProfile(SqlEngineNames.PostgreSql, "libpq-18", "sha256:" + new string('1', 64));
             var settings = JsonSerializer.Deserialize<Dictionary<string, object?>>(future.SettingsJson)!;
-            settings["executionSemanticsVersion"] = "sql-runtime-v2";
+            settings["executionSemanticsVersion"] = "sql-runtime-v3";
             future.SettingsJson = JsonSerializer.Serialize(settings);
             future.Fingerprint = SqlContentKeys.Profile(future);
             Assert(!SqlProfileCompatibility.IsCompatible(future, old));

@@ -10,6 +10,17 @@ test('SQL document defaults are separate and immutable between instances',()=>{
  const s=m.freshSpec();assert.equal(s.mode,'result');assert.equal(s.allowMultipleStatements,false);assert.equal(s.limits.maxRows,1000);
  assert.equal(Object.hasOwn(s,'testsJson'),false);
 });
+
+test('database lifecycle authoring defaults and validation stay bounded',()=>{
+ const doc=m.freshDataset();
+ assert.deepEqual(doc.definition.databases,[]);
+ doc.definition.databases=['archive_db','staging_db'];
+ assert.deepEqual(m.datasetIssues(doc),[]);
+ doc.definition.databases.push('archive_db');
+ assert.ok(m.datasetIssues(doc).some(x=>x.includes('Database: archive_db')));
+ doc.definition.databases=['tfq_escape'];
+ assert.ok(m.datasetIssues(doc).some(x=>x.includes('Database: tfq_escape')));
+});
 test('rename table preserves exact seed numerics, FK and mappings',()=>{
  const doc=m.freshDataset();doc.definition.tables=[m.newTable('items'),m.newTable('tags')];
  doc.definition.tables[1].foreignKeys=[{name:'fk_tag',columns:['id'],referenceTable:'items',referenceColumns:['id']}];

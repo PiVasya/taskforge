@@ -81,7 +81,7 @@ func (r *ProcessRunner) Run(ctx context.Context, lease *Lease, p Payload, source
 	if !filepath.IsAbs(r.Executable) {
 		return EmptySnapshot(), Unavailable("SQL helper executable must be absolute.")
 	}
-	req := ChildRequest{EngineVersion: p.Profile.EngineVersion, Engine: lease.Sandbox.Connection.Engine, Connection: lease.Sandbox.Connection, Source: source, Mode: p.Mode, AllowMultipleStatements: p.AllowMultipleStatements, Limits: p.Limits, StateCheck: p.StateCheck}
+	req := ChildRequest{EngineVersion: p.Profile.EngineVersion, Engine: lease.Sandbox.Connection.Engine, Connection: lease.Sandbox.Connection, Source: source, Mode: p.Mode, AllowMultipleStatements: p.AllowMultipleStatements, Limits: p.Limits, StateCheck: p.StateCheck, InitialDatabases: p.Definition.Databases}
 	raw, e := json.Marshal(req)
 	if e != nil || len(raw) > 5_000_000 {
 		return EmptySnapshot(), OutputLimit()

@@ -171,6 +171,29 @@ func TestRealEnginesSchemaDDL(t *testing.T) {
 		requireVerdict(t, h.run(t, "sql-check", p), "WrongAnswer")
 	})
 }
+func TestRealEnginesDatabaseLifecycleIsVirtualizedAndGraded(t *testing.T) {
+	forEngines(t, func(t *testing.T, h *harness) {
+		p := h.payload
+		p.Mode = "schema"
+		p.MaterializationKey = textHash("database-create-" + p.Profile.Fingerprint)
+		p = h.materialize(t, p, "CREATE DATABASE shop")
+		p.Source = "CREATE DATABASE shop"
+		requireVerdict(t, h.run(t, "sql-check", p), "Accepted")
+		p.Source = "CREATE DATABASE other_shop"
+		requireVerdict(t, h.run(t, "sql-check", p), "WrongAnswer")
+
+		drop := h.payload
+		drop.Mode = "schema"
+		drop.Definition.Databases = []string{"archive_db"}
+		drop.MaterializationKey = textHash("database-drop-" + drop.Profile.Fingerprint)
+		drop = h.materialize(t, drop, "DROP DATABASE archive_db")
+		drop.Source = "DROP DATABASE archive_db"
+		requireVerdict(t, h.run(t, "sql-check", drop), "Accepted")
+		drop.Source = "DROP DATABASE IF EXISTS other_archive"
+		requireVerdict(t, h.run(t, "sql-check", drop), "WrongAnswer")
+	})
+}
+
 func TestRealEnginesPortableForeignKeysDefaults(t *testing.T) {
 	forEngines(t, func(t *testing.T, h *harness) {
 		p := h.payload

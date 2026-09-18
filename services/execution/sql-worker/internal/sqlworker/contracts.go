@@ -10,7 +10,7 @@ import (
 const ContractVersion = 1
 const AdapterVersion = "1.0.0"
 const ImplementationVersion = "go-native-v1"
-const ExecutionSemanticsVersion = "sql-runtime-v1"
+const ExecutionSemanticsVersion = "sql-runtime-v2"
 
 // The wire names mirror services/shared/Sql/SqlContracts.cs. Unknown fields, duplicate
 // properties, lossy numbers and unsupported contract versions are rejected on input.
@@ -82,7 +82,8 @@ type Table struct {
 	Indexes     []Index      `json:"indexes"`
 }
 type Definition struct {
-	Tables []Table `json:"tables"`
+	Tables    []Table  `json:"tables"`
+	Databases []string `json:"databases,omitempty"`
 }
 type ColumnMapping struct {
 	Type    *string  `json:"type"`
@@ -195,6 +196,10 @@ type ResultSet struct {
 type Schema struct {
 	Tables []map[string]any `json:"tables"`
 }
+type DatabaseOperation struct {
+	Action string `json:"action"`
+	Name   string `json:"name"`
+}
 type Snapshot struct {
 	Results            []ResultSet          `json:"results"`
 	Schema             Schema               `json:"schema"`
@@ -207,6 +212,8 @@ type Snapshot struct {
 	PreviewError       *PublicError         `json:"previewError,omitempty"`
 	ErrorVerdict       string               `json:"errorVerdict,omitempty"`
 	StatementsExecuted int                  `json:"statementsExecuted"`
+	Databases          []string             `json:"databases,omitempty"`
+	DatabaseOperations []DatabaseOperation  `json:"databaseOperations,omitempty"`
 }
 
 func EmptySnapshot() Snapshot {
@@ -215,15 +222,24 @@ func EmptySnapshot() Snapshot {
 
 // Public is an allowlist. Neither reference SQL nor verificationData ever leaves this boundary.
 func (s Snapshot) Public() map[string]any {
-	return map[string]any{"results": s.Results, "schema": s.Schema, "data": s.Data, "affectedRows": s.AffectedRows, "executionMs": s.ExecutionMS, "inspectionMs": s.InspectionMS, "error": s.Error, "previewError": s.PreviewError, "statementsExecuted": s.StatementsExecuted}
+	out := map[string]any{"results": s.Results, "schema": s.Schema, "data": s.Data, "affectedRows": s.AffectedRows, "executionMs": s.ExecutionMS, "inspectionMs": s.InspectionMS, "error": s.Error, "previewError": s.PreviewError, "statementsExecuted": s.StatementsExecuted}
+	if len(s.Databases) > 0 {
+		out["databases"] = s.Databases
+	}
+	if len(s.DatabaseOperations) > 0 {
+		out["databaseOperations"] = s.DatabaseOperations
+	}
+	return out
 }
 
 type Artifact struct {
-	FormatVersion int                  `json:"formatVersion"`
-	Mode          string               `json:"mode"`
-	Result        *ResultSet           `json:"result,omitempty"`
-	Tables        map[string]ResultSet `json:"tables,omitempty"`
-	Schema        *Schema              `json:"schema,omitempty"`
+	FormatVersion      int                  `json:"formatVersion"`
+	Mode               string               `json:"mode"`
+	Result             *ResultSet           `json:"result,omitempty"`
+	Tables             map[string]ResultSet `json:"tables,omitempty"`
+	Schema             *Schema              `json:"schema,omitempty"`
+	Databases          []string             `json:"databases,omitempty"`
+	DatabaseOperations []DatabaseOperation  `json:"databaseOperations,omitempty"`
 }
 
 func RecoverCache(message string) *Failure {

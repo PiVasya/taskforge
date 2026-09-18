@@ -1,6 +1,7 @@
 package sqlworker
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -164,13 +165,71 @@ func SplitScript(source, engine string, multiple bool, maxStatements int) ([]Sta
 		return nil, Fail("SQL_STATEMENT_LIMIT", "This assignment does not allow this number of statements.")
 	}
 	for _, st := range out {
-		if err := validateStatement(st); err != nil {
+		if err := validateStatement(st, engine); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
 }
-func validateStatement(st Statement) error {
+
+type databaseStatement struct {
+	DatabaseOperation
+	TolerateMissing  bool
+	TolerateExisting bool
+}
+
+var databaseCreateRE = regexp.MustCompile(`^\s*(?i:create)\s+(?i:database)\s+(?:(?i:if)\s+(?i:not)\s+(?i:exists)\s+)?([a-z][a-z0-9_]{0,47})\s*$`)
+var databaseDropRE = regexp.MustCompile(`^\s*(?i:drop)\s+(?i:database)\s+(?:(?i:if)\s+(?i:exists)\s+)?([a-z][a-z0-9_]{0,47})\s*$`)
+
+func parseDatabaseStatement(st Statement, engine string) (databaseStatement, bool, error) {
+	w := st.Words
+	if len(w) < 2 || (w[0] != "create" && w[0] != "drop") || w[1] != "database" {
+		return databaseStatement{}, false, nil
+	}
+	if engine == "sqlite" {
+		return databaseStatement{}, true, Fail("SQL_DATABASE_LIFECYCLE_UNSUPPORTED", "CREATE DATABASE and DROP DATABASE are available only for PostgreSQL and MySQL tasks.")
+	}
+
+	var match []string
+	op := databaseStatement{DatabaseOperation: DatabaseOperation{Action: w[0]}}
+	if w[0] == "create" {
+		match = databaseCreateRE.FindStringSubmatch(st.SQL)
+		op.TolerateExisting = len(w) == 6 && w[2] == "if" && w[3] == "not" && w[4] == "exists"
+	} else {
+		match = databaseDropRE.FindStringSubmatch(st.SQL)
+		op.TolerateMissing = len(w) == 5 && w[2] == "if" && w[3] == "exists"
+	}
+	if len(match) != 2 {
+		return databaseStatement{}, true, Fail("SQL_DATABASE_LIFECYCLE_SYNTAX", "Database lifecycle statements support only CREATE DATABASE [IF NOT EXISTS] name and DROP DATABASE [IF EXISTS] name.")
+	}
+	name := match[1]
+	if e := portable(name); e != nil {
+		return databaseStatement{}, true, Fail("SQL_DATABASE_IDENTIFIER", "Database names must use lower_snake_case and the supported portable identifier profile.")
+	}
+	op.Name = name
+	return op, true, nil
+}
+
+func applyDatabaseStatement(databases map[string]bool, op databaseStatement) error {
+	exists := databases[op.Name]
+	switch op.Action {
+	case "create":
+		if exists && !op.TolerateExisting {
+			return Fail("SQL_DATABASE_EXISTS", "The database already exists.")
+		}
+		databases[op.Name] = true
+	case "drop":
+		if !exists && !op.TolerateMissing {
+			return Fail("SQL_DATABASE_NOT_FOUND", "The database does not exist.")
+		}
+		delete(databases, op.Name)
+	default:
+		return Unavailable("Invalid database lifecycle operation.")
+	}
+	return nil
+}
+
+func validateStatement(st Statement, engine string) error {
 	w := st.Words
 	if len(w) == 0 {
 		return Fail("SQL_STATEMENT", "Unknown SQL statement.")
@@ -181,6 +240,9 @@ func validateStatement(st Statement) error {
 		if forbidden[strings.TrimPrefix(v, "@")] || v == "outfile" || v == "dumpfile" {
 			return Fail("SQL_PROFILE_POLICY", "File, network and session-administration operations are not allowed.")
 		}
+	}
+	if _, handled, err := parseDatabaseStatement(st, engine); handled {
+		return err
 	}
 	switch w[0] {
 	case "select", "with", "insert", "update", "delete", "replace":
@@ -205,9 +267,14 @@ func validateStatement(st Statement) error {
 			return nil
 		}
 	}
-	return Fail("SQL_PROFILE_POLICY", "Only query, data and table/index/view statements are allowed. Server administration, session configuration and explicit transactions are unavailable.")
+	return Fail("SQL_PROFILE_POLICY", "Only query, data, table/index/view statements and bounded database lifecycle commands are allowed. Account administration, session configuration and explicit transactions are unavailable.")
 }
 func ValidateReference(stmts []Statement, mode string) error {
+	for _, st := range stmts {
+		if len(st.Words) >= 2 && (st.Words[0] == "create" || st.Words[0] == "drop") && st.Words[1] == "database" && mode != "schema" {
+			return Fail("SQL_DATABASE_LIFECYCLE_MODE", "CREATE DATABASE and DROP DATABASE assignments must use schema verification mode.")
+		}
+	}
 	if mode == "schema" {
 		return nil
 	}

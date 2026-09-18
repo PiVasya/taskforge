@@ -68,13 +68,17 @@ ordering/duplicates/numeric tolerance settings, selected state tables, per-engin
 overrides and multi-statement scripts. Preview snapshots describe post-script state,
 including safe partial-error snapshots where inspection remains possible.
 
-The normal database profile deliberately rejects server administration, account
-creation, explicit transaction control, temporary-table administration, extension
-loading and unsupported advanced schema objects. CREATE/ALTER/DROP TABLE and normal
-DML/index/view operations are supported only within the restricted profile. The
-schema inspector fails closed for features it cannot represent safely; it does not
-silently certify an arbitrary vendor-specific schema. This is not a full SQL Server,
-DBA, stored-procedure, trigger, plugin or transaction-course environment.
+The normal database profile deliberately rejects account administration, explicit
+transaction control, temporary-table administration, extension loading and unsupported
+advanced schema objects. CREATE/ALTER/DROP TABLE and normal DML/index/view operations
+are supported within the restricted profile. PostgreSQL/MySQL exercises also accept a
+bounded CREATE DATABASE / DROP DATABASE lifecycle. Those commands are virtualized in
+the per-attempt TaskForge namespace and graded as logical database state/operations;
+the learner connection never receives server-wide CREATEDB/CREATE/DROP privileges.
+SQLite continues to reject CREATE/DROP DATABASE. The schema inspector fails closed for
+features it cannot represent safely; it does not silently certify an arbitrary
+vendor-specific schema. This is not a full DBA, stored-procedure, trigger, plugin or
+transaction-course environment.
 
 The query child opens only its sandbox connection/file before applying seccomp,
 resource limits and engine authorization. It has no TaskForge credential or Docker

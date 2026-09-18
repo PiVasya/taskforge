@@ -59,7 +59,7 @@ public sealed record SqlForeignKey(string Name, string[] Columns, string Referen
 public sealed record SqlIndex(string Name, string[] Columns, bool Unique = false);
 public sealed record SqlTable(string Name, SqlColumn[] Columns, string[]? PrimaryKey = null,
     string[][]? Unique = null, SqlForeignKey[]? ForeignKeys = null, SqlIndex[]? Indexes = null);
-public sealed record SqlDefinition(SqlTable[] Tables);
+public sealed record SqlDefinition(SqlTable[] Tables, string[]? Databases = null);
 public sealed record SqlColumnMapping(string? Type = null, SqlDefault? Default = null);
 public sealed record SqlEngineMapping(Dictionary<string, SqlColumnMapping>? Columns = null);
 
@@ -156,7 +156,11 @@ public static class SqlPortableValidator
     {
         if (input.Definition?.Tables is null || input.Seed is null) throw new ArgumentException("Definition and seed are required.");
         var tables = input.Definition.Tables;
+        var databases = input.Definition.Databases ?? Array.Empty<string>();
         if (tables.Length > 24) throw new ArgumentException("At most 24 tables are supported.");
+        if (databases.Length > 16) throw new ArgumentException("At most 16 initial databases are supported.");
+        if (databases.Distinct(StringComparer.Ordinal).Count() != databases.Length) throw new ArgumentException("Duplicate database names.");
+        foreach (var database in databases) Identifier(database);
         if (tables.Any(x => x is null || x.Columns is null || x.Columns.Any(c => c is null))) throw new ArgumentException("Tables and columns cannot be null.");
         var tableNames = tables.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
         if (tableNames.Count != tables.Length) throw new ArgumentException("Duplicate table names.");

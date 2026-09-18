@@ -141,7 +141,7 @@ func TestScriptDialectLexing(t *testing.T) {
 }
 func TestNormalProfileRejectsServerAndFileCommands(t *testing.T) {
 	for _, engine := range []string{"sqlite", "postgresql", "mysql"} {
-		for _, sql := range []string{"CREATE ROLE foo", "CREATE DATABASE foo", "DROP DATABASE foo", "SET search_path=public", "SELECT pg_read_file('/etc/passwd')", "SELECT load_file('/etc/passwd')", "SELECT 1 INTO OUTFILE '/tmp/x'", "SELECT set_config('work_mem','1GB',false)", `SELECT "pg_read_file"('/etc/passwd')`} {
+		for _, sql := range []string{"CREATE ROLE foo", "SET search_path=public", "SELECT pg_read_file('/etc/passwd')", "SELECT load_file('/etc/passwd')", "SELECT 1 INTO OUTFILE '/tmp/x'", "SELECT set_config('work_mem','1GB',false)", `SELECT "pg_read_file"('/etc/passwd')`} {
 			if _, e := SplitScript(sql, engine, true, 20); e == nil {
 				t.Errorf("%s allowed %s", engine, sql)
 			}
@@ -151,6 +151,53 @@ func TestNormalProfileRejectsServerAndFileCommands(t *testing.T) {
 		if _, e := SplitScript(sql, "postgresql", true, 20); e != nil {
 			t.Errorf("valid normal operation rejected: %s %v", sql, e)
 		}
+	}
+}
+
+func TestDatabaseLifecycleStatementsAreBoundedAndPortable(t *testing.T) {
+	for _, engine := range []string{"postgresql", "mysql"} {
+		for _, sql := range []string{"CREATE DATABASE shop", "CREATE DATABASE IF NOT EXISTS shop", "DROP DATABASE shop", "DROP DATABASE IF EXISTS shop"} {
+			stmts, err := SplitScript(sql, engine, false, 20)
+			if err != nil || len(stmts) != 1 {
+				t.Fatalf("%s rejected %q: %v", engine, sql, err)
+			}
+		}
+	}
+	for _, sql := range []string{"CREATE DATABASE shop OWNER root", "DROP DATABASE shop WITH FORCE", "CREATE DATABASE tfq_escape", "CREATE DATABASE Bad-Name", "CREATE DATABASE shop !!!", `CREATE DATABASE "shop"`} {
+		if _, err := SplitScript(sql, "postgresql", false, 20); err == nil {
+			t.Fatalf("unsafe database lifecycle syntax accepted: %q", sql)
+		}
+	}
+	if _, err := SplitScript("CREATE DATABASE shop", "sqlite", false, 20); err == nil {
+		t.Fatal("SQLite unexpectedly accepted CREATE DATABASE")
+	}
+	stmts, err := SplitScript("CREATE DATABASE shop", "postgresql", false, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ValidateReference(stmts, "result"); err == nil {
+		t.Fatal("database lifecycle reference accepted outside schema verification mode")
+	}
+	if err = ValidateReference(stmts, "schema"); err != nil {
+		t.Fatalf("database lifecycle reference rejected in schema mode: %v", err)
+	}
+
+	dbs := map[string]bool{"archive_db": true}
+	createStatements, err := SplitScript("CREATE DATABASE shop", "postgresql", false, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create, _, err := parseDatabaseStatement(createStatements[0], "postgresql")
+	if err != nil || applyDatabaseStatement(dbs, create) != nil || !dbs["shop"] {
+		t.Fatalf("create lifecycle failed: %v", err)
+	}
+	dropStatements, err := SplitScript("DROP DATABASE archive_db", "mysql", false, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drop, _, err := parseDatabaseStatement(dropStatements[0], "mysql")
+	if err != nil || applyDatabaseStatement(dbs, drop) != nil || dbs["archive_db"] {
+		t.Fatalf("drop lifecycle failed: %v", err)
 	}
 }
 func TestPortableDDLAllThreeEngines(t *testing.T) {
@@ -212,5 +259,29 @@ func TestNoClockDefaultsInImmutableSeed(t *testing.T) {
 	p.Definition.Tables[0].Columns = append(p.Definition.Tables[0].Columns, Column{Name: "created", Type: "datetime", Default: &Default{Kind: "current_timestamp"}})
 	if _, e := CompileDataset(p, "sqlite"); e == nil {
 		t.Fatal("non-repeatable seed default accepted")
+	}
+}
+
+func TestDatabaseLifecycleArtifactsParticipateInVerification(t *testing.T) {
+	p := fixture(Profile{})
+	p.Mode = "schema"
+	actual := EmptySnapshot()
+	actual.Databases = []string{"shop"}
+	actual.DatabaseOperations = []DatabaseOperation{{Action: "create", Name: "shop"}}
+	expected, err := MakeArtifact(actual, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Verify(context.Background(), expected, expected, p); err != nil || !ok {
+		t.Fatalf("matching database lifecycle artifact rejected: ok=%v err=%v", ok, err)
+	}
+	wrong := actual
+	wrong.Databases = []string{"other"}
+	current, err := MakeArtifact(wrong, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Verify(context.Background(), current, expected, p); err != nil || ok {
+		t.Fatalf("wrong database lifecycle artifact accepted: ok=%v err=%v", ok, err)
 	}
 }

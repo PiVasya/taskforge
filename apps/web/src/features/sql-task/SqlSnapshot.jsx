@@ -36,10 +36,19 @@ export default function SqlSnapshot({ snapshot }) {
   const results = snapshot.results || [];
   const hasResultRows = results.length > 0;
   const affectedRows = Number(snapshot.affectedRows || 0);
+  const databases = Array.isArray(snapshot.databases) ? snapshot.databases : [];
+  const databaseOperations = Array.isArray(snapshot.databaseOperations) ? snapshot.databaseOperations : [];
 
   return (
     <Card className="sql-result-card">
       {snapshot.previewError ? <div className="sql-inline-error">{snapshot.previewError.message}</div> : null}
+      {databaseOperations.length > 0 ? (
+        <div className="sql-result-block">
+          <div className="sql-result-label">Операции с базами данных</div>
+          {databaseOperations.map((operation, index) => <div className="sql-result-summary" key={`${operation?.action}-${operation?.name}-${index}`}>{String(operation?.action || '').toUpperCase()} DATABASE {operation?.name}</div>)}
+          <div className="sql-result-summary">Текущее состояние: {databases.length ? databases.join(', ') : 'нет учебных баз данных'}</div>
+        </div>
+      ) : null}
       {hasResultRows && results.length === 1 ? <div className="sql-result-label">Результат</div> : null}
       {hasResultRows ? results.map((result, index) => (
         <div key={index} className={index ? 'sql-result-block sql-result-block--separated' : 'sql-result-block'}>
@@ -47,7 +56,7 @@ export default function SqlSnapshot({ snapshot }) {
           <Rows result={result} />
         </div>
       )) : null}
-      {!hasResultRows && !snapshot.previewError ? (
+      {!hasResultRows && !snapshot.previewError && !databaseOperations.length ? (
         <div className="sql-result-summary">Изменено строк: {affectedRows}</div>
       ) : null}
     </Card>

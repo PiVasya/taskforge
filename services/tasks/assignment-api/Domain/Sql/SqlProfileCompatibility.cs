@@ -11,10 +11,10 @@ namespace TaskForge.Tasks.Api.Domain.Sql;
 /// </summary>
 public static class SqlProfileCompatibility
 {
-    public const string CurrentExecutionSemanticsVersion = "sql-runtime-v1";
+    public const string CurrentExecutionSemanticsVersion = "sql-runtime-v2";
     // Historical go-native-v1 profiles predate the explicit field, but they belong
     // permanently to v1. Do not point this at CurrentExecutionSemanticsVersion when
-    // a future runtime bumps to v2.
+    // a future runtime bumps again.
     private const string LegacyGoExecutionSemanticsVersion = "sql-runtime-v1";
     private const string GoImplementation = "go-native-v1";
 
@@ -41,9 +41,21 @@ public static class SqlProfileCompatibility
             || current.SettingsSchemaVersion != candidate.SettingsSchemaVersion)
             return false;
 
-        if (!TryNormalize(current, out var left) || !TryNormalize(candidate, out var right)
-            || !string.Equals(left.SemanticsVersion, right.SemanticsVersion, StringComparison.Ordinal))
+        if (!TryNormalize(current, out var left) || !TryNormalize(candidate, out var right))
             return false;
+
+        if (!string.Equals(left.SemanticsVersion, right.SemanticsVersion, StringComparison.Ordinal))
+        {
+            // sql-runtime-v2 is a strict backwards-compatible superset of v1: it adds
+            // bounded CREATE/DROP DATABASE lifecycle handling without changing existing
+            // statement behavior. A v2 worker may therefore advertise audited v1 profiles
+            // as aliases, but a v1 worker must never claim a v2 assignment. Compatibility
+            // is intentionally directional because the first argument is the current worker.
+            if (!string.Equals(left.SemanticsVersion, CurrentExecutionSemanticsVersion, StringComparison.Ordinal)
+                || !string.Equals(right.SemanticsVersion, LegacyGoExecutionSemanticsVersion, StringComparison.Ordinal))
+                return false;
+            right.Settings["executionSemanticsVersion"] = left.SemanticsVersion;
+        }
 
         if (!RuntimeCompatible(current, left, candidate, right)) return false;
 

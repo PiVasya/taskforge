@@ -53,7 +53,9 @@ export default function SqlDatasetEditor({ value, onChange, disabled = false }) 
   return <fieldset disabled={disabled} style={{ border: 0, padding: 0, minWidth: 0 }}>
     <div className="sql-toolbar"><h3>Таблицы и данные</h3>
       <button type="button" disabled={tables.length >= 24} onClick={() => { const usedNames = new Set(tables.map(t => t.name)); let candidate = `table_${tables.length + 1}`; while (usedNames.has(candidate)) candidate += '_new'; const tableName = candidate; mutate(next => { next.definition.tables.push(newTable(tableName)); }); setActive(tables.length); }}>+ Таблица</button>
-      <SqlHelp label="Справка по структуре базы данных"><p>Описывается одна логическая база данных для всех выбранных движков. Для имён используй lower_snake_case. Пустая база допустима для заданий на CREATE TABLE.</p></SqlHelp></div>
+      <SqlHelp label="Справка по структуре базы данных"><p>Для имён используй lower_snake_case. Пустая база допустима для заданий на CREATE TABLE. Начальные базы нужны, например, для задания на DROP DATABASE.</p></SqlHelp></div>
+    <F label="Начальные базы данных"><NameInput value={(doc.definition.databases || []).join(', ')} onCommit={value => { const next = clone(doc); next.definition.databases = list(value); onChange(next); }} placeholder="например: archive_db, test_db" /></F>
+    <p className="sql-muted">CREATE DATABASE и DROP DATABASE доступны в обычных PostgreSQL/MySQL-задачах. SQLite такие команды не поддерживает.</p>
     <div className="sql-tabs" role="tablist">{tables.map((t, i) => <button type="button" key={i} role="tab" aria-selected={i === index} onClick={() => setActive(i)}>{t.name}</button>)}</div>
     {table && <>
       <div className="sql-toolbar" style={{ marginTop: '.8rem' }}><F label={'\u0418\u043c\u044f \u0442\u0430\u0431\u043b\u0438\u0446\u044b'}><NameInput value={table.name} onCommit={name => onChange(renameTable(doc, index, name))} /></F><button type="button" onClick={deleteTable}>{'\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u0430\u0431\u043b\u0438\u0446\u0443'}</button></div>

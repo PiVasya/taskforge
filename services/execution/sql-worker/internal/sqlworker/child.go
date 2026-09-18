@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"taskforge/sqlworker/internal/native"
 	"time"
@@ -24,6 +25,7 @@ type ChildRequest struct {
 	AllowMultipleStatements bool          `json:"allowMultipleStatements"`
 	Limits                  Limits        `json:"limits"`
 	StateCheck              StateCheck    `json:"stateCheck"`
+	InitialDatabases        []string      `json:"initialDatabases,omitempty"`
 }
 
 type querySession struct {
@@ -262,7 +264,24 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 	}
 	started := time.Now()
 	remaining := req.Limits.MaxBytes
+	databases := map[string]bool{}
+	for _, name := range req.InitialDatabases {
+		databases[name] = true
+	}
 	for index, stmt := range statements {
+		if operation, handled, lifecycleErr := parseDatabaseStatement(stmt, req.Engine); handled {
+			if lifecycleErr != nil {
+				snapshotFailure(&out, lifecycleErr)
+				break
+			}
+			if lifecycleErr = applyDatabaseStatement(databases, operation); lifecycleErr != nil {
+				snapshotFailure(&out, lifecycleErr)
+				break
+			}
+			out.DatabaseOperations = append(out.DatabaseOperations, operation.DatabaseOperation)
+			out.StatementsExecuted = index + 1
+			continue
+		}
 		r, err := conn.Query(executionCtx, stmt.SQL, req.Limits.MaxRows, max(1, remaining))
 		if err != nil {
 			snapshotFailure(&out, err)
@@ -285,6 +304,13 @@ func ExecuteChild(req ChildRequest) (out Snapshot) {
 		}
 	}
 	out.ExecutionMS = time.Since(started).Milliseconds()
+	if len(databases) > 0 || len(req.InitialDatabases) > 0 || len(out.DatabaseOperations) > 0 {
+		out.Databases = make([]string, 0, len(databases))
+		for name := range databases {
+			out.Databases = append(out.Databases, name)
+		}
+		sort.Strings(out.Databases)
+	}
 	executionCancel()
 	if req.Engine == "sqlite" {
 		if e = conn.AuthorizeSQLite(false); e != nil {

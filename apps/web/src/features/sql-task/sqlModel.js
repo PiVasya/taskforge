@@ -4,7 +4,7 @@ export const ENGINES = ['postgresql', 'mysql', 'sqlite'];
 export const ACTIONS = ['no_action', 'restrict', 'cascade', 'set_null'];
 export const PENDING = new Set(['preparing', 'queued', 'running', 'pending']);
 export const isPending = status => PENDING.has(String(status || '').toLowerCase());
-export const freshDataset = () => ({ definition: { tables: [] }, seed: {}, engineOverrides: {} });
+export const freshDataset = () => ({ definition: { tables: [], databases: [] }, seed: {}, engineOverrides: {} });
 export const freshSpec = () => ({ datasetVersionId: null, mode: 'result', starterSql: '', referenceSql: '',
   allowMultipleStatements: false, resultComparisonSettings: { orderMatters: false, columnNamesMatter: true,
     duplicatesMatter: true, caseSensitive: true, numericTolerance: 0 }, stateCheckSettings: { tables: null },
@@ -45,6 +45,13 @@ export function renameColumn(doc, tableIndex, columnIndex, name) {
 }
 export function datasetIssues(doc) {
   const errors = [], tables = doc.definition.tables;
+  const databases = Array.isArray(doc.definition.databases) ? doc.definition.databases : [];
+  if (databases.length > 16) errors.push('Databases: max 16');
+  const databaseNames = new Set();
+  databases.forEach(name => {
+    if (identifierError(name) || databaseNames.has(name)) errors.push(`Database: ${name}`);
+    databaseNames.add(name);
+  });
   const names = new Set();
   tables.forEach(table => {
     if (identifierError(table.name) || names.has(table.name)) errors.push(`Table: ${table.name}`);

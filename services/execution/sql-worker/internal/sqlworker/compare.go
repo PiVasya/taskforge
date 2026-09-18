@@ -374,6 +374,28 @@ func PublicComparison(ctx context.Context, actual, expected Artifact, p Payload,
 		}
 		view["schemaTables"] = rows
 		view["missingTables"] = missing
+		expectedDatabases := map[string]bool{}
+		for _, name := range expected.Databases {
+			expectedDatabases[name] = true
+		}
+		databaseRows := make([]map[string]any, 0, len(actual.Databases))
+		seenDatabases := map[string]bool{}
+		for _, name := range actual.Databases {
+			match := expectedDatabases[name]
+			databaseRows = append(databaseRows, map[string]any{"name": name, "match": match})
+			if match {
+				seenDatabases[name] = true
+			}
+		}
+		missingDatabases := 0
+		for name := range expectedDatabases {
+			if !seenDatabases[name] {
+				missingDatabases++
+			}
+		}
+		view["databases"] = databaseRows
+		view["missingDatabases"] = missingDatabases
+		view["databaseOperationsMatch"] = sameJSON(actual.DatabaseOperations, expected.DatabaseOperations)
 	}
 	return view
 }
@@ -627,22 +649,37 @@ func canonicalSchema(schema Schema, settings SchemaCheck) (Schema, error) {
 	return out, nil
 }
 func (s Artifact) MarshalJSON() ([]byte, error) {
+	out := map[string]any{"formatVersion": s.FormatVersion, "mode": s.Mode}
 	switch s.Mode {
 	case "result":
-		return json.Marshal(map[string]any{"formatVersion": s.FormatVersion, "mode": s.Mode, "result": s.Result})
+		out["result"] = s.Result
 	case "state":
 		m := s.Tables
 		if m == nil {
 			m = map[string]ResultSet{}
 		}
-		return json.Marshal(map[string]any{"formatVersion": s.FormatVersion, "mode": s.Mode, "tables": m})
+		out["tables"] = m
 	case "schema":
-		return json.Marshal(map[string]any{"formatVersion": s.FormatVersion, "mode": s.Mode, "schema": s.Schema})
+		out["schema"] = s.Schema
+	default:
+		return nil, fmt.Errorf("unsupported artifact mode")
 	}
-	return nil, fmt.Errorf("unsupported artifact mode")
+	if len(s.Databases) > 0 {
+		out["databases"] = s.Databases
+	}
+	if len(s.DatabaseOperations) > 0 {
+		out["databaseOperations"] = s.DatabaseOperations
+	}
+	return json.Marshal(out)
 }
 func MakeArtifact(snapshot Snapshot, p Payload) (Artifact, error) {
 	a := Artifact{FormatVersion: 1, Mode: p.Mode}
+	if len(snapshot.Databases) > 0 {
+		a.Databases = append([]string(nil), snapshot.Databases...)
+	}
+	if len(snapshot.DatabaseOperations) > 0 {
+		a.DatabaseOperations = append([]DatabaseOperation(nil), snapshot.DatabaseOperations...)
+	}
 	switch p.Mode {
 	case "result":
 		if len(snapshot.Results) == 0 {
@@ -679,6 +716,9 @@ func MakeArtifact(snapshot Snapshot, p Payload) (Artifact, error) {
 func Verify(ctx context.Context, a, b Artifact, p Payload) (bool, error) {
 	if a.FormatVersion != 1 || b.FormatVersion != 1 || a.Mode != b.Mode {
 		return false, Unavailable("Unsupported expected artifact format.")
+	}
+	if !sameJSON(a.Databases, b.Databases) || !sameJSON(a.DatabaseOperations, b.DatabaseOperations) {
+		return false, nil
 	}
 	switch a.Mode {
 	case "result":

@@ -115,8 +115,29 @@ function ComparisonHeader({ passed }) {
 
 function SchemaComparison({ snapshot, comparison }) {
   const tables = Array.isArray(snapshot?.schema?.tables) ? snapshot.schema.tables : [];
+  const databases = Array.isArray(snapshot?.databases) ? snapshot.databases : [];
   const statusByName = new Map((comparison?.schemaTables || []).map(item => [item?.name, item?.match === true]));
+  const databaseStatus = new Map((comparison?.databases || []).map(item => [item?.name, item?.match === true]));
   return (
+    <>
+    {databases.length || Number(comparison?.missingDatabases || 0) > 0 ? (
+      <div className="sql-compare-grid">
+        <div className="sql-compare-pane">
+          <div className="sql-compare-title">Ваши базы данных</div>
+          <div className="sql-compare-table-wrap"><table className="sql-compare-table"><thead><tr><th>База данных</th></tr></thead><tbody>
+            {databases.map(name => { const match = databaseStatus.get(name) !== false; return <tr key={name}><td className={match ? '' : 'is-different'}>{name}{!match ? <span className="sql-diff-mark">≠</span> : null}</td></tr>; })}
+          </tbody></table>{!databases.length ? <div className="sql-empty">Нет баз данных</div> : null}</div>
+        </div>
+        <div className="sql-compare-pane">
+          <div className="sql-compare-title">Ожидалось</div>
+          <div className="sql-compare-table-wrap"><table className="sql-compare-table"><thead><tr><th>Статус</th></tr></thead><tbody>
+            {databases.map(name => <tr key={name}><td><span className="sql-compare-symbol">{databaseStatus.get(name) !== false ? '=' : '≠'}</span></td></tr>)}
+            {Number(comparison?.missingDatabases || 0) > 0 ? <tr className="is-missing"><td><span className="sql-compare-symbol">+{Number(comparison.missingDatabases)}</span></td></tr> : null}
+          </tbody></table></div>
+        </div>
+      </div>
+    ) : null}
+    {comparison?.databaseOperationsMatch === false ? <div className="sql-compare-note">Операция CREATE/DROP DATABASE отличается от эталона.</div> : null}
     <div className="sql-compare-grid">
       <div className="sql-compare-pane">
         <div className="sql-compare-title">Ваша структура</div>
@@ -157,6 +178,7 @@ function SchemaComparison({ snapshot, comparison }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

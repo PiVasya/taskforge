@@ -279,6 +279,19 @@ func CompileDataset(p Payload, engine string) (DatasetPlan, error) {
 	if tables == nil || len(tables) > 24 {
 		return bad("SQL_DATASET_SIZE", "Invalid dataset table count.")
 	}
+	if len(p.Definition.Databases) > 16 {
+		return bad("SQL_DATASET_SIZE", "Too many initial databases.")
+	}
+	databaseNames := map[string]bool{}
+	for _, name := range p.Definition.Databases {
+		if e := portable(name); e != nil {
+			return plan, e
+		}
+		if databaseNames[name] {
+			return bad("SQL_DATASET_DUPLICATE", "Duplicate database name.")
+		}
+		databaseNames[name] = true
+	}
 	names := map[string]Table{}
 	for _, t := range tables {
 		if e := portable(t.Name); e != nil {
