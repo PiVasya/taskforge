@@ -1,5 +1,7 @@
 using System.Text.Json;
 using TaskForge.Solutions.Api.Services.Common;
+using TaskForge.Solutions.Api.Services.Mapping;
+using TaskForge.Solutions.Api.Services.Results;
 using Xunit;
 
 namespace TaskForge.Solutions.Api.Tests;
@@ -50,4 +52,44 @@ public sealed class SolutionResultTests
         Assert.True(SolutionsApiCommonService.IsCompileErrorResult(stderr.RootElement));
         Assert.False(SolutionsApiCommonService.IsCompileErrorResult(ordinary.RootElement));
     }
+    [Fact]
+    public void HiddenRunnerCases_AreRemovedFromOrdinarySolutionPayload_ButPreservedForAdmin()
+    {
+        using var source = JsonDocument.Parse("""
+            {
+              "cases": [
+                { "input": "PUBLIC_INPUT", "expectedOutput": "PUBLIC_EXPECTED", "actualOutput": "PUBLIC_EXPECTED", "passed": true, "hidden": false },
+                { "input": "SECRET_HIDDEN_INPUT", "expectedOutput": "SECRET_HIDDEN_EXPECTED", "actualOutput": "SECRET_HIDDEN_EXPECTED", "passed": true, "hidden": true }
+              ],
+              "raw": {
+                "results": [
+                  { "input": "PUBLIC_INPUT", "passed": true, "hidden": false },
+                  { "input": "SECRET_RAW_HIDDEN", "passed": true, "isHidden": true }
+                ]
+              }
+            }
+            """);
+
+        var ordinary = SolutionsApiResultsService.SanitizeSolutionResult(source.RootElement.Clone(), includeHiddenDetails: false);
+        var admin = SolutionsApiResultsService.SanitizeSolutionResult(source.RootElement.Clone(), includeHiddenDetails: true);
+
+        Assert.True(ordinary.HasValue);
+        Assert.True(admin.HasValue);
+
+        var ordinaryJson = ordinary.Value.GetRawText();
+        var adminJson = admin.Value.GetRawText();
+
+        Assert.Contains("PUBLIC_INPUT", ordinaryJson);
+        Assert.DoesNotContain("SECRET_HIDDEN_INPUT", ordinaryJson);
+        Assert.DoesNotContain("SECRET_HIDDEN_EXPECTED", ordinaryJson);
+        Assert.DoesNotContain("SECRET_RAW_HIDDEN", ordinaryJson);
+
+        Assert.Contains("SECRET_HIDDEN_INPUT", adminJson);
+        Assert.Contains("SECRET_HIDDEN_EXPECTED", adminJson);
+        Assert.Contains("SECRET_RAW_HIDDEN", adminJson);
+
+        Assert.Equal((1, 0, 1), SolutionsApiMappingService.CountCases(ordinary));
+        Assert.Equal((2, 0, 2), SolutionsApiMappingService.CountCases(admin));
+    }
+
 }

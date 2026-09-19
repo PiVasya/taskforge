@@ -14,11 +14,41 @@ export function CompactEmpty({ children }) {
   );
 }
 
+function caseField(testCase, ...names) {
+  for (const name of names) {
+    if (testCase && Object.prototype.hasOwnProperty.call(testCase, name)) {
+      const value = testCase[name];
+      if (value !== undefined && value !== null) return String(value);
+    }
+  }
+  return null;
+}
+
+function isHiddenCase(testCase) {
+  return testCase?.hidden === true
+    || testCase?.Hidden === true
+    || testCase?.isHidden === true
+    || testCase?.IsHidden === true;
+}
+
+function CaseValue({ label, value, tone = 'normal' }) {
+  if (value === null) return null;
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] uppercase tracking-wide text-neutral-500">{label}</div>
+      <pre className={`max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-neutral-200 dark:border-neutral-700 px-2 py-1.5 ${tone === 'danger' ? 'text-red-600 dark:text-red-400' : ''}`}>
+        {value === '' ? '∅' : value}
+      </pre>
+    </div>
+  );
+}
+
 export function RunnerOutput({ item }) {
   const stdout = getRunnerText(item, 'stdout');
   const stderr = getRunnerText(item, 'stderr');
   const runnerError = getRunnerText(item, 'runnerError') || getRunnerText(item, 'error');
   const cases = getSolutionCases(item);
+  const hiddenCount = cases.filter(isHiddenCase).length;
 
   if (!stdout && !stderr && !runnerError && !cases.length) return null;
 
@@ -39,24 +69,44 @@ export function RunnerOutput({ item }) {
       ) : null}
       {cases.length ? (
         <div className="space-y-2">
-          <div className="text-xs uppercase tracking-wide text-neutral-500">Тесты</div>
-          {cases.slice(0, 8).map((testCase, index) => {
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xs uppercase tracking-wide text-neutral-500">Все тесты</div>
+            <Badge intent="secondary">Всего: {cases.length}</Badge>
+            {hiddenCount > 0 ? <Badge intent="secondary">Скрытых: {hiddenCount}</Badge> : null}
+          </div>
+          {cases.map((testCase, index) => {
             const passed = isResultCasePassedStrict(testCase);
+            const hidden = isHiddenCase(testCase);
+            const input = caseField(testCase, 'input', 'Input', 'stdin', 'Stdin');
+            const expected = caseField(testCase, 'expectedOutput', 'ExpectedOutput', 'expected', 'Expected');
+            const actual = caseField(testCase, 'actualOutput', 'ActualOutput', 'actual', 'Actual', 'stdout', 'Stdout');
+            const status = caseField(testCase, 'status', 'Status');
+            const error = caseField(testCase, 'stderr', 'Stderr', 'compileStderr', 'CompileStderr', 'error', 'Error');
+
             return (
-              <div key={index} className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span>Тест #{index + 1}</span>
+              <div
+                key={testCase?.id || testCase?.Id || index}
+                className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs space-y-2"
+                data-testid="admin-runner-test-case"
+                data-hidden-test={hidden ? 'true' : 'false'}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">Тест #{index + 1}</span>
+                    <Badge intent={hidden ? 'secondary' : 'outline'}>{hidden ? 'Скрытый' : 'Открытый'}</Badge>
+                    {status ? <span className="text-neutral-500 dark:text-neutral-400">{status}</span> : null}
+                  </div>
                   <Badge intent={passed ? 'success' : 'danger'}>{passed ? 'OK' : 'FAIL'}</Badge>
                 </div>
-                {(testCase?.stderr || testCase?.compileStderr || testCase?.error) ? (
-                  <pre className="mt-2 whitespace-pre-wrap break-words text-red-600">
-                    {testCase.stderr || testCase.compileStderr || testCase.error}
-                  </pre>
-                ) : null}
+                <div className="grid gap-2 lg:grid-cols-3">
+                  <CaseValue label="Ввод" value={input} />
+                  <CaseValue label="Ожидается" value={expected} />
+                  <CaseValue label="Получено" value={actual} />
+                </div>
+                <CaseValue label="Ошибка" value={error} tone="danger" />
               </div>
             );
           })}
-          {cases.length > 8 ? <div className="text-xs text-neutral-500">… и ещё {cases.length - 8}</div> : null}
         </div>
       ) : null}
     </Card>
