@@ -171,6 +171,7 @@ html.neo-brutal .btn-outline {
 
 html.neo-brutal .btn-outline:hover {
   background: rgb(var(--brand-100)) !important;
+  color: rgb(20 20 22) !important;
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
 }
@@ -183,6 +184,7 @@ html.neo-brutal .btn-ghost {
 html.neo-brutal .btn-ghost:hover {
   border-color: rgb(var(--neo-ink)) !important;
   background: rgb(var(--brand-100)) !important;
+  color: rgb(20 20 22) !important;
   box-shadow: var(--neo-shadow-xs);
 }
 
@@ -330,6 +332,7 @@ html.neo-brutal .header-quick-action {
 
 html.neo-brutal .header-quick-action:hover {
   background: rgb(var(--brand-100));
+  color: rgb(20 20 22);
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
 }
@@ -341,7 +344,7 @@ html.neo-brutal .header-quick-action.is-active {
 }
 
 html.neo-brutal .assignment-card--solved {
-  opacity: 0.72;
+  opacity: 1;
   filter: grayscale(0.15) saturate(0.75);
 }
 
@@ -498,8 +501,13 @@ html.neo-brutal table {
 
 html.neo-brutal th {
   background: rgb(var(--brand-100));
-  color: rgb(var(--text));
+  color: rgb(20 20 22) !important;
   font-weight: 850;
+}
+
+/* Utility classes on table headings must not reintroduce light dark-mode text. */
+html.neo-brutal th :where(*) {
+  color: inherit !important;
 }
 
 html.neo-brutal :where(th, td) {
@@ -717,6 +725,20 @@ html.neo-brutal .landing-check-result-badge {
   box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
 }
 
+html.neo-brutal .landing-check-final :where(strong, span, button) {
+  color: rgb(20 20 22) !important;
+}
+
+html.neo-brutal .landing-check-final > svg {
+  color: rgb(21 128 61);
+}
+
+html.neo-brutal .landing-check-final button {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(220 252 231);
+  box-shadow: 2px 2px 0 0 rgb(var(--neo-ink));
+}
+
 html.neo-brutal .changelog-card__line,
 html.neo-brutal .changelog-post-hero::after {
   background: rgb(var(--brand-400));
@@ -759,6 +781,7 @@ html.neo-brutal .dnd-nest-hint {
   border: 2px solid rgb(var(--neo-ink));
   border-radius: 0.7rem;
   background: rgb(var(--brand-200));
+  color: rgb(20 20 22);
   box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
   font-weight: 850;
   backdrop-filter: none;
@@ -803,7 +826,17 @@ html.neo-brutal .course-flow-node--assignment {
 
 html.neo-brutal .course-flow-node--drop-inside {
   background: rgb(var(--brand-200));
+  color: rgb(20 20 22);
   box-shadow: 7px 7px 0 0 rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-flow-node--drop-inside :where(
+  .course-flow-node-title,
+  .course-flow-node-kicker,
+  .course-flow-node-description,
+  .course-flow-node-meta
+) {
+  color: rgb(20 20 22);
 }
 
 html.neo-brutal .course-flow-handle {

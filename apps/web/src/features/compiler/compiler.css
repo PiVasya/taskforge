@@ -318,14 +318,14 @@
 
 .compiler-button--run {
   border-color: rgb(var(--accent) / 0.8);
-  color: white;
+  color: rgb(var(--accent-foreground));
   background: rgb(var(--accent));
   box-shadow: 0 9px 24px rgb(var(--accent) / 0.22);
 }
 
 .compiler-button--run:hover:not(:disabled) {
   border-color: rgb(var(--accent));
-  color: white;
+  color: rgb(var(--accent-foreground-hover));
   background: rgb(var(--accent-700));
 }
 
@@ -637,7 +637,7 @@
   }
 
   .compiler-mobile-tabs button.is-active {
-    color: white;
+    color: rgb(var(--accent-foreground));
     background: rgb(var(--accent));
   }
 

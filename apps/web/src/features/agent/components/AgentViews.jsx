@@ -253,7 +253,7 @@ function MessageBubble({ message, runs, onPolishTask, onPolishSelectedTasks, onA
         <div
           className={
             isUser
-              ? 'rounded-2xl rounded-br-md bg-brand-600 text-white px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
+              ? 'rounded-2xl rounded-br-md bg-brand-600 text-[rgb(var(--accent-foreground))] px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
               : 'rounded-2xl rounded-bl-md border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))]/90 px-4 py-3 shadow-soft whitespace-pre-wrap leading-relaxed'
           }
         >
@@ -380,7 +380,7 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                 type="button"
                 disabled={!selectedInArtifact || anyPolishing || !hasPersistTarget}
                 onClick={() => onPolishSelectedTasks?.(taskItems.filter((item) => selectedDraftTasks?.[item.taskKey]))}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60 dark:border-brand-900"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-[rgb(var(--accent-foreground))] hover:bg-brand-700 hover:text-[rgb(var(--accent-foreground-hover))] disabled:opacity-60 dark:border-brand-900"
                 title={hasPersistTarget ? 'Отправить выбранные задания пачкой. Каждое задание будет обработано отдельно.' : 'Нельзя создать скрытые черновики: ассистент не определил курс или место вставки.'}
               >
                 {anyPolishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
@@ -522,7 +522,7 @@ function ThinkingPanel({ run }) {
     <div className="rounded-3xl border border-brand-200/70 dark:border-brand-900/70 bg-brand-50/70 dark:bg-brand-950/20 p-4 shadow-soft">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-2xl grid place-items-center bg-brand-600 text-white shadow-soft">
+          <div className="h-10 w-10 rounded-2xl grid place-items-center bg-brand-600 text-[rgb(var(--accent-foreground))] shadow-soft">
             <BrainCircuit size={20} />
           </div>
           <div>
@@ -827,7 +827,7 @@ function EmptyChat({ onTemplate }) {
 
   return (
     <div className="mx-auto max-w-4xl py-12 text-center">
-      <div className="mx-auto h-16 w-16 rounded-3xl grid place-items-center bg-brand-600 text-white shadow-soft">
+      <div className="mx-auto h-16 w-16 rounded-3xl grid place-items-center bg-brand-600 text-[rgb(var(--accent-foreground))] shadow-soft">
         <Sparkles size={28} />
       </div>
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">Живой AI-ассистент TaskForge</h1>

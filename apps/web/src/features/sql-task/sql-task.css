@@ -104,12 +104,13 @@
 .sql-task .sql-primary {
   border-color: rgb(var(--accent));
   background: rgb(var(--accent));
-  color: white;
+  color: rgb(var(--accent-foreground));
 }
 
 .sql-task .sql-primary:hover:not(:disabled) {
   border-color: rgb(var(--accent-700));
   background: rgb(var(--accent-700));
+  color: rgb(var(--accent-foreground-hover));
 }
 
 .sql-task button:disabled {

@@ -578,7 +578,7 @@ export default function AgentPage() {
               <button type="button" className="hidden xl:inline-flex btn-outline !min-w-0 !px-3" onClick={() => setSidebarOpen((v) => !v)} title="Свернуть список чатов">
                 {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
               </button>
-              <div className="h-11 w-11 rounded-2xl grid place-items-center bg-brand-600 text-white shadow-soft">
+              <div className="h-11 w-11 rounded-2xl grid place-items-center bg-brand-600 text-[rgb(var(--accent-foreground))] shadow-soft">
                 <Bot size={20} />
               </div>
               <div className="min-w-0">
@@ -603,7 +603,7 @@ export default function AgentPage() {
                     <button type="button" className="btn-outline !min-w-0" onClick={() => setPatchesOpen(true)} title="Открыть меню патчей курса">
                       <GitCompare size={16} />
                       <span className="hidden sm:inline">Патчи</span>
-                      <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] text-white">{patchSets.length}</span>
+                      <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] text-[rgb(var(--accent-foreground))]">{patchSets.length}</span>
                     </button>
                   )}
                   <button type="button" className="btn-outline !min-w-0" onClick={copyAiDebugDump} disabled={!selectedId || copyingDebugDump} title="Скопировать полный AI-отчёт">

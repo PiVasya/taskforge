@@ -868,6 +868,7 @@ html.neo-brutal .course-map-search-field input {
 html.neo-brutal .course-map-toolbar-icon:hover:not(:disabled) {
   border-color: rgb(var(--neo-ink));
   background: rgb(var(--brand-100));
+  color: rgb(20 20 22);
   box-shadow: 5px 5px 0 0 rgb(var(--neo-ink));
   transform: translate(-1px, -1px);
 }

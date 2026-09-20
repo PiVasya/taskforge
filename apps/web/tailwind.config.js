@@ -8,9 +8,10 @@ export default {
     theme: {
         extend: {
             colors: {
-                
-                
-                
+                card: 'rgb(var(--card) / <alpha-value>)',
+                muted: 'rgb(var(--muted) / <alpha-value>)',
+                border: 'rgb(var(--border) / <alpha-value>)',
+                'muted-foreground': 'rgb(var(--text-muted) / <alpha-value>)',
                 brand: {
                     50: 'rgb(var(--brand-50) / <alpha-value>)',
                     100: 'rgb(var(--brand-100) / <alpha-value>)',
@@ -21,7 +22,8 @@ export default {
                     600: 'rgb(var(--brand-600) / <alpha-value>)',
                     700: 'rgb(var(--brand-700) / <alpha-value>)',
                     800: 'rgb(var(--brand-800) / <alpha-value>)',
-                    900: 'rgb(var(--brand-900) / <alpha-value>)'
+                    900: 'rgb(var(--brand-900) / <alpha-value>)',
+                    950: 'rgb(var(--brand-950) / <alpha-value>)'
                 }
             },
             boxShadow: {

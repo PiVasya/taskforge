@@ -153,13 +153,14 @@
 }
 
 .landing-btn-primary {
-  color: white;
-  background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-700)));
+  color: rgb(var(--accent-foreground));
+  background: rgb(var(--accent));
   box-shadow: 0 16px 34px rgba(var(--accent) / 0.28);
 }
 
 .landing-btn-primary:not(:disabled):hover {
-  color: white;
+  color: rgb(var(--accent-foreground-hover));
+  background: rgb(var(--accent-700));
   box-shadow: 0 20px 42px rgba(var(--accent) / 0.34);
 }
 
@@ -874,8 +875,8 @@
   gap: 9px;
   min-height: 45px;
   border-radius: 15px;
-  background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-700)));
-  color: white;
+  background: rgb(var(--accent));
+  color: rgb(var(--accent-foreground));
   padding: 11px 14px;
   font-weight: 900;
   box-shadow: 0 14px 28px rgba(var(--accent) / 0.26);
@@ -913,7 +914,7 @@
   position: relative;
   z-index: 1;
   margin: 9px 0 0;
-  color: rgb(var(--muted));
+  color: rgb(var(--text-muted));
   font-size: 0.78rem;
   line-height: 1.45;
 }
