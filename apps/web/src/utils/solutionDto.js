@@ -85,6 +85,11 @@ function capitalized(key) {
 function lookup(solution, keys) {
   const result = getSolutionResult(solution);
   const nested = isObject(result?.result) ? result.result : null;
+  const rawValue = parseMaybeJson(result?.raw ?? result?.Raw);
+  const raw = isObject(rawValue) ? rawValue : null;
+  const rawNested = isObject(raw?.result) ? raw.result : null;
+  const cases = asArray(firstPresent(result?.cases, result?.results, result?.testCases));
+  const firstCase = isObject(cases[0]) ? cases[0] : null;
   for (const key of keys) {
     const alt = capitalized(key);
     const value = firstPresent(
@@ -93,7 +98,13 @@ function lookup(solution, keys) {
       result?.[key],
       result?.[alt],
       nested?.[key],
-      nested?.[alt]
+      nested?.[alt],
+      raw?.[key],
+      raw?.[alt],
+      rawNested?.[key],
+      rawNested?.[alt],
+      firstCase?.[key],
+      firstCase?.[alt]
     );
     if (value !== undefined) return value;
   }
@@ -301,7 +312,138 @@ export function getTextOutput(solution, key) {
 }
 
 export function getRunnerError(solution) {
-  return String(lookup(solution, ['runnerError', 'compileErrorText', 'error', 'message']) || '');
+  return String(lookup(solution, [
+    'runnerError',
+    'compileErrorText',
+    'compileStderr',
+    'compilerStderr',
+    'stderr',
+    'diagnostic',
+    'error',
+    'message',
+    'detail',
+  ]) || '');
+}
+
+function compilerSourceLine(solution, lineNumber) {
+  const line = Number(lineNumber);
+  if (!Number.isFinite(line) || line <= 0) return '';
+  const source = getSolutionCode(solution);
+  if (!source) return '';
+  return String(source).split(/\r?\n/)[line - 1] || '';
+}
+
+function parseCompilerDiagnosticLine(line) {
+  const text = String(line || '').trim();
+  if (!text) return null;
+
+  // C#/MSVC/FPC-style: source.cs(7,15): error CS1002: ; expected
+  let match = text.match(/^(.+?)\((\d+),(\d+)\)\s*:?\s*(?:(fatal error|fatal|error|warning|note)\s*)?(?:([A-Za-z]+\d+)\s*:\s*)?(.*)$/i);
+  if (match) {
+    const [, file, lineNumber, columnNumber, severity, code, message] = match;
+    return {
+      file: file.trim(),
+      line: Number(lineNumber),
+      column: Number(columnNumber),
+      severity: String(severity || 'error').toLowerCase(),
+      code: String(code || ''),
+      message: String(message || '').trim(),
+      raw: text,
+    };
+  }
+
+  // GCC/Clang/javac-style: source.cpp:7:15: error: expected ';'
+  // or Main.java:7: error: cannot find symbol
+  match = text.match(/^(.+?):(\d+)(?::(\d+))?:\s*(?:(fatal error|fatal|error|warning|note)\s*:?\s*)?(?:([A-Za-z]+\d+)\s*:\s*)?(.*)$/i);
+  if (match) {
+    const [, file, lineNumber, columnNumber, severity, code, message] = match;
+    return {
+      file: file.trim(),
+      line: Number(lineNumber),
+      column: columnNumber ? Number(columnNumber) : null,
+      severity: String(severity || 'error').toLowerCase(),
+      code: String(code || ''),
+      message: String(message || '').trim(),
+      raw: text,
+    };
+  }
+
+  return null;
+}
+
+export function getCompilerDiagnostics(solution) {
+  if (getSolutionFailureCategory(solution) !== 'Компиляция') return [];
+  const text = getRunnerError(solution);
+  if (!text) return [];
+
+  const seen = new Set();
+  const diagnostics = [];
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const parsed = parseCompilerDiagnosticLine(rawLine);
+    if (!parsed || !parsed.message) continue;
+    const key = `${parsed.line}:${parsed.column ?? ''}:${parsed.code}:${parsed.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    diagnostics.push({
+      ...parsed,
+      key,
+      preview: compilerSourceLine(solution, parsed.line),
+    });
+    if (diagnostics.length >= 20) break;
+  }
+  return diagnostics;
+}
+
+export function getSolutionFailureCategory(solution) {
+  const key = getSolutionStatusKey(solution);
+  const result = getSolutionResult(solution);
+  const raw = isObject(result?.raw) ? result.raw : parseMaybeJson(result?.raw);
+  const policyKind = String(raw?.policyKind || raw?.PolicyKind || '').toLowerCase();
+
+  if (key === 'compileerror' || key === 'compilationerror') return 'Компиляция';
+  if (key === 'policyfailed') {
+    if (policyKind === 'task') return 'Учебное ограничение';
+    if (policyKind === 'platform') return 'Безопасность';
+    if (policyKind === 'mixed') return 'Учебное ограничение + безопасность';
+    return 'Анализатор';
+  }
+  if (key === 'judgeunavailable') return 'Инфраструктура проверки';
+  if (key === 'runtimeerror') return 'Выполнение';
+  if (key === 'timeexceeded') return 'Лимит времени';
+  if (key === 'memoryexceeded') return 'Лимит памяти';
+  if (key === 'notestsconfigured') return 'Настройка задания';
+  if (key === 'languagenotallowed') return 'Настройка языка';
+  if (key === 'wronganswer' || key === 'rejected' || key === 'failed') return 'Тесты';
+  return null;
+}
+
+function diagnosticNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+export function getPolicyDiagnostics(solution) {
+  const result = getSolutionResult(solution);
+  const rawValue = parseMaybeJson(result?.raw ?? result?.Raw);
+  const raw = isObject(rawValue) ? rawValue : null;
+  const errors = asArray(raw?.errors ?? raw?.Errors);
+  const hits = asArray(raw?.hits ?? raw?.Hits);
+
+  return errors.map((error, index) => {
+    const patternId = String(error?.pattern_id ?? error?.patternId ?? error?.PatternId ?? '');
+    const hit = hits.find((candidate) => String(candidate?.pattern_id ?? candidate?.patternId ?? candidate?.PatternId ?? '') === patternId) || null;
+    return {
+      key: `${patternId || 'diagnostic'}:${index}`,
+      code: String(error?.code ?? error?.Code ?? ''),
+      patternId,
+      message: String(error?.message ?? error?.Message ?? 'Код не соответствует правилам.'),
+      needle: String(error?.needle ?? error?.Needle ?? hit?.needle ?? hit?.Needle ?? ''),
+      position: diagnosticNumber(error?.position ?? error?.Position ?? hit?.position ?? hit?.Position),
+      line: diagnosticNumber(error?.line ?? error?.Line ?? hit?.line ?? hit?.Line),
+      column: diagnosticNumber(error?.column ?? error?.Column ?? hit?.column ?? hit?.Column),
+      preview: String(error?.preview ?? error?.Preview ?? hit?.preview ?? hit?.Preview ?? ''),
+    };
+  });
 }
 
 export function getSolutionSubmittedAt(solution) {
@@ -313,7 +455,14 @@ export function getSolutionTitle(solution) {
 }
 
 export function getSolutionPassedFailed(solution) {
-  return { passed: getPassedCount(solution), failed: getFailedCount(solution) };
+  const cases = getSolutionCases(solution);
+  const total = firstNumber(solution?.totalCount, solution?.TotalCount, lookup(solution, ['totalCount', 'totalTests']));
+  if (cases.length === 0 && (total === null || total === 0)) {
+    return { passed: null, failed: null, total: 0, testsRan: false };
+  }
+  const passed = getPassedCount(solution);
+  const failed = getFailedCount(solution);
+  return { passed, failed, total: total ?? cases.length, testsRan: true };
 }
 
 export function getRunnerText(solution, key) {

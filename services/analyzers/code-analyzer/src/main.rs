@@ -592,6 +592,39 @@ async fn main() {
     // Should never reach here in normal operation
     debug_log!("[code-analyzer] stopped: serve() returned unexpectedly");
 }
+fn apply_preprocessor_policy_result(
+    profile: &str,
+    preprocess_result: Result<String, String>,
+    hits: &mut Vec<Hit>,
+    errors: &mut Vec<Violation>,
+) {
+    match preprocess_result {
+        Ok(preprocessed) => {
+            for finding in security_policy::analyze_preprocessed_c_family(profile, &preprocessed) {
+                hits.push(Hit {
+                    pattern_id: Some(finding.id.clone()),
+                    needle: finding.needle.clone(),
+                    position: 0,
+                    preview: "Обнаружено после раскрытия препроцессора.".to_string(),
+                });
+                errors.push(Violation {
+                    code: "security_policy".to_string(),
+                    message: finding.message,
+                    pattern_id: Some(finding.id),
+                });
+            }
+        }
+        Err(message) => {
+            // A malformed C/C++ source can make the compiler preprocessor reject
+            // the file before we can inspect the expanded text. That is not a
+            // security-policy violation: the same source cannot execute. Keep the
+            // lexical security scan above, then let the real compiler return its
+            // normal CompileError with line/column diagnostics.
+            tracing::debug!("C/C++ preprocessor rejected user source; deferring syntax diagnostic to compiler: {message}");
+        }
+    }
+}
+
 async fn analyze(
     State(state): State<AppState>,
     Json(req): Json<AnalyzeRequest>,
@@ -761,27 +794,8 @@ async fn analyze(
         })
         .await
         {
-            Ok(Ok(preprocessed)) => {
-                for finding in security_policy::analyze_preprocessed_c_family(profile, &preprocessed) {
-                    hits.push(Hit {
-                        pattern_id: Some(finding.id.clone()),
-                        needle: finding.needle.clone(),
-                        position: 0,
-                        preview: "Обнаружено после раскрытия препроцессора.".to_string(),
-                    });
-                    errors.push(Violation {
-                        code: "security_policy".to_string(),
-                        message: finding.message,
-                        pattern_id: Some(finding.id),
-                    });
-                }
-            }
-            Ok(Err(message)) => {
-                errors.push(Violation {
-                    code: "preprocessor_rejected".to_string(),
-                    message,
-                    pattern_id: Some("c.preprocessor_failed".to_string()),
-                });
+            Ok(preprocess_result) => {
+                apply_preprocessor_policy_result(profile, preprocess_result, &mut hits, &mut errors);
             }
             Err(_) => {
                 return analyzer_rejection(
@@ -1988,6 +2002,20 @@ mod tests {
         assert!(hits
             .iter()
             .any(|h| h.id == "c.preprocessor_token_paste"));
+    }
+
+    #[test]
+    fn cpp_preprocessor_source_failure_is_not_a_security_violation() {
+        let mut hits = Vec::new();
+        let mut errors = Vec::new();
+        apply_preprocessor_policy_result(
+            "standard",
+            Err("missing terminating quote".to_string()),
+            &mut hits,
+            &mut errors,
+        );
+        assert!(hits.is_empty());
+        assert!(errors.is_empty());
     }
 
     #[test]

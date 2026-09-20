@@ -129,6 +129,42 @@ internal static class SolutionsApiMappingService
         return "Пользователь";
     }
 
+    internal static bool ShouldLoadAllAdminHistory(bool all, int? days, int take)
+        => all || days.HasValue || take > 999;
+
+    internal static object ToAdminHistoryDto(SolutionSubmission x, AssignmentMetadata? metadata = null)
+    {
+        var counts = CountCases(ParseJsonElement(x.ResultJson));
+        var acceptedStatus = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase);
+        var accepted = acceptedStatus && (counts.total == 0 || counts.failed == 0);
+        return new
+        {
+            x.Id,
+            x.AssignmentId,
+            assignmentTitle = metadata?.Title,
+            title = metadata?.Title,
+            courseId = metadata?.CourseId,
+            courseTitle = metadata?.CourseTitle,
+            x.UserId,
+            x.Language,
+            kind = x.SqlSpecVersionId.HasValue ? "sql" : "code",
+            verdict = accepted ? "Accepted" : x.Status,
+            status = accepted ? "Accepted" : x.Status,
+            x.Score,
+            isPending = IsPendingVerdict(x.Status),
+            passedAllTests = accepted,
+            passedAll = accepted,
+            compileError = string.Equals(x.Status, "CompileError", StringComparison.OrdinalIgnoreCase),
+            policyFailed = string.Equals(x.Status, "PolicyFailed", StringComparison.OrdinalIgnoreCase),
+            passedCount = counts.passed,
+            failedCount = counts.failed,
+            totalCount = counts.total,
+            x.CreatedAt,
+            createdAtUtc = x.CreatedAt,
+            submittedAt = x.CreatedAt
+        };
+    }
+
     internal static object ToDto(SolutionSubmission x, bool includeSensitiveResult = false, AssignmentMetadata? metadata = null)
     {
         var result = SanitizeSolutionResult(ParseJsonElement(x.ResultJson), includeSensitiveResult);

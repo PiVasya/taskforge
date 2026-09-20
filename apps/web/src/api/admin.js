@@ -1,6 +1,17 @@
 
 import api from './http';
 
+function pageResult(response, requestedUserId) {
+  const items = Array.isArray(response?.data) ? response.data : [];
+  const rawTotal = response?.headers?.['x-total-count'];
+  const parsedTotal = Number(rawTotal);
+  return {
+    items,
+    total: Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : items.length,
+    resultUserId: String(response?.headers?.['x-result-user-id'] || requestedUserId || ''),
+  };
+}
+
 
 export async function searchUsersOnce(q = '', take = 20) {
   const { data } = await api.get('/api/admin/solution-users', {
@@ -10,11 +21,23 @@ export async function searchUsersOnce(q = '', take = 20) {
 }
 
 
-export async function getUserSolutions(userId, { courseId, assignmentId, skip = 0, take = 50, days = null } = {}) {
-  const { data } = await api.get(`/api/admin/users/${userId}/solutions`, {
+export async function getUserSolutionsPage(userId, { courseId, assignmentId, skip = 0, take = 50, days = null } = {}) {
+  const response = await api.get(`/api/admin/users/${userId}/solutions`, {
     params: { courseId, assignmentId, skip, take, days },
   });
-  return Array.isArray(data) ? data : [];
+  return pageResult(response, userId);
+}
+
+export async function getUserSolutionsHistory(userId, { courseId, assignmentId, days = null } = {}) {
+  const response = await api.get(`/api/admin/users/${userId}/solutions`, {
+    params: { courseId, assignmentId, days, all: true },
+  });
+  return pageResult(response, userId);
+}
+
+export async function getUserSolutions(userId, options = {}) {
+  const page = await getUserSolutionsPage(userId, options);
+  return page.items;
 }
 
 
@@ -80,12 +103,17 @@ export async function deleteUser(userId) {
 
 
 
-export async function getUserImageSolutions(userId, { assignmentId = null, skip = 0, take = 50, days = null } = {}) {
+export async function getUserImageSolutionsPage(userId, { assignmentId = null, skip = 0, take = 50, days = null } = {}) {
   const params = { skip, take };
   if (days !== null && days !== undefined) params.days = days;
   if (assignmentId) params.assignmentId = assignmentId;
-  const { data } = await api.get(`/api/admin/users/${userId}/image-solutions`, { params });
-  return Array.isArray(data) ? data : [];
+  const response = await api.get(`/api/admin/users/${userId}/image-solutions`, { params });
+  return pageResult(response, userId);
+}
+
+export async function getUserImageSolutions(userId, options = {}) {
+  const page = await getUserImageSolutionsPage(userId, options);
+  return page.items;
 }
 
 

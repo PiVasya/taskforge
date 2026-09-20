@@ -1,46 +1,59 @@
 import { useMemo } from 'react';
 import {
   searchUsersOnce,
-  getUserSolutions,
+  getUserSolutionsHistory,
   getAdminUserGroupIds,
-  getUserImageSolutions,
+  getUserImageSolutionsPage,
 } from '../../api/admin';
-import { getUserTaskTestAttempts } from '../../api/taskTestAttempts';
+import { getUserTaskTestAttemptsPage } from '../../api/taskTestAttempts';
 import { getAdminGroups, getAdminGroupMemberIds } from '../../api/groups';
-import { getUserMathAttempts } from '../../api/mathTaskAttempts';
+import { getUserMathAttemptsPage } from '../../api/mathTaskAttempts';
 import useQuery from '../../hooks/useQuery';
 import { useQueryClient } from '../../data/QueryClientProvider';
+import {
+  asAdminHistoryPage,
+  exactUserHistoryPage,
+  removeAdminHistoryItem,
+  paginateAdminHistoryPage,
+} from './adminSolutionHistoryModel';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-export default function useAdminSolutionsData({ searchQuery, userId, groupId, filterDays }) {
+
+
+export default function useAdminSolutionsData({ searchQuery, userId, groupId, filterDays, pages = {}, pageSize = 50 }) {
   const queryClient = useQueryClient();
   const normalizedSearch = String(searchQuery || '').trim();
   const normalizedUserId = String(userId || '').trim();
   const normalizedGroupId = String(groupId || '').trim();
   const normalizedDays = filterDays == null ? null : Number(filterDays);
+  const normalizedPageSize = Math.max(10, Math.min(Number(pageSize) || 50, 200));
+  const codePage = Math.max(1, Number(pages.code) || 1);
+  const testPage = Math.max(1, Number(pages.tests) || 1);
+  const imagePage = Math.max(1, Number(pages.images) || 1);
+  const mathPage = Math.max(1, Number(pages.math) || 1);
 
   const usersKey = useMemo(
     () => ['admin-solutions', 'users', normalizedSearch],
     [normalizedSearch],
   );
   const codeKey = useMemo(
-    () => ['admin-solutions', 'code', normalizedUserId, normalizedDays],
+    () => ['admin-solutions', 'code-history', normalizedUserId, normalizedDays],
     [normalizedDays, normalizedUserId],
   );
   const testKey = useMemo(
-    () => ['admin-solutions', 'tests', normalizedUserId, normalizedDays],
-    [normalizedDays, normalizedUserId],
+    () => ['admin-solutions', 'tests', normalizedUserId, normalizedDays, testPage, normalizedPageSize],
+    [normalizedDays, normalizedPageSize, normalizedUserId, testPage],
   );
   const imageKey = useMemo(
-    () => ['admin-solutions', 'images', normalizedUserId, normalizedDays],
-    [normalizedDays, normalizedUserId],
+    () => ['admin-solutions', 'images', normalizedUserId, normalizedDays, imagePage, normalizedPageSize],
+    [imagePage, normalizedDays, normalizedPageSize, normalizedUserId],
   );
   const mathKey = useMemo(
-    () => ['admin-solutions', 'math', normalizedUserId, normalizedDays],
-    [normalizedDays, normalizedUserId],
+    () => ['admin-solutions', 'math', normalizedUserId, normalizedDays, mathPage, normalizedPageSize],
+    [mathPage, normalizedDays, normalizedPageSize, normalizedUserId],
   );
   const groupsKey = useMemo(() => ['admin-solutions', 'groups'], []);
   const userGroupsKey = useMemo(
@@ -57,39 +70,51 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     queryFn: () => searchUsersOnce(normalizedSearch, 20),
     enabled: normalizedSearch.length > 0,
     staleTime: 30_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const codeQuery = useQuery({
     queryKey: codeKey,
-    queryFn: () => getUserSolutions(normalizedUserId, { days: normalizedDays }),
+    queryFn: () => getUserSolutionsHistory(normalizedUserId, { days: normalizedDays }),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const testsQuery = useQuery({
     queryKey: testKey,
-    queryFn: () => getUserTaskTestAttempts(normalizedUserId, { days: normalizedDays }),
+    queryFn: () => getUserTaskTestAttemptsPage(normalizedUserId, {
+      days: normalizedDays,
+      skip: (testPage - 1) * normalizedPageSize,
+      take: normalizedPageSize,
+    }),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const imagesQuery = useQuery({
     queryKey: imageKey,
-    queryFn: () => getUserImageSolutions(normalizedUserId, { days: normalizedDays }),
+    queryFn: () => getUserImageSolutionsPage(normalizedUserId, {
+      days: normalizedDays,
+      skip: (imagePage - 1) * normalizedPageSize,
+      take: normalizedPageSize,
+    }),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const mathQuery = useQuery({
     queryKey: mathKey,
-    queryFn: () => getUserMathAttempts(normalizedUserId, { days: normalizedDays }),
+    queryFn: () => getUserMathAttemptsPage(normalizedUserId, {
+      days: normalizedDays,
+      skip: (mathPage - 1) * normalizedPageSize,
+      take: normalizedPageSize,
+    }),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const groupsQuery = useQuery({
@@ -104,7 +129,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     queryFn: () => getAdminUserGroupIds(normalizedUserId),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
   const selectedGroupMembersQuery = useQuery({
@@ -112,20 +137,26 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     queryFn: () => getAdminGroupMemberIds(normalizedGroupId),
     enabled: normalizedGroupId.length > 0,
     staleTime: 15_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   });
 
+  const codeHistory = normalizedUserId ? exactUserHistoryPage(codeQuery.data, normalizedUserId) : asAdminHistoryPage(null);
+  const codeData = paginateAdminHistoryPage(codeHistory, codePage, normalizedPageSize);
+  const testData = normalizedUserId ? exactUserHistoryPage(testsQuery.data, normalizedUserId) : asAdminHistoryPage(null);
+  const imageData = normalizedUserId ? exactUserHistoryPage(imagesQuery.data, normalizedUserId) : asAdminHistoryPage(null);
+  const mathData = normalizedUserId ? exactUserHistoryPage(mathQuery.data, normalizedUserId) : asAdminHistoryPage(null);
+
   const removeCodeSolution = (id) => {
-    queryClient.setQueryData(codeKey, (current) => asArray(current).filter((item) => item?.id !== id));
+    queryClient.setQueryData(codeKey, (current) => removeAdminHistoryItem(current, (item) => item?.id !== id));
   };
   const removeTestAttempt = (attemptId) => {
-    queryClient.setQueryData(testKey, (current) => asArray(current).filter((item) => item?.attemptId !== attemptId));
+    queryClient.setQueryData(testKey, (current) => removeAdminHistoryItem(current, (item) => item?.attemptId !== attemptId));
   };
   const removeImageSolution = (id) => {
-    queryClient.setQueryData(imageKey, (current) => asArray(current).filter((item) => item?.id !== id));
+    queryClient.setQueryData(imageKey, (current) => removeAdminHistoryItem(current, (item) => item?.id !== id));
   };
   const removeMathAttempt = (attemptId) => {
-    queryClient.setQueryData(mathKey, (current) => asArray(current).filter((item) => item?.attemptId !== attemptId));
+    queryClient.setQueryData(mathKey, (current) => removeAdminHistoryItem(current, (item) => item?.attemptId !== attemptId));
   };
   const setUserGroups = (updater) => {
     queryClient.setQueryData(userGroupsKey, (current) => {
@@ -136,10 +167,14 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
   return {
     users: asArray(usersQuery.data),
-    solutions: normalizedUserId ? asArray(codeQuery.data) : [],
-    testAttempts: normalizedUserId ? asArray(testsQuery.data) : [],
-    imageSolutions: normalizedUserId ? asArray(imagesQuery.data) : [],
-    mathAttempts: normalizedUserId ? asArray(mathQuery.data) : [],
+    solutions: codeData.items,
+    solutionsTotal: codeData.total,
+    testAttempts: testData.items,
+    testAttemptsTotal: testData.total,
+    imageSolutions: imageData.items,
+    imageSolutionsTotal: imageData.total,
+    mathAttempts: mathData.items,
+    mathAttemptsTotal: mathData.total,
     groups: asArray(groupsQuery.data),
     userGroupIds: normalizedUserId ? asArray(userGroupsQuery.data) : [],
     selectedGroupUserIds: asArray(selectedGroupMembersQuery.data),

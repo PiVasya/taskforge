@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TaskForge.Solutions.Api.Domain;
 using TaskForge.Solutions.Api.Services.Common;
 using TaskForge.Solutions.Api.Services.Mapping;
 using TaskForge.Solutions.Api.Services.Results;
@@ -90,6 +91,44 @@ public sealed class SolutionResultTests
 
         Assert.Equal((1, 0, 1), SolutionsApiMappingService.CountCases(ordinary));
         Assert.Equal((2, 0, 2), SolutionsApiMappingService.CountCases(admin));
+    }
+
+    [Theory]
+    [InlineData(false, null, 50, false)]
+    [InlineData(true, null, 50, true)]
+    [InlineData(false, 7, 50, true)]
+    [InlineData(false, 1000, 50, true)]
+    [InlineData(false, null, 1000, true)]
+    public void AdminHistory_AllMode_PreservesHistoricalPeriodSemantics(bool all, int? days, int take, bool expected)
+    {
+        Assert.Equal(expected, SolutionsApiMappingService.ShouldLoadAllAdminHistory(all, days, take));
+    }
+
+    [Fact]
+    public void AdminHistorySummary_DoesNotEmbedCodeOrRunnerResult()
+    {
+        var userId = Guid.NewGuid();
+        var row = new SolutionSubmission
+        {
+            Id = Guid.NewGuid(),
+            AssignmentId = Guid.NewGuid(),
+            UserId = userId,
+            Language = "csharp",
+            Code = "SECRET_SOURCE_CODE",
+            Status = "Accepted",
+            Score = 100,
+            ResultJson = "{\"cases\":[{\"input\":\"SECRET_HIDDEN_INPUT\",\"hidden\":true}]}",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        var json = JsonSerializer.Serialize(SolutionsApiMappingService.ToAdminHistoryDto(row));
+
+        Assert.Contains(row.Id.ToString(), json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(userId.ToString(), json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Accepted", json);
+        Assert.DoesNotContain("SECRET_SOURCE_CODE", json);
+        Assert.DoesNotContain("SECRET_HIDDEN_INPUT", json);
+        Assert.DoesNotContain("result", json, StringComparison.OrdinalIgnoreCase);
     }
 
 }

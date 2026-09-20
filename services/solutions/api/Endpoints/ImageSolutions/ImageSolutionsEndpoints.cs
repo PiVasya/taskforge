@@ -50,7 +50,7 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db) => (await db.ImageSolutions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)) is { } row ? Microsoft.AspNetCore.Http.Results.Ok(ImageDto(row, includeReference: true)) : Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "IMAGE_SOLUTION_NOT_FOUND" }));
 
-        app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
+        app.MapGet("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, HttpContext http, SolutionsDbContext db, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
         {
             var q = db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
@@ -59,7 +59,12 @@ internal static partial class SolutionsApiEndpoints
                 var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
                 q = q.Where(x => x.CreatedAt >= since);
             }
-            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync();
+
+            var total = await q.CountAsync(ct);
+            http.Response.Headers["X-Total-Count"] = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            http.Response.Headers["X-Result-User-Id"] = userId.ToString("D");
+
+            var rows = await q.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
         });
 

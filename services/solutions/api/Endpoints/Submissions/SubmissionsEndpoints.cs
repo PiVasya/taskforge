@@ -265,7 +265,7 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id });
         });
 
-        app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
+        app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, HttpContext http, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, bool all = false, CancellationToken ct = default) =>
         {
             var q = db.Submissions.AsNoTracking().Where(x => x.UserId == userId);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
@@ -275,13 +275,39 @@ internal static partial class SolutionsApiEndpoints
                 q = q.Where(x => x.CreatedAt >= since);
             }
 
-            var rows = await q
+            var total = await q.CountAsync(ct);
+            http.Response.Headers["X-Total-Count"] = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            http.Response.Headers["X-Result-User-Id"] = userId.ToString("D");
+
+            // Restore the historical admin contract: a period request meant
+            // "load the whole matching history". The microservice split lost
+            // that branch and silently applied Take(50) after the date filter.
+            // all=true also makes the intent explicit for the current UI.
+            var loadAll = ShouldLoadAllAdminHistory(all, days, take);
+            var ordered = q
                 .OrderByDescending(x => x.CreatedAt)
-                .Skip(System.Math.Max(0, skip))
-                .Take(System.Math.Clamp(take, 1, 200))
-                .ToListAsync(ct);
+                .ThenByDescending(x => x.Id)
+                .Select(x => new SolutionSubmission
+                {
+                    Id = x.Id,
+                    AssignmentId = x.AssignmentId,
+                    UserId = x.UserId,
+                    Language = x.Language,
+                    Status = x.Status,
+                    Score = x.Score,
+                    ResultJson = x.ResultJson,
+                    SqlSpecVersionId = x.SqlSpecVersionId,
+                    CreatedAt = x.CreatedAt
+                });
+            var rows = loadAll
+                ? await ordered.ToListAsync(ct)
+                : await ordered
+                    .Skip(System.Math.Max(0, skip))
+                    .Take(System.Math.Clamp(take, 1, 200))
+                    .ToListAsync(ct);
+
             var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeSensitiveResult: true, metadata: metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToAdminHistoryDto(x, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
         });
 
         app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days) =>

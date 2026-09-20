@@ -21,20 +21,40 @@ namespace TaskForge.Tasks.Api.Services.Results;
 
 internal static class AssignmentApiResultsService
 {
-    internal static async Task<List<object>> ListAttempts(string kind, Guid? userId, Guid? courseId, Guid? assignmentId, int? days, int skip, int take, TasksDbContext db)
+    private static IQueryable<TaskAttempt> AttemptQuery(string kind, Guid? userId, Guid? courseId, Guid? assignmentId, int? days, TasksDbContext db)
     {
         var q = db.Attempts.AsNoTracking().Where(x => x.Kind == kind && x.SubmittedAt != null);
         if (userId.HasValue) q = q.Where(x => x.UserId == userId.Value);
         if (assignmentId.HasValue) q = q.Where(x => x.TaskAssignmentId == assignmentId.Value);
+        if (courseId.HasValue)
+        {
+            var courseAssignmentIds = db.Assignments.AsNoTracking()
+                .Where(x => x.CourseId == courseId.Value)
+                .Select(x => x.Id);
+            q = q.Where(x => courseAssignmentIds.Contains(x.TaskAssignmentId));
+        }
         if (days.HasValue && days.Value > 0) q = q.Where(x => x.SubmittedAt >= DateTimeOffset.UtcNow.AddDays(-days.Value));
-        var rows = await q.OrderByDescending(x => x.SubmittedAt).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take <= 0 ? 50 : take, 1, 200)).ToListAsync();
+        return q;
+    }
+
+    internal static Task<int> CountAttempts(string kind, Guid? userId, Guid? courseId, Guid? assignmentId, int? days, TasksDbContext db, CancellationToken ct = default)
+        => AttemptQuery(kind, userId, courseId, assignmentId, days, db).CountAsync(ct);
+
+    internal static async Task<List<object>> ListAttempts(string kind, Guid? userId, Guid? courseId, Guid? assignmentId, int? days, int skip, int take, TasksDbContext db)
+    {
+        var q = AttemptQuery(kind, userId, courseId, assignmentId, days, db);
+        var rows = await q
+            .OrderByDescending(x => x.SubmittedAt)
+            .ThenByDescending(x => x.Id)
+            .Skip(System.Math.Max(0, skip))
+            .Take(System.Math.Clamp(take <= 0 ? 50 : take, 1, 200))
+            .ToListAsync();
         var assignmentIds = rows.Select(x => x.TaskAssignmentId).Distinct().ToList();
         var map = await db.Assignments.AsNoTracking().Where(x => assignmentIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
-        if (courseId.HasValue) rows = rows.Where(x => map.TryGetValue(x.TaskAssignmentId, out var a) && a.CourseId == courseId.Value).ToList();
         return rows.Select(x =>
         {
             map.TryGetValue(x.TaskAssignmentId, out var a);
-            return (object)new { attemptId = x.Id, taskAssignmentId = x.TaskAssignmentId, courseId = a?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = a?.Title ?? "Задание", x.AttemptNumber, submittedAt = x.SubmittedAt, x.ScorePercent, x.Passed, x.TimeExpired, allowReview = true };
+            return (object)new { attemptId = x.Id, userId = x.UserId, taskAssignmentId = x.TaskAssignmentId, courseId = a?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = a?.Title ?? "Задание", x.AttemptNumber, submittedAt = x.SubmittedAt, x.ScorePercent, x.Passed, x.TimeExpired, allowReview = true };
         }).ToList();
     }
 

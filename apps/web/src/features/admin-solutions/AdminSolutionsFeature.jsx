@@ -3,6 +3,7 @@ import { Card, Button, Input, Select, Badge } from '../../components/ui';
 import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   getSolutionDetails,
+  getSolutionsDetailsBulkOrFallback,
   deleteUserSolutions,
   deleteSolution,
   getAdminImageSolutionDetails,
@@ -24,6 +25,8 @@ import {
   solutionLiveStateLabel,
 } from './adminSolutionLiveModel';
 import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/AdminSolutionViews';
+import AdminHistoryPager from './components/AdminHistoryPager';
+import AdminCodeSolutionsPanel from './components/AdminCodeSolutionsPanel';
 import AdminSolutionLiveCard, { AssignmentLinkButton } from './components/AdminSolutionLiveCard';
 import {
   formatDateTime,
@@ -34,11 +37,7 @@ import {
   getImageSolutionThreshold,
   getImageSolutionTitle,
   getImageSolutionUrl,
-  getSolutionBadgeIntent,
-  getSolutionCode,
   getSolutionDate,
-  getSolutionPassedFailed,
-  getSolutionStatusLabel,
   getSolutionSubmittedAt,
   getSolutionTitle,
 } from '../../utils/solutionDto';
@@ -66,7 +65,10 @@ export default function AdminSolutionsPage() {
 
   const [detailsMap, setDetailsMap] = useState({});
   const [detailsLoadingMap, setDetailsLoadingMap] = useState({});
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedCodeIds, setExpandedCodeIds] = useState([]);
+  const [bulkCodeLoading, setBulkCodeLoading] = useState(false);
+  const [historyPages, setHistoryPages] = useState({ code: 1, tests: 1, images: 1, math: 1 });
+  const historyPageSize = 50;
 
   const [testDetailsMap, setTestDetailsMap] = useState({});
   const [expandedTestAttemptId, setExpandedTestAttemptId] = useState(null);
@@ -83,9 +85,13 @@ export default function AdminSolutionsPage() {
   const {
     users,
     solutions,
+    solutionsTotal,
     testAttempts,
+    testAttemptsTotal,
     imageSolutions,
+    imageSolutionsTotal,
     mathAttempts,
+    mathAttemptsTotal,
     groups,
     userGroupIds,
     selectedGroupUserIds,
@@ -108,7 +114,14 @@ export default function AdminSolutionsPage() {
     removeImageSolution,
     removeMathAttempt,
     setUserGroups,
-  } = useAdminSolutionsData({ searchQuery: submittedQuery, userId, groupId, filterDays });
+  } = useAdminSolutionsData({
+    searchQuery: submittedQuery,
+    userId,
+    groupId,
+    filterDays,
+    pages: historyPages,
+    pageSize: historyPageSize,
+  });
 
   const { items: liveItems, state: liveState } = useAdminSolutionLiveFeed();
 
@@ -122,12 +135,15 @@ export default function AdminSolutionsPage() {
     if (next === submittedQuery) {
       refetchUsers();
     } else {
+      setUserId('');
+      setGroupId('');
       setSubmittedQuery(next);
     }
   };
 
   useEffect(() => {
-    setExpandedId(null);
+    setExpandedCodeIds([]);
+    setHistoryPages({ code: 1, tests: 1, images: 1, math: 1 });
     setExpandedTestAttemptId(null);
     setExpandedImageId(null);
     setExpandedMathAttemptId(null);
@@ -172,13 +188,18 @@ export default function AdminSolutionsPage() {
 
   const liveStateLabel = solutionLiveStateLabel(liveState);
 
+  const setHistoryPage = (kind, page) => {
+    setHistoryPages((current) => ({ ...current, [kind]: Math.max(1, Number(page) || 1) }));
+  };
+
   const handleToggleCode = async (id) => {
-    if (expandedId === id) {
-      setExpandedId(null);
+    const isExpanded = expandedCodeIds.includes(id);
+    if (isExpanded) {
+      setExpandedCodeIds((current) => current.filter((value) => value !== id));
       return;
     }
 
-    setExpandedId(id);
+    setExpandedCodeIds((current) => (current.includes(id) ? current : [...current, id]));
     if (!detailsMap[id]) {
       setDetailsLoadingMap((prev) => ({ ...prev, [id]: true }));
       try {
@@ -187,12 +208,43 @@ export default function AdminSolutionsPage() {
       } catch (e) {
         const parsed = handleApiError(e, notify, 'Не удалось загрузить детали решения');
         setPageError(parsed);
-        setExpandedId(null);
+        setExpandedCodeIds((current) => current.filter((value) => value !== id));
         return;
       } finally {
         setDetailsLoadingMap((prev) => ({ ...prev, [id]: false }));
       }
     }
+  };
+
+  const handleExpandPageCodes = async () => {
+    const ids = displayedSolutions.map((item) => item.id).filter(Boolean);
+    if (!ids.length) return;
+    setBulkCodeLoading(true);
+    try {
+      const missingIds = ids.filter((id) => !detailsMap[id]);
+      if (missingIds.length) {
+        const details = await getSolutionsDetailsBulkOrFallback(missingIds, { concurrency: 6 });
+        setDetailsMap((prev) => {
+          const next = { ...prev };
+          for (const dto of details) {
+            const id = dto?.id || dto?.Id;
+            if (id) next[id] = dto;
+          }
+          return next;
+        });
+      }
+      setExpandedCodeIds((current) => Array.from(new Set([...current, ...ids])));
+    } catch (e) {
+      const parsed = handleApiError(e, notify, 'Не удалось загрузить код решений');
+      setPageError(parsed);
+    } finally {
+      setBulkCodeLoading(false);
+    }
+  };
+
+  const handleCollapsePageCodes = () => {
+    const pageIds = new Set(displayedSolutions.map((item) => item.id));
+    setExpandedCodeIds((current) => current.filter((id) => !pageIds.has(id)));
   };
 
   const handleToggleImageSolution = async (id) => {
@@ -285,7 +337,7 @@ export default function AdminSolutionsPage() {
         delete copy[id];
         return copy;
       });
-      if (expandedId === id) setExpandedId(null);
+      setExpandedCodeIds((current) => current.filter((value) => value !== id));
       notify.success('Решение удалено');
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось удалить решение');
@@ -476,8 +528,12 @@ export default function AdminSolutionsPage() {
           </div>
 
           {selectedUser && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+            <div
+              className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300"
+              data-selected-user-id={selectedUser.id}
+            >
               <span>Выбран: <span className="font-mono">{selectedUser.email}</span></span>
+              <span className="font-mono opacity-70">ID: {selectedUser.id}</span>
               <Badge>Рейтинг: {selectedUser.score ?? selectedUser.rating ?? selectedUser.totalScore ?? 0}</Badge>
               <Badge>Решено: {selectedUser.solved ?? selectedUser.solvedCount ?? 0}</Badge>
             </div>
@@ -521,94 +577,34 @@ export default function AdminSolutionsPage() {
         )}
 
         {tab === 'code' && !listLoading && displayedSolutions.length > 0 && (
-          <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-600 dark:text-neutral-300">
-              Показано решений по коду: {displayedSolutions.length}
-            </div>
-
-            <div className="space-y-6">
-              {displayedSolutions.map((item) => {
-                const full = detailsMap[item.id] || null;
-                const expanded = expandedId === item.id;
-                const loadingDetails = !!detailsLoadingMap[item.id];
-                const effective = full || item;
-                const code = getSolutionCode(effective);
-                const { passed, failed } = getSolutionPassedFailed(effective);
-
-                return (
-                  <div
-                    key={item.id}
-                    className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <div className="font-medium text-neutral-900 dark:text-neutral-50 truncate">
-                          {getSolutionTitle(effective)}
-                        </div>
-                        <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                          {formatDateTime(getSolutionSubmittedAt(effective))} • {effective.language || effective.Language || '—'}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <Badge intent={getSolutionBadgeIntent(effective)}>{getSolutionStatusLabel(effective)}</Badge>
-                        {passed !== null || failed !== null ? (
-                          <Badge intent="secondary">Пройдено: {passed ?? 0} / Провалено: {failed ?? 0}</Badge>
-                        ) : null}
-                        <AssignmentLinkButton assignmentId={getAssignmentId(effective)} />
-                        <Button
-                          variant="outline"
-                          className="inline-flex items-center gap-2"
-                          onClick={() => handleToggleCode(item.id)}
-                          disabled={loadingDetails}
-                        >
-                          {expanded ? 'Скрыть код' : 'Показать код'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          intent="danger"
-                          className="inline-flex items-center gap-2"
-                          onClick={() => handleDeleteSolution(item.id)}
-                          title="Удалить это решение"
-                        >
-                          <Trash2 size={16} />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {expanded ? (
-                      <div className="mt-3 space-y-3">
-                        {loadingDetails ? <CompactEmpty>Загружаю детали решения…</CompactEmpty> : null}
-                        {!loadingDetails && full ? (
-                          code ? (
-                            <div className="rounded-xl overflow-hidden border border-neutral-700">
-                              <CodeEditor
-                                language={full.language || full.Language || item.language || 'text'}
-                                value={code}
-                                readOnly
-                                onChange={() => {}}
-                                height={360}
-                              />
-                            </div>
-                          ) : (
-                            <CompactEmpty>Код не найден для этого решения.</CompactEmpty>
-                          )
-                        ) : null}
-                        {!loadingDetails && full ? <RunnerOutput item={full} /> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+          <AdminCodeSolutionsPanel
+            solutions={displayedSolutions}
+            total={solutionsTotal}
+            page={historyPages.code}
+            pageSize={historyPageSize}
+            onPage={(page) => setHistoryPage('code', page)}
+            userId={userId}
+            detailsMap={detailsMap}
+            detailsLoadingMap={detailsLoadingMap}
+            expandedCodeIds={expandedCodeIds}
+            bulkCodeLoading={bulkCodeLoading}
+            onExpandPageCodes={handleExpandPageCodes}
+            onCollapsePageCodes={handleCollapsePageCodes}
+            onToggleCode={handleToggleCode}
+            onDeleteSolution={handleDeleteSolution}
+          />
         )}
 
         
         {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-600 dark:text-neutral-300">
-              Всего решений по картинкам: {displayedImageSolutions.length}
-            </div>
+            <AdminHistoryPager
+              label="images"
+              page={historyPages.images}
+              total={imageSolutionsTotal}
+              pageSize={historyPageSize}
+              onPage={(page) => setHistoryPage('images', page)}
+            />
 
             <div className="space-y-6">
               {displayedImageSolutions.map((item) => {
@@ -626,6 +622,10 @@ export default function AdminSolutionsPage() {
                   <div
                     key={item.id}
                     className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    data-solution-id={item.id}
+                    data-user-id={item.userId || item.UserId || userId}
+                    data-assignment-id={getAssignmentId(effective)}
+                    data-verdict={effective.status || effective.verdict || ''}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="space-y-1 min-w-0">
@@ -735,9 +735,13 @@ export default function AdminSolutionsPage() {
 
 {tab === 'tests' && !testListLoading && displayedAttempts.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-600 dark:text-neutral-300">
-              Всего попыток тестов: {displayedAttempts.length}
-            </div>
+            <AdminHistoryPager
+              label="tests"
+              page={historyPages.tests}
+              total={testAttemptsTotal}
+              pageSize={historyPageSize}
+              onPage={(page) => setHistoryPage('tests', page)}
+            />
 
             <div className="space-y-6">
               {displayedAttempts.map((a) => {
@@ -746,7 +750,13 @@ export default function AdminSolutionsPage() {
                 const expanded = expandedTestAttemptId === id;
 
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]">
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    data-attempt-id={id}
+                    data-user-id={a.userId || a.UserId || userId}
+                    data-assignment-id={getAssignmentId(a)}
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium text-neutral-900 dark:text-neutral-50">
@@ -804,9 +814,13 @@ export default function AdminSolutionsPage() {
 
         {tab === 'math' && !mathListLoading && displayedMathAttempts.length > 0 && (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-600 dark:text-neutral-300">
-              Всего math-попыток: {displayedMathAttempts.length}
-            </div>
+            <AdminHistoryPager
+              label="math"
+              page={historyPages.math}
+              total={mathAttemptsTotal}
+              pageSize={historyPageSize}
+              onPage={(page) => setHistoryPage('math', page)}
+            />
 
             <div className="space-y-6">
               {displayedMathAttempts.map((a) => {
@@ -815,7 +829,13 @@ export default function AdminSolutionsPage() {
                 const expanded = expandedMathAttemptId === id;
 
                 return (
-                  <div key={id} className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]">
+                  <div
+                    key={id}
+                    className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
+                    data-attempt-id={id}
+                    data-user-id={a.userId || a.UserId || userId}
+                    data-assignment-id={getAssignmentId(a)}
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div>
                         <div className="font-medium text-neutral-900 dark:text-neutral-50">

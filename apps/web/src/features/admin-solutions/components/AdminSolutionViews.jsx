@@ -3,6 +3,9 @@ import { Badge, Card } from '../../../components/ui';
 import {
   getRunnerText,
   getSolutionCases,
+  getCompilerDiagnostics,
+  getSolutionFailureCategory,
+  getPolicyDiagnostics,
   isResultCasePassed as isResultCasePassedStrict,
 } from '../../../utils/solutionDto';
 
@@ -49,12 +52,81 @@ export function RunnerOutput({ item }) {
   const runnerError = getRunnerText(item, 'runnerError') || getRunnerText(item, 'error');
   const cases = getSolutionCases(item);
   const hiddenCount = cases.filter(isHiddenCase).length;
+  const failureCategory = getSolutionFailureCategory(item);
+  const policyDiagnostics = getPolicyDiagnostics(item);
+  const compilerDiagnostics = getCompilerDiagnostics(item);
 
-  if (!stdout && !stderr && !runnerError && !cases.length) return null;
+  if (!stdout && !stderr && !runnerError && !cases.length && !failureCategory && !policyDiagnostics.length) return null;
 
   return (
-    <Card className="p-3 space-y-3">
-      {runnerError ? <div className="text-sm text-red-600 whitespace-pre-wrap">{runnerError}</div> : null}
+    <Card
+      className="p-3 space-y-3"
+      data-testid="admin-solution-diagnostics"
+      data-failure-category={failureCategory || undefined}
+      data-tests-ran={cases.length ? 'true' : 'false'}
+    >
+      {failureCategory ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge intent="danger">Причина: {failureCategory}</Badge>
+          {!cases.length ? <Badge intent="secondary">Тесты не запускались</Badge> : null}
+        </div>
+      ) : null}
+      {compilerDiagnostics.length ? (
+        <div className="space-y-2" data-testid="admin-compiler-diagnostics">
+          <div className="text-xs uppercase tracking-wide text-neutral-500">Диагностика компилятора</div>
+          {compilerDiagnostics.map((diagnostic) => (
+            <div
+              key={diagnostic.key}
+              className="rounded-lg border border-red-300/70 dark:border-red-800/70 p-2 text-xs space-y-1"
+              data-line={diagnostic.line || undefined}
+              data-column={diagnostic.column || undefined}
+              data-compiler-code={diagnostic.code || undefined}
+            >
+              <div className="font-medium text-red-700 dark:text-red-300">{diagnostic.message}</div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-neutral-500 dark:text-neutral-400">
+                <span>Строка: {diagnostic.line}</span>
+                {diagnostic.column ? <span>Символ: {diagnostic.column}</span> : null}
+                {diagnostic.code ? <span>Код: {diagnostic.code}</span> : null}
+              </div>
+              {diagnostic.preview ? (
+                <pre className="whitespace-pre-wrap break-words rounded-md border border-neutral-200 dark:border-neutral-700 px-2 py-1">{diagnostic.preview}</pre>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {runnerError ? (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-neutral-500">{failureCategory === 'Компиляция' ? 'Полный вывод компилятора' : 'Ошибка'}</div>
+          <pre className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap rounded-lg border border-red-200 dark:border-red-900/60 p-3 mt-1">{runnerError}</pre>
+        </div>
+      ) : null}
+      {policyDiagnostics.length ? (
+        <div className="space-y-2" data-testid="admin-policy-diagnostics">
+          <div className="text-xs uppercase tracking-wide text-neutral-500">Диагностика анализатора</div>
+          {policyDiagnostics.map((diagnostic) => (
+            <div
+              key={diagnostic.key}
+              className="rounded-lg border border-amber-300/70 dark:border-amber-700/70 p-2 text-xs space-y-1"
+              data-pattern-id={diagnostic.patternId || undefined}
+              data-line={diagnostic.line || undefined}
+              data-column={diagnostic.column || undefined}
+            >
+              <div className="font-medium">{diagnostic.message}</div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-neutral-500 dark:text-neutral-400">
+                {diagnostic.line ? <span>Строка: {diagnostic.line}</span> : null}
+                {diagnostic.column ? <span>Символ: {diagnostic.column}</span> : null}
+                {!diagnostic.line && diagnostic.position !== null ? <span>Позиция: {diagnostic.position}</span> : null}
+                {diagnostic.needle ? <span>Конструкция: <code>{diagnostic.needle}</code></span> : null}
+                {diagnostic.code ? <span>Код: {diagnostic.code}</span> : null}
+              </div>
+              {diagnostic.preview ? (
+                <pre className="whitespace-pre-wrap break-words rounded-md border border-neutral-200 dark:border-neutral-700 px-2 py-1">{diagnostic.preview}</pre>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {stdout ? (
         <div>
           <div className="text-xs uppercase tracking-wide text-neutral-500">stdout</div>

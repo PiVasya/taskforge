@@ -166,7 +166,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 return new PolicyAnalysisResult(null, attestation.Clone());
             }
 
-            var clientPolicyPayload = BuildClientPolicyPayload(root);
+            var clientPolicyPayload = BuildClientPolicyPayload(root, job.Code ?? string.Empty);
             return new PolicyAnalysisResult(
                 RunnerResult.PolicyFailed(clientPolicyPayload, BuildPolicyMessage(clientPolicyPayload)),
                 null);
