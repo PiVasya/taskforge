@@ -226,3 +226,10 @@ test('diagnostics batch progress counts finished nodes without pretending an act
     percent: 67,
   });
 });
+
+test('server log cleanup only targets online r73+ agents that expose maintenance cleanup', () => {
+  assert.deepEqual(model.logCleanupEligibility({ online: false, bundleRevision: '73' }), { ready: false, reason: 'offline' });
+  assert.deepEqual(model.logCleanupEligibility({ online: true, bundleRevision: '72' }), { ready: false, reason: 'agent-too-old', revision: 72 });
+  assert.deepEqual(model.logCleanupEligibility({ online: true, bundleRevision: '73' }), { ready: true, reason: null, revision: 73 });
+  assert.deepEqual(model.logCleanupEligibility({ online: true, bundleRevision: '74', logCleanupAvailable: false }), { ready: false, reason: 'agent-too-old', revision: 74 });
+});

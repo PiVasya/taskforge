@@ -779,7 +779,9 @@ public sealed partial class ClusterTelemetryService(
         if (!updaterReady) reasons.Add("updater-not-ready");
         if (isActive && !noAppProfile && !tlsReady) reasons.Add("tls-not-ready");
         var bundleRevision = p["node"]?["bundle_revision"]?.GetValue<string>() ?? string.Empty;
-        var diagnosticsAvailable = online && int.TryParse(bundleRevision, out var diagnosticsRevision) && diagnosticsRevision >= DiagnosticsMinAgentRevision;
+        var agentRevision = int.TryParse(bundleRevision, out var parsedRevision) ? parsedRevision : -1;
+        var diagnosticsAvailable = online && agentRevision >= DiagnosticsMinAgentRevision;
+        var logCleanupAvailable = online && agentRevision >= LogCleanupMinAgentRevision;
         return new Dictionary<string, object?>
         {
             ["id"] = id,
@@ -808,6 +810,7 @@ public sealed partial class ClusterTelemetryService(
             ["bundleVersion"] = p["node"]?["bundle_version"]?.GetValue<string>() ?? string.Empty,
             ["bundleRevision"] = bundleRevision,
             ["diagnosticsAvailable"] = diagnosticsAvailable,
+            ["logCleanupAvailable"] = logCleanupAvailable,
             ["role"] = role,
             ["leader"] = p["ha"]?["leader"]?.GetValue<string>() ?? string.Empty,
             ["appMode"] = p["ha"]?["app_mode"]?.GetValue<string>() ?? "off",

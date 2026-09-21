@@ -3,6 +3,14 @@ export const number = (value) => ((typeof value === 'number' || (typeof value ==
 export const array = (value) => Array.isArray(value) ? value : [];
 export const primaryRole = (role) => ['primary', 'master', 'leader'].includes(String(role || '').toLowerCase());
 export const DIAGNOSTICS_MIN_AGENT_REVISION = 65;
+export const LOG_CLEANUP_MIN_AGENT_REVISION = 73;
+export function logCleanupEligibility(node) {
+  if (!node?.online) return { ready: false, reason: 'offline' };
+  const revision = number(node.bundleRevision);
+  if (node.logCleanupAvailable === false || revision === null || revision < LOG_CLEANUP_MIN_AGENT_REVISION)
+    return { ready: false, reason: 'agent-too-old', revision };
+  return { ready: true, reason: null, revision };
+}
 export function diagnosticsEligibility(node) {
   if (!node?.online) return { ready: false, reason: 'offline' };
   const revision = number(node.bundleRevision);

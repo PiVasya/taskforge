@@ -52,6 +52,29 @@ internal static partial class ObservabilityApiEndpoints
             }
         });
 
+        app.MapPost("/api/admin/cluster/logs/cleanup", async (
+            ClusterLogCleanupRequest request,
+            ClusterTelemetryService telemetry,
+            HttpResponse response,
+            CancellationToken ct) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            try
+            {
+                return Results.Json(await telemetry.CleanupLogsAsync(request, ct));
+            }
+            catch (ClusterLogCleanupException ex)
+            {
+                return Results.Json(new
+                {
+                    status = ex.StatusCode,
+                    code = ex.Code,
+                    message = ex.Message,
+                    severity = ex.StatusCode >= 500 ? "error" : "warning"
+                }, statusCode: ex.StatusCode);
+            }
+        });
+
         app.MapPost("/api/admin/cluster/diagnostics", async (
             ClusterDiagnosticsRequest request,
             ClusterTelemetryService telemetry,

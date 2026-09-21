@@ -465,3 +465,50 @@ html.neo-brutal .tf-cluster .tf-cluster-diagnostics-archive { border: 2px solid 
   .tf-cluster-diagnostics-archive { grid-template-columns: auto minmax(0,1fr); }
   .tf-cluster-diagnostics-archive > .tf-cluster-button { grid-column: 1 / -1; justify-self: stretch; }
 }
+
+/* Cluster server-log cleanup */
+.tf-cluster-log-cleanup-control { border-color: color-mix(in srgb, var(--cl-warn) 48%, var(--cl-line)) !important; }
+.tf-cluster-log-cleanup-control:not(:disabled):hover { color: var(--cl-bad); background: var(--cl-bad-soft); border-color: var(--cl-bad) !important; }
+.tf-cluster-log-cleanup-dialog { width: min(820px, 100%); }
+.tf-cluster-server-mark.is-danger { color: var(--cl-bad); background: var(--cl-bad-soft); }
+.tf-cluster-log-cleanup-body { display: grid; gap: 12px; padding: 16px 20px; }
+.tf-cluster-log-cleanup-warning { margin: 0 !important; }
+.tf-cluster-log-cleanup-warning > div, .tf-cluster-log-cleanup-preserved > div { min-width: 0; }
+.tf-cluster-log-cleanup-warning strong, .tf-cluster-log-cleanup-warning span,
+.tf-cluster-log-cleanup-preserved strong, .tf-cluster-log-cleanup-preserved span { display: block; }
+.tf-cluster-log-cleanup-warning strong, .tf-cluster-log-cleanup-preserved strong { font-size: 11px; }
+.tf-cluster-log-cleanup-warning span, .tf-cluster-log-cleanup-preserved span { margin-top: 3px; font-size: 9px; line-height: 1.5; }
+.tf-cluster-log-cleanup-preserved { display: flex; align-items: flex-start; gap: 9px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--cl-good) 40%, var(--cl-line)); border-radius: 9px; background: var(--cl-good-soft); color: var(--cl-good); }
+.tf-cluster-log-cleanup-preserved > svg { flex: 0 0 auto; margin-top: 1px; }
+.tf-cluster-log-cleanup-node.is-selected { border-color: var(--cl-warn) !important; background: var(--cl-warn-soft) !important; box-shadow: inset 0 0 0 1px var(--cl-warn) !important; }
+.tf-cluster-log-cleanup-node-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; color: var(--cl-muted); background: var(--cl-alt); }
+.tf-cluster-log-cleanup-node.is-selected .tf-cluster-log-cleanup-node-icon { color: var(--cl-warn); background: color-mix(in srgb, var(--cl-warn-soft) 80%, var(--cl-surface)); }
+.tf-cluster-log-cleanup-check { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--cl-line); border-radius: 6px; color: var(--cl-warn); background: var(--cl-surface); }
+.tf-cluster-log-cleanup-check.is-selected { border-color: var(--cl-warn); background: var(--cl-warn-soft); }
+.tf-cluster-log-cleanup-results { display: grid; gap: 8px; }
+.tf-cluster-log-cleanup-summary { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-alt); }
+.tf-cluster-log-cleanup-summary > svg { color: var(--cl-muted); }
+.tf-cluster-log-cleanup-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; }
+.tf-cluster-log-cleanup-summary span { color: var(--cl-muted); font-size: 9px; }
+.tf-cluster-log-cleanup-summary strong { font-size: 14px; }
+.tf-cluster-log-cleanup-result-list { display: grid; gap: 7px; }
+.tf-cluster-log-cleanup-result { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: start; gap: 9px; padding: 9px 10px; border: 1px solid var(--cl-line); border-radius: 9px; background: var(--cl-surface); }
+.tf-cluster-log-cleanup-result.is-good { border-color: color-mix(in srgb, var(--cl-good) 45%, var(--cl-line)); }
+.tf-cluster-log-cleanup-result.is-bad { border-color: color-mix(in srgb, var(--cl-bad) 55%, var(--cl-line)); }
+.tf-cluster-log-cleanup-result-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; color: var(--cl-muted); background: var(--cl-alt); }
+.tf-cluster-log-cleanup-result.is-good .tf-cluster-log-cleanup-result-icon { color: var(--cl-good); background: var(--cl-good-soft); }
+.tf-cluster-log-cleanup-result.is-bad .tf-cluster-log-cleanup-result-icon { color: var(--cl-bad); background: var(--cl-bad-soft); }
+.tf-cluster-log-cleanup-result > div { min-width: 0; }
+.tf-cluster-log-cleanup-result > div > div { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tf-cluster-log-cleanup-result strong { font-size: 11px; }
+.tf-cluster-log-cleanup-result small { display: block; margin-top: 3px; color: var(--cl-muted); font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; }
+.tf-cluster-log-cleanup-result small.is-error { color: var(--cl-bad); }
+.tf-cluster .tf-cluster-log-cleanup-start:not(:disabled) { color: white; background: #b4233e; border-color: #b4233e; }
+.tf-cluster .tf-cluster-log-cleanup-start:not(:disabled):hover { background: #971d34; border-color: #971d34; }
+html.dark .tf-cluster .tf-cluster-log-cleanup-start:not(:disabled) { color: #fff; background: #c73550; border-color: #c73550; }
+html.neo-brutal .tf-cluster :where(.tf-cluster-log-cleanup-preserved, .tf-cluster-log-cleanup-node, .tf-cluster-log-cleanup-summary, .tf-cluster-log-cleanup-result) { border: 2px solid rgb(var(--neo-ink)); border-radius: 7px; }
+html.neo-brutal .tf-cluster .tf-cluster-log-cleanup-node.is-selected { box-shadow: 3px 3px 0 0 rgb(var(--neo-ink)) !important; }
+@media (max-width: 760px) {
+  .tf-cluster-log-cleanup-body { padding: 12px; }
+  .tf-cluster-log-cleanup-summary > div { align-items: flex-start; flex-direction: column; gap: 3px; }
+}

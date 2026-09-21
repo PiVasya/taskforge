@@ -5,16 +5,16 @@ The Go SQL runtime release builds on user source develop(212), including the use
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
 
-The authoritative A/B/C production package paired with this update is the independent v40-r72
+The authoritative A/B/C production package paired with this update is the independent v40-r73
 archive. Its entrypoint is `./cluster.sh`. A/B are full; C remains lite. Fresh production
 diagnostics proved that historical published MySQL assignments use the immutable MySQL 8.4.11
 OL9 runtime while r70 workers advertised only current/compatible 8.4.0 targets, causing a
-capability rejection before job creation. The matching r72 package restores the exact published
+capability rejection before job creation. The matching r73 package retains the r72 exact published
 8.4.11 runtime on capable hosts and keeps the certified OL8/cpuv1 fallback. Tasks API compatibility
 is deliberately limited to the three audited immutable runtime identities; it is never a wildcard
 for MySQL 8.4.x. This source update also persists completed cluster diagnostics to MinIO for seven
 days by default and exposes all retained archives in the cluster UI. The older cluster scripts
-inside this source tree are not a replacement for the standalone r72 package.
+inside this source tree are not a replacement for the standalone r73 package. r73 also adds an authenticated, bounded Node Agent maintenance operation for clearing TaskForge Docker json-file logs and host logs plus vacuuming archived systemd journal data; it must never remove Docker volumes/images, databases, MinIO data, or retained diagnostic archives, and it must reject cleanup while a diagnostics collection is active.
 
 # AI rules for this project
 

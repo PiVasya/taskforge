@@ -15,6 +15,11 @@ export async function startClusterDiagnostics(options) {
   return data;
 }
 
+export async function cleanupClusterLogs(nodes) {
+  const { data } = await api.post('/api/admin/cluster/logs/cleanup', { nodes }, { timeout: 130000 });
+  return data;
+}
+
 export async function getClusterDiagnosticsJob(node, jobId, { signal } = {}) {
   const { data } = await api.get(`/api/admin/cluster/diagnostics/${encodeURIComponent(node)}/${encodeURIComponent(jobId)}`, { signal });
   return data;
