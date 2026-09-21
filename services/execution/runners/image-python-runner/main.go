@@ -31,6 +31,7 @@ const (
 	maxImageBytes            = 16 << 20
 	maxRenderRequestDuration = 34 * time.Second
 	prSetDumpable            = 4
+	pythonPolicySyntaxExit   = 87
 )
 
 type renderRequest struct {
@@ -373,12 +374,17 @@ func preparePython(source string, dir string, timeoutSec int) (string, string, i
 		return sanitizeRunnerText(err.Error()), "", 1
 	}
 	policy := runCommand("/usr/bin/python3", []string{"-I", "-B", "/opt/taskforge/python_policy.py", "main.py", "image"}, dir, "", clamp(timeoutSec, 1, 20), nil)
-	if policy.ExitCode != 0 {
+	if policy.ExitCode != 0 && policy.ExitCode != pythonPolicySyntaxExit {
 		return "Решение отклонено системой безопасности.", "", 86
 	}
 	compile := runCommand("/usr/bin/python3", []string{"-I", "-B", "-m", "py_compile", "main.py"}, dir, "", clamp(timeoutSec, 1, 20), nil)
 	if compile.ExitCode != 0 {
 		return sanitizeRunnerText(compile.Stdout + compile.Stderr), "", compile.ExitCode
+	}
+	if policy.ExitCode == pythonPolicySyntaxExit {
+		// Keep the image runner fail-closed if AST parsing and py_compile ever
+		// disagree: source that was not policy-inspected is never executed.
+		return "Python syntax error", "", 2
 	}
 	return "", src, 0
 }

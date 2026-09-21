@@ -149,7 +149,12 @@ if len(data) == 0 or len(data) > MAX_SOURCE_BYTES or b"\x00" in data:
 try:
     source = data.decode("utf-8")
     tree = ast.parse(source, filename=path.name, mode="exec", type_comments=True)
-except (UnicodeDecodeError, SyntaxError, ValueError, MemoryError, RecursionError):
+except SyntaxError:
+    # Syntax-invalid source is not a security-policy violation.  The runner
+    # maps this dedicated exit code to its normal compile-error path and still
+    # refuses to execute the source.
+    raise SystemExit(87)
+except (UnicodeDecodeError, ValueError, MemoryError, RecursionError):
     fail()
 visitor = PolicyVisitor(IMAGE_MODULES if profile == "image" else STANDARD_MODULES)
 visitor.visit(tree)

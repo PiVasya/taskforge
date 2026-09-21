@@ -182,3 +182,60 @@ func TestRunCommandStopsWhenParentContextIsCancelled(t *testing.T) {
 		t.Fatalf("cancelled child was not killed promptly: %s", elapsed)
 	}
 }
+
+func TestPythonValidationSeparatesSyntaxAndPolicyFailures(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not available")
+	}
+	policyPath, err := filepath.Abs("security/python_policy.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name       string
+		source     string
+		wantStatus string
+	}{
+		{name: "valid source", source: "print(1)\n", wantStatus: ""},
+		{name: "missing closing parenthesis", source: "x = int(input())\nif x > 0:\n    print(\"Positive\")\n    print(\"Accepted\")\nelse:\n    print(\"Rejected\"\n", wantStatus: "compile_error"},
+		{name: "stray quote in expression", source: "total = 0\nc = 0\nx = int(input())\nwhile x != 0:\n    if x > 0:\n        total += x\n        c += 1\n    x = int(input())\nprint(total/c\")\n", wantStatus: "compile_error"},
+		{name: "missing print separator", source: "a = float(input())\nprint(\"Value:\" a)\n", wantStatus: "compile_error"},
+		{name: "broken f string", source: "a = float(input())\nprint(f\"Value:\" a)\n", wantStatus: "compile_error"},
+		{name: "missing int print separator", source: "a = 18\nprint(\"Age:\" a)\n", wantStatus: "compile_error"},
+		{name: "missing float print separator", source: "a = 12.5\nprint(\"Price:\" a)\n", wantStatus: "compile_error"},
+		{name: "broken exact format", source: "a = input()\nprint(f\"Word:\", {a}!)\n", wantStatus: "compile_error"},
+		{name: "broken multiline print", source: "a = 18\nprint('Age:'\n a)\n", wantStatus: "compile_error"},
+		{name: "policy violation", source: "open(\"/etc/passwd\").read()\n", wantStatus: "policy_error"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(tc.source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result := validatePythonSourceContext(context.Background(), dir, policyPath, "standard", 2_000)
+			if tc.wantStatus == "" {
+				if result != nil {
+					t.Fatalf("expected valid source, got %#v", result)
+				}
+				return
+			}
+			if result == nil {
+				t.Fatalf("expected %s, got success", tc.wantStatus)
+			}
+			if result.Status != tc.wantStatus {
+				t.Fatalf("expected status %q, got %#v", tc.wantStatus, result)
+			}
+			if tc.wantStatus == "compile_error" {
+				if result.CompileStderr == nil || !strings.Contains(*result.CompileStderr, "SyntaxError") {
+					t.Fatalf("expected Python syntax diagnostic, got %#v", result)
+				}
+				if strings.Contains(result.Stderr, "системой безопасности") {
+					t.Fatalf("syntax error was mislabeled as security: %#v", result)
+				}
+			}
+		})
+	}
+}

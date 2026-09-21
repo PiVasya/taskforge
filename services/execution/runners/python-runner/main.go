@@ -34,6 +34,7 @@ const (
 	maxMemoryLimitMb       = 512
 	maxBatchDuration       = 40 * time.Second
 	prSetDumpable          = 4
+	pythonPolicySyntaxExit = 87
 )
 
 type runRequest struct {
@@ -429,6 +430,34 @@ func compileProgram(kind, code, cwd string, timeMs, memMb int) (*preparedProgram
 	return compileProgramContext(context.Background(), kind, code, cwd, timeMs, memMb)
 }
 
+func validatePythonSourceContext(parent context.Context, cwd, policyPath, profile string, timeMs int) *processResult {
+	policy := runCommandContext(parent, "python3", []string{"-I", "-B", policyPath, "main.py", profile}, cwd, "", timeoutDuration(timeMs))
+	if policy.ExitCode != 0 && policy.ExitCode != pythonPolicySyntaxExit {
+		message := "Решение отклонено системой безопасности."
+		return &processResult{Status: "policy_error", ExitCode: 126, Stdout: "", Stderr: message, CompileStderr: ptr(message + "\n")}
+	}
+
+	// A SyntaxError found by the AST policy is a compile failure, not a
+	// policy violation. Still run the normal compiler path so the user gets
+	// Python's sanitized line/column diagnostic. If the two parsers ever
+	// disagree, fail closed as a compile error and never execute code whose
+	// policy AST was not successfully inspected.
+	res := runCommandContext(parent, "python3", []string{"-I", "-B", "-m", "py_compile", "main.py"}, cwd, "", timeoutDuration(timeMs))
+	if res.ExitCode != 0 {
+		msg := strings.TrimSpace(res.Stdout + res.Stderr)
+		if msg == "" {
+			msg = "Python syntax error"
+		}
+		msg = sanitizeRunnerText(msg)
+		return &processResult{Status: "compile_error", ExitCode: res.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+	}
+	if policy.ExitCode == pythonPolicySyntaxExit {
+		msg := "Python syntax error"
+		return &processResult{Status: "compile_error", ExitCode: 2, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+	}
+	return nil
+}
+
 func compileProgramContext(parent context.Context, kind, code, cwd string, timeMs, memMb int) (*preparedProgram, *processResult) {
 	switch kind {
 	case "cpp":
@@ -482,19 +511,8 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
 			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
-		policy := runCommandContext(parent, "python3", []string{"-I", "-B", "/opt/taskforge/python_policy.py", "main.py", "standard"}, cwd, "", timeoutDuration(timeMs))
-		if policy.ExitCode != 0 {
-			message := "Решение отклонено системой безопасности."
-			return nil, &processResult{Status: "policy_error", ExitCode: 126, Stdout: "", Stderr: message, CompileStderr: ptr(message + "\n")}
-		}
-		res := runCommandContext(parent, "python3", []string{"-I", "-B", "-m", "py_compile", "main.py"}, cwd, "", timeoutDuration(timeMs))
-		if res.ExitCode != 0 {
-			msg := strings.TrimSpace(res.Stdout + res.Stderr)
-			if msg == "" {
-				msg = "Python syntax error"
-			}
-			msg = sanitizeRunnerText(msg)
-			return nil, &processResult{Status: "compile_error", ExitCode: res.ExitCode, Stdout: "", Stderr: "", CompileStderr: ptr(msg + "\n")}
+		if validationError := validatePythonSourceContext(parent, cwd, "/opt/taskforge/python_policy.py", "standard", timeMs); validationError != nil {
+			return nil, validationError
 		}
 		return &preparedProgram{Cwd: cwd, Cmd: "python3", Args: []string{"-I", "-B", "main.py"}}, nil
 

@@ -257,6 +257,17 @@ print(math.factorial(6))
 PY
 python3 services/execution/runners/python-runner/security/python_policy.py "$tmp/safe.py" standard
 
+cat > "$tmp/syntax.py" <<'PY'
+print("Value:" a)
+PY
+set +e
+python3 services/execution/runners/python-runner/security/python_policy.py "$tmp/syntax.py" standard >/dev/null 2>&1
+syntax_status=$?
+set -e
+if [ "$syntax_status" -ne 87 ]; then
+  fail "Python policy must distinguish SyntaxError from a security-policy rejection"
+fi
+
 for payload in \
   'open("/etc/passwd").read()' \
   'getattr(object, "__subclasses__")' \
@@ -265,8 +276,15 @@ for payload in \
   printf '%s\n' "$payload" > "$tmp/bad.py"
   profile=standard
   case "$payload" in *numpy*) profile=image ;; esac
-  if python3 services/execution/runners/python-runner/security/python_policy.py "$tmp/bad.py" "$profile" >/dev/null 2>&1; then
+  set +e
+  python3 services/execution/runners/python-runner/security/python_policy.py "$tmp/bad.py" "$profile" >/dev/null 2>&1
+  policy_status=$?
+  set -e
+  if [ "$policy_status" -eq 0 ]; then
     fail "Python policy accepted a forbidden payload"
+  fi
+  if [ "$policy_status" -eq 87 ]; then
+    fail "Python policy mislabeled a forbidden payload as SyntaxError"
   fi
 done
 
