@@ -33,5 +33,5 @@ public sealed record PublicProfileExtra(
     bool ShowSkills,
     bool ShowStats)
 {
-    public static PublicProfileExtra Empty { get; } = new(true, null, null, null, null, null, null, Array.Empty<string>(), true, false, false, false, false, false, false, false, false);
+    public static PublicProfileExtra Empty { get; } = new(true, null, null, null, null, null, null, Array.Empty<string>(), true, false, false, false, false, false, false, false, true);
 }

@@ -357,21 +357,31 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
-            var codeAttempts = await db.Submissions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
-            var imageAttempts = await db.ImageSolutions.AsNoTracking().Where(x => x.UserId == userId).ToListAsync(ct);
-            var solvedIds = codeAttempts.Where(x => x.Status == "Accepted").Select(x => x.AssignmentId)
-                .Concat(imageAttempts.Where(x => x.Passed).Select(x => x.AssignmentId))
-                .Where(x => x != Guid.Empty)
+            var codeSolutions = await db.Submissions.AsNoTracking()
+                .CountAsync(x => x.UserId == userId, ct);
+            var imageSolutions = await db.ImageSolutions.AsNoTracking()
+                .CountAsync(x => x.UserId == userId, ct);
+
+            var codeSolvedIds = await db.Submissions.AsNoTracking()
+                .Where(x => x.UserId == userId && x.Status == "Accepted" && x.AssignmentId != Guid.Empty)
+                .Select(x => x.AssignmentId)
                 .Distinct()
-                .ToArray();
+                .ToListAsync(ct);
+            var imageSolvedIds = await db.ImageSolutions.AsNoTracking()
+                .Where(x => x.UserId == userId && x.Passed && x.AssignmentId != Guid.Empty)
+                .Select(x => x.AssignmentId)
+                .Distinct()
+                .ToListAsync(ct);
+
+            var solvedIds = codeSolvedIds.Concat(imageSolvedIds).Distinct().ToArray();
             var metadata = await LoadAssignmentMetadataAsync(solvedIds, cfg, httpFactory, ct);
             var score = solvedIds.Sum(id => MetadataRating(metadata, id));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 solvedAssignments = solvedIds.Length,
-                totalAttempts = codeAttempts.Count + imageAttempts.Count,
-                codeSolutions = codeAttempts.Count,
-                imageSolutions = imageAttempts.Count,
+                totalAttempts = codeSolutions + imageSolutions,
+                codeSolutions,
+                imageSolutions,
                 testAttempts = 0,
                 mathAttempts = 0,
                 score,

@@ -96,29 +96,36 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
         {
-            var testAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "test").ToListAsync(ct);
-            var mathAttempts = await db.Attempts.AsNoTracking().Where(x => x.UserId == userId && x.Kind == "math").ToListAsync(ct);
-            var solvedIds = testAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId)
-                .Concat(mathAttempts.Where(x => x.Passed).Select(x => x.TaskAssignmentId))
-                .Where(x => x != Guid.Empty)
+            var testAttempts = await db.Attempts.AsNoTracking()
+                .CountAsync(x => x.UserId == userId && x.Kind == "test", ct);
+            var mathAttempts = await db.Attempts.AsNoTracking()
+                .CountAsync(x => x.UserId == userId && x.Kind == "math", ct);
+
+            var solvedIds = await db.Attempts.AsNoTracking()
+                .Where(x => x.UserId == userId
+                    && x.Passed
+                    && x.TaskAssignmentId != Guid.Empty
+                    && (x.Kind == "test" || x.Kind == "math"))
+                .Select(x => x.TaskAssignmentId)
                 .Distinct()
-                .ToArray();
-            var ratings = solvedIds.Length == 0
+                .ToListAsync(ct);
+            var ratings = solvedIds.Count == 0
                 ? new List<int>()
                 : await db.Assignments.AsNoTracking()
                     .Where(x => solvedIds.Contains(x.Id))
                     .Select(x => x.Rating)
                     .ToListAsync(ct);
+            var score = ratings.Sum(x => System.Math.Max(1, x));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                solvedAssignments = solvedIds.Length,
-                totalAttempts = testAttempts.Count + mathAttempts.Count,
+                solvedAssignments = solvedIds.Count,
+                totalAttempts = testAttempts + mathAttempts,
                 codeSolutions = 0,
                 imageSolutions = 0,
-                testAttempts = testAttempts.Count,
-                mathAttempts = mathAttempts.Count,
-                score = ratings.Sum(x => System.Math.Max(1, x)),
-                rating = ratings.Sum(x => System.Math.Max(1, x))
+                testAttempts,
+                mathAttempts,
+                score,
+                rating = score
             });
         });
 

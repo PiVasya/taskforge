@@ -4,7 +4,8 @@ import { Button, Card } from '../../components/ui';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import { useAuth } from '../../auth/AuthContext';
 import { useUiSettingsActions } from '../../contexts/UiSettingsContext';
-import { getProfile, updateProfile, changeEmail, changePassword, revealEmail } from '../../api/profile';
+import { getProfile, getProfileActivitySummary, updateProfile, changeEmail, changePassword, revealEmail } from '../../api/profile';
+import { getUserBadges } from '../../api/badges';
 import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../../api/telegramLink';
 import { getMinecraftStatus, requestMinecraftLink, confirmMinecraftLink, unlinkMinecraft } from '../../api/minecraftLink';
 import { getMyUiSettings, saveMyUiSettings } from '../../api/uiSettings';
@@ -92,12 +93,27 @@ export default function SettingsFeature() {
   const [activeSection, setActiveSection] = useState(initialSection);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
+  const profileId = profile?.id ?? profile?.userId ?? null;
   const [extra, setExtra] = useState(() => parseProfileExtra(null));
   const [profileDirty, setProfileDirty] = useState(false);
   const [uiDirty, setUiDirty] = useState(false);
   const [form, setForm] = useState(defaultUiSettings);
 
   const profileQuery = useQuery({ queryKey: PROFILE_QUERY_KEY, queryFn: loadProfile, staleTime: 60_000, refetchOnWindowFocus: true });
+  const profileActivityQuery = useQuery({
+    queryKey: ['profile', 'activity-summary', profileId || 'pending'],
+    queryFn: getProfileActivitySummary,
+    enabled: Boolean(profileId),
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+  const profileBadgesQuery = useQuery({
+    queryKey: ['profile', 'badges', profileId || 'pending'],
+    queryFn: () => getUserBadges(profileId),
+    enabled: Boolean(profileId),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
   const uiSettingsQuery = useQuery({ queryKey: UI_SETTINGS_QUERY_KEY, queryFn: loadUiSettings, staleTime: 60_000 });
   const telegramQuery = useQuery({ queryKey: TELEGRAM_QUERY_KEY, queryFn: loadTelegram, staleTime: 20_000 });
   const minecraftQuery = useQuery({ queryKey: MINECRAFT_QUERY_KEY, queryFn: loadMinecraft, staleTime: 20_000 });
@@ -165,7 +181,6 @@ export default function SettingsFeature() {
     if (!mcNick && minecraftStatus?.nick) setMcNick(minecraftStatus.nick);
   }, [mcNick, minecraftStatus?.nick]);
 
-  const profileId = profile?.id ?? profile?.userId ?? null;
   const profileLogin = String(profile?.login || '').trim();
   const profileLoginLooksOk = LOGIN_RE.test(profileLogin);
   const hasChanges = uiDirty || profileDirty;
@@ -220,25 +235,46 @@ export default function SettingsFeature() {
 
   const previewProfile = useMemo(() => {
     const skills = String(extra?.skillsText || '').split(',').map((item) => item.trim()).filter(Boolean);
+    const activity = profileActivityQuery.data || null;
+    const statsVisible = extra?.showStats !== false;
     return {
       id: profileId,
+      login: profile?.login || '',
       firstName: profile?.firstName,
       lastName: profile?.lastName,
       displayName: displayName(profile),
+      accountType: profile?.accountType,
+      isAi: profile?.isAi === true || String(profile?.accountType || '').toLowerCase() === 'ai',
       avatarUrl: profile?.profilePictureUrl || profile?.avatarUrl || '',
       profilePictureUrl: profile?.profilePictureUrl || profile?.avatarUrl || '',
-      bio: extra?.bio || '',
-      location: extra?.location || '',
-      education: extra?.education || '',
-      github: extra?.github || '',
-      telegram: extra?.telegram || '',
-      website: extra?.website || '',
-      skills,
-      solvedAssignments: profile?.solvedAssignments ?? 0,
-      totalAttempts: profile?.totalAttempts ?? 0,
-      rank: typeof profile?.rank === 'number' ? profile.rank : undefined,
+      publicProfileEnabled: extra?.publicProfileEnabled !== false,
+      bio: extra?.showBio ? (extra?.bio || '') : null,
+      bioVisible: extra?.showBio === true,
+      location: extra?.showLocation ? (extra?.location || '') : null,
+      locationVisible: extra?.showLocation === true,
+      education: extra?.showEducation ? (extra?.education || '') : null,
+      educationVisible: extra?.showEducation === true,
+      github: extra?.showGithub ? (extra?.github || '') : null,
+      telegram: extra?.showTelegram ? (extra?.telegram || '') : null,
+      website: extra?.showWebsite ? (extra?.website || '') : null,
+      linksVisible: extra?.showGithub === true || extra?.showTelegram === true || extra?.showWebsite === true,
+      skills: extra?.showSkills ? skills : [],
+      skillsVisible: extra?.showSkills === true,
+      statsVisible,
+      statsLoading: statsVisible && profileActivityQuery.isPending && !activity,
+      statsReliable: !statsVisible || (activity ? activity.statsReliable !== false : !profileActivityQuery.error),
+      solvedAssignments: activity?.solvedAssignments,
+      totalAttempts: activity?.totalAttempts,
+      codeSolutions: activity?.codeSolutions,
+      imageSolutions: activity?.imageSolutions,
+      testAttempts: activity?.testAttempts,
+      mathAttempts: activity?.mathAttempts,
+      score: activity?.score ?? activity?.rating ?? activity?.totalScore,
+      rating: activity?.rating ?? activity?.score ?? activity?.totalScore,
+      totalScore: activity?.totalScore ?? activity?.score ?? activity?.rating,
+      rank: typeof activity?.rank === 'number' ? activity.rank : (typeof profile?.rank === 'number' ? profile.rank : undefined),
     };
-  }, [extra, profile, profileId]);
+  }, [extra, profile, profileActivityQuery.data, profileActivityQuery.error, profileActivityQuery.isPending, profileId]);
 
   const save = useCallback(async () => {
     if (!hasChanges || saving) return;
@@ -427,7 +463,16 @@ export default function SettingsFeature() {
         }}
       />
     );
-    if (activeSection === 'preview') return <ProfilePreviewSettingsSection loading={loading} profile={profile} profileId={profileId} previewProfile={previewProfile} />;
+    if (activeSection === 'preview') return (
+      <ProfilePreviewSettingsSection
+        loading={loading}
+        profile={profile}
+        profileId={profileId}
+        previewProfile={previewProfile}
+        badges={Array.isArray(profileBadgesQuery.data) ? profileBadgesQuery.data : []}
+        badgesLoading={profileBadgesQuery.isLoading || profileBadgesQuery.isFetching}
+      />
+    );
     if (activeSection === 'integrations') return (
       <IntegrationsSettingsSection
         telegram={{ status: telegramStatus, code: tgCode, expires: tgExpires, loading: tgLoading || telegramQuery.isFetching, error: tgError, refresh: refreshTelegram, generate: generateTelegram, copy: copyTelegram, unlink: unlinkTelegramAccount }}

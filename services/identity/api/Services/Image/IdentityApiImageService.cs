@@ -102,7 +102,7 @@ internal static class IdentityApiImageService
                 ShowTelegram: ReadJsonBool(root, "showTelegram", false),
                 ShowWebsite: ReadJsonBool(root, "showWebsite", false),
                 ShowSkills: ReadJsonBool(root, "showSkills", false),
-                ShowStats: ReadJsonBool(root, "showStats", false)
+                ShowStats: ReadJsonBool(root, "showStats", true)
             );
         }
         catch

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using TaskForge.Identity.Api.Domain;
 using TaskForge.Identity.Api.Services.Access;
+using TaskForge.Identity.Api.Services.Image;
 using Xunit;
 
 namespace TaskForge.Identity.Api.Tests;
@@ -58,4 +59,25 @@ public sealed class IdentityAccessTests
         Assert.False(IdentityApiAccessService.VerifyPassword("wrong", salt, hash));
         Assert.False(IdentityApiAccessService.NeedsPasswordRehash(hash));
     }
+    [Fact]
+    public void PublicProfileExtra_LegacyPayloadShowsStatsButKeepsOptionalPersonalFieldsPrivate()
+    {
+        var extra = IdentityApiImageService.ReadPublicProfileExtra("""{"bio":"Bio","location":"Minsk","links":{"github":"github.com/example"},"skills":["C#"]}""");
+
+        Assert.True(extra.PublicProfileEnabled);
+        Assert.True(extra.ShowStats);
+        Assert.False(extra.ShowBio);
+        Assert.False(extra.ShowLocation);
+        Assert.False(extra.ShowGithub);
+        Assert.False(extra.ShowSkills);
+    }
+
+    [Fact]
+    public void PublicProfileExtra_ExplicitStatsOptOutIsPreserved()
+    {
+        var extra = IdentityApiImageService.ReadPublicProfileExtra("""{"showStats":false}""");
+
+        Assert.False(extra.ShowStats);
+    }
+
 }

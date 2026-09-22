@@ -31,6 +31,27 @@ internal static partial class IdentityApiEndpoints
             return user == null ? Unauthorized("Сессия истекла. Войдите заново.") : Microsoft.AspNetCore.Http.Results.Ok(ToProfile(user, await RolesForUser(db, user)));
         });
 
+        app.MapGet("/api/profile/activity-summary", async (HttpContext http, IdentityDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, ILogger<Program> logger, CancellationToken ct) =>
+        {
+            var user = await FindCurrentUserAsync(http, db, cfg);
+            if (user == null) return Unauthorized("Сессия истекла. Войдите заново.");
+
+            var result = await FetchUserActivitySummaryAsync(user.Id, cfg, httpFactory, ct, logger);
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                solvedAssignments = result.Summary.SolvedAssignments,
+                totalAttempts = result.Summary.TotalAttempts,
+                codeSolutions = result.Summary.CodeSolutions,
+                imageSolutions = result.Summary.ImageSolutions,
+                testAttempts = result.Summary.TestAttempts,
+                mathAttempts = result.Summary.MathAttempts,
+                score = result.Summary.Score,
+                rating = result.Summary.Score,
+                totalScore = result.Summary.Score,
+                statsReliable = result.Reliable
+            });
+        });
+
         app.MapPut("/api/profile", async (ProfileUpdateRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
             var user = await FindCurrentUserAsync(http, db, cfg);
@@ -128,7 +149,11 @@ internal static partial class IdentityApiEndpoints
             var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
             if (!extra.PublicProfileEnabled) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Профиль не найден" });
 
-            var stats = extra.ShowStats ? await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct) : ActivitySummaryDto.Empty;
+            var statsResult = extra.ShowStats
+                ? await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct, app.Logger)
+                : (ActivitySummaryDto.Empty, true);
+            var stats = statsResult.Item1;
+            var statsReliable = statsResult.Item2;
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 user.Id,
@@ -142,23 +167,29 @@ internal static partial class IdentityApiEndpoints
                 isAi = string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase),
                 user.CreatedAt,
                 bio = extra.ShowBio ? extra.Bio : null,
+                bioVisible = extra.ShowBio,
                 location = extra.ShowLocation ? extra.Location : null,
+                locationVisible = extra.ShowLocation,
                 education = extra.ShowEducation ? extra.Education : null,
+                educationVisible = extra.ShowEducation,
                 github = extra.ShowGithub ? extra.Github : null,
                 telegram = extra.ShowTelegram ? extra.Telegram : null,
                 website = extra.ShowWebsite ? extra.Website : null,
+                linksVisible = extra.ShowGithub || extra.ShowTelegram || extra.ShowWebsite,
                 skills = extra.ShowSkills ? extra.Skills : Array.Empty<string>(),
+                skillsVisible = extra.ShowSkills,
                 showInLeaderboard = extra.ShowInLeaderboard,
                 statsVisible = extra.ShowStats,
-                solvedAssignments = extra.ShowStats ? stats.SolvedAssignments : (int?)null,
-                totalAttempts = extra.ShowStats ? stats.TotalAttempts : (int?)null,
-                codeSolutions = extra.ShowStats ? stats.CodeSolutions : (int?)null,
-                imageSolutions = extra.ShowStats ? stats.ImageSolutions : (int?)null,
-                testAttempts = extra.ShowStats ? stats.TestAttempts : (int?)null,
-                mathAttempts = extra.ShowStats ? stats.MathAttempts : (int?)null,
-                score = extra.ShowStats ? stats.Score : (int?)null,
-                rating = extra.ShowStats ? stats.Score : (int?)null,
-                totalScore = extra.ShowStats ? stats.Score : (int?)null
+                statsReliable = !extra.ShowStats || statsReliable,
+                solvedAssignments = extra.ShowStats && statsReliable ? stats.SolvedAssignments : (int?)null,
+                totalAttempts = extra.ShowStats && statsReliable ? stats.TotalAttempts : (int?)null,
+                codeSolutions = extra.ShowStats && statsReliable ? stats.CodeSolutions : (int?)null,
+                imageSolutions = extra.ShowStats && statsReliable ? stats.ImageSolutions : (int?)null,
+                testAttempts = extra.ShowStats && statsReliable ? stats.TestAttempts : (int?)null,
+                mathAttempts = extra.ShowStats && statsReliable ? stats.MathAttempts : (int?)null,
+                score = extra.ShowStats && statsReliable ? stats.Score : (int?)null,
+                rating = extra.ShowStats && statsReliable ? stats.Score : (int?)null,
+                totalScore = extra.ShowStats && statsReliable ? stats.Score : (int?)null
             });
         });
 

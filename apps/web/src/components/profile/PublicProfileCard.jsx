@@ -49,6 +49,17 @@ export default function PublicProfileCard({
   const skills = Array.isArray(profile?.skills)
     ? profile.skills.filter(Boolean)
     : [];
+  const statsVisible = profile?.statsVisible !== false;
+  const statsLoading = statsVisible && profile?.statsLoading === true;
+  const statsReliable = profile?.statsReliable !== false;
+  const bioVisible = profile?.bioVisible !== false;
+  const linksVisible = profile?.linksVisible !== false;
+  const statsBreakdown = [
+    ['Код', profile?.codeSolutions],
+    ['Изображения', profile?.imageSolutions],
+    ['Тесты', profile?.testAttempts],
+    ['Математика', profile?.mathAttempts],
+  ].filter(([, value]) => typeof value === 'number');
 
   return (
     <div className={embedded ? "space-y-4" : "max-w-3xl mx-auto space-y-6"}>
@@ -105,15 +116,15 @@ export default function PublicProfileCard({
             </div>
           )}
 
-          {profile?.bio ? (
+          {bioVisible && profile?.bio ? (
             <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-2 whitespace-pre-line">
               {profile.bio}
             </p>
-          ) : (
+          ) : bioVisible && embedded ? (
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
               Описание ещё не заполнено.
             </p>
-          )}
+          ) : null}
 
           {badges.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 mt-2">
@@ -137,31 +148,36 @@ export default function PublicProfileCard({
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="p-4 space-y-2">
-          <h2 className="font-semibold text-sm">Статистика</h2>
-          <div className="text-sm space-y-1">
-            <div>
-              <span className="font-semibold">
-                {profile?.score ?? profile?.rating ?? profile?.totalScore ?? 0}
-              </span>{" "}
-              рейтинга
-            </div>
-            <div>
-              <span className="font-semibold">
-                {profile?.solvedAssignments ?? 0}
-              </span>{" "}
-              решённых заданий
-            </div>
-            <div>
-              <span className="font-semibold">
-                {profile?.totalAttempts ?? 0}
-              </span>{" "}
-              попыток отправки решений
-            </div>
-          </div>
-        </Card>
+      <div className={`grid gap-4 ${statsVisible && linksVisible ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+        {statsVisible ? (
+          <Card className="p-4 space-y-2">
+            <h2 className="font-semibold text-sm">Статистика</h2>
+            {statsLoading ? (
+              <div className="text-sm text-neutral-500 dark:text-neutral-400">Загрузка статистики…</div>
+            ) : !statsReliable ? (
+              <div className="text-sm text-amber-600 dark:text-amber-300">Статистика временно недоступна.</div>
+            ) : (
+              <div className="text-sm space-y-2">
+                <div className="space-y-1">
+                  <div><span className="font-semibold">{profile?.score ?? profile?.rating ?? profile?.totalScore ?? 0}</span>{" "}рейтинга</div>
+                  <div><span className="font-semibold">{profile?.solvedAssignments ?? 0}</span>{" "}решённых заданий</div>
+                  <div><span className="font-semibold">{profile?.totalAttempts ?? 0}</span>{" "}попыток отправки решений</div>
+                </div>
+                {statsBreakdown.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {statsBreakdown.map(([label, value]) => (
+                      <span key={label} className="rounded-full border border-[rgba(var(--border)/0.65)] px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        {label}: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </Card>
+        ) : null}
 
+        {linksVisible ? (
         <Card className="p-4 space-y-2">
           <h2 className="font-semibold text-sm">Ссылки</h2>
           <div className="flex flex-col gap-2 text-sm">
@@ -205,6 +221,7 @@ export default function PublicProfileCard({
             ) : null}
           </div>
         </Card>
+        ) : null}
       </div>
 
       {skills.length > 0 ? (

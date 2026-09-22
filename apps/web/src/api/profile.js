@@ -5,6 +5,11 @@ export async function getProfile() {
   return res.data;
 }
 
+export async function getProfileActivitySummary() {
+  const res = await api.get('/api/profile/activity-summary');
+  return res.data;
+}
+
 export async function updateProfile(payload) {
   const res = await api.put('/api/profile', payload);
   return res.data;

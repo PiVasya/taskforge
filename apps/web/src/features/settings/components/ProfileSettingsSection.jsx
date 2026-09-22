@@ -9,6 +9,24 @@ import {
   profileRole,
 } from './SettingsPrimitives';
 
+function VisibilitySwitch({ label, enabled, onChange }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(var(--border)/0.65)] px-3 py-2">
+      <span className="text-sm font-medium">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
+        onClick={() => onChange(!enabled)}
+        className={`tf-style-switch ${enabled ? 'is-on' : ''}`}
+      >
+        <span className="tf-style-switch__thumb" />
+      </button>
+    </div>
+  );
+}
+
 function ProfileSettingsSection({
   loading,
   profile,
@@ -71,6 +89,35 @@ function ProfileSettingsSection({
             <div><label htmlFor="settings-profile-github" className="text-sm text-neutral-500 dark:text-neutral-400">GitHub</label><Input id="settings-profile-github" type="url" placeholder="https://github.com/..." value={extra.github} onChange={(event) => setExtraField('github', event.target.value)} /></div>
             <div><label htmlFor="settings-profile-telegram" className="text-sm text-neutral-500 dark:text-neutral-400">Telegram</label><Input id="settings-profile-telegram" placeholder="@username или https://t.me/username" value={extra.telegram} onChange={(event) => setExtraField('telegram', event.target.value)} /></div>
             <div className="md:col-span-2"><label htmlFor="settings-profile-website" className="text-sm text-neutral-500 dark:text-neutral-400">Личный сайт / портфолио</label><Input id="settings-profile-website" type="url" placeholder="https://..." value={extra.website} onChange={(event) => setExtraField('website', event.target.value)} /></div>
+          </div>
+        </Card>
+
+        <Card className="p-4 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-semibold">Публичность</div>
+              <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">Выберите, что действительно видно на публичной странице.</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={extra.publicProfileEnabled !== false}
+              aria-label="Публичный профиль"
+              onClick={() => setExtraField('publicProfileEnabled', extra.publicProfileEnabled === false)}
+              className={`tf-style-switch ${extra.publicProfileEnabled !== false ? 'is-on' : ''}`}
+            >
+              <span className="tf-style-switch__thumb" />
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <VisibilitySwitch label="Статистика" enabled={extra.showStats !== false} onChange={(value) => setExtraField('showStats', value)} />
+            <VisibilitySwitch label="О себе" enabled={extra.showBio === true} onChange={(value) => setExtraField('showBio', value)} />
+            <VisibilitySwitch label="Место" enabled={extra.showLocation === true} onChange={(value) => setExtraField('showLocation', value)} />
+            <VisibilitySwitch label="Образование" enabled={extra.showEducation === true} onChange={(value) => setExtraField('showEducation', value)} />
+            <VisibilitySwitch label="GitHub" enabled={extra.showGithub === true} onChange={(value) => setExtraField('showGithub', value)} />
+            <VisibilitySwitch label="Telegram" enabled={extra.showTelegram === true} onChange={(value) => setExtraField('showTelegram', value)} />
+            <VisibilitySwitch label="Сайт" enabled={extra.showWebsite === true} onChange={(value) => setExtraField('showWebsite', value)} />
+            <VisibilitySwitch label="Навыки" enabled={extra.showSkills === true} onChange={(value) => setExtraField('showSkills', value)} />
           </div>
         </Card>
 

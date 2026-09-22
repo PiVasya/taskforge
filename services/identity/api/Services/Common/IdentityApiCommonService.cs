@@ -157,21 +157,50 @@ internal static class IdentityApiCommonService
         return prev[b.Length];
     }
 
-    internal static async Task<ActivitySummaryDto> FetchUserActivitySummaryAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<(ActivitySummaryDto Summary, bool Reliable)> FetchUserActivitySummaryAsync(
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct,
+        ILogger? logger = null)
     {
-        var solutions = await FetchActivitySummaryFromAsync(ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"), userId, cfg, httpFactory, ct);
-        var tasks = await FetchActivitySummaryFromAsync(ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), userId, cfg, httpFactory, ct);
-        return new ActivitySummaryDto(
-            solutions.SolvedAssignments + tasks.SolvedAssignments,
-            solutions.TotalAttempts + tasks.TotalAttempts,
-            solutions.CodeSolutions,
-            solutions.ImageSolutions,
-            tasks.TestAttempts,
-            tasks.MathAttempts,
-            solutions.Score + tasks.Score);
+        var solutions = await FetchActivitySummaryFromAsync(
+            ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"),
+            "solutions-api",
+            userId,
+            cfg,
+            httpFactory,
+            ct,
+            logger);
+        var tasks = await FetchActivitySummaryFromAsync(
+            ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"),
+            "tasks-api",
+            userId,
+            cfg,
+            httpFactory,
+            ct,
+            logger);
+
+        var summary = new ActivitySummaryDto(
+            solutions.Summary.SolvedAssignments + tasks.Summary.SolvedAssignments,
+            solutions.Summary.TotalAttempts + tasks.Summary.TotalAttempts,
+            solutions.Summary.CodeSolutions,
+            solutions.Summary.ImageSolutions,
+            tasks.Summary.TestAttempts,
+            tasks.Summary.MathAttempts,
+            solutions.Summary.Score + tasks.Summary.Score);
+
+        return (summary, solutions.Available && tasks.Available);
     }
 
-    internal static async Task<ActivitySummaryDto> FetchActivitySummaryFromAsync(string baseUrl, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<(ActivitySummaryDto Summary, bool Available)> FetchActivitySummaryFromAsync(
+        string baseUrl,
+        string sourceName,
+        Guid userId,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct,
+        ILogger? logger = null)
     {
         try
         {
@@ -179,12 +208,40 @@ internal static class IdentityApiCommonService
             using var msg = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/api/internal/users/{userId}/activity-summary");
             AddInternalKey(msg, cfg);
             using var resp = await client.SendAsync(msg, ct);
-            if (!resp.IsSuccessStatusCode) return ActivitySummaryDto.Empty;
-            return await resp.Content.ReadFromJsonAsync<ActivitySummaryDto>(JsonOptions(), ct) ?? ActivitySummaryDto.Empty;
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger?.LogWarning(
+                    "Profile activity summary source {SourceName} returned HTTP {StatusCode} for user {UserId}",
+                    sourceName,
+                    (int)resp.StatusCode,
+                    userId);
+                return (ActivitySummaryDto.Empty, false);
+            }
+
+            var summary = await resp.Content.ReadFromJsonAsync<ActivitySummaryDto>(JsonOptions(), ct);
+            if (summary == null)
+            {
+                logger?.LogWarning(
+                    "Profile activity summary source {SourceName} returned an empty payload for user {UserId}",
+                    sourceName,
+                    userId);
+                return (ActivitySummaryDto.Empty, false);
+            }
+
+            return (summary, true);
         }
-        catch
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return ActivitySummaryDto.Empty;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(
+                ex,
+                "Profile activity summary source {SourceName} failed for user {UserId}",
+                sourceName,
+                userId);
+            return (ActivitySummaryDto.Empty, false);
         }
     }
 
