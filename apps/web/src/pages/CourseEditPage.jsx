@@ -16,6 +16,7 @@ import { useEditorMode } from '../contexts/EditorModeContext';
 import { useQueryClient } from '../data/QueryClientProvider';
 import useSaveShortcut from '../hooks/useSaveShortcut';
 import { safeInternalPath } from '../auth/authRedirect';
+import CourseDeleteConfirmationDialog from '../components/course/CourseDeleteConfirmationDialog';
 
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
@@ -60,11 +61,14 @@ export default function CourseEditPage({ overlay = false }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [loadedCourseTitle, setLoadedCourseTitle] = useState('');
 
   useEffect(() => {
     if (!isRouteOverlay) return undefined;
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape' || busy) return;
+      if (event.key !== 'Escape' || busy || deleteBusy || deleteOpen) return;
       const target = event.target;
       if (target instanceof Element && target.closest('[role="dialog"] [data-prevent-escape-close="true"]')) return;
       event.preventDefault();
@@ -72,7 +76,7 @@ export default function CourseEditPage({ overlay = false }) {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [busy, isRouteOverlay, returnFromEditor]);
+  }, [busy, deleteBusy, deleteOpen, isRouteOverlay, returnFromEditor]);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map((x) => String(x).toLowerCase())), [ownerIds]);
 
@@ -114,6 +118,7 @@ export default function CourseEditPage({ overlay = false }) {
         }
 
         setTitle(c.title || '');
+        setLoadedCourseTitle(c.title || '');
         setDescription(c.description || '');
         setVisibilityMode(c.isHiddenFromStudents ? 'hidden' : (c.isPublic ? 'public' : 'groups'));
         setVisibleGroupIds(Array.isArray(c.visibleGroupIds) ? c.visibleGroupIds : []);
@@ -228,15 +233,23 @@ export default function CourseEditPage({ overlay = false }) {
     }
   };
 
-  useSaveShortcut(save, { enabled: !loading, busy });
+  useSaveShortcut(save, { enabled: !loading && !deleteOpen, busy: busy || deleteBusy });
 
-  const remove = async () => {
-    if (!window.confirm('Удалить курс?')) return;
+  const remove = () => {
+    if (loading || deleteBusy) return;
+    setDeleteOpen(true);
+  };
+
+  const confirmRemove = async () => {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setErr('');
     try {
       await deleteCourse(courseId);
       await queryClient.invalidateQueries({ queryKey: ['course-bundle'] });
       await queryClient.invalidateQueries({ queryKey: ['course-meta', courseId] });
       await queryClient.invalidateQueries({ queryKey: ['course-tree'] });
+      setDeleteOpen(false);
       notify.success('Курс удалён');
       nav(returnTo || '/courses');
     } catch (e) {
@@ -247,6 +260,8 @@ export default function CourseEditPage({ overlay = false }) {
       }
       handleApiError(e, notify, 'Не удалось удалить');
       setErr(e?.userMessage || e?.message || 'Не удалось удалить');
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -425,6 +440,7 @@ export default function CourseEditPage({ overlay = false }) {
               <Button
                 variant="outline"
                 onClick={remove}
+                disabled={loading || deleteBusy}
                 className="flex-1 min-w-[140px] text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
               >
                 <Trash2 size={16} /> Удалить
@@ -433,6 +449,16 @@ export default function CourseEditPage({ overlay = false }) {
           </Card>
         </div>
       </div>
+
+      <CourseDeleteConfirmationDialog
+        open={deleteOpen}
+        courseTitle={loadedCourseTitle || title || 'Без названия'}
+        busy={deleteBusy}
+        onCancel={() => {
+          if (!deleteBusy) setDeleteOpen(false);
+        }}
+        onConfirm={confirmRemove}
+      />
     </div>
   );
 }

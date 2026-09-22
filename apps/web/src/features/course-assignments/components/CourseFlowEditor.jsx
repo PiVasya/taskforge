@@ -65,6 +65,7 @@ import MathNode from '../nodes/MathNode';
 import LockedNode from '../nodes/LockedNode';
 import CourseMapEdge from './CourseMapEdge';
 import useSaveShortcut from '../../../hooks/useSaveShortcut';
+import CourseDeleteConfirmationDialog from '../../../components/course/CourseDeleteConfirmationDialog';
 
 const NODE_TYPES = {
   course: CourseNode,
@@ -347,6 +348,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [courseProgressByNode, setCourseProgressByNode] = React.useState(() => new Map());
   const [sceneReady, setSceneReady] = React.useState(false);
   const [expandedCompletedCourseIds, setExpandedCompletedCourseIds] = React.useState(() => new Set());
+  const [courseDeleteTarget, setCourseDeleteTarget] = React.useState(null);
+  const [courseDeleteBusy, setCourseDeleteBusy] = React.useState(false);
   const viewportRef = React.useRef({ x: 0, y: 0, zoom: 1 });
   const nodesRef = React.useRef([]);
   const edgesRef = React.useRef([]);
@@ -2493,19 +2496,39 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (!node) return;
     const entity = node.data?.entity;
     const label = node.type === 'course' ? 'курс' : 'задание';
+    if (node.type === 'course') {
+      setCourseDeleteTarget(node);
+      return;
+    }
     const ok = await notify.confirm({ title: `Удалить ${label}?`, message: entity?.title || 'Действие необратимо.', okText: 'Удалить', cancelText: 'Отмена' });
     if (!ok) return;
     try {
-      if (node.type === 'course') await deleteCourse(node.entityId);
-      else await deleteAssignment(node.entityId);
+      await deleteAssignment(node.entityId);
       removeEntityFromMap(node.entityId);
-      if (node.type !== 'course') setAssignments((current) => current.filter((item) => String(item.id) !== String(node.entityId)));
+      setAssignments((current) => current.filter((item) => String(item.id) !== String(node.entityId)));
       await onRefreshCourseData?.();
-      notify.success(node.type === 'course' ? 'Курс удалён' : 'Задание удалено');
+      notify.success('Задание удалено');
     } catch (error) {
       notify.error(getApiErrorMessage(error, `Не удалось удалить ${label}`));
     }
   }, [notify, onRefreshCourseData, removeEntityFromMap, setAssignments]);
+
+  const confirmCourseDelete = React.useCallback(async () => {
+    const node = courseDeleteTarget;
+    if (!node || courseDeleteBusy) return;
+    setCourseDeleteBusy(true);
+    try {
+      await deleteCourse(node.entityId);
+      removeEntityFromMap(node.entityId);
+      await onRefreshCourseData?.();
+      setCourseDeleteTarget(null);
+      notify.success('Курс удалён');
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, 'Не удалось удалить курс'));
+    } finally {
+      setCourseDeleteBusy(false);
+    }
+  }, [courseDeleteBusy, courseDeleteTarget, notify, onRefreshCourseData, removeEntityFromMap]);
 
   const save = React.useCallback(async (options = {}) => {
     if (!editorMode || !rootId) return false;
@@ -2739,7 +2762,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   React.useEffect(() => {
     if (!editorMode) return undefined;
     const onKeyDown = (event) => {
-      if (document.querySelector('.course-map-route-overlay')) return;
+      if (document.querySelector('.course-map-route-overlay, .tf-modal-backdrop')) return;
       if (isEditableShortcutTarget(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = String(event.key || '').toLowerCase();
@@ -3128,6 +3151,16 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           </>
         )}
       </ContextMenu>
+
+      <CourseDeleteConfirmationDialog
+        open={Boolean(courseDeleteTarget)}
+        courseTitle={courseDeleteTarget?.data?.entity?.title || 'Без названия'}
+        busy={courseDeleteBusy}
+        onCancel={() => {
+          if (!courseDeleteBusy) setCourseDeleteTarget(null);
+        }}
+        onConfirm={confirmCourseDelete}
+      />
     </div>
   );
 }
