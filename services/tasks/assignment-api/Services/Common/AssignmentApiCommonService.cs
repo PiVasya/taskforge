@@ -265,6 +265,13 @@ internal static class AssignmentApiCommonService
 
     internal static bool IsTimeExpired(TaskAttempt a) => a.TimeLimitSeconds.HasValue && DateTimeOffset.UtcNow > a.StartedAt.AddSeconds(a.TimeLimitSeconds.Value + 5);
 
+    internal static (int ScorePercent, bool Passed) ResolveTimedAttemptOutcome(int scorePercent, int passPercent, bool timeExpired)
+    {
+        var normalizedScore = System.Math.Clamp(scorePercent, 0, 100);
+        var normalizedPassPercent = System.Math.Clamp(passPercent, 0, 100);
+        return (normalizedScore, normalizedScore >= normalizedPassPercent);
+    }
+
     internal static int? TimeLimitFor(List<int?> limits, int attemptNumber) => attemptNumber >= 1 && attemptNumber <= limits.Count && limits[attemptNumber - 1].GetValueOrDefault() > 0 ? limits[attemptNumber - 1] : null;
 
     internal static List<Guid> OrderedIds(IEnumerable<Guid> ids, bool shuffle, Guid seed) { var list = ids.ToList(); if (shuffle) Shuffle(list, seed); return list; }

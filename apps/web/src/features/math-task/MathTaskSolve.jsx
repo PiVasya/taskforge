@@ -63,6 +63,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
 
   const storeKey = startData?.attemptId ? `math:${startData.attemptId}` : '';
   const blocks = useMemo(() => startData?.blocks ?? [], [startData?.blocks]);
+  const timeLimitSeconds = startData?.timeLimitSeconds ?? startData?.attemptTimeLimitSeconds ?? null;
 
   useEffect(() => () => {
     if (storeKey) destroyAttemptAnswers(storeKey);
@@ -214,11 +215,11 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
               Попытка: <b>{startData.attemptNumber}</b> / {attemptsAreUnlimited(startData) ? '∞' : startData.maxAttempts}
             </div>
           ) : null}
-          {startData?.timeLimitSeconds ? (
+          {timeLimitSeconds ? (
             <div className="mt-1">
               <AttemptCountdown
                 startedAt={startData.startedAt}
-                timeLimitSeconds={startData.timeLimitSeconds}
+                timeLimitSeconds={timeLimitSeconds}
                 onExpire={doSubmit}
                 disabled={submitLoading || Boolean(result)}
               />
@@ -248,7 +249,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
                 Результат: {result.scorePercent}% ({result.earnedScore}/{result.totalScore} баллов)
               </div>
               <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                Порог: {result.passPercent}%. {result.timeExpired ? '⏱️ Время вышло.' : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}
+                Порог: {result.passPercent}%. {result.timeExpired ? `⏱️ Время вышло. Неотвеченные пункты засчитаны как неправильные. ${result.passed ? '✅ Засчитано.' : '❌ Не засчитано.'}` : (result.passed ? '✅ Засчитано.' : '❌ Не засчитано.')}
               </div>
             </div>
             <div className="flex gap-3">

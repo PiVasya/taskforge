@@ -87,8 +87,9 @@ internal static class AssignmentApiTestingService
         attempt.SubmittedAt = DateTimeOffset.UtcNow;
         attempt.TimeExpired = !ignoreTimeLimit && IsTimeExpired(attempt);
         attempt.TotalUnits = total; attempt.CorrectUnits = correct; attempt.TotalScore = total; attempt.EarnedScore = correct;
-        attempt.ScorePercent = attempt.TimeExpired ? 0 : score;
-        attempt.Passed = !attempt.TimeExpired && attempt.ScorePercent >= spec.Settings.PassPercent;
+        var outcome = ResolveTimedAttemptOutcome(score, spec.Settings.PassPercent, attempt.TimeExpired);
+        attempt.ScorePercent = outcome.ScorePercent;
+        attempt.Passed = outcome.Passed;
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
         attempt.ReviewJson = new JsonObject { ["questions"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
@@ -112,25 +113,32 @@ internal static class AssignmentApiTestingService
         var order = ParseGuidList(attempt.OrderJson);
         var map = spec.Questions.ToDictionary(x => x.Id);
         var questions = (order.Count == 0 ? spec.Questions : order.Where(map.ContainsKey).Select(id => map[id])).Select(x => TestQuestionPublicDto(x, spec.Settings.ShuffleAnswers, attempt.Id)).ToList();
-        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, attemptTimeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
+        var timeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds;
+        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, timeLimitSeconds, attemptTimeLimitSeconds = timeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
     }
 
     internal static bool IsTestCorrect(TestQuestion q, TestAnswer? a)
     {
+        if (a is null) return false;
         var type = q.Type.ToLowerInvariant();
         if (type is "single-choice" or "multi-choice")
         {
             // Some API clients send the legacy scalar field for single-choice answers,
             // while others send the list form used by multi-choice. An explicitly empty
             // list must not erase a valid scalar answer.
-            var selected = a?.SelectedOptionKeys is { Count: > 0 } keys
+            var selected = a.SelectedOptionKeys is { Count: > 0 } keys
                 ? keys
-                : string.IsNullOrWhiteSpace(a?.SelectedOptionKey)
+                : string.IsNullOrWhiteSpace(a.SelectedOptionKey)
                     ? []
                     : [a.SelectedOptionKey!];
+            if (selected.Count == 0) return false;
             return SetEq(selected, q.CorrectOptionKeys);
         }
-        if (type is "fill" or "text") return TextAccepted(a?.Text, q.AcceptedAnswers, q.CaseSensitive, q.Trim);
+        if (type is "fill" or "text")
+        {
+            if (string.IsNullOrWhiteSpace(a.Text)) return false;
+            return TextAccepted(a.Text, q.AcceptedAnswers, q.CaseSensitive, q.Trim);
+        }
         return false;
     }
 

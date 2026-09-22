@@ -2049,19 +2049,36 @@ html.neo-brutal .course-map-node--locked:hover .course-map-locked-requirement {
 
 /* Learner progress compaction */
 .course-map-node.is-solved {
-  opacity: 0.84;
-  filter: saturate(.58) contrast(.97);
+  opacity: 1;
+  filter: saturate(.34) contrast(.94);
   background:
     linear-gradient(135deg, rgba(var(--card) / 0.998), rgba(var(--card) / 0.985)),
-    rgba(var(--fg) / 0.018);
-  box-shadow: 0 7px 20px rgba(18, 20, 28, 0.08), 0 0 0 1px rgba(var(--fg) / 0.018);
+    rgba(var(--fg) / 0.012);
+  box-shadow: 0 4px 13px rgba(18, 20, 28, 0.045), 0 0 0 1px rgba(var(--fg) / 0.012);
+}
+
+.course-map-node.is-solved::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: rgba(var(--bg) / 0.48);
+  pointer-events: none;
+  transition: background-color .18s ease;
 }
 
 .course-map-node.is-solved:hover,
 .course-map-node.is-solved.is-selected,
 .course-map-node.is-solved:focus-within {
   opacity: 1;
-  filter: saturate(.86) contrast(1);
+  filter: saturate(.68) contrast(.98);
+}
+
+.course-map-node.is-solved:hover::after,
+.course-map-node.is-solved.is-selected::after,
+.course-map-node.is-solved:focus-within::after {
+  background: rgba(var(--bg) / 0.22);
 }
 
 .course-map-node--course.is-completed-course {

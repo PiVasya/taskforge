@@ -88,8 +88,9 @@ internal static class AssignmentApiMathService
         attempt.SubmittedAt = DateTimeOffset.UtcNow;
         attempt.TimeExpired = !ignoreTimeLimit && IsTimeExpired(attempt);
         attempt.TotalUnits = spec.Blocks.Count(x => x.Kind != "info"); attempt.CorrectUnits = correct; attempt.TotalScore = totalScore; attempt.EarnedScore = earned;
-        attempt.ScorePercent = attempt.TimeExpired ? 0 : score;
-        attempt.Passed = !attempt.TimeExpired && attempt.ScorePercent >= spec.Settings.PassPercent;
+        var outcome = ResolveTimedAttemptOutcome(score, spec.Settings.PassPercent, attempt.TimeExpired);
+        attempt.ScorePercent = outcome.ScorePercent;
+        attempt.Passed = outcome.Passed;
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
         attempt.ReviewJson = new JsonObject { ["blocks"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
@@ -113,7 +114,8 @@ internal static class AssignmentApiMathService
         var order = ParseGuidList(attempt.OrderJson);
         var map = spec.Blocks.ToDictionary(x => x.Id);
         var blocks = (order.Count == 0 ? spec.Blocks : order.Where(map.ContainsKey).Select(id => map[id])).Select(x => MathBlockPublicDto(x)).ToList();
-        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, attemptTimeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleBlocks, blocks };
+        var timeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds;
+        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, timeLimitSeconds, attemptTimeLimitSeconds = timeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleBlocks, blocks };
     }
 
     internal static MathSpec ReadMathSpec(Assignment assignment)
@@ -124,12 +126,32 @@ internal static class AssignmentApiMathService
 
     internal static bool IsMathCorrect(MathBlock b, MathAnswer? a)
     {
+        if (a is null) return false;
         var k = b.Kind.ToLowerInvariant();
-        if (k is "single-choice" or "multi-choice") return SetEq(a?.SelectedOptionKeys ?? [], b.CorrectOptionKeys);
-        if (k is "text" or "fill" or "formula" or "numeric") return TextAccepted(a?.Text, b.AcceptedAnswers, b.CaseSensitive, b.Trim, b.NumericTolerance);
-        if (k is "order") return SeqEq(a?.OrderedItems ?? [], b.OrderItems);
-        if (k is "match") return MatchEq(a?.MatchPairs ?? [], b.MatchPairs);
-        return true;
+        if (k is "single-choice" or "multi-choice")
+        {
+            var selected = a.SelectedOptionKeys;
+            if (selected == null || selected.Count == 0) return false;
+            return SetEq(selected, b.CorrectOptionKeys);
+        }
+        if (k is "text" or "fill" or "formula" or "numeric")
+        {
+            if (string.IsNullOrWhiteSpace(a.Text)) return false;
+            return TextAccepted(a.Text, b.AcceptedAnswers, b.CaseSensitive, b.Trim, b.NumericTolerance);
+        }
+        if (k is "order")
+        {
+            var ordered = a.OrderedItems;
+            if (ordered == null || ordered.Count == 0) return false;
+            return SeqEq(ordered, b.OrderItems);
+        }
+        if (k is "match")
+        {
+            var pairs = a.MatchPairs;
+            if (pairs == null || pairs.Count == 0) return false;
+            return MatchEq(pairs, b.MatchPairs);
+        }
+        return false;
     }
 
     internal static List<MathAnswer> MathAnswersArray(JsonElement payload, string name)
