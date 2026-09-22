@@ -121,6 +121,7 @@ internal static partial class AssignmentApiEndpoints
                 solvedAssignments = solvedIds.Count,
                 totalAttempts = testAttempts + mathAttempts,
                 codeSolutions = 0,
+                sqlSolutions = 0,
                 imageSolutions = 0,
                 testAttempts,
                 mathAttempts,

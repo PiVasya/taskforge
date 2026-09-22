@@ -266,6 +266,7 @@ export default function SettingsFeature() {
       solvedAssignments: activity?.solvedAssignments,
       totalAttempts: activity?.totalAttempts,
       codeSolutions: activity?.codeSolutions,
+      sqlSolutions: activity?.sqlSolutions,
       imageSolutions: activity?.imageSolutions,
       testAttempts: activity?.testAttempts,
       mathAttempts: activity?.mathAttempts,

@@ -56,6 +56,7 @@ export default function PublicProfileCard({
   const linksVisible = profile?.linksVisible !== false;
   const statsBreakdown = [
     ['Код', profile?.codeSolutions],
+    ['SQL', profile?.sqlSolutions],
     ['Изображения', profile?.imageSolutions],
     ['Тесты', profile?.testAttempts],
     ['Математика', profile?.mathAttempts],
@@ -164,12 +165,15 @@ export default function PublicProfileCard({
                   <div><span className="font-semibold">{profile?.totalAttempts ?? 0}</span>{" "}попыток отправки решений</div>
                 </div>
                 {statsBreakdown.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {statsBreakdown.map(([label, value]) => (
-                      <span key={label} className="rounded-full border border-[rgba(var(--border)/0.65)] px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
-                        {label}: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{value}</span>
-                      </span>
-                    ))}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-xs text-neutral-400">Попытки по типам</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {statsBreakdown.map(([label, value]) => (
+                        <span key={label} className="rounded-full border border-[rgba(var(--border)/0.65)] px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
+                          {label}: <span className="font-semibold text-neutral-800 dark:text-neutral-200">{value}</span>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>

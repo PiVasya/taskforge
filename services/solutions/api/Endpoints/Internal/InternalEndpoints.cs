@@ -357,13 +357,24 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
+            var sqlSolutions = await db.Submissions.AsNoTracking()
+                .CountAsync(x => x.UserId == userId
+                    && ((x.Language == "sql" || x.Language == "SQL" || x.Language == "Sql") || x.SqlSpecVersionId != null || x.SqlEngineProfileId != null), ct);
             var codeSolutions = await db.Submissions.AsNoTracking()
-                .CountAsync(x => x.UserId == userId, ct);
+                .CountAsync(x => x.UserId == userId
+                    && (x.Language != "sql" && x.Language != "SQL" && x.Language != "Sql") && x.SqlSpecVersionId == null && x.SqlEngineProfileId == null, ct);
             var imageSolutions = await db.ImageSolutions.AsNoTracking()
                 .CountAsync(x => x.UserId == userId, ct);
 
             var codeSolvedIds = await db.Submissions.AsNoTracking()
-                .Where(x => x.UserId == userId && x.Status == "Accepted" && x.AssignmentId != Guid.Empty)
+                .Where(x => x.UserId == userId && x.Status == "Accepted" && x.AssignmentId != Guid.Empty
+                    && (x.Language != "sql" && x.Language != "SQL" && x.Language != "Sql") && x.SqlSpecVersionId == null && x.SqlEngineProfileId == null)
+                .Select(x => x.AssignmentId)
+                .Distinct()
+                .ToListAsync(ct);
+            var sqlSolvedIds = await db.Submissions.AsNoTracking()
+                .Where(x => x.UserId == userId && x.Status == "Accepted" && x.AssignmentId != Guid.Empty
+                    && ((x.Language == "sql" || x.Language == "SQL" || x.Language == "Sql") || x.SqlSpecVersionId != null || x.SqlEngineProfileId != null))
                 .Select(x => x.AssignmentId)
                 .Distinct()
                 .ToListAsync(ct);
@@ -373,14 +384,15 @@ internal static partial class SolutionsApiEndpoints
                 .Distinct()
                 .ToListAsync(ct);
 
-            var solvedIds = codeSolvedIds.Concat(imageSolvedIds).Distinct().ToArray();
+            var solvedIds = codeSolvedIds.Concat(sqlSolvedIds).Concat(imageSolvedIds).Distinct().ToArray();
             var metadata = await LoadAssignmentMetadataAsync(solvedIds, cfg, httpFactory, ct);
             var score = solvedIds.Sum(id => MetadataRating(metadata, id));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 solvedAssignments = solvedIds.Length,
-                totalAttempts = codeSolutions + imageSolutions,
+                totalAttempts = codeSolutions + sqlSolutions + imageSolutions,
                 codeSolutions,
+                sqlSolutions,
                 imageSolutions,
                 testAttempts = 0,
                 mathAttempts = 0,

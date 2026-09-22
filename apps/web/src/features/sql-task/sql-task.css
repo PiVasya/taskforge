@@ -856,3 +856,81 @@ html.neo-brutal .sql-compare-table {
 .sql-compare-table th.is-different .sql-compare-hidden {
   border-width: 2px;
 }
+
+
+/* Learner SQL has its own workspace: SQL is a first-class task type, not a narrow code sidebar. */
+.sql-task-solve .sql-learner-workspace {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.sql-task-solve .sql-learner-workspace > * {
+  min-width: 0;
+}
+
+.sql-task-solve .sql-learner-result {
+  min-width: 0;
+}
+
+.sql-task-solve .sql-editor-heading-main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.sql-task-solve .sql-editor-context {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.sql-task-solve .sql-context-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.65rem;
+  padding: 0.18rem 0.52rem;
+  border: 1px solid rgba(var(--border) / 0.72);
+  border-radius: 999px;
+  background: rgba(var(--muted) / 0.48);
+  color: rgb(var(--text-muted));
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sql-task-solve .sql-editor-card {
+  width: 100%;
+}
+
+.sql-task-solve .sql-editor-wrap .code-editor-shell {
+  min-height: 390px;
+}
+
+html.neo-brutal .sql-task-solve .sql-context-pill {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--muted));
+  color: rgb(var(--neo-ink));
+}
+
+@media (min-width: 1180px) {
+  .sql-task-solve .sql-learner-workspace:not(.is-editor-first) {
+    grid-template-columns: minmax(0, 0.78fr) minmax(560px, 1.22fr);
+    align-items: start;
+  }
+
+  .sql-task-solve .sql-learner-workspace:not(.is-editor-first) .sql-learner-result {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1179px) {
+  .sql-task-solve .sql-editor-wrap .code-editor-shell {
+    min-height: 340px;
+  }
+}

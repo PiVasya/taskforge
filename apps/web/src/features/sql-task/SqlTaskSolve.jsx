@@ -216,12 +216,20 @@ export default function SqlTaskSolve({
   const successful = status === 'Accepted';
   const showFeedback = Boolean(!busy && status && status !== 'Previewed' && !(lastKind === 'check' && result?.check?.comparison));
   const statusText = busy ? (String(status).toLowerCase() === 'running' ? 'Выполняется…' : 'В очереди…') : '';
+  const engineLabel = target?.displayName || target?.engine || 'SQL';
+  const modeLabel = spec.mode === 'state' ? 'Проверка данных' : spec.mode === 'schema' ? 'Проверка структуры' : 'Проверка результата';
 
   const editorCard = (
     <Card className="sql-editor-card">
       <div className="sql-editor-header">
         <div className="sql-editor-heading-row">
-          <div className="sql-editor-title">Написать SQL</div>
+          <div className="sql-editor-heading-main">
+            <div className="sql-editor-title">SQL-запрос</div>
+            <div className="sql-editor-context" aria-label="Параметры SQL-задания">
+              <span className="sql-context-pill">{engineLabel}</span>
+              <span className="sql-context-pill">{modeLabel}</span>
+            </div>
+          </div>
           <Button
             type="button"
             variant="ghost"
@@ -259,7 +267,7 @@ export default function SqlTaskSolve({
             onClick={() => navigate(`/assignment/${assignment.id}/database`)}
           >
             <Database size={16} />
-            <span>База</span>
+            <span>Открыть базу</span>
           </Button>
         </div>
       </div>
@@ -271,7 +279,7 @@ export default function SqlTaskSolve({
           value={source}
           onChange={value => setSource(value || '')}
           readOnly={sending || !!retry}
-          height={layout === 'editorTop' ? 440 : 280}
+          height={layout === 'editorTop' ? 460 : 390}
           automationId={`sql-source-${assignment.id}`}
         />
       </div>
@@ -297,23 +305,11 @@ export default function SqlTaskSolve({
 
   return (
     <div className="sql-task-solve">
-      {layout === 'editorTop' ? (
-        <div className="space-y-6">
-          {editorCard}
-          {statement}
-          {resultCard}
-        </div>
-      ) : (
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-5">
-            {statement}
-            {resultCard}
-          </div>
-          <div className="space-y-4">
-            {editorCard}
-          </div>
-        </div>
-      )}
+      <div className={`sql-learner-workspace ${layout === 'editorTop' ? 'is-editor-first' : ''}`}>
+        {layout === 'editorTop' ? editorCard : statement}
+        {layout === 'editorTop' ? statement : editorCard}
+        {resultCard ? <div className="sql-learner-result">{resultCard}</div> : null}
+      </div>
 
       <SolveActionDock
         nextOptions={nextOptions}

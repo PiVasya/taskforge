@@ -185,6 +185,7 @@ internal static class IdentityApiCommonService
             solutions.Summary.SolvedAssignments + tasks.Summary.SolvedAssignments,
             solutions.Summary.TotalAttempts + tasks.Summary.TotalAttempts,
             solutions.Summary.CodeSolutions,
+            solutions.Summary.SqlSolutions,
             solutions.Summary.ImageSolutions,
             tasks.Summary.TestAttempts,
             tasks.Summary.MathAttempts,

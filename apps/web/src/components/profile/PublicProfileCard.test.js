@@ -27,7 +27,8 @@ describe('PublicProfileCard statistics', () => {
         score: 145,
         solvedAssignments: 12,
         totalAttempts: 37,
-        codeSolutions: 20,
+        codeSolutions: 14,
+        sqlSolutions: 6,
         imageSolutions: 3,
         testAttempts: 10,
         mathAttempts: 4,
@@ -39,7 +40,8 @@ describe('PublicProfileCard statistics', () => {
     expect(container.textContent).toContain('145 рейтинга');
     expect(container.textContent).toContain('12 решённых заданий');
     expect(container.textContent).toContain('37 попыток отправки решений');
-    expect(container.textContent).toContain('Код: 20');
+    expect(container.textContent).toContain('Код: 14');
+    expect(container.textContent).toContain('SQL: 6');
     expect(container.textContent).toContain('Тесты: 10');
   });
 
