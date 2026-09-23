@@ -1,7 +1,9 @@
 ## Current SQL release and production entrypoint
 
-The Go SQL runtime release builds on user source develop(212), including the user's three
-`AddSqlDomain` migrations. Read `docs/sql/IMPLEMENTATION.md`, `docs/sql/DEPLOYMENT.md`
+The Go SQL runtime release originated from user source develop(212), including the user's three
+`AddSqlDomain` migrations. The current protected user model boundary additionally includes the
+2026-09-23 user-generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations.
+Read `docs/sql/IMPLEMENTATION.md`, `docs/sql/DEPLOYMENT.md`
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
 
@@ -26,7 +28,7 @@ Open this file before changing the project.
 - SQL engine profiles are immutable semantic runtime contracts. Never put the sql-worker executable/build fingerprint back into profile identity. Keep build identity diagnostic-only; compatibility with historical fingerprints must go through the explicit `SqlProfileCompatibility` semantic relation, never engine-name matching or in-place profile rewriting.
 
 - The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
-- The user-owned migration boundary was completed in develop(212). Preserve all 92 migration/snapshot files and the existing SQL Entity/DbContext definitions. Do not generate or apply another migration for this runtime update. New schema changes require another explicit user-owned migration boundary; use the existing `scripts/generate-migrations.sh` rather than inventing per-project commands.
+- The current user-owned migration boundary is frozen at 2026-09-23. Preserve all 96 migration/snapshot files, including the user-generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` pairs and their updated snapshots, plus the protected Domain/Data model files. Do not generate or apply another migration for this runtime update. New schema changes require another explicit user-owned migration boundary; use the existing `scripts/generate-migrations.sh` rather than inventing per-project commands.
 - Do not generate database migrations unless the user explicitly asks for migrations.
 - Current logging policy is development mode: Docker images and Compose runtimes must keep `TASKFORGE_BUILD_DEBUG_LOGS=1` / `TASKFORGE_DEBUG_LOGS=1`. Do not disable, quiet, or change these defaults to `0` unless the user explicitly asks to change the logging policy. Preserve this rule whenever editing workflows, Dockerfiles, Compose files, or `.env.example` files.
 - Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.

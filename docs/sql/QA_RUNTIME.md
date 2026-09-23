@@ -4,6 +4,12 @@ Date: 2026-09-14. Scope: the SQL profile-compatibility update based on the
 user-provided develop(218) source tree. This report describes checks actually
 executed in the current environment; it is not a production-rollout certificate.
 
+Current-boundary note (2026-09-23): after this historical QA run, the user explicitly
+generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty`. The active
+source guard now freezes 96 migration/snapshot files plus the same 104 protected
+Domain/Data files. The 92-file figures below remain the factual result of the
+2026-09-14 run and are intentionally not rewritten.
+
 ## Preservation and architectural boundaries
 
 - All 92 protected migration/designer/snapshot files and all 104 protected

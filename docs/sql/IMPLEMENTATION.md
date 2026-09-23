@@ -1,11 +1,13 @@
 # SQL task runtime implementation (Go, r59)
 
 Base: user-provided develop(212), not an older intermediate SQL patch. The user
-created Tasks, Execution and Solutions `AddSqlDomain` migrations. Their files,
-designers and snapshots are preserved byte-for-byte. No Entity/DbContext change was
-made in this runtime stage. `scripts/ci/check-sql-runtime.py` checks all 92 protected
-migration/snapshot files plus 104 Domain/Data files and retention of the original
-source files. The authoritative limitations and test results are in QA_RUNTIME.md.
+created Tasks, Execution and Solutions `AddSqlDomain` migrations. The current
+protected user boundary was advanced on 2026-09-23 by the user-generated
+`RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations and their EF
+snapshot updates. Runtime work must not edit any of those files.
+`scripts/ci/check-sql-runtime.py` now checks all 96 protected migration/snapshot
+files plus 104 Domain/Data files and retention of the original source files. The
+authoritative limitations and test results are in QA_RUNTIME.md.
 
 ## End-to-end paths implemented
 

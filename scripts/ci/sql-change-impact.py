@@ -32,6 +32,7 @@ CONTRACT_FILES = {
     "scripts/ci/check-sql-runtime.py",
     "scripts/ci/check-sql-ef-dependencies.py",
     "docs/sql/user-212-protected.sha256",
+    "docs/sql/user-20260923-protected.sha256",
     "docs/sql/user-212-files.json",
 }
 

@@ -1,9 +1,11 @@
 # Go SQL source and r59 deployment gates
 
 This is the Go runtime implementation candidate based on develop(212), including
-the complete C# API/frontend SQL update. It is NOT a
-production-validated release. Preserve the user's existing migrations; do not run
-migration generation or `dotnet ef database update` just to test this candidate.
+the complete C# API/frontend SQL update. The current source also contains the
+user-generated 2026-09-23 migrations that remove assignment/quiz Difficulty. It is
+NOT a production-validated release. Preserve all existing migrations and snapshots;
+do not run migration generation or `dotnet ef database update` just to test this
+candidate.
 
 ## 1. Build/test on the local development machine
 
@@ -142,9 +144,13 @@ worker recovery and profile equality. That live failover test is still required.
 
 ## 5. No new migration round
 
-The three user migrations in develop(212) are retained exactly. The runtime changes
-do not need another Entity/DbContext migration. Migration presence/hash checks do
-not replace a real upgrade rehearsal on a disposable restored business database.
+The original three `AddSqlDomain` user migrations remain retained, and the current
+protected boundary additionally includes the user-generated
+`RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations from 2026-09-23.
+Do not edit or regenerate any of these migration/designer/snapshot files. The SQL
+runtime/import fixes do not need another Entity/DbContext migration. Migration
+presence/hash checks do not replace a real upgrade rehearsal on a disposable restored
+business database.
 Production APIs keep their existing migration/startup behavior; do not mistake
 `cluster.sh migrate` (control-plane upgrade) for the EF migration generator.
 
