@@ -171,8 +171,7 @@ internal static class SqlTaskGraphService
         {
             var input = SqlWire.Read<SqlGraphDataset>(node);
             if (!referenced.Contains(input.Key)) continue;
-            var version = new SqlDatasetVersion { DefinitionJson = SqlWire.Serialize(input.Definition), SeedJson = SqlWire.Serialize(input.Seed),
-                EngineOverridesJson = SqlWire.Serialize(input.EngineOverrides ?? new()) };
+            var version = CreateImportedDatasetVersion(input);
             var hash = SqlContentKeys.Dataset(version);
             var existing = await (from v in db.SqlDatasetVersions
                 join d in db.SqlDatasets on v.DatasetId equals d.Id
@@ -232,6 +231,17 @@ internal static class SqlTaskGraphService
         }
         await db.SaveChangesAsync(ct);
     }
+
+
+    internal static SqlDatasetVersion CreateImportedDatasetVersion(SqlGraphDataset input)
+        => new()
+        {
+            Version = 1,
+            DefinitionSchemaVersion = SqlWire.Version,
+            DefinitionJson = SqlWire.Serialize(input.Definition),
+            SeedJson = SqlWire.Serialize(input.Seed),
+            EngineOverridesJson = SqlWire.Serialize(input.EngineOverrides ?? new())
+        };
 
     private static T? Read<T>(string? json) where T : class => json is null ? null : JsonSerializer.Deserialize<T>(json, SqlWire.Json);
 
