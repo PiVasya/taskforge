@@ -55,7 +55,6 @@ public static partial class CourseAgentTools
                 GetString(obj, "title", "name") ?? "Без названия",
                 GetString(obj, "assignmentType", "type") ?? "assignment",
                 GetString(obj, "language", "defaultLanguage"),
-                GetInt(obj, "difficulty", "level"),
                 GetInt(obj, "rating", "order", "sortOrder"),
                 GetTags(obj),
                 GetString(obj, "description", "descriptionPreview", "body", "condition", "text") ?? string.Empty,
@@ -91,7 +90,6 @@ public static partial class CourseAgentTools
                                  || obj.ContainsKey("hiddenTests")
                                  || obj.ContainsKey("starterCode")
                                  || obj.ContainsKey("referenceSolution")
-                                 || obj.ContainsKey("difficulty")
                                  || obj.ContainsKey("rating");
         var hasCourseOnlyFields = obj.ContainsKey("assignments") && !obj.ContainsKey("description") && !obj.ContainsKey("assignmentType");
         return hasAssignmentField && !hasCourseOnlyFields;

@@ -30,7 +30,6 @@
       "subjectCode": "russian",
       "examCode": "ct-ce-2026",
       "sectionCode": "B1",
-      "difficulty": 1,
       "tags": ["B1", "ЦТ"],
       "data": {},
       "correctAnswer": {

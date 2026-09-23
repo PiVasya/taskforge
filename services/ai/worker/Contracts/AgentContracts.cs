@@ -119,7 +119,6 @@ public sealed class DraftSpec
     public string Description { get; set; } = string.Empty;
     public string Language { get; set; } = "cpp";
     public string ReferenceSolution { get; set; } = string.Empty;
-    public int Difficulty { get; set; } = 1;
     public int Rating { get; set; } = 10;
     public Guid? CourseId { get; set; }
     public Guid? BeforeAssignmentId { get; set; }
@@ -141,7 +140,6 @@ public sealed class DraftSpec
             ["description"] = Description,
             ["language"] = Language,
             ["referenceSolution"] = ReferenceSolution,
-            ["difficulty"] = Difficulty,
             ["rating"] = Rating,
             ["courseId"] = CourseId?.ToString(),
             ["beforeAssignmentId"] = BeforeAssignmentId?.ToString(),

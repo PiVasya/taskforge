@@ -77,7 +77,6 @@ internal static class AssignmentApiMappingService
             testCases = tests,
             testsJson = includeSensitive ? x.TestsJson : null,
             tags = x.Tags ?? string.Empty,
-            difficulty = x.Difficulty,
             rating = x.Rating,
             isHidden = !x.IsVisible,
             isAiDraft = false,
@@ -111,7 +110,6 @@ internal static class AssignmentApiMappingService
             allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
             x.StarterCode,
             tags = x.Tags ?? string.Empty,
-            difficulty = x.Difficulty,
             rating = x.Rating,
             isHidden = !x.IsVisible,
             isAiDraft = false,
@@ -145,7 +143,6 @@ internal static class AssignmentApiMappingService
             x.Title,
             x.Description,
             tags = x.Tags ?? string.Empty,
-            difficulty = x.Difficulty,
             rating = x.Rating,
             taskConstraints = TaskConstraintsDto(x),
             canEdit = includeSensitive,
@@ -179,7 +176,6 @@ internal static class AssignmentApiMappingService
         x.Type,
         x.Language,
         x.Rating,
-        x.Difficulty,
         x.IsVisible,
         x.Sort);
 
@@ -191,7 +187,6 @@ internal static class AssignmentApiMappingService
         if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
         if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
         if (request.Tags != null) assignment.Tags = request.Tags;
-        if (request.Difficulty.HasValue) assignment.Difficulty = System.Math.Clamp(request.Difficulty.Value, 1, 3);
         if (request.Rating.HasValue) assignment.Rating = System.Math.Max(0, request.Rating.Value);
         if (request.Sort.HasValue) assignment.Sort = System.Math.Max(0, request.Sort.Value);
         if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
@@ -236,7 +231,6 @@ internal static class AssignmentApiMappingService
             Language = type == "sql-test" ? string.Empty : NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
             AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
             Tags = request.Tags,
-            Difficulty = System.Math.Clamp(request.Difficulty ?? 1, 1, 3),
             Rating = System.Math.Max(0, request.Rating ?? 1),
             StarterCode = request.StarterCode,
             TestsJson = type is "image-test" or "sql-test" ? null : testsJson,

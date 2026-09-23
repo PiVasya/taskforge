@@ -13,7 +13,6 @@ public sealed class QuizTask
     public string ExamCode { get; set; } = "ct-ce-2026";
     public string? SectionCode { get; set; }
 
-    public int Difficulty { get; set; } = 1;
     public string? TagsJson { get; set; }
     public string? SourceName { get; set; }
     public int? SourceYear { get; set; }

@@ -490,7 +490,6 @@ export default function AssignmentSolvePage() {
                 title: full?.title,
                 description: full?.description,
                 tags: full?.tags,
-                difficulty: full?.difficulty,
                 rating: full?.rating,
               });
             } catch {}

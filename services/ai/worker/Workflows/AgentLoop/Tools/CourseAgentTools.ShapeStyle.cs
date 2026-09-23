@@ -137,15 +137,14 @@ public static partial class CourseAgentTools
         return patch;
     }
 
-    private static string BuildComplexityReason(AssignmentSnapshot item, List<string> concepts, int estimatedDifficulty, int score)
+    private static string BuildComplexityReason(AssignmentSnapshot item, List<string> concepts, int complexityLevel, int score)
     {
         var bits = new List<string>
         {
-            $"оценка сложности: {estimatedDifficulty}",
+            $"оценка сложности: {complexityLevel}",
             $"score={score}",
             $"позиция в курсе: {item.Index}"
         };
-        if (item.Difficulty.HasValue) bits.Add($"текущая difficulty={item.Difficulty.Value}");
         if (concepts.Count > 0) bits.Add("понятия: " + string.Join(", ", concepts.Take(6)));
         if (item.PublicTestCount + item.HiddenTestCount > 0) bits.Add($"тестов: {item.PublicTestCount + item.HiddenTestCount}, hidden: {item.HiddenTestCount}");
         if (!item.HasReferenceSolution && item.Type.Contains("code", StringComparison.OrdinalIgnoreCase)) bits.Add("нет эталонного решения — уверенность ниже");
@@ -202,7 +201,6 @@ public static partial class CourseAgentTools
             ["title"] = item.Title,
             ["type"] = item.Type,
             ["language"] = item.Language,
-            ["difficulty"] = item.Difficulty,
             ["rating"] = item.Rating,
             ["tags"] = new JsonArray(item.Tags.Take(12).Select(x => JsonValue.Create(x)).ToArray<JsonNode?>()),
             ["concepts"] = new JsonArray(ExtractConcepts(item).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).Select(x => JsonValue.Create(x)).ToArray<JsonNode?>()),

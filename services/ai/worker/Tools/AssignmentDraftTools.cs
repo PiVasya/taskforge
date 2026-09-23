@@ -17,7 +17,7 @@ public sealed class AssignmentDraftTools
         [Description("Clear assignment statement in Russian.")] string description,
         [Description("Programming language: cpp, csharp, java, javascript, pascal, python.")] string language,
         [Description("Reference solution code that should pass all tests.")] string referenceSolution,
-        [Description("Difficulty 1..3.")] int difficulty = 1)
+        [Description("Task rating. Must be at least 1.")] int rating = 10)
     {
         var job = _contextAccessor.Current.Job;
         var draft = new DraftSpec
@@ -27,8 +27,7 @@ public sealed class AssignmentDraftTools
             Description = description.Trim(),
             Language = NormalizeLanguage(language),
             ReferenceSolution = referenceSolution,
-            Difficulty = System.Math.Clamp(difficulty, 1, 3),
-            Rating = System.Math.Clamp(difficulty, 1, 3) * 10,
+            Rating = System.Math.Max(1, rating),
             CourseId = job.CourseId,
             Tags = new List<string> { "AI", "черновик", "code-test" },
             PublicTests = new List<TestCaseSpec>
@@ -50,7 +49,7 @@ public sealed class AssignmentDraftTools
     public Task<JsonObject> BuildMathAssignmentDraftAsync(
         [Description("Short assignment title.")] string title,
         [Description("Assignment statement in Russian.")] string description,
-        [Description("Difficulty 1..3.")] int difficulty = 1)
+        [Description("Task rating. Must be at least 1.")] int rating = 10)
     {
         var job = _contextAccessor.Current.Job;
         var data = new JsonObject
@@ -58,8 +57,7 @@ public sealed class AssignmentDraftTools
             ["assignmentType"] = "math",
             ["title"] = title.Trim(),
             ["description"] = description.Trim(),
-            ["difficulty"] = System.Math.Clamp(difficulty, 1, 3),
-            ["rating"] = System.Math.Clamp(difficulty, 1, 3) * 10,
+            ["rating"] = System.Math.Max(1, rating),
             ["courseId"] = job.CourseId?.ToString(),
             ["tags"] = "AI,черновик,math",
             ["mathBlocks"] = new JsonArray(new JsonObject
@@ -76,7 +74,6 @@ public sealed class AssignmentDraftTools
     public Task<JsonObject> NormalizeDraftAsync(JsonObject draft)
     {
         draft["assignmentType"] ??= "code-test";
-        draft["difficulty"] ??= 1;
         draft["rating"] ??= 10;
         draft["language"] = NormalizeLanguage(draft["language"]?.ToString() ?? "cpp");
         draft["tags"] ??= "AI,черновик";

@@ -118,7 +118,6 @@ internal static partial class ObservabilityApiEndpoints
                     assignmentId = (Guid?)null,
                     title = string.IsNullOrWhiteSpace(label) ? "Задание без названия" : label,
                     type = AssignmentTypeFromPath(g.First().Path),
-                    difficulty = 0,
                     rating = 0,
                     attempts,
                     passed,
@@ -322,7 +321,6 @@ internal static partial class ObservabilityApiEndpoints
                 CourseId = first.CourseId,
                 CourseTitle = first.CourseTitle,
                 Type = first.Type,
-                Difficulty = first.Difficulty,
                 Rating = first.Rating,
                 Attempts = attempts,
                 Passed = passed,
@@ -436,7 +434,6 @@ internal static partial class ObservabilityApiEndpoints
         public string? CourseTitle { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
-        public int Difficulty { get; set; }
         public int Rating { get; set; }
         public int Attempts { get; set; }
         public int Passed { get; set; }

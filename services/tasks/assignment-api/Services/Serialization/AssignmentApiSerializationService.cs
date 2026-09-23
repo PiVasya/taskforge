@@ -57,7 +57,6 @@ internal static class AssignmentApiSerializationService
             ["language"] = x.Language,
             ["allowedLanguages"] = JsonSerializer.SerializeToNode(allowedLanguages, JsonOptions()),
             ["tags"] = x.Tags ?? string.Empty,
-            ["difficulty"] = x.Difficulty,
             ["rating"] = x.Rating,
             ["starterCode"] = x.StarterCode ?? string.Empty,
             ["isVisible"] = x.IsVisible
@@ -419,7 +418,6 @@ internal static class AssignmentApiSerializationService
             FirstString(source, "language", "defaultLanguage"),
             FirstStringList(source, "allowedLanguages", "languages"),
             FirstString(source, "tags"),
-            FirstInt(source, "difficulty", "level"),
             FirstInt(source, "rating", "score", "points"),
             FirstString(source, "starterCode", "templateCode", "initialCode"),
             testsJson,
@@ -445,7 +443,6 @@ internal static class AssignmentApiSerializationService
         if (title.Length > 200) yield return "title не должен быть длиннее 200 символов.";
         var type = NormalizeAssignmentType(request.Type);
         if (hasExplicitType && !new[] { "code-test", "image-test", "test", "math", "sql-test" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
-        if (request.Difficulty.HasValue && (request.Difficulty.Value < 1 || request.Difficulty.Value > 3)) yield return "difficulty должен быть 1, 2 или 3.";
         if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
         if (request.Sort.HasValue && request.Sort.Value < 0) yield return "sort не может быть отрицательным.";
         var mustValidateSpec = !isPatch;

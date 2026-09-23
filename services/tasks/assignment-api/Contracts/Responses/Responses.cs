@@ -17,7 +17,7 @@ public sealed record SolvedAssignmentsResponse(Guid UserId, Guid[]? SolvedAssign
 
 public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit);
 
-public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, int Difficulty, bool IsVisible, int Sort);
+public sealed record AssignmentSummaryDto(Guid Id, Guid AssignmentId, Guid CourseId, string Title, string AssignmentTitle, string Type, string Language, int Rating, bool IsVisible, int Sort);
 
 public sealed record CourseAssignmentProgressDto(Guid CourseId, int Total, int Solved, int Percent, bool IsComplete);
 

@@ -474,7 +474,6 @@ function ArtifactPreview({ artifact, message, runs, artifactIndex, onPolishTask,
                     <div className="min-w-0">
                       <div className="font-semibold">{task.title || `Задание ${i + 1}`}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                        <Badge variant="secondary">сложность {task.difficulty || 1}</Badge>
                         {task.language && <span>{task.language}</span>}
                       </div>
                     </div>

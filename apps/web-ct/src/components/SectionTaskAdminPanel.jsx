@@ -127,7 +127,6 @@ function makeForm(sectionCode) {
     subjectCode: SUBJECT_CODE,
     examCode: EXAM_CODE,
     sectionCode,
-    difficulty: '1',
     optionsText: type === 'text-answer' ? '' : '1\n2\n3\n4',
     correctAnswer: '',
     explanation: '',
@@ -154,7 +153,6 @@ function formFromDetails(details, sectionCode) {
     subjectCode: task.subjectCode || SUBJECT_CODE,
     examCode: task.examCode || EXAM_CODE,
     sectionCode: normalizeSectionCode(task.sectionCode || sectionCode) || sectionCode,
-    difficulty: String(task.difficulty || 1),
     optionsText: type === 'text-answer' ? '' : (options.join('\n') || '1\n2\n3\n4'),
     correctAnswer: answerToText(correctAnswer),
     explanation: explanationToText(explanation),
@@ -178,7 +176,6 @@ function payloadFromForm(form, sectionCode) {
     subjectCode: form.subjectCode.trim() || SUBJECT_CODE,
     examCode: form.examCode.trim() || EXAM_CODE,
     sectionCode,
-    difficulty: Number(form.difficulty) || 1,
     tags: splitValues(form.tagsText),
     sourceName: form.sourceName.trim() || null,
     sourceYear: form.sourceYear ? Number(form.sourceYear) : null,
@@ -242,7 +239,6 @@ function normalizeImportedTask(item, index, sectionCode) {
   const explanation = explanationToText(explanationRaw) || pickText(item, ['explanation', 'why', 'comment', 'explanationText']);
   const tagsSource = task?.tagsJson ?? task?.tags ?? item?.tagsJson ?? item?.tags ?? `${sectionCode}, ЦТ`;
   const tags = Array.isArray(tagsSource) ? tagsSource.map((tag) => String(tag).trim()).filter(Boolean) : splitValues(tagsToText(tagsSource) || tagsSource);
-  const difficulty = Number(task?.difficulty || item?.difficulty) || 1;
 
   if (!prompt) throw new Error(`Задание ${index + 1}: нет текста задания.`);
   if (!correctAnswer) throw new Error(`Задание ${index + 1}: нет правильного ответа.`);
@@ -260,7 +256,6 @@ function normalizeImportedTask(item, index, sectionCode) {
     subjectCode: task?.subjectCode || SUBJECT_CODE,
     examCode: task?.examCode || EXAM_CODE,
     sectionCode,
-    difficulty,
     tags,
     sourceName: task?.sourceName || item?.sourceName || null,
     sourceYear: (task?.sourceYear || item?.sourceYear) ? Number(task?.sourceYear || item?.sourceYear) : null,
@@ -281,7 +276,6 @@ function exportItem(details) {
     subjectCode: task.subjectCode,
     examCode: task.examCode,
     sectionCode: task.sectionCode,
-    difficulty: task.difficulty,
     tags: parseJsonValue(task.tagsJson, []),
     sourceName: task.sourceName,
     sourceYear: task.sourceYear,
@@ -306,7 +300,6 @@ function makeImportExample(sectionCode) {
           title: `${normalizedSection}. Задание 1`,
           prompt: 'Запишите ответ словом или буквами.',
           type: 'text-answer',
-          difficulty: 1,
           tags: [normalizedSection, 'ЦТ'],
           data: {},
           correctAnswer: { value: 'пример' },
@@ -318,7 +311,6 @@ function makeImportExample(sectionCode) {
           title: `${normalizedSection}. Задание 1`,
           prompt: 'Текст задания. Варианты можно писать в prompt или отдельно в data.options.',
           type: 'single-choice',
-          difficulty: 1,
           tags: [normalizedSection, 'ЦТ'],
           data: { options: ['1', '2', '3', '4'] },
           correctAnswer: { selected: ['1'] },
@@ -621,7 +613,6 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
               <div className="md:col-span-2"><Field label="Варианты ответа" required><Textarea rows={5} value={form.optionsText} onChange={(e) => setField('optionsText', e.target.value)} /></Field></div>
             ) : null}
             <Field label="Правильный ответ" required><Input value={form.correctAnswer} onChange={(e) => setField('correctAnswer', e.target.value)} /></Field>
-            <Field label="Сложность"><Input type="number" min="1" max="5" value={form.difficulty} onChange={(e) => setField('difficulty', e.target.value)} /></Field>
             <div className="md:col-span-2"><Field label="Объяснение после проверки" required><Textarea rows={3} value={form.explanation} onChange={(e) => setField('explanation', e.target.value)} /></Field></div>
             <Field label="Теги"><Input value={form.tagsText} onChange={(e) => setField('tagsText', e.target.value)} /></Field>
             <Field label="Slug"><Input value={form.slug} onChange={(e) => setField('slug', e.target.value)} /></Field>

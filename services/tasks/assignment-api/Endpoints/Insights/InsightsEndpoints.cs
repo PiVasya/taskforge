@@ -322,7 +322,6 @@ internal static partial class AssignmentApiEndpoints
                 type = assignment.Type,
                 language = assignment.Language,
                 rating = assignment.Rating,
-                difficulty = assignment.Difficulty,
                 attempts = taskAttempts.Count + external.CodeAttempts + external.ImageAttempts,
                 solved = taskAttempts.Count(x => x.Passed) + external.PassedCodeAttempts + external.PassedImages,
                 averageScore = avgScore,

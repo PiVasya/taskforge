@@ -306,7 +306,6 @@ function buildDefaultAssignmentPayload(type, sort) {
     title: "Новое задание",
     description: "Опишите постановку задачи…",
     type: normalized,
-    difficulty: 1,
     rating: 1,
     tags: "ОАИП",
     sort,

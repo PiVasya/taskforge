@@ -207,10 +207,7 @@ function RandomTaskCard({ task, progressMap, onAnswered }) {
   return (
     <article className="rounded-[1.75rem] border border-neutral-200/80 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-        <span>
-          {taskInfo.sectionCode || task.sectionCode} · сложность{" "}
-          {taskInfo.difficulty || task.difficulty || 1}
-        </span>
+        <span>{taskInfo.sectionCode || task.sectionCode}</span>
         <StatusPill status={status} />
       </div>
       <h3 className="text-xl font-bold">{taskInfo.title}</h3>

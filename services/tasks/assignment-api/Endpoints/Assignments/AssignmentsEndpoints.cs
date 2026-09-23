@@ -80,7 +80,6 @@ internal static partial class AssignmentApiEndpoints
             Language = options.UpdateContent ? request.Language : null,
             AllowedLanguages = options.UpdateContent ? request.AllowedLanguages : null,
             Tags = options.UpdateContent ? request.Tags : null,
-            Difficulty = options.UpdateContent ? request.Difficulty : null,
             Rating = options.UpdateContent ? request.Rating : null,
             StarterCode = options.UpdateContent ? request.StarterCode : null,
             TestsJson = options.UpdateChecks ? request.TestsJson : null,

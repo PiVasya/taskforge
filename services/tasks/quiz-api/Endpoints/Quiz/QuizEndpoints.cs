@@ -37,8 +37,8 @@ internal static partial class QuizTaskEndpoints
 
             var taskEntities = await query
                 .OrderBy(x => x.SectionCode)
-                .ThenBy(x => x.Difficulty)
                 .ThenBy(x => x.Title)
+                .ThenBy(x => x.Id)
                 .ToListAsync();
 
             return Microsoft.AspNetCore.Http.Results.Ok(taskEntities.Select(QuizTaskDto.FromEntity).ToList());

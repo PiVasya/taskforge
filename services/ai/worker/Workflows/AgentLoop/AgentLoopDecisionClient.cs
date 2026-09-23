@@ -252,7 +252,7 @@ RawPayload, доступный на этот run:
         var t = (text ?? string.Empty).ToLowerInvariant();
         var edit = t.Contains("помен") || t.Contains("измени") || t.Contains("выстав") || t.Contains("простав") || t.Contains("пересч") || t.Contains("обнов");
         var all = t.Contains("всем") || t.Contains("все задания") || t.Contains("кажд") || t.Contains("по всему курсу") || t.Contains("курсе");
-        var rating = t.Contains("рейтинг") || t.Contains("rating") || t.Contains("сложност") || t.Contains("difficulty");
+        var rating = t.Contains("рейтинг") || t.Contains("rating") || t.Contains("сложност");
         return edit && all && rating;
     }
 

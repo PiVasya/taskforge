@@ -8,7 +8,7 @@ export const TASK_GRAPH_MAX_CONNECTIONS = 20_000;
 
 const TASK_FIELDS = new Set([
   'key', 'id', 'course', 'type', 'title', 'description', 'language', 'allowedLanguages', 'tags',
-  'difficulty', 'rating', 'starterCode', 'testCases', 'testSettings', 'questions', 'blocks',
+  'rating', 'starterCode', 'testCases', 'testSettings', 'questions', 'blocks',
   'codeForbiddenCalls', 'codeRequiredCalls', 'isVisible', 'imageTestReferenceKey',
   'imageTestSimilarityThreshold', 'sql',
 ]);
@@ -39,7 +39,6 @@ const codeTask = {
   ],
   codeRequiredCalls: ['cin', 'cout'],
   codeForbiddenCalls: ['system', 'exec', 'fork'],
-  difficulty: 1,
   rating: 1,
   tags: 'ввод, вывод',
   isVisible: true,
@@ -110,7 +109,6 @@ const testTask = {
       trim: true,
     },
   ],
-  difficulty: 1,
   rating: 1,
   tags: 'json, тест',
   isVisible: true,
@@ -138,7 +136,6 @@ const imageTask = {
   ],
   codeRequiredCalls: ['Image.new', 'save'],
   codeForbiddenCalls: ['open', 'requests', 'subprocess'],
-  difficulty: 2,
   rating: 2,
   tags: 'графика, изображение',
   isVisible: true,
@@ -254,7 +251,6 @@ const mathTask = {
       ],
     },
   ],
-  difficulty: 2,
   rating: 2,
   tags: 'математика, блоки',
   isVisible: true,
@@ -279,7 +275,6 @@ function simpleCodeTask(key, title, description = 'Решите задание �
     ],
     codeRequiredCalls: [],
     codeForbiddenCalls: ['system', 'exec', 'fork'],
-    difficulty: 1,
     rating: 1,
     tags: 'практика',
     isVisible: true,
@@ -316,7 +311,6 @@ function simpleTestTask(key, title) {
         trim: true,
       },
     ],
-    difficulty: 1,
     rating: 1,
     tags: 'проверка',
     isVisible: true,
@@ -350,7 +344,6 @@ function simpleMathTask(key, title) {
         trim: true,
       },
     ],
-    difficulty: 1,
     rating: 1,
     tags: 'математика',
     isVisible: true,
@@ -564,7 +557,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'type', text: 'code-test, image-test, test, math, sql-test.' },
       { field: 'title / description', text: 'Название и условие. В description не помещается эталонное решение.' },
       { field: 'language / allowedLanguages / starterCode', text: 'Настройки кода и стартовый шаблон.' },
-      { field: 'difficulty / rating / tags', text: 'Сложность, очки и теги.' },
+      { field: 'rating / tags', text: 'Рейтинг и теги.' },
     ],
   },
   {
@@ -899,9 +892,6 @@ function validateTaskPayload(task, index, isPatch) {
   if (task.type !== undefined && !['code-test', 'image-test', 'test', 'math', 'sql-test'].includes(type)) {
     issues.push({ path: `${path}.type`, message: 'Допустимы code-test, image-test, test, math, sql-test.' });
   }
-  if (task.difficulty !== undefined && ![1, 2, 3].includes(Number(task.difficulty))) {
-    issues.push({ path: `${path}.difficulty`, message: 'difficulty должен быть 1, 2 или 3.' });
-  }
   if (task.rating !== undefined && (!Number.isFinite(Number(task.rating)) || Number(task.rating) < 0)) {
     issues.push({ path: `${path}.rating`, message: 'rating не может быть отрицательным.' });
   }
@@ -1171,8 +1161,7 @@ function sameValue(left, right) {
 
 const DIFF_FIELDS = [
   ['title', 'Название'], ['type', 'Тип'], ['description', 'Описание'], ['language', 'Язык'],
-  ['allowedLanguages', 'Доступные языки'], ['tags', 'Теги'], ['difficulty', 'Сложность'],
-  ['rating', 'Рейтинг'], ['starterCode', 'Стартовый код'], ['testCases', 'Тест-кейсы'],
+  ['allowedLanguages', 'Доступные языки'], ['tags', 'Теги'], ['rating', 'Рейтинг'], ['starterCode', 'Стартовый код'], ['testCases', 'Тест-кейсы'],
   ['testSettings', 'Настройки попыток'], ['questions', 'Вопросы'], ['blocks', 'Math-блоки'],
   ['codeRequiredCalls', 'Обязательные вызовы'], ['codeForbiddenCalls', 'Запрещённые вызовы'],
   ['isVisible', 'Видимость'], ['imageTestReferenceKey', 'Эталон изображения'],

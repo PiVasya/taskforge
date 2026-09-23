@@ -248,7 +248,7 @@ export default function AdminAssignmentInsightsPage() {
               <Link to={`/assignment/${assignmentId}`} className="btn-outline"><ArrowLeft size={16} /> <span className="ml-1">К заданию</span></Link>
             </div>
             <h1 className="text-2xl font-semibold flex items-center gap-2 mt-3"><BarChart3 size={22} /> {data?.title || 'Аналитика задания'}</h1>
-            <p className="text-sm text-muted-foreground mt-2">{data?.courseTitle || '—'} · тип: {data?.type || '—'} · режим: {data?.analyticsSettings?.mode || 'basic'} · рейтинг: {data?.rating ?? '—'} · сложность: {data?.difficulty ?? '—'}</p>
+            <p className="text-sm text-muted-foreground mt-2">{data?.courseTitle || '—'} · тип: {data?.type || '—'} · режим: {data?.analyticsSettings?.mode || 'basic'} · рейтинг: {data?.rating ?? '—'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {liveEvents.length ? <Badge intent="danger"><Zap size={13} className="mr-1" /> live {liveEvents.length}</Badge> : <Badge intent={liveStatus === 'connected' ? 'success' : liveStatus === 'offline' ? 'warning' : 'outline'}>live: {liveStatus === 'connected' ? 'подключён' : liveStatus === 'reconnecting' ? 'переподключение' : liveStatus === 'offline' ? 'offline' : 'подключение'}</Badge>}

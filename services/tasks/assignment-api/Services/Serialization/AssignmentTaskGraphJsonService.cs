@@ -25,7 +25,7 @@ internal static class AssignmentTaskGraphJsonService
     private static readonly HashSet<string> TaskFields = new(StringComparer.Ordinal)
     {
         "key", "id", "course", "type", "title", "description", "language", "allowedLanguages", "tags",
-        "difficulty", "rating", "starterCode", "testCases", "testSettings", "questions",
+        "rating", "starterCode", "testCases", "testSettings", "questions",
         "blocks", "codeForbiddenCalls", "codeRequiredCalls", "isVisible", "imageTestReferenceKey",
         "imageTestSimilarityThreshold", "sql"
     };
@@ -47,7 +47,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static readonly HashSet<string> ContentExportFields = new(StringComparer.Ordinal)
     {
-        "type", "title", "description", "language", "allowedLanguages", "tags", "difficulty", "rating", "starterCode"
+        "type", "title", "description", "language", "allowedLanguages", "tags", "rating", "starterCode"
     };
 
     private static readonly HashSet<string> CheckExportFields = new(StringComparer.Ordinal)
@@ -665,7 +665,7 @@ internal static class AssignmentTaskGraphJsonService
             ["scopes"] = new JsonObject
             {
                 ["ids"] = "id заданий. Существующий id обновляет задание, свободный UUID создаёт новое задание с этим UUID; без id UUID генерирует TaskForge.",
-                ["content"] = "type, title, description, language, allowedLanguages, tags, difficulty, rating, starterCode.",
+                ["content"] = "type, title, description, language, allowedLanguages, tags, rating, starterCode.",
                 ["checks"] = "testCases, testSettings, questions, blocks, codeRequiredCalls, codeForbiddenCalls и настройки image-test.",
                 ["visibility"] = "isVisible.",
                 ["connections"] = "Топология from -> to.",
@@ -703,7 +703,7 @@ internal static class AssignmentTaskGraphJsonService
             },
             ["tasks"] = new JsonObject
             {
-                ["commonFields"] = Strings("key", "id?", "course?", "type", "title", "description", "language?", "allowedLanguages?", "tags?", "difficulty?", "rating?", "starterCode?", "isVisible?"),
+                ["commonFields"] = Strings("key", "id?", "course?", "type", "title", "description", "language?", "allowedLanguages?", "tags?", "rating?", "starterCode?", "isVisible?"),
                 ["courseRule"] = "course = $course или key из courses. Если поле course отсутствует, используется $course.",
                 ["idRule"] = "Для задачи: существующий id в поддереве -> update; свободный UUID -> create с этим UUID; id отсутствует -> create с UUID от TaskForge; id из чужого поддерева -> ошибка.",
                 ["types"] = new JsonObject

@@ -41,7 +41,6 @@ internal static partial class CourseSkillAnalyzer
                 ["sort"] = GetInt(item, "sort", "order"),
                 ["title"] = title,
                 ["type"] = GetString(item, "type", "assignmentType"),
-                ["difficulty"] = GetInt(item, "difficulty"),
                 ["rating"] = GetInt(item, "rating"),
                 ["tags"] = GetString(item, "tags"),
                 ["allowedLanguages"] = CloneOrNull(item.GetPropertyOrDefault("allowedLanguages")),

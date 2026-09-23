@@ -142,7 +142,6 @@ COURSE_SKILL_MAP:
       "description": "...",
       "language": "cpp|csharp|java|javascript|pascal|python",
       "referenceSolution": "...",
-      "difficulty": 1,
       "rating": 10,
       "sourceTaskIndex": 0,
       "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],

@@ -56,7 +56,6 @@ public static class QuizSeedService
             SubjectCode = "russian",
             ExamCode = "ct-ce-2026",
             SectionCode = "A1",
-            Difficulty = 1,
             TagsJson = "[\"A1\",\"орфография\",\"гласная-в-корне\"]",
             SourceName = "seed",
             IsPublished = true,

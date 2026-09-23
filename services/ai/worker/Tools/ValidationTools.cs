@@ -22,7 +22,7 @@ public sealed class ValidationTools
 
         if (string.IsNullOrWhiteSpace(title)) issues.Add("title is required");
         if (string.IsNullOrWhiteSpace(description)) issues.Add("description is required");
-        if (!int.TryParse(draft["difficulty"]?.ToString(), out var difficulty) || difficulty is < 1 or > 3) issues.Add("difficulty must be 1..3");
+        if (int.TryParse(draft["rating"]?.ToString(), out var rating) && rating < 0) issues.Add("rating must be non-negative");
 
         if (assignmentType == "code-test")
         {

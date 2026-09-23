@@ -186,7 +186,7 @@ function renderTask(details, index) {
 
   return `
     <article class="task-card">
-      <div class="task-meta">${escapeHtml(task.sectionCode || '')}${task.type ? ` · ${escapeHtml(task.type)}` : ''}${task.difficulty ? ` · сложность ${escapeHtml(task.difficulty)}` : ''}</div>
+      <div class="task-meta">${escapeHtml(task.sectionCode || '')}${task.type ? ` · ${escapeHtml(task.type)}` : ''}</div>
       <h3>${index}. ${escapeHtml(task.title || 'Задание')}</h3>
       ${task.prompt ? `<p class="task-prompt">${escapeHtml(task.prompt)}</p>` : ''}
       ${extra ? `<p class="task-extra">${escapeHtml(extra)}</p>` : ''}

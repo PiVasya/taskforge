@@ -178,7 +178,6 @@ export default function QuizTasksPage() {
                       className={`w-full rounded-3xl border p-4 text-left transition ${active ? 'border-brand-400 bg-brand-50 dark:bg-brand-900/20' : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-brand-300'}`}
                     >
                       <div className="font-semibold">{task.title}</div>
-                      <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Сложность: {task.difficulty}</div>
                     </button>
                   );
                 })}

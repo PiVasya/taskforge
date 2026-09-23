@@ -275,7 +275,6 @@ internal static partial class SolutionsApiEndpoints
                     courseId = meta?.CourseId,
                     courseTitle = meta?.CourseTitle,
                     type = g.Any(x => x.Kind == "image") ? "image" : "code",
-                    difficulty = 0,
                     rating = meta?.Rating ?? 0,
                     attempts = total,
                     passed,

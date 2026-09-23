@@ -50,7 +50,7 @@ public sealed class CourseContextTools
         });
     }
 
-    [Description("Analyze the selected course for educational gaps, sudden difficulty jumps, weak test coverage and missing bridge tasks. Returns a structured audit skeleton based on backend payload.")]
+    [Description("Analyze the selected course for educational gaps, sudden rating jumps, weak test coverage and missing bridge tasks. Returns a structured audit skeleton based on backend payload.")]
     public Task<JsonObject> AnalyzeCourseGapAsync([Description("Target topic/concept to inspect. Leave empty for whole course audit.")] string? targetConcept = null)
     {
         var job = _contextAccessor.Current.Job;
@@ -59,7 +59,7 @@ public sealed class CourseContextTools
             ["selectedCourseId"] = job.CourseId?.ToString(),
             ["targetConcept"] = targetConcept,
             ["auditMode"] = string.IsNullOrWhiteSpace(targetConcept) ? "whole_course" : "targeted_concept",
-            ["checks"] = new JsonArray("sequence", "difficulty_jumps", "missing_bridge_tasks", "weak_tests", "style_consistency"),
+            ["checks"] = new JsonArray("sequence", "rating_jumps", "missing_bridge_tasks", "weak_tests", "style_consistency"),
             ["recommendation"] = "Use CourseAuditWorkflow for final findings; this tool only exposes structured context to the coordinator."
         };
         return Task.FromResult(artifact);
@@ -83,7 +83,7 @@ public sealed class CourseContextTools
                     ["courseId"] = element.GetStringOrNull("courseId"),
                     ["title"] = title,
                     ["type"] = element.GetStringOrNull("type", "assignmentType"),
-                    ["difficulty"] = element.GetStringOrNull("difficulty"),
+                    ["rating"] = element.GetStringOrNull("rating"),
                     ["tags"] = tags,
                     ["descriptionPreview"] = description is { Length: > 300 } ? description[..300] : description
                 });

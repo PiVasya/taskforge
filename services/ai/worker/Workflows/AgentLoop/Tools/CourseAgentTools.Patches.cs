@@ -9,7 +9,7 @@ public static partial class CourseAgentTools
         var operation = Normalize(args["operation"]?.ToString() ?? "rerate_assignments");
         var field = Normalize(args["field"]?.ToString() ?? "rating");
         if (operation.Contains("rating")) field = "rating";
-        if (field is not "rating" and not "difficulty" and not "title" and not "description" and not "tags" and not "language" and not "type" and not "isvisible")
+        if (field is not "rating" and not "title" and not "description" and not "tags" and not "language" and not "type" and not "isvisible")
         {
             return new JsonObject
             {
@@ -47,22 +47,6 @@ public static partial class CourseAgentTools
                     oldRating.HasValue ? JsonValue.Create(oldRating.Value) : null,
                     JsonValue.Create(newRating.Value),
                     node["reason"]?.ToString() ?? "Рейтинг рассчитан по сложности задания и месту в курсе.",
-                    node));
-            }
-            else if (field == "difficulty")
-            {
-                var oldDifficulty = GetIntNode(node["oldDifficulty"]);
-                var newDifficulty = GetIntNode(node["estimatedDifficulty"]);
-                if (!newDifficulty.HasValue) continue;
-                if (oldDifficulty.HasValue && oldDifficulty.Value == newDifficulty.Value) continue;
-                patches.Add(BuildAssignmentPatch(
-                    courseId,
-                    assignmentId,
-                    title,
-                    field,
-                    oldDifficulty.HasValue ? JsonValue.Create(oldDifficulty.Value) : null,
-                    JsonValue.Create(newDifficulty.Value),
-                    node["reason"]?.ToString() ?? "Сложность рассчитана по типу задания, понятиям и тестам.",
                     node));
             }
         }
@@ -125,7 +109,7 @@ public static partial class CourseAgentTools
                 foreach (var change in changes.OfType<JsonObject>())
                 {
                     var field = Normalize(change["field"]?.ToString() ?? string.Empty);
-                    if (field is not "rating" and not "difficulty" and not "title" and not "description" and not "tags" and not "language" and not "type" and not "isvisible")
+                    if (field is not "rating" and not "title" and not "description" and not "tags" and not "language" and not "type" and not "isvisible")
                         issues.Add($"{patch["title"]}: запрещённое поле {field}.");
                 }
             }

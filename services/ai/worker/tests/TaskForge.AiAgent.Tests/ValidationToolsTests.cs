@@ -16,7 +16,6 @@ public sealed class ValidationToolsTests
             ["assignmentType"] = "code-test",
             ["title"] = "Echo empty line",
             ["description"] = "Формат ввода: одна строка. Формат вывода: одна строка.",
-            ["difficulty"] = 1,
             ["referenceSolution"] = "using System; class Program { static void Main() => Console.WriteLine(Console.ReadLine()); }",
             ["publicTests"] = new JsonArray
             {

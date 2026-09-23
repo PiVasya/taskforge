@@ -161,7 +161,6 @@ internal static class AiApiMappingService
                     case "type": body["type"] = value; break;
                     case "language": body["language"] = value; break;
                     case "tags": body["tags"] = value; break;
-                    case "difficulty": body["difficulty"] = value; break;
                     case "rating": body["rating"] = value; break;
                     case "starterCode": body["starterCode"] = value; break;
                     case "isVisible":

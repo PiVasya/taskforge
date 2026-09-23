@@ -377,7 +377,7 @@ export default function AdminAnalyticsPage() {
                 <RankedTable
                   rows={data.assignments?.topAssignments || []}
                   columns={[
-                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type} · diff {row.difficulty} · rating {row.rating}</div></div> },
+                    { key: 'title', label: 'Задание', render: (row) => <div><div className="font-medium">{row.title}</div><div className="text-xs text-neutral-500 dark:text-neutral-300">{row.type} · rating {row.rating}</div></div> },
                     { key: 'attempts', label: 'Попыток', render: (row) => formatNumber(row.attempts) },
                     { key: 'passed', label: 'Успешных', render: (row) => formatNumber(row.passed) },
                     { key: 'successRate', label: 'Успешность', render: (row) => formatPercent(row.successRate) },

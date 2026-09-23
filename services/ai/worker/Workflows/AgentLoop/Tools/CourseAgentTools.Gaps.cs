@@ -41,10 +41,9 @@ public static partial class CourseAgentTools
             if (previous is not null)
             {
                 var ratingJump = current.Rating.GetValueOrDefault(previous.Rating ?? 0) - previous.Rating.GetValueOrDefault(current.Rating ?? 0);
-                var difficultyJump = current.Difficulty.GetValueOrDefault(previous.Difficulty ?? 0) - previous.Difficulty.GetValueOrDefault(current.Difficulty ?? 0);
-                if (ratingJump >= 25 || difficultyJump >= 2)
+                if (ratingJump >= 25)
                 {
-                    findings.Add(Finding("high", "Резкий скачок сложности", current.Title, $"Предыдущее задание: {previous.Title}. Скачок rating={ratingJump}, difficulty={difficultyJump}.", "Добавить 1-3 bridge tasks между заданиями, чтобы ввести недостающий навык отдельно."));
+                    findings.Add(Finding("high", "Резкий скачок сложности", current.Title, $"Предыдущее задание: {previous.Title}. Скачок rating={ratingJump}.", "Добавить 1-3 bridge tasks между заданиями, чтобы ввести недостающий навык отдельно."));
                 }
             }
 
@@ -96,7 +95,6 @@ public static partial class CourseAgentTools
             ["title"] = x.Title,
             ["type"] = x.Type,
             ["language"] = x.Language,
-            ["difficulty"] = x.Difficulty,
             ["rating"] = x.Rating,
             ["tags"] = new JsonArray(x.Tags.Select(t => JsonValue.Create(t)).ToArray<JsonNode?>()),
             ["publicTests"] = x.PublicTestCount,
@@ -148,10 +146,9 @@ public static partial class CourseAgentTools
                 _ => 12
             };
             var typeScore = item.Type.Contains("code", StringComparison.OrdinalIgnoreCase) ? 10 : item.Type.Contains("math", StringComparison.OrdinalIgnoreCase) ? 8 : 5;
-            var declaredDifficultyScore = (item.Difficulty ?? 1) * 12;
-            var totalScore = typeScore + declaredDifficultyScore + conceptScore + textScore + System.Math.Min(20, testCount * 2) + (item.HasReferenceSolution ? 4 : 0);
-            var estimatedDifficulty = totalScore >= 68 ? 3 : totalScore >= 42 ? 2 : 1;
-            var suggestedRating = System.Math.Max(1, RoundToNearest5(item.Index * 10 + (estimatedDifficulty - 1) * 15 + concepts.Count * 3 + System.Math.Min(10, testCount)));
+            var totalScore = typeScore + conceptScore + textScore + System.Math.Min(20, testCount * 2) + (item.HasReferenceSolution ? 4 : 0);
+            var complexityLevel = totalScore >= 45 ? 3 : totalScore >= 25 ? 2 : 1;
+            var suggestedRating = System.Math.Max(1, RoundToNearest5(item.Index * 10 + (complexityLevel - 1) * 15 + concepts.Count * 3 + System.Math.Min(10, testCount)));
             var confidence = string.IsNullOrWhiteSpace(item.Description) ? "low" : item.HiddenTestCount == 0 || string.IsNullOrWhiteSpace(item.Id) ? "medium" : "high";
 
             items.Add(new JsonObject
@@ -162,13 +159,12 @@ public static partial class CourseAgentTools
                 ["type"] = item.Type,
                 ["language"] = item.Language,
                 ["oldRating"] = item.Rating,
-                ["oldDifficulty"] = item.Difficulty,
-                ["estimatedDifficulty"] = estimatedDifficulty,
+                ["complexityLevel"] = complexityLevel,
                 ["suggestedRating"] = suggestedRating,
                 ["score"] = totalScore,
                 ["confidence"] = confidence,
                 ["concepts"] = new JsonArray(concepts.Select(x => JsonValue.Create(x)).ToArray<JsonNode?>()),
-                ["reason"] = BuildComplexityReason(item, concepts, estimatedDifficulty, totalScore)
+                ["reason"] = BuildComplexityReason(item, concepts, complexityLevel, totalScore)
             });
         }
 
@@ -176,7 +172,7 @@ public static partial class CourseAgentTools
         {
             ["assignmentCount"] = assignments.Count,
             ["items"] = items,
-            ["summary"] = $"Оценена сложность заданий: {assignments.Count}. Рейтинг предлагается по порядку курса, заявленной сложности, понятиям, тестам и объёму условия."
+            ["summary"] = $"Оценена сложность заданий: {assignments.Count}. Рейтинг предлагается по порядку курса, понятиям, тестам и объёму условия."
         };
         state.WorkingMemory["assignmentComplexityReport"] = report.DeepClone();
         state.Notes.Add($"Assignment complexity analyzed for {assignments.Count} assignments.");

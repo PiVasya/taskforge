@@ -17,7 +17,7 @@ dotnet test services/ai/worker/tests/TaskForge.AiAgent.Tests/TaskForge.AiAgent.T
 5. Если валидатор отклонил черновик, он не должен сохраняться как скрытое задание.
 6. Правки курса должны возвращаться как `course_edit_proposal` и требовать подтверждения.
 7. Журнал AI должен содержать решения модели, наблюдения и итоговый state.
-8. Массовая переразметка difficulty/rating должна проходить `load_editable_assignments -> map_course_structure -> analyze_assignment_complexity -> propose_assignment_patch_set -> review_patch_set` и не применяться молча.
+8. Массовая переразметка rating должна проходить `load_editable_assignments -> map_course_structure -> analyze_assignment_complexity -> propose_assignment_patch_set -> review_patch_set` и не применяться молча.
 
 ## Smoke prompts
 

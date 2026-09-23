@@ -10,7 +10,6 @@ public sealed class Assignment
     public string Language { get; set; } = "csharp";
     public string? AllowedLanguagesCsv { get; set; }
     public string? Tags { get; set; }
-    public int Difficulty { get; set; } = 1;
     public int Rating { get; set; } = 1;
     public string? StarterCode { get; set; }
     public string? TestsJson { get; set; }

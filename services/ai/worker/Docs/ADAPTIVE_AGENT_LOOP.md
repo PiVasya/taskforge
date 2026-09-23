@@ -22,10 +22,10 @@ The current code exposes exactly these 18 actions:
 - `inspect_context` — normalize the run payload, conversation history, course/focus assignment context and useful memory;
 - `classify_request` — determine intent/scenario, constraints and whether the request needs course context, generation, analysis or mass editing;
 - `load_editable_assignments` — load and normalize all editable assignments available to the current course operation;
-- `map_course_structure` — build the course map: order, types, languages, difficulty/rating and concept timeline;
+- `map_course_structure` — build the course map: order, types, languages, rating and concept timeline;
 - `extract_course_style` — infer the course's naming, descriptions, tags, tests, inline-code and teaching style;
-- `find_learning_gaps` — identify missing bridges, difficulty jumps, weak tests and other course gaps;
-- `analyze_assignment_complexity` — produce per-assignment complexity/reason/confidence data; required before mass rerating/difficulty work;
+- `find_learning_gaps` — identify missing bridges, rating jumps, weak tests and other course gaps;
+- `analyze_assignment_complexity` — produce per-assignment complexity/reason/confidence data; required before mass rerating work;
 - `plan_course_enrichment` — combine request, course map, style and gap report into one working brief;
 - `search_course` — search already loaded course content; accepts a `query` argument;
 - `propose_assignment_patch_set` — produce a bounded patch set with diffs for mass changes such as rating/tag/title updates;
@@ -51,7 +51,7 @@ Before delegation, this state is forwarded as `agentLoopMemory` / `memory.agentL
 - Actions outside the 18-action allowlist are rejected and deterministic fallback is used.
 - Delegation is delayed until `inspect_context` and `classify_request` have run.
 - Course-dependent generation should first build the map/style/brief when those are relevant.
-- Mass rating/difficulty changes must load assignments, map the course, analyze complexity, propose a bounded patch set and run `review_patch_set`.
+- Mass rating changes must load assignments, map the course, analyze complexity, propose a bounded patch set and run `review_patch_set`.
 - `delegate_*` cannot be repeated after a delegated result already exists.
 - `finish` is rejected when a delegated result has not passed `review_delegated_result`.
 - `finish` is rejected when a pending patch set has not passed `review_patch_set`.

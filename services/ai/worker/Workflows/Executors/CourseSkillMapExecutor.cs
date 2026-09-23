@@ -91,7 +91,7 @@ TASKS_ONLY_CONTEXT:
       "introducesSkills": ["..."],
       "mentionsButDoesNotRequire": ["..."],
       "studentHasAfter": ["..."],
-      "difficulty": 1,
+      "complexity": 1,
       "evidence": ["краткие факты из условия/тестов/примеров"],
       "semanticGroup": "короткое имя группы"
     }
@@ -155,7 +155,7 @@ TASKS_ONLY_CONTEXT:
       "requiresSkills": ["..."],
       "introducesSkills": ["..."],
       "studentHasAfter": ["..."],
-      "difficulty": 1,
+      "complexity": 1,
       "evidence": "почему так оценено",
       "isRelevantToRequest": true,
       "mentionOnly": false

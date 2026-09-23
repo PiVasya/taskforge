@@ -35,8 +35,8 @@ internal static partial class QuizTaskEndpoints
 
             var tasks = await query
                 .OrderBy(x => x.SectionCode)
-                .ThenBy(x => x.Difficulty)
                 .ThenBy(x => x.Title)
+                .ThenBy(x => x.Id)
                 .ToListAsync();
 
             var versions = await LoadCurrentVersionsAsync(db, tasks);
@@ -73,7 +73,6 @@ internal static partial class QuizTaskEndpoints
                 SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim(),
                 ExamCode = string.IsNullOrWhiteSpace(req.ExamCode) ? "ct-ce-2026" : req.ExamCode.Trim(),
                 SectionCode = normalizedSectionCode,
-                Difficulty = req.Difficulty <= 0 ? 1 : req.Difficulty,
                 TagsJson = JsonOrDefault(req.Tags, req.TagsJson, "[]"),
                 SourceName = req.SourceName,
                 SourceYear = req.SourceYear,
@@ -118,7 +117,6 @@ internal static partial class QuizTaskEndpoints
             task.SubjectCode = string.IsNullOrWhiteSpace(req.SubjectCode) ? "russian" : req.SubjectCode.Trim();
             task.ExamCode = string.IsNullOrWhiteSpace(req.ExamCode) ? "ct-ce-2026" : req.ExamCode.Trim();
             task.SectionCode = normalizedSectionCode;
-            task.Difficulty = req.Difficulty <= 0 ? 1 : req.Difficulty;
             task.TagsJson = JsonOrDefault(req.Tags, req.TagsJson, "[]");
             task.SourceName = req.SourceName;
             task.SourceYear = req.SourceYear;

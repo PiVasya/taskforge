@@ -6,7 +6,7 @@ Adaptive agent loop теперь поддерживает пакет дейст�
 Ключевые действия по курсу:
 
 - `load_editable_assignments` — нормализует все доступные задания курса для анализа и безопасных правок.
-- `analyze_assignment_complexity` — оценивает сложность каждого задания: порядок в курсе, difficulty, понятия, тесты, объём условия, referenceSolution.
+- `analyze_assignment_complexity` — оценивает сложность каждого задания: порядок в курсе, rating, понятия, тесты, объём условия, referenceSolution.
 - `propose_assignment_patch_set` — готовит patch set для массовых правок, например пересчёт рейтингов.
 - `review_patch_set` — проверяет patch set перед завершением run.
 

@@ -20,7 +20,6 @@ public static partial class CourseAgentTools
         string Title,
         string Type,
         string? Language,
-        int? Difficulty,
         int? Rating,
         List<string> Tags,
         string Description,
@@ -36,7 +35,6 @@ public static partial class CourseAgentTools
         var byType = assignments.GroupBy(x => Normalize(x.Type)).ToDictionary(g => g.Key, g => g.Count());
         var byLanguage = assignments.Where(x => !string.IsNullOrWhiteSpace(x.Language)).GroupBy(x => Normalize(x.Language!)).ToDictionary(g => g.Key, g => g.Count());
         var concepts = BuildConceptTimeline(assignments);
-        var difficultyValues = assignments.Where(x => x.Difficulty.HasValue).Select(x => x.Difficulty!.Value).ToList();
         var ratingValues = assignments.Where(x => x.Rating.HasValue).Select(x => x.Rating!.Value).ToList();
 
         var map = new JsonObject
@@ -45,7 +43,6 @@ public static partial class CourseAgentTools
             ["sources"] = ToCountObject(assignments.GroupBy(x => x.Source).ToDictionary(g => g.Key, g => g.Count())),
             ["types"] = ToCountObject(byType),
             ["languages"] = ToCountObject(byLanguage),
-            ["difficulty"] = BuildNumberStats(difficultyValues),
             ["rating"] = BuildNumberStats(ratingValues),
             ["firstAssignments"] = new JsonArray(assignments.Take(8).Select(x => ToSnapshotJson(x)).ToArray<JsonNode?>()),
             ["lastAssignments"] = new JsonArray(assignments.TakeLast(8).Select(x => ToSnapshotJson(x)).ToArray<JsonNode?>()),

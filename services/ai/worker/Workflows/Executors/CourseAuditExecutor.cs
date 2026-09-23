@@ -32,7 +32,7 @@ public sealed class CourseAuditExecutor
 {
   "summary": "...",
   "findings": [{"severity":"low|medium|high","title":"...","evidence":"...","recommendation":"..."}],
-  "suggestedTasks": [{"title":"...","reason":"...","difficulty":1}],
+  "suggestedTasks": [{"title":"...","reason":"...","rating":10}],
   "courseId": "..."
 }
 

@@ -149,7 +149,6 @@ internal static partial class AssignmentApiEndpoints
                     Language = assignment.Language,
                     Title = assignment.Title,
                     Type = assignment.Type,
-                    Difficulty = assignment.Difficulty,
                     Rating = assignment.Rating,
                     Passed = attempt.Passed,
                     ScorePercent = attempt.ScorePercent,
@@ -182,7 +181,6 @@ internal static partial class AssignmentApiEndpoints
                     title = string.IsNullOrWhiteSpace(first.Title) ? "Задание без названия" : first.Title,
                     courseId = first.CourseId,
                     type = first.Kind,
-                    difficulty = first.Difficulty,
                     rating = first.Rating,
                     attempts = total,
                     passed,
@@ -259,7 +257,6 @@ internal static partial class AssignmentApiEndpoints
         public string Language { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
-        public int Difficulty { get; set; }
         public int Rating { get; set; }
         public bool Passed { get; set; }
         public int ScorePercent { get; set; }

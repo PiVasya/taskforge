@@ -53,7 +53,7 @@ dotnet run --project services/ai/worker/TaskForge.AiAgent.csproj
 - `map_course_structure` — построить карту курса: порядок, типы, языки, сложность, rating и timeline понятий;
 - `extract_course_style` — извлечь стиль существующих заданий: названия, описания, тесты, теги, язык;
 - `find_learning_gaps` — найти пробелы, скачки сложности, слабые тесты и места для bridge tasks;
-- `analyze_assignment_complexity` — оценить сложность каждого задания перед массовой переразметкой difficulty/rating;
+- `analyze_assignment_complexity` — оценить сложность каждого задания перед массовой переразметкой rating;
 - `plan_course_enrichment` — собрать единый brief для генерации/правок курса;
 - `search_course` — найти релевантные задания в уже загруженном контексте курса;
 - `propose_assignment_patch_set` — подготовить ограниченный patch set с diff и причинами;

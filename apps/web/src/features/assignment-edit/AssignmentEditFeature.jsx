@@ -57,7 +57,6 @@ export default function AssignmentEditPage() {
   const [description, setDescription] = useState("");
   const [type, setType] = useState("code-test");
   const [tags, setTags] = useState("");
-  const [difficulty, setDifficulty] = useState(1);
   const [rating, setRating] = useState(1);
   const [isHidden, setIsHidden] = useState(false);
   const [isAiDraft, setIsAiDraft] = useState(false);
@@ -200,7 +199,6 @@ export default function AssignmentEditPage() {
     setType(assignment.type || 'code-test');
     setAllowedLanguages(Array.isArray(assignment.allowedLanguages) ? assignment.allowedLanguages : []);
     setTags(assignment.tags || '');
-    setDifficulty(Number(assignment.difficulty || 1));
     setRating(typeof assignment.rating === 'number' ? assignment.rating : Number(assignment.rating || 1));
     setIsHidden(Boolean(assignment.isHidden));
     setIsAiDraft(Boolean(assignment.isAiDraft));
@@ -284,7 +282,6 @@ export default function AssignmentEditPage() {
     if (normalizedTitle.length > 200) issues.push('Название не должно быть длиннее 200 символов.');
     if (!plainDescription) issues.push('Заполни условие задания.');
     if (!['code-test', 'image-test', 'test', 'math', 'sql-test'].includes(normalizedType)) issues.push('Выбран неподдерживаемый тип задания.');
-    if (![1, 2, 3].includes(Number(difficulty))) issues.push('Сложность должна быть 1, 2 или 3.');
     if (!Number.isFinite(Number(rating)) || Number(rating) < 0) issues.push('Рейтинг должен быть целым числом не меньше 0.');
 
     if (normalizedType === 'code-test') {
@@ -407,7 +404,7 @@ export default function AssignmentEditPage() {
     }
 
     return [...new Set(issues)];
-  }, [title, description, type, difficulty, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings]);
+  }, [title, description, type, rating, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings]);
 
   const sectionNav = useMemo(() => {
     const items = [
@@ -432,7 +429,7 @@ export default function AssignmentEditPage() {
       setErr('');
     }
   
-  }, [title, description, type, difficulty, rating, starterCode, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings, saveIssues.length]);
+  }, [title, description, type, rating, starterCode, testCases, imageTestReferenceKey, imageTestThreshold, testQuestions, testSettings, mathBlocks, mathSettings, analyticsSettings, saveIssues.length]);
 
   const addTest = () =>
     setTestCases((prev) => [
@@ -472,7 +469,6 @@ export default function AssignmentEditPage() {
         type: (type || "code-test").trim(),
         allowedLanguages: (LANGS_BY_TYPE[(type || "").trim()] && Array.isArray(allowedLanguages) && allowedLanguages.length > 0) ? allowedLanguages : null,
         tags: (tags || "").trim(),
-        difficulty: Number(difficulty) || 1,
         rating: Number(rating) >= 0 ? Number(rating) : 1,
         isHidden,
         isAiDraft,
@@ -798,16 +794,6 @@ export default function AssignmentEditPage() {
               </div>
             )}
 
-            <Field label="Сложность">
-              <Select
-                value={difficulty}
-                onChange={(e) => setDifficulty(Number(e.target.value))}
-              >
-                <option value={1}>легко</option>
-                <option value={2}>средне</option>
-                <option value={3}>сложно</option>
-              </Select>
-            </Field>
 
             <Field label="Рейтинг">
               <Input
