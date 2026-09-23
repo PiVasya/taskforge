@@ -41,7 +41,7 @@ import {
   UserCog,
 } from 'lucide-react';
 
-const baseRoles = ['User', 'Editor', 'Admin'];
+const baseRoles = ['User', 'Editor', 'Admin', 'SuperAdmin'];
 const activeOperationStatuses = new Set(['queued', 'starting', 'running']);
 
 const formatDate = (value) => {
@@ -111,11 +111,13 @@ export default function AdminUserManagementPage() {
   const [mcRestoring, setMcRestoring] = useState(false);
   const [actionBusy, setActionBusy] = useState('');
 
-  const roleSet = useMemo(() => new Set(form?.featureRoles || form?.roles || []), [form]);
+  const roleSet = useMemo(() => new Set(form?.assignedFeatureRoles || []), [form]);
   const isSelf = String(auth?.user?.id || '').toLowerCase() === String(userId || '').toLowerCase();
   const isActive = user?.accountStatus === 'active';
   const activeOperation = operations.find((item) => activeOperationStatuses.has(item.status));
   const activeMinecraftLinks = Array.isArray(minecraftRating?.activeLinks) ? minecraftRating.activeLinks : [];
+  const currentBaseRoleDefinition = featureRoles.find((item) => String(item.code || item.Code || '').toLowerCase() === String(form?.role || '').toLowerCase());
+  const canChangeBaseRole = !!currentBaseRoleDefinition?.canUseAsPrimary;
 
   const load = useCallback(async () => {
     try {
@@ -139,7 +141,7 @@ export default function AdminUserManagementPage() {
       setForm({
         login: userDto?.login || '', email: userDto?.email || '', firstName: userDto?.firstName || '', lastName: userDto?.lastName || '',
         phoneNumber: userDto?.phoneNumber || '', profilePictureUrl: userDto?.profilePictureUrl || '', bio: userDto?.bio || '', role: userDto?.role || 'User', accountType: userDto?.accountType || 'human',
-        roles: userDto?.roles || [], featureRoles: userDto?.featureRoles || [],
+        roles: userDto?.roles || [], featureRoles: userDto?.featureRoles || [], assignedFeatureRoles: userDto?.assignedFeatureRoles || [], baseRole: userDto?.baseRole || userDto?.role || 'User',
       });
       setRating(ratingDto || null);
       setGroups(Array.isArray(allGroups) ? allGroups : []);
@@ -199,9 +201,10 @@ export default function AdminUserManagementPage() {
   };
 
   const toggleFeatureRole = async (role) => {
+    if (!role?.canAssign) return;
     const code = role.code || role.Code || role.title || role.name;
     if (!code) return;
-    const enabled = roleSet.has(code);
+    const enabled = roleSet.has(code) || String(form?.baseRole || '').toLowerCase() === String(code).toLowerCase();
     await runAction(`role-${code}`, () => enabled ? removeFeatureRole(userId, code) : assignFeatureRole(userId, code), enabled ? 'Роль снята' : 'Роль выдана', 'Не удалось изменить дополнительную роль');
   };
 
@@ -294,7 +297,7 @@ export default function AdminUserManagementPage() {
           {form ? <div className="grid grid-cols-1 gap-3 md:grid-cols-2 sm:gap-4">
             <Field label="Логин"><Input disabled={!isActive} value={form.login || ''} onChange={(e) => updateForm({ login: e.target.value })} /></Field>
             <Field label="Email"><Input disabled={!isActive} value={form.email || ''} onChange={(e) => updateForm({ email: e.target.value })} /></Field>
-            <Field label="Базовая роль"><Select disabled={!isActive} value={form.role || 'User'} onChange={(e) => updateForm({ role: e.target.value })}>{baseRoles.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+            <Field label="Базовая роль"><Select disabled={!isActive || !canChangeBaseRole} value={form.role || 'User'} onChange={(e) => updateForm({ role: e.target.value })}>{baseRoles.map((x) => { const definition = featureRoles.find((item) => String(item.code || item.Code || '').toLowerCase() === x.toLowerCase()); return <option key={x} value={x} disabled={x !== form.role && !definition?.canUseAsPrimary}>{x}</option>; })}</Select></Field>
             <Field label="Тип аккаунта"><Select disabled={!isActive} value={form.accountType || 'human'} onChange={(e) => updateForm({ accountType: e.target.value })}><option value="human">Человек</option><option value="ai">AI</option></Select></Field>
             <Field label="Телефон"><Input disabled={!isActive} value={form.phoneNumber || ''} onChange={(e) => updateForm({ phoneNumber: e.target.value })} /></Field>
             <Field label="Имя"><Input disabled={!isActive} value={form.firstName || ''} onChange={(e) => updateForm({ firstName: e.target.value })} /></Field>
@@ -348,7 +351,7 @@ export default function AdminUserManagementPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 sm:gap-6">
         <Card><div className="mb-3 font-semibold">Группы</div><div className="max-h-[420px] space-y-2 overflow-auto pr-1">{groups.length ? groups.map((group) => { const enabled = groupIds.has(String(group.id).toLowerCase()); return <label key={group.id} className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[rgb(var(--border))] p-3 hover:bg-white/5"><span><span className="block font-medium">{group.name || group.code || group.id}</span><span className="mt-1 block text-xs text-neutral-500">{group.code || group.description || group.id}</span></span><input type="checkbox" disabled={!isActive || !!activeOperation} checked={enabled} onChange={() => toggleGroup(group)} /></label>; }) : <div className="text-sm text-neutral-500">Групп нет.</div>}</div></Card>
-        <Card><div className="mb-3 font-semibold">Дополнительные роли</div><div className="max-h-[420px] space-y-2 overflow-auto pr-1">{featureRoles.length ? featureRoles.map((role) => { const code = role.code || role.Code || role.title || role.name; const enabled = roleSet.has(code); return <label key={role.id || code} className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[rgb(var(--border))] p-3 hover:bg-white/5"><span><span className="block font-medium">{role.title || role.name || code}</span><span className="mt-1 block text-xs text-neutral-500">{code}</span></span><input type="checkbox" disabled={!isActive || !!activeOperation} checked={enabled} onChange={() => toggleFeatureRole(role)} /></label>; }) : <div className="text-sm text-neutral-500">Дополнительных ролей нет.</div>}</div></Card>
+        <Card><div className="mb-3 font-semibold">Дополнительные роли</div><div className="max-h-[420px] space-y-2 overflow-auto pr-1">{featureRoles.length ? featureRoles.map((role) => { const code = role.code || role.Code || role.title || role.name; const enabled = roleSet.has(code) || String(form?.baseRole || '').toLowerCase() === String(code || '').toLowerCase(); return <label key={role.id || code} className={`flex items-start justify-between gap-3 rounded-2xl border border-[rgb(var(--border))] p-3 ${role.canAssign ? 'cursor-pointer hover:bg-white/5' : 'cursor-not-allowed opacity-60'}`}><span><span className="block font-medium">{role.title || role.name || code}</span><span className="mt-1 block text-xs text-neutral-500">{code}{role.canAssign ? '' : ' · выше или равна вашей роли'}</span></span><input type="checkbox" disabled={!isActive || !!activeOperation || !role.canAssign} checked={enabled} onChange={() => toggleFeatureRole(role)} /></label>; }) : <div className="text-sm text-neutral-500">Дополнительных ролей нет.</div>}</div></Card>
       </div>
 
       <Card>

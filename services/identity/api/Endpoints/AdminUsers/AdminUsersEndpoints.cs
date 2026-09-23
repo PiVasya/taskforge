@@ -90,7 +90,7 @@ internal static partial class IdentityApiEndpoints
                 {
                     total,
                     shown = rows.Count,
-                    admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase)),
+                    admins = rows.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase)),
                     aiAccounts = rows.Count(x => string.Equals(x.AccountType, "ai", StringComparison.OrdinalIgnoreCase)),
                     humanAccounts = rows.Count(x => !string.Equals(x.AccountType, "ai", StringComparison.OrdinalIgnoreCase)),
                     telegramLinked = rows.Count(x => x.TelegramChatId.HasValue),
@@ -102,7 +102,7 @@ internal static partial class IdentityApiEndpoints
             });
         });
 
-        app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, AdminUserUpdateRequest request, IdentityDbContext db, CancellationToken ct) =>
+        app.MapPut("/api/admin/users/{userId:guid}", async (Guid userId, HttpContext http, AdminUserUpdateRequest request, IdentityDbContext db, CancellationToken ct) =>
         {
             var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
             if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
@@ -132,7 +132,23 @@ internal static partial class IdentityApiEndpoints
                     return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Описание профиля не может быть длиннее 4000 символов.", code = "BIO_TOO_LONG" });
                 user.AdditionalDataJson = UpdatePublicProfileBio(user.AdditionalDataJson, request.Bio);
             }
-            if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = NormalizeRole(request.Role);
+            if (!string.IsNullOrWhiteSpace(request.Role))
+            {
+                var nextRoleCode = NormalizeRole(request.Role);
+                if (!string.Equals(user.Role, nextRoleCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    var actorRole = await ActorRoleAsync(db, http.User, ct);
+                    var currentRole = await db.FeatureRoles.AsNoTracking().FirstOrDefaultAsync(x => x.Code == user.Role, ct);
+                    var nextRole = await db.FeatureRoles.AsNoTracking().FirstOrDefaultAsync(x => x.Code == nextRoleCode && x.IsActive, ct);
+                    if (currentRole == null || nextRole == null || !CanChangePrimaryRole(actorRole, currentRole, nextRole))
+                    {
+                        return Microsoft.AspNetCore.Http.Results.Json(
+                            new { message = "Можно назначать и снимать только базовые роли, стоящие строго ниже вашей.", code = "ROLE_HIERARCHY_FORBIDDEN" },
+                            statusCode: StatusCodes.Status403Forbidden);
+                    }
+                    user.Role = nextRole.Code;
+                }
+            }
             if (request.AccountType != null)
             {
                 if (!TryNormalizeAccountType(request.AccountType, out var accountType)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "accountType должен быть human или ai.", code = "INVALID_ACCOUNT_TYPE" });

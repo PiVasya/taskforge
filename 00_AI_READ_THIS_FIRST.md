@@ -28,8 +28,8 @@ Open this file before changing the project.
 - SQL engine profiles are immutable semantic runtime contracts. Never put the sql-worker executable/build fingerprint back into profile identity. Keep build identity diagnostic-only; compatibility with historical fingerprints must go through the explicit `SqlProfileCompatibility` semantic relation, never engine-name matching or in-place profile rewriting.
 
 - The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
-- The current user-owned migration boundary is frozen at 2026-09-23. Preserve all 96 migration/snapshot files, including the user-generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` pairs and their updated snapshots, plus the protected Domain/Data model files. Do not generate or apply another migration for this runtime update. New schema changes require another explicit user-owned migration boundary; use the existing `scripts/generate-migrations.sh` rather than inventing per-project commands.
-- Do not generate database migrations unless the user explicitly asks for migrations.
+- Preserve all existing migration files and ModelSnapshot files exactly as user-owned history. Database schema changes are allowed and required when the correct design needs them; never introduce application-level workarounds merely to avoid a migration. The AI may change Domain/Data/DbContext models to the correct target schema, but must not hand-write, edit, or generate the EF migration files in this environment. The user generates the migration locally with the repository-owned `scripts/generate-migrations.sh` command after receiving the updated source archive.
+- When a schema change is prepared, state the exact `scripts/generate-migrations.sh <MigrationName> <target>` command the user should run. Do not edit existing migrations or ModelSnapshot files as a substitute for generation.
 - Current logging policy is development mode: Docker images and Compose runtimes must keep `TASKFORGE_BUILD_DEBUG_LOGS=1` / `TASKFORGE_DEBUG_LOGS=1`. Do not disable, quiet, or change these defaults to `0` unless the user explicitly asks to change the logging policy. Preserve this rule whenever editing workflows, Dockerfiles, Compose files, or `.env.example` files.
 - Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.
 - Do not put changelog text, update notes, "what was fixed", or authoring explanations into exported JSON, import examples, API responses, or user-visible UI.
@@ -38,6 +38,15 @@ Open this file before changing the project.
 - Keep admin screens compact. Put documentation and examples behind a small docs/help button.
 - JSON examples must contain only canonical editable fields.
 - Keep legacy import aliases in code only when needed for compatibility; do not advertise them in UI or fresh exports.
+
+## Identity role hierarchy invariants (2026-09)
+
+- Base administrative hierarchy is strict: `SuperAdmin` rank 1000 > `Admin` rank 800 > `Editor` / `LearningEditor` rank 400 > `Minecraft` rank 200 > `User` rank 0. Fresh custom feature roles use rank 100 unless the role model is deliberately redesigned.
+- A role holder may assign, remove, or change only roles whose rank is **strictly lower** than the actor's rank. Equal-rank management is forbidden: Admin cannot grant/remove Admin, and SuperAdmin cannot grant/remove SuperAdmin.
+- `SuperAdmin` inherits the existing Admin authorization surface through JWT role inheritance. Do not fork all existing Admin checks into separate code paths.
+- `SuperAdmin` is a protected system role and is not assignable through the public admin role API or the internal feature-role endpoint. There is no automatic promotion of existing Admin users. The first SuperAdmin is deliberately established by the operator directly in the Identity database by setting `Users.Role = 'SuperAdmin'`, followed by a new login/token.
+- System role definitions are immutable from the role-management UI/API. Administrative roles must never be auto-created by internal feature-role endpoints.
+- Role hierarchy is enforced on the backend even when the frontend disables an action. Any alternate user-edit endpoint that can change `Users.Role` must apply the same strict-lower-rank rule.
 
 ## AI/browser current-state invariants
 

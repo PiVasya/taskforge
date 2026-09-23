@@ -29,6 +29,7 @@ internal static class IdentityApiSerializationService
 
     internal static string NormalizeRole(string? role) => (role ?? "User").Trim() switch
     {
+        "SuperAdmin" => "SuperAdmin",
         "Admin" => "Admin",
         "Editor" => "Editor",
         "LearningEditor" => "LearningEditor",
@@ -38,6 +39,7 @@ internal static class IdentityApiSerializationService
 
     internal static string NormalizeRoleCode(string? role) => (role ?? string.Empty).Trim() switch
     {
+        "superadmin" or "super-admin" or "SuperAdmin" => "SuperAdmin",
         "admin" or "Admin" => "Admin",
         "editor" or "Editor" => "Editor",
         "learning-editor" or "LearningEditor" => "LearningEditor",

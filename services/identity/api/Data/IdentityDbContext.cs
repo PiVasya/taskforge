@@ -90,12 +90,16 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
 
         modelBuilder.Entity<FeatureRole>(entity =>
         {
-            entity.ToTable("FeatureRoles");
+            entity.ToTable("FeatureRoles", table =>
+                table.HasCheckConstraint("CK_FeatureRoles_Rank_NonNegative", "\"Rank\" >= 0"));
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.Code).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Title).HasMaxLength(180).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.Property(x => x.Rank).HasDefaultValue(100).IsRequired();
+            entity.Property(x => x.IsSystem).HasDefaultValue(false).IsRequired();
+            entity.Property(x => x.IsAssignable).HasDefaultValue(true).IsRequired();
         });
 
         modelBuilder.Entity<UserFeatureRole>(entity =>

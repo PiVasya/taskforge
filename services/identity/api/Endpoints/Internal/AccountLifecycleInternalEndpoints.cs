@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TaskForge.Identity.Api.Data;
 using TaskForge.Identity.Api.Domain;
 using TaskForge.Identity.Api.Services.AccountLifecycle;
+using static TaskForge.Identity.Api.Services.Access.IdentityApiAccessService;
 
 namespace TaskForge.Identity.Api.Endpoints;
 
@@ -86,7 +87,7 @@ internal static partial class IdentityApiEndpoints
             if (user == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
             if (!string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new { message = "Аккаунт уже удалён или объединён.", code = "ACCOUNT_NOT_ACTIVE" });
-            if (string.Equals(user.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+            if (IsAdminLevelRole(user.Role))
                 return Results.BadRequest(new { message = "Администраторский аккаунт нельзя заблокировать через менеджер дублей.", code = "ADMIN_ACCOUNT_PROTECTED" });
 
             var now = DateTimeOffset.UtcNow;
@@ -155,7 +156,7 @@ internal static partial class IdentityApiEndpoints
             if (source == null || target == null) return Results.NotFound(new { message = "Один из аккаунтов не найден.", code = "USER_NOT_FOUND" });
             if (!string.Equals(source.AccountStatus, "active", StringComparison.OrdinalIgnoreCase) || !string.Equals(target.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new { message = "Объединять можно только активные аккаунты.", code = "ACCOUNT_NOT_ACTIVE" });
-            if (string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(target.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+            if (IsAdminLevelRole(source.Role) || IsAdminLevelRole(target.Role))
                 return Results.BadRequest(new { message = "Администраторские аккаунты защищены от объединения.", code = "ADMIN_ACCOUNT_PROTECTED" });
 
             await UpsertLifecycleBlockAsync(db, source.Id, request.ActorUserId, "merge-in-progress", request.Reason, ct);
@@ -175,7 +176,7 @@ internal static partial class IdentityApiEndpoints
             if (source == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
             if (!string.Equals(source.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new { message = "Аккаунт уже удалён или объединён.", code = "ACCOUNT_NOT_ACTIVE" });
-            if (string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+            if (IsAdminLevelRole(source.Role))
                 return Results.BadRequest(new { message = "Администраторский аккаунт защищён от удаления.", code = "ADMIN_ACCOUNT_PROTECTED" });
 
             await UpsertLifecycleBlockAsync(db, source.Id, request.ActorUserId, "deletion-in-progress", request.Reason, ct);
@@ -384,6 +385,7 @@ internal static partial class IdentityApiEndpoints
 
     private static int RoleRank(string? role) => role?.Trim().ToLowerInvariant() switch
     {
+        "superadmin" => 5,
         "admin" => 4,
         "editor" or "learningeditor" => 3,
         "teacher" => 2,

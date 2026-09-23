@@ -52,9 +52,10 @@ internal static partial class IdentityApiEndpoints
         {
             var code = NormalizeRoleCode(request.Code);
             if (string.IsNullOrWhiteSpace(code)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Role code is required." });
+            if (code is "Admin" or "SuperAdmin") return Microsoft.AspNetCore.Http.Results.Json(new { message = "Administrative roles cannot be assigned through the internal feature-role endpoint.", code = "ADMIN_ROLE_INTERNAL_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, ct);
             if (user == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "User not found." });
-            if (!await db.FeatureRoles.AnyAsync(x => x.Code == code, ct)) db.FeatureRoles.Add(new FeatureRole { Code = code, Title = code, IsActive = true });
+            if (!await db.FeatureRoles.AnyAsync(x => x.Code == code, ct)) db.FeatureRoles.Add(new FeatureRole { Code = code, Title = code, Rank = CustomRoleRank, IsSystem = false, IsAssignable = true, IsActive = true });
             if (!await db.UserFeatureRoles.AnyAsync(x => x.UserId == userId && x.Code == code, ct)) db.UserFeatureRoles.Add(new UserFeatureRole { UserId = userId, Code = code });
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { userId, code });
@@ -64,6 +65,7 @@ internal static partial class IdentityApiEndpoints
         {
             var normalized = NormalizeRoleCode(code);
             if (string.IsNullOrWhiteSpace(normalized)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Role code is required." });
+            if (normalized is "Admin" or "SuperAdmin") return Microsoft.AspNetCore.Http.Results.Json(new { message = "Administrative roles cannot be removed through the internal feature-role endpoint.", code = "ADMIN_ROLE_INTERNAL_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             var rows = await db.UserFeatureRoles.Where(x => x.UserId == userId && x.Code == normalized).ToListAsync(ct);
             if (rows.Count > 0) db.UserFeatureRoles.RemoveRange(rows);
             await db.SaveChangesAsync(ct);

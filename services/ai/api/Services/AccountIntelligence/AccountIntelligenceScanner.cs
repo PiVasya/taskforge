@@ -51,7 +51,7 @@ internal sealed class AccountIntelligenceScanner(
             await db.SaveChangesAsync(ct);
 
             var accounts = bundle.Accounts
-                .Where(x => !string.Equals(x.Identity.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+                .Where(x => !string.Equals(x.Identity.Role, "Admin", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Identity.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.Identity.CreatedAt)
                 .ToList();
             var pairs = BuildCandidatePairs(accounts);

@@ -39,10 +39,16 @@ internal static class IdentityApiMappingService
         fullName = DisplayName(user),
         displayName = DisplayName(user),
         user.Role,
+        baseRole = user.Role,
         user.AccountType,
         isAi = string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase),
         roles = MergeRoles(user.Role, featureRoles),
         featureRoles = MergeRoles(user.Role, featureRoles),
+        assignedFeatureRoles = (featureRoles ?? Array.Empty<string>())
+            .Select(NormalizeRoleCode)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray(),
         user.CreatedAt,
         user.LastLoginAt,
         user.AccountStatus,

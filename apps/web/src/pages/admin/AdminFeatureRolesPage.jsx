@@ -75,7 +75,7 @@ export default function AdminFeatureRolesPage() {
     try {
       await createFeatureRole({
         code: (form.code || '').trim(),
-        name: (form.name || '').trim(),
+        title: (form.name || '').trim(),
         description: (form.description || '').trim() || null,
         isActive: !!form.isActive,
       });
@@ -92,10 +92,11 @@ export default function AdminFeatureRolesPage() {
   };
 
   const saveExisting = async (role) => {
+    if (!role?.canManageDefinition) return;
     try {
       await updateFeatureRole(role.id, {
         code: (role.code || '').trim(),
-        name: (role.name || '').trim(),
+        title: (role.name || '').trim(),
         description: (role.description || '').trim() || null,
         isActive: !!role.isActive,
       });
@@ -109,6 +110,7 @@ export default function AdminFeatureRolesPage() {
   };
 
   const removeRoleDef = async (role) => {
+    if (!role?.canManageDefinition) return;
     const ok = await notify.confirm({ title: 'Удалить роль?', message: `Роль ${role.code} будет удалена у всех пользователей.`, okText: 'Удалить', cancelText: 'Отмена' });
     if (!ok) return;
     try {
@@ -123,7 +125,9 @@ export default function AdminFeatureRolesPage() {
     }
   };
 
-  const toggleRole = async (user, roleCode, enabled) => {
+  const toggleRole = async (user, role, enabled) => {
+    if (!role?.canAssign) return;
+    const roleCode = role.code;
     try {
       if (enabled) await removeFeatureRole(user.id, roleCode);
       else await assignFeatureRole(user.id, roleCode);
@@ -207,15 +211,19 @@ export default function AdminFeatureRolesPage() {
             {filteredRoles.map((role) => (
               <Card key={role.id} onContextMenuCapture={(event) => openRoleContextMenu(event, role)} onFocusCapture={() => setActiveRoleId(String(role.id))} onPointerDownCapture={() => setActiveRoleId(String(role.id))}>
                 <div className="grid md:grid-cols-2 gap-4">
-                  <Field label="Code"><Input value={role.code || ''} onChange={(e) => updateLocalRole(role.id, { code: e.target.value })} /></Field>
-                  <Field label="Name"><Input value={role.name || ''} onChange={(e) => updateLocalRole(role.id, { name: e.target.value })} /></Field>
-                  <div className="md:col-span-2"><Field label="Описание"><Textarea rows={2} value={role.description || ''} onChange={(e) => updateLocalRole(role.id, { description: e.target.value })} /></Field></div>
-                  <Field label="Активна"><label className="flex items-center gap-2 mt-2"><input type="checkbox" checked={!!role.isActive} onChange={(e) => updateLocalRole(role.id, { isActive: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
+                  <Field label="Code"><Input disabled={!role.canManageDefinition} value={role.code || ''} onChange={(e) => updateLocalRole(role.id, { code: e.target.value })} /></Field>
+                  <Field label="Name"><Input disabled={!role.canManageDefinition} value={role.name || ''} onChange={(e) => updateLocalRole(role.id, { name: e.target.value })} /></Field>
+                  <div className="md:col-span-2"><Field label="Описание"><Textarea disabled={!role.canManageDefinition} rows={2} value={role.description || ''} onChange={(e) => updateLocalRole(role.id, { description: e.target.value })} /></Field></div>
+                  <Field label="Активна"><label className="flex items-center gap-2 mt-2"><input type="checkbox" disabled={!role.canManageDefinition} checked={!!role.isActive} onChange={(e) => updateLocalRole(role.id, { isActive: e.target.checked })} /><span className="text-sm">Да</span></label></Field>
                   <Field label="Назначений"><div className="mt-2"><Badge intent="secondary">{role.membersCount ?? 0}</Badge></div></Field>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-4">
-                  <Button onClick={() => saveExisting(role)} title="Сохранить (Ctrl+S)"><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
-                  <Button variant="outline" onClick={() => removeRoleDef(role)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
+                  {role.canManageDefinition ? (
+                    <>
+                      <Button onClick={() => saveExisting(role)} title="Сохранить (Ctrl+S)"><Save size={16} /> <span className="ml-1">Сохранить</span></Button>
+                      <Button variant="outline" onClick={() => removeRoleDef(role)}><Trash2 size={16} /> <span className="ml-1">Удалить</span></Button>
+                    </>
+                  ) : <Badge intent="secondary">Системная роль · уровень {role.rank}</Badge>}
                 </div>
               </Card>
             ))}
@@ -240,14 +248,15 @@ export default function AdminFeatureRolesPage() {
 
                   <div className="flex flex-wrap gap-2">
                     {roles.map((role) => {
-                      const enabled = (user.featureRoles || []).includes(role.code);
+                      const enabled = (user.assignedFeatureRoles || []).includes(role.code) || String(user.baseRole || user.role || '').toLowerCase() === String(role.code || '').toLowerCase();
                       return (
                         <button
                           key={`${user.id}-${role.code}`}
                           type="button"
                           className={`px-3 py-2 rounded-xl border text-sm transition ${enabled ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-neutral-200/60 dark:border-neutral-800/60 bg-transparent'}`}
-                          onClick={() => toggleRole(user, role.code, enabled)}
-                          title={enabled ? 'Снять роль' : 'Выдать роль'}
+                          disabled={!role.canAssign}
+                          onClick={() => toggleRole(user, role, enabled)}
+                          title={!role.canAssign ? 'Можно управлять только ролями ниже своей' : (enabled ? 'Снять роль' : 'Выдать роль')}
                         >
                           {enabled ? <UserX size={14} className="inline mr-2" /> : <UserPlus size={14} className="inline mr-2" />}
                           {role.code}
@@ -266,24 +275,27 @@ export default function AdminFeatureRolesPage() {
         {contextMenu.kind === 'role' && contextMenu.role ? (
           <>
             <ContextMenuLabel>Роль</ContextMenuLabel>
-            <ContextMenuItem icon={Save} shortcut="Ctrl+S" onClick={() => { const role = contextMenu.role; closeContextMenu(); void saveExisting(role); }}>Сохранить роль</ContextMenuItem>
+            {contextMenu.role.canManageDefinition ? <ContextMenuItem icon={Save} shortcut="Ctrl+S" onClick={() => { const role = contextMenu.role; closeContextMenu(); void saveExisting(role); }}>Сохранить роль</ContextMenuItem> : null}
             <ContextMenuSeparator />
             <ContextMenuItem icon={Copy} onClick={() => { const role = contextMenu.role; closeContextMenu(); void copyRoleValue(role.code, 'Код'); }}>Скопировать code</ContextMenuItem>
             <ContextMenuItem icon={Copy} onClick={() => { const role = contextMenu.role; closeContextMenu(); void copyRoleValue(role.id, 'ID'); }}>Скопировать ID</ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem icon={Trash2} danger onClick={() => { const role = contextMenu.role; closeContextMenu(); void removeRoleDef(role); }}>Удалить роль</ContextMenuItem>
+            {contextMenu.role.canManageDefinition ? <>
+              <ContextMenuSeparator />
+              <ContextMenuItem icon={Trash2} danger onClick={() => { const role = contextMenu.role; closeContextMenu(); void removeRoleDef(role); }}>Удалить роль</ContextMenuItem>
+            </> : null}
           </>
         ) : null}
         {contextMenu.kind === 'user' && contextMenu.user ? (
           <>
             <ContextMenuLabel>Роли пользователя</ContextMenuLabel>
             {roles.map((role) => {
-              const enabled = (contextMenu.user.featureRoles || []).includes(role.code);
+              const enabled = (contextMenu.user.assignedFeatureRoles || []).includes(role.code) || String(contextMenu.user.baseRole || contextMenu.user.role || '').toLowerCase() === String(role.code || '').toLowerCase();
               return (
                 <ContextMenuItem
                   key={role.id || role.code}
                   checked={enabled}
-                  onClick={() => { const user = contextMenu.user; closeContextMenu(); void toggleRole(user, role.code, enabled); }}
+                  disabled={!role.canAssign}
+                  onClick={() => { const user = contextMenu.user; closeContextMenu(); void toggleRole(user, role, enabled); }}
                 >
                   {role.code}
                 </ContextMenuItem>

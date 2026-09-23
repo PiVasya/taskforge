@@ -49,6 +49,46 @@ public sealed class IdentityAccessTests
         Assert.Equal("User", IdentityApiAccessService.ResolveInitialRole("first@example.test", true, config));
     }
 
+
+    [Fact]
+    public void SuperAdminJwt_InheritsAdminRoleForExistingAdminAuthorization()
+    {
+        var user = new IdentityUser
+        {
+            Id = Guid.NewGuid(),
+            Login = "root",
+            Email = "root@example.test",
+            Role = "SuperAdmin",
+            AccountType = "human"
+        };
+
+        var token = IdentityApiAccessService.CreateJwt(user, BuildConfig(), TimeSpan.FromMinutes(5), "access");
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        var roleValues = jwt.Claims.Where(x => x.Type == "role" || x.Type.EndsWith("/role", StringComparison.OrdinalIgnoreCase)).Select(x => x.Value).ToArray();
+
+        Assert.Contains("SuperAdmin", roleValues, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Admin", roleValues, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(jwt.Claims, x => x.Type == "primary_role" && x.Value == "SuperAdmin");
+    }
+
+    [Fact]
+    public void RoleHierarchy_AllowsOnlyStrictlyLowerAssignableRoles()
+    {
+        var superAdmin = new FeatureRole { Code = "SuperAdmin", Rank = IdentityApiAccessService.SuperAdminRoleRank, IsAssignable = false, IsActive = true };
+        var admin = new FeatureRole { Code = "Admin", Rank = IdentityApiAccessService.AdminRoleRank, IsAssignable = true, IsActive = true };
+        var editor = new FeatureRole { Code = "Editor", Rank = IdentityApiAccessService.EditorRoleRank, IsAssignable = true, IsActive = true };
+
+        Assert.False(IdentityApiAccessService.CanManageRole(admin, admin));
+        Assert.False(IdentityApiAccessService.CanManageRole(admin, superAdmin));
+        Assert.True(IdentityApiAccessService.CanManageRole(admin, editor));
+        Assert.True(IdentityApiAccessService.CanManageRole(superAdmin, admin));
+        Assert.False(IdentityApiAccessService.CanManageRole(superAdmin, superAdmin));
+
+        Assert.False(IdentityApiAccessService.CanChangePrimaryRole(admin, admin, editor));
+        Assert.True(IdentityApiAccessService.CanChangePrimaryRole(superAdmin, admin, editor));
+        Assert.False(IdentityApiAccessService.CanChangePrimaryRole(superAdmin, superAdmin, admin));
+    }
+
     [Fact]
     public void PasswordHash_VerifiesOnlyTheCorrectPasswordAndNeedsNoImmediateRehash()
     {

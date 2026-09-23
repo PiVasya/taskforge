@@ -50,7 +50,7 @@ internal static partial class AiApiEndpoints
             var source = await coordinator.GetIdentityAccountAsync(userId, ct);
             if (source == null) return Results.NotFound(new { message = "Пользователь не найден.", code = "USER_NOT_FOUND" });
             if (source.UserId == actor.Value) return Results.BadRequest(new { message = "Нельзя заблокировать собственный аккаунт.", code = "CANNOT_BLOCK_SELF" });
-            if (string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(source.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest(new { message = "Администраторский аккаунт защищён.", code = "ADMIN_ACCOUNT_PROTECTED" });
             if (!string.Equals(source.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new { message = "Можно блокировать только активный аккаунт.", code = "ACCOUNT_NOT_ACTIVE" });
@@ -102,7 +102,7 @@ internal static partial class AiApiEndpoints
             if (source == null) return Results.NotFound(new { message = "Исходный аккаунт не найден.", code = "USER_NOT_FOUND" });
             if (source.UserId == actor.Value)
                 return Results.BadRequest(new { message = "Нельзя выполнять операции жизненного цикла над собственным аккаунтом.", code = "CANNOT_MANAGE_SELF" });
-            if ((type is "merge" or "delete" or "block") && string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+            if ((type is "merge" or "delete" or "block") && (string.Equals(source.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(source.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase)))
                 return Results.BadRequest(new { message = "Администраторский аккаунт защищён.", code = "ADMIN_ACCOUNT_PROTECTED" });
             if ((type is "merge" or "delete" or "block") && !string.Equals(source.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new { message = "Операция доступна только для активного аккаунта.", code = "ACCOUNT_NOT_ACTIVE" });
@@ -113,7 +113,7 @@ internal static partial class AiApiEndpoints
                     return Results.BadRequest(new { message = "Выберите другой основной аккаунт.", code = "INVALID_MERGE_TARGET" });
                 target = await coordinator.GetIdentityAccountAsync(request.TargetUserId.Value, ct);
                 if (target == null) return Results.NotFound(new { message = "Основной аккаунт не найден.", code = "USER_NOT_FOUND" });
-                if (target.UserId == actor.Value || string.Equals(target.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+                if (target.UserId == actor.Value || string.Equals(target.Role, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(target.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                     return Results.BadRequest(new { message = "Администраторский аккаунт нельзя использовать в объединении.", code = "ADMIN_ACCOUNT_PROTECTED" });
                 if (!string.Equals(target.AccountStatus, "active", StringComparison.OrdinalIgnoreCase) || target.Blocked)
                     return Results.Conflict(new { message = "Основной аккаунт должен быть активен и не заблокирован.", code = "MERGE_TARGET_UNAVAILABLE" });

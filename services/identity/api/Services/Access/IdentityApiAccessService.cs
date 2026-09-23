@@ -22,19 +22,43 @@ namespace TaskForge.Identity.Api.Services.Access;
 
 internal static class IdentityApiAccessService
 {
+    internal const int UserRoleRank = 0;
+    internal const int CustomRoleRank = 100;
+    internal const int MinecraftRoleRank = 200;
+    internal const int EditorRoleRank = 400;
+    internal const int AdminRoleRank = 800;
+    internal const int SuperAdminRoleRank = 1000;
+
     internal static async Task SeedFeatureRoles(IdentityDbContext db)
     {
         var defaults = new[]
         {
-            new FeatureRole { Code = "Admin", Title = "Администратор", Description = "Полный доступ к админке", IsActive = true },
-            new FeatureRole { Code = "Editor", Title = "Редактор", Description = "Редактирование заданий и курсов", IsActive = true },
-            new FeatureRole { Code = "LearningEditor", Title = "Редактор ЦТ", Description = "Редактирование learning/quiz контента", IsActive = true },
-            new FeatureRole { Code = "Minecraft", Title = "Minecraft", Description = "Доступ к Minecraft-инструментам", IsActive = true }
+            new FeatureRole { Code = "SuperAdmin", Title = "Супер администратор", Description = "Полный системный административный доступ", Rank = SuperAdminRoleRank, IsSystem = true, IsAssignable = false, IsActive = true },
+            new FeatureRole { Code = "Admin", Title = "Администратор", Description = "Административный доступ", Rank = AdminRoleRank, IsSystem = true, IsAssignable = true, IsActive = true },
+            new FeatureRole { Code = "Editor", Title = "Редактор", Description = "Редактирование заданий и курсов", Rank = EditorRoleRank, IsSystem = true, IsAssignable = true, IsActive = true },
+            new FeatureRole { Code = "LearningEditor", Title = "Редактор ЦТ", Description = "Редактирование learning/quiz контента", Rank = EditorRoleRank, IsSystem = true, IsAssignable = true, IsActive = true },
+            new FeatureRole { Code = "Minecraft", Title = "Minecraft", Description = "Доступ к Minecraft-инструментам", Rank = MinecraftRoleRank, IsSystem = true, IsAssignable = true, IsActive = true },
+            new FeatureRole { Code = "User", Title = "Пользователь", Description = "Базовая роль пользователя", Rank = UserRoleRank, IsSystem = true, IsAssignable = true, IsActive = true }
         };
-        foreach (var role in defaults)
+
+        foreach (var expected in defaults)
         {
-            if (!await db.FeatureRoles.AnyAsync(x => x.Code == role.Code)) db.FeatureRoles.Add(role);
+            var role = await db.FeatureRoles.FirstOrDefaultAsync(x => x.Code == expected.Code);
+            if (role == null)
+            {
+                db.FeatureRoles.Add(expected);
+                continue;
+            }
+
+            role.Title = expected.Title;
+            role.Description = expected.Description;
+            role.Rank = expected.Rank;
+            role.IsSystem = true;
+            role.IsAssignable = expected.IsAssignable;
+            role.IsActive = true;
+            role.UpdatedAt = DateTimeOffset.UtcNow;
         }
+
         await db.SaveChangesAsync();
     }
 
@@ -46,13 +70,41 @@ internal static class IdentityApiAccessService
 
     internal static string[] MergeRoles(string? primaryRole, IEnumerable<string>? featureRoles)
     {
-        return new[] { NormalizeRole(primaryRole) }
+        var roles = new[] { NormalizeRole(primaryRole) }
             .Concat(featureRoles ?? Array.Empty<string>())
             .Select(NormalizeRoleCode)
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .ToList();
+
+        if (roles.Contains("SuperAdmin", StringComparer.OrdinalIgnoreCase) &&
+            !roles.Contains("Admin", StringComparer.OrdinalIgnoreCase))
+        {
+            roles.Add("Admin");
+        }
+
+        return roles.ToArray();
     }
+
+    internal static string PrimaryRoleFromPrincipal(ClaimsPrincipal principal)
+        => NormalizeRoleCode(principal.FindFirstValue("primary_role") ?? principal.FindFirstValue("role"));
+
+    internal static async Task<FeatureRole?> ActorRoleAsync(IdentityDbContext db, ClaimsPrincipal principal, CancellationToken ct = default)
+    {
+        var code = PrimaryRoleFromPrincipal(principal);
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        return await db.FeatureRoles.AsNoTracking().FirstOrDefaultAsync(x => x.Code == code && x.IsActive, ct);
+    }
+
+    internal static bool CanManageRole(FeatureRole? actorRole, FeatureRole targetRole)
+        => actorRole != null && targetRole.IsAssignable && actorRole.Rank > targetRole.Rank;
+
+    internal static bool CanChangePrimaryRole(FeatureRole? actorRole, FeatureRole currentRole, FeatureRole nextRole)
+        => actorRole != null && actorRole.Rank > currentRole.Rank && actorRole.Rank > nextRole.Rank && nextRole.IsAssignable;
+
+    internal static bool IsAdminLevelRole(string? role)
+        => string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(role, "SuperAdmin", StringComparison.OrdinalIgnoreCase);
 
     internal static string ResolveInitialRole(string email, bool firstUser, IConfiguration cfg)
     {

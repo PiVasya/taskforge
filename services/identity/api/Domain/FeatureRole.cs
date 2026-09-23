@@ -6,6 +6,9 @@ public sealed class FeatureRole
     public string Code { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public int Rank { get; set; } = 100;
+    public bool IsSystem { get; set; }
+    public bool IsAssignable { get; set; } = true;
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

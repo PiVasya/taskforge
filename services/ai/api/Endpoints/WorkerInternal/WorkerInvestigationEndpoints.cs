@@ -42,7 +42,7 @@ internal static partial class AiApiEndpoints
                 ct);
             var owner = identity is JsonArray { Count: > 0 } owners ? owners[0] as JsonObject : null;
             var ownerRole = owner?["role"]?.ToString();
-            if (!string.Equals(ownerRole, "Admin", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(ownerRole, "Admin", StringComparison.OrdinalIgnoreCase) && !string.Equals(ownerRole, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Инструменты расследования доступны только администратору.", code = "AI_INVESTIGATION_ADMIN_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
 
             var action = (request.Action ?? string.Empty).Trim().ToLowerInvariant();
