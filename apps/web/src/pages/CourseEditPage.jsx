@@ -278,7 +278,6 @@ export default function CourseEditPage({ overlay = false }) {
       </div>
 
       {err && <div className="text-red-500 mb-4">{err}</div>}
-      {loading && <div className="text-neutral-500 mb-4">Загрузка…</div>}
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">

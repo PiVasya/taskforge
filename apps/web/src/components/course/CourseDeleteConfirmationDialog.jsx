@@ -58,7 +58,7 @@ export default function CourseDeleteConfirmationDialog({ open, courseTitle, busy
           <div className="min-w-0 flex-1">
             <h2 id="course-delete-dialog-title" className="text-lg font-semibold text-red-700 dark:text-red-300">Подтвердите удаление курса</h2>
             <p id="course-delete-dialog-description" className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">
-              Это необратимое действие. Чтобы случайный клик не удалил курс, нужно подтвердить его название вручную.
+              Это необратимое действие. Вместе с курсом будут удалены все вложенные подкурсы. Чтобы случайный клик не удалил дерево курса, нужно подтвердить его название вручную.
             </p>
           </div>
           <button
@@ -103,7 +103,7 @@ export default function CourseDeleteConfirmationDialog({ open, courseTitle, busy
             onChange={(event) => setAcknowledged(event.target.checked)}
             disabled={busy}
           />
-          <span>Я понимаю, что удаляю именно этот курс и отменить удаление после выполнения нельзя.</span>
+          <span>Я понимаю, что удаляю этот курс вместе со всеми вложенными подкурсами и отменить удаление после выполнения нельзя.</span>
         </label>
 
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

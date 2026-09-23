@@ -117,19 +117,19 @@ internal static partial class EducationApiEndpoints
 
         app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db, CancellationToken ct) =>
         {
-            var course = await db.Courses.FindAsync(new object[] { id }, ct);
-            if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var rows = await db.Courses
+                .Select(x => new { x.Id, x.ParentCourseId })
+                .ToListAsync(ct);
+            if (rows.All(x => x.Id != id)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
-            var children = await db.Courses.Where(x => x.ParentCourseId == id).ToListAsync(ct);
-            foreach (var child in children)
-            {
-                child.ParentCourseId = null;
-                child.UpdatedAt = DateTimeOffset.UtcNow;
-            }
+            var subtreeIds = CollectCourseSubtreeIds(id, rows.Select(x => (x.Id, x.ParentCourseId)));
+            var subtree = await db.Courses
+                .Where(x => subtreeIds.Contains(x.Id))
+                .ToListAsync(ct);
 
-            db.Courses.Remove(course);
+            db.Courses.RemoveRange(subtree);
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted" });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted", deletedCourses = subtree.Count });
         });
 
         app.MapPatch("/api/courses/{courseId:guid}/sort", async (Guid courseId, CourseSortRequest request, EducationDbContext db, CancellationToken ct) =>
@@ -202,6 +202,31 @@ internal static partial class EducationApiEndpoints
         });
 
         return app;
+    }
+
+
+    private static HashSet<Guid> CollectCourseSubtreeIds(Guid rootCourseId, IEnumerable<(Guid Id, Guid? ParentCourseId)> rows)
+    {
+        var childrenByParent = rows
+            .Where(x => x.ParentCourseId.HasValue)
+            .GroupBy(x => x.ParentCourseId!.Value)
+            .ToDictionary(x => x.Key, x => x.Select(row => row.Id).ToArray());
+
+        var result = new HashSet<Guid> { rootCourseId };
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootCourseId);
+
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            if (!childrenByParent.TryGetValue(parentId, out var children)) continue;
+            foreach (var childId in children)
+            {
+                if (result.Add(childId)) queue.Enqueue(childId);
+            }
+        }
+
+        return result;
     }
 
     private static async Task<bool> WouldCreateCourseCycleAsync(Guid courseId, Guid? parentId, EducationDbContext db, CancellationToken ct)
