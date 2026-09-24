@@ -331,8 +331,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
       - name: Check migration tooling boundaries
-        run: python3 scripts/ci/check-migration-tooling-safety.py
+        run: |
+          python3 scripts/ci/check-migration-tooling-safety.py
+          python3 scripts/ci/test-ef-migration-check.py
+      - name: Check EF models are covered by migrations
+        run: python3 scripts/ci/check-ef-migrations.py
 
   runtime-config-invariants:
     needs: changes

@@ -9,10 +9,6 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-# Once the user's current migrations have been returned, freeze that exact model and migration set.
-if (ROOT / 'docs/sql/user-20260923-protected.sha256').is_file():
-    import subprocess, sys
-    raise SystemExit(subprocess.call([sys.executable, str(ROOT / 'scripts/ci/check-sql-runtime.py')]))
 ALLOWED_SOURCE_EDITS = {
     '00_AI_READ_THIS_FIRST.md',
     'README.md',

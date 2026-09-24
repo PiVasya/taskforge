@@ -27,6 +27,8 @@ def read(relative: str) -> str:
 
 normal = read("scripts/generate-migrations.sh")
 force = read("scripts/generate-migrations-force.sh")
+checker = read("scripts/ci/check-ef-migrations.py")
+sql_runtime_guard = read("scripts/ci/check-sql-runtime.py")
 
 for name, script in (("normal", normal), ("force", force)):
     if 'TARGET_SPEC="${2:-}"' not in script:
@@ -56,5 +58,25 @@ if 'generate-migrations-force.sh' in normal and 'Use ./scripts/generate-migratio
     fail("normal generator appears to invoke force migration generation")
 if 'dotnet ef migrations add' not in force:
     fail("force generator unexpectedly lost its only explicit migration action")
+
+
+# The obsolete date-pinned checksum baseline must stay retired. Legitimate migrations
+# change model/snapshot bytes by design; EF semantic drift is the source of truth.
+if (ROOT / "docs/sql/user-20260923-protected.sha256").exists():
+    fail("obsolete user-20260923-protected.sha256 checksum manifest must not be restored")
+if "protected.sha256" in sql_runtime_guard:
+    fail("SQL runtime structural guard must not freeze EF models/migrations by checksum")
+
+# CI must validate model/migration drift semantically through EF, not by freezing file hashes.
+if 'migrations has-pending-model-changes' not in checker:
+    fail("CI migration checker no longer asks EF for pending model changes")
+if 'dotnet", "tool", "restore' not in checker:
+    fail("CI migration checker no longer restores the pinned dotnet-ef tool")
+if 'dbcontext", "info' not in checker:
+    fail("CI migration checker no longer probes DbContext design-time construction")
+if 'migrations add' in checker or 'database update' in checker:
+    fail("CI migration checker must never create or apply migrations")
+if 'GENERATOR = ROOT / "scripts/generate-migrations.sh"' not in checker:
+    fail("CI migration checker must use generate-migrations.sh as the target source of truth")
 
 print("migration tooling safety invariants ok")

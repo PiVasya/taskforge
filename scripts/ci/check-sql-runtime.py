@@ -1,23 +1,14 @@
 #!/usr/bin/env python3
 """Offline structural checks, not a substitute for .NET/engine/HTTP integration tests."""
 from pathlib import Path
-import hashlib,json,re
+import json,re
 import yaml
 ROOT=Path(__file__).resolve().parents[2]
-PROTECTED_MANIFEST = ROOT/'docs/sql/user-20260923-protected.sha256'
 
 def require(condition,message):
     if not condition:raise SystemExit('FAIL: '+message)
 
 def main():
-    protected={}
-    for row in PROTECTED_MANIFEST.read_text().splitlines():
-        digest,name=row.split('  ',1);p=ROOT/name
-        require(p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest()==digest,'User migration/model changed: '+name)
-        protected[name]=digest
-    actual={str(p.relative_to(ROOT)) for p in ROOT.rglob('*.cs') if 'Migrations' in p.parts or p.name.endswith('ModelSnapshot.cs')}
-    expected={n for n in protected if '/Migrations/' in n or n.endswith('ModelSnapshot.cs')}
-    require(actual==expected,'Migration/snapshot set differs from the protected user boundary (2026-09-23)')
     for name in json.loads((ROOT/'docs/sql/user-212-files.json').read_text()):require((ROOT/name).is_file(),'Original source missing: '+name)
     require({p.name for p in ROOT.glob('*.md')}=={'00_AI_READ_THIS_FIRST.md'},'Root Markdown policy')
     paths=['services/shared/Sql/SqlContracts.cs','services/tasks/assignment-api/Endpoints/Sql/SqlEndpoints.cs',
@@ -82,7 +73,7 @@ def main():
     require(old.count('x.Kind == ExecutionJobKinds.Legacy') >= 2 and 'job.Kind != ExecutionJobKinds.Legacy' in old,'Legacy claim/reaper/completion must exclude SQL')
     for area in ('tasks/assignment-api/Services/Sql','solutions/api/Services/Sql','execution/api/Services/Sql'):
         for p in (ROOT/'services'/area).glob('*.cs'):require('TestsJson' not in p.read_text(),'SQL must not use TestsJson')
-    print(f'PASS: {len(expected)} user migration/snapshot files and {len(protected)-len(expected)} domain/model files unchanged from the protected user boundary (2026-09-23)')
+    print('PASS: SQL runtime structural invariants; migration drift is checked separately by scripts/ci/check-ef-migrations.py')
     print('PASS: original file retention; dedicated SQL API/worker/UI; root documentation policy; Go/native runtime and CI/Compose invariants')
     print('OFFLINE ONLY: run check-sql-update.sh and the real engine gate before release.')
 if __name__=='__main__':main()

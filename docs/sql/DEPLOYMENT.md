@@ -20,9 +20,11 @@ bash ./scripts/check-sql-update.sh
 bash ./scripts/sql/test-engines.sh
 ```
 
-The first script verifies the user migration/model hashes, builds the changed .NET
+The first script verifies SQL structural/runtime invariants, builds the changed .NET
 APIs/domain check and Education, runs Go/race/isolated-SQLite and frontend tests, and builds
-the web application. It does not launch the web APIs or apply database migrations.
+the web application. Repository CI separately runs `scripts/ci/check-ef-migrations.py`, which
+asks EF Core whether any DbContext has model changes not represented by migrations. Neither
+check generates or applies database migrations.
 
 The second needs Docker and registry access. It builds the worker and launches
 ONLY isolated PostgreSQL/MySQL test engines and a test-only RabbitMQ with fresh
@@ -144,12 +146,13 @@ worker recovery and profile equality. That live failover test is still required.
 
 ## 5. No new migration round
 
-The original three `AddSqlDomain` user migrations remain retained, and the current
-protected boundary additionally includes the user-generated
-`RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations from 2026-09-23.
-Do not edit or regenerate any of these migration/designer/snapshot files. The SQL
-runtime/import fixes do not need another Entity/DbContext migration. Migration
-presence/hash checks do not replace a real upgrade rehearsal on a disposable restored
+The original three `AddSqlDomain` user migrations remain retained together with the
+user-generated `RemoveAssignmentDifficulty`, `RemoveQuizDifficulty` and `AddRoleHierarchy`
+migrations from 2026-09-23. Do not rewrite existing migration/designer/snapshot history.
+The SQL runtime/import fixes do not need another Entity/DbContext migration. CI uses EF
+Core `migrations has-pending-model-changes` to detect a model change that still needs a
+migration; there is no checksum manifest to refresh after a legitimate migration. This
+semantic drift check does not replace a real upgrade rehearsal on a disposable restored
 business database.
 Production APIs keep their existing migration/startup behavior; do not mistake
 `cluster.sh migrate` (control-plane upgrade) for the EF migration generator.

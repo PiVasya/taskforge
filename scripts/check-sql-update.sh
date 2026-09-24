@@ -3,7 +3,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-printf '\n========== SQL SOURCE / IMMUTABILITY BOUNDARIES ==========\n'
+printf '\n========== SQL SOURCE / STRUCTURAL BOUNDARIES ==========\n'
 python3 ./scripts/ci/check-sql-runtime.py
 
 printf '\n========== SQL DOMAIN / EF MODEL ==========\n'

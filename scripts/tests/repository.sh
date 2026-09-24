@@ -9,6 +9,7 @@ python3 scripts/ci/test-ci-change-impact.py
 python3 scripts/ci/test-sql-change-impact.py
 python3 scripts/ci/check-docker-build-contexts.py
 python3 scripts/ci/check-migration-tooling-safety.py
+python3 scripts/ci/test-ef-migration-check.py
 python3 scripts/ci/check-runtime-config-boundaries.py
 python3 scripts/ci/check-runtime-logging.py
 python3 scripts/sql/test-runtime-preparation.py

@@ -1,8 +1,10 @@
 ## Current SQL release and production entrypoint
 
 The Go SQL runtime release originated from user source develop(212), including the user's three
-`AddSqlDomain` migrations. The current protected user model boundary additionally includes the
-2026-09-23 user-generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations.
+`AddSqlDomain` migrations. The repository also contains the user-generated
+`RemoveAssignmentDifficulty`, `RemoveQuizDifficulty` and `AddRoleHierarchy` migrations from 2026-09-23.
+CI validates EF model/migration consistency semantically with
+`dotnet ef migrations has-pending-model-changes`; it does not freeze Domain/Data/migration files by checksum.
 Read `docs/sql/IMPLEMENTATION.md`, `docs/sql/DEPLOYMENT.md`
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
@@ -29,6 +31,7 @@ Open this file before changing the project.
 
 - The only Markdown file permitted in the repository root is `00_AI_READ_THIS_FIRST.md`. Keep all other Markdown documentation in `docs/` or the appropriate component directory; never add root-level release notes, QA reports or handoff files.
 - Preserve all existing migration files and ModelSnapshot files exactly as user-owned history. Database schema changes are allowed and required when the correct design needs them; never introduce application-level workarounds merely to avoid a migration. The AI may change Domain/Data/DbContext models to the correct target schema, but must not hand-write, edit, or generate the EF migration files in this environment. The user generates the migration locally with the repository-owned `scripts/generate-migrations.sh` command after receiving the updated source archive.
+- CI migration correctness is semantic, not hash-based: `scripts/ci/check-ef-migrations.py` runs EF Core `migrations has-pending-model-changes` for every DB-owning DbContext selected by `scripts/generate-migrations.sh`. A model change without a matching migration must fail CI; a legitimate committed migration must not require updating any checksum manifest.
 - When a schema change is prepared, state the exact `scripts/generate-migrations.sh <MigrationName> <target>` command the user should run. Do not edit existing migrations or ModelSnapshot files as a substitute for generation.
 - Current logging policy is development mode: Docker images and Compose runtimes must keep `TASKFORGE_BUILD_DEBUG_LOGS=1` / `TASKFORGE_DEBUG_LOGS=1`. Do not disable, quiet, or change these defaults to `0` unless the user explicitly asks to change the logging policy. Preserve this rule whenever editing workflows, Dockerfiles, Compose files, or `.env.example` files.
 - Do not edit existing migration files or ModelSnapshot files. If a model/schema change needs a migration, tell the user the exact command to generate it themselves instead of creating or modifying migration files in the archive.
@@ -167,7 +170,7 @@ A reload must not duplicate listeners or periodic tasks. It must emit detailed s
 ## Testing architecture invariants
 
 - Test **behavior with executable tests against production code**, not by grepping for exact implementation strings, local variable names, method layout, comments, or formatting. A harmless refactor must not make CI red when behavior is unchanged.
-- Static/source checks are reserved for properties that are inherently structural: migration/source-retention boundaries, workflow/Docker matrix alignment, container/secret/network hardening, forbidden runtime dependencies, and deployment configuration wiring. Do not move business behavior back into static source-grep checkers.
+- Static/source checks are reserved for properties that are inherently structural: source-retention boundaries, workflow/Docker matrix alignment, container/secret/network hardening, forbidden runtime dependencies, and deployment configuration wiring. EF migration drift is checked by EF itself, not by source-file hashes. Do not move business behavior back into static source-grep checkers.
 - Canonical suites are `scripts/tests/dotnet.sh` for all production .NET builds plus .NET behavior, `scripts/tests/frontend.sh` for frontend behavior plus the production build, and `scripts/tests/repository.sh` for repository/release boundaries. SQL additionally keeps `scripts/check-sql-go.sh` and the real Docker provider gate `scripts/sql/test-engines.sh`; OJ and Browser keep their dedicated security suites.
 - Normal develop/main CI must path-gate test families independently. Frontend, .NET, Minecraft, OJ, Browser, Compose, cluster, repository/config, SQL contract and SQL real-engine checks must not run merely because some unrelated project file changed. .NET normal CI must build/test only affected service projects (plus true shared-source consumers); `scripts/tests/dotnet.sh` remains the exhaustive local/full-rebuild suite. A failed subsystem may remain pending until a successful workflow, but that pending state must not wake unrelated test families.
 - `scripts/ci/check-csharp-source-invariants.py` and `scripts/ci/check-authoring-regressions.py` are legacy compatibility entrypoints only. Active CI must not use them as source-grep policy engines or accumulate new assertions there.

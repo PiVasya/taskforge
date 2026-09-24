@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Domain.Sql;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
@@ -43,7 +44,7 @@ internal static class AssignmentApiAccessService
             TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", userId), ("assignment", assignment.Id), ("allowed", false), ("reason", "assignment-hidden"));
             return false;
         }
-        if (assignment.Type == TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+        if (assignment.Type == SqlTaskTypes.SqlTest
             && !await db.SqlAssignmentSpecs.AsNoTracking().AnyAsync(
                 x => x.AssignmentId == assignment.Id && x.PublishedVersionId != null, ct))
         {

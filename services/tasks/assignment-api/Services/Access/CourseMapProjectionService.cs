@@ -7,6 +7,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Data;
+using TaskForge.Tasks.Api.Domain.Sql;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
@@ -840,7 +841,7 @@ internal sealed class CourseMapProjectionService
         CancellationToken ct)
     {
         var sqlIds = assignments
-            .Where(x => x.Type == TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest)
+            .Where(x => x.Type == SqlTaskTypes.SqlTest)
             .Select(x => x.Id)
             .Distinct()
             .ToArray();
@@ -858,7 +859,7 @@ internal sealed class CourseMapProjectionService
         IReadOnlySet<Guid> publishedSqlIds)
         => bypassStudentVisibility
             || (assignment.IsVisible
-                && (assignment.Type != TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+                && (assignment.Type != SqlTaskTypes.SqlTest
                     || publishedSqlIds.Contains(assignment.Id)));
 
     private async Task<CourseMapSnapshot?> BuildSnapshotAsync(CourseMapMetaInternalResponse meta, CancellationToken ct)

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Data;
+using TaskForge.Tasks.Api.Domain.Sql;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
@@ -138,7 +139,7 @@ internal static class CourseMapProgressionService
         var assignmentRows = await db.Assignments.AsNoTracking()
             .Where(x => accessibleCourseIds.Contains(x.CourseId)
                 && (bypassStudentVisibility || (x.IsVisible
-                    && (x.Type != TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+                    && (x.Type != SqlTaskTypes.SqlTest
                         || db.SqlAssignmentSpecs.Any(spec => spec.AssignmentId == x.Id && spec.PublishedVersionId != null)))))
             .Select(x => new AssignmentProgressionRow(
                 x.Id,

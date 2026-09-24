@@ -38,6 +38,21 @@ jobs:
       - name: Check repository and release boundaries
         run: bash scripts/tests/repository.sh
 
+
+  migration-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check migration tooling boundaries
+        run: |
+          python3 scripts/ci/check-migration-tooling-safety.py
+          python3 scripts/ci/test-ef-migration-check.py
+      - name: Check EF models are covered by migrations
+        run: python3 scripts/ci/check-ef-migrations.py
+
   dotnet-behavior-tests:
     runs-on: ubuntu-latest
     steps:
@@ -121,7 +136,7 @@ jobs:
           node-version: '22'
       - run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libpq-dev libmariadb-dev libsqlite3-dev
       - run: python3 -m pip install PyYAML==6.0.2
-      - name: SQL invariants, immutable user migrations and model build
+      - name: SQL invariants and model build
         run: bash ./scripts/check-sql-update.sh
       - name: Actual SQL engines, Go isolation and RabbitMQ interoperability
         run: bash ./scripts/sql/test-engines.sh
@@ -134,7 +149,7 @@ jobs:
         run: bash scripts/tests/compose.sh
 
   build:
-    needs: [compose-check, workflow-integrity, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
+    needs: [compose-check, workflow-integrity, migration-safety, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

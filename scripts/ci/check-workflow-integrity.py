@@ -206,6 +206,18 @@ def main() -> int:
         if 'bash scripts/tests/dotnet.sh' in body:
             errors.append('normal .NET job may not rebuild every .NET service for one project change')
 
+    migration_job = re.search(
+        r'^  migration-safety:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
+        normal_workflow_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if migration_job:
+        body = migration_job.group('body')
+        if 'actions/setup-dotnet@' not in body:
+            errors.append('migration-safety job must install .NET for EF semantic drift checks')
+        if 'python3 scripts/ci/check-ef-migrations.py' not in body:
+            errors.append('migration-safety job must run the EF pending-model checker')
+
     sql_contract_job = re.search(
         r'^  sql-contract-check:\n(?P<body>.*?)(?=^  [a-z0-9][a-z0-9-]*:|\Z)',
         normal_workflow_text,
@@ -242,6 +254,7 @@ def main() -> int:
     full_text = FULL_REBUILD_WORKFLOW.read_text(encoding='utf-8')
     full_required = {
         'workflow-integrity': 'bash scripts/tests/repository.sh',
+        'migration-safety': 'python3 scripts/ci/check-ef-migrations.py',
         'dotnet-behavior-tests': 'bash scripts/tests/dotnet.sh',
         'frontend-tests': 'bash scripts/tests/frontend.sh',
         'minecraft-link-invariants': 'bash scripts/ci/check-minecraft-link-invariants.sh',

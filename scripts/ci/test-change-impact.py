@@ -26,6 +26,24 @@ def any_name(path: str, *names: str) -> bool:
     return any(path == n for n in names)
 
 
+MIGRATION_OWNER_PREFIXES = (
+    'services/identity/api/',
+    'services/education/api/',
+    'services/content/api/',
+    'services/tasks/assignment-api/',
+    'services/tasks/quiz-api/',
+    'services/solutions/api/',
+    'services/execution/api/',
+    'services/ai/api/',
+    'services/support/api/',
+    'services/minecraft/api/',
+    'services/files/api/',
+    'services/notifications/api/',
+    'services/observability/api/',
+    'services/bots/telegram-quiz-bot/',
+)
+
+
 def classify(paths: list[str]) -> dict[str, bool]:
     gates = {
         'frontend': False,
@@ -153,11 +171,15 @@ def classify(paths: list[str]) -> dict[str, bool]:
         if (
             '/Migrations/' in f'/{path}'
             or path.endswith('ModelSnapshot.cs')
+            or (path.endswith(('.cs', '.csproj')) and starts(path, *MIGRATION_OWNER_PREFIXES))
+            or path in {'Directory.Build.props', 'global.json', '.config/dotnet-tools.json'}
             or any_name(
                 path,
                 'scripts/generate-migrations.sh',
                 'scripts/generate-migrations-force.sh',
                 'scripts/ci/check-migration-tooling-safety.py',
+                'scripts/ci/check-ef-migrations.py',
+                'scripts/ci/test-ef-migration-check.py',
             )
         ):
             gates['repo_migrations'] = True

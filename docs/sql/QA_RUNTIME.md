@@ -4,11 +4,11 @@ Date: 2026-09-14. Scope: the SQL profile-compatibility update based on the
 user-provided develop(218) source tree. This report describes checks actually
 executed in the current environment; it is not a production-rollout certificate.
 
-Current-boundary note (2026-09-23): after this historical QA run, the user explicitly
-generated `RemoveAssignmentDifficulty` and `RemoveQuizDifficulty`. The active
-source guard now freezes 96 migration/snapshot files plus the same 104 protected
-Domain/Data files. The 92-file figures below remain the factual result of the
-2026-09-14 run and are intentionally not rewritten.
+Current-boundary note: after this historical QA run, the user explicitly generated
+`RemoveAssignmentDifficulty`, `RemoveQuizDifficulty` and `AddRoleHierarchy`. The 92-file checksum
+figures below remain the factual result of the 2026-09-14 run and are intentionally not rewritten,
+but checksum freezing is no longer an active CI policy. Current CI uses EF Core
+`migrations has-pending-model-changes` to detect model/migration drift.
 
 ## Preservation and architectural boundaries
 

@@ -1,13 +1,15 @@
 # SQL task runtime implementation (Go, r59)
 
 Base: user-provided develop(212), not an older intermediate SQL patch. The user
-created Tasks, Execution and Solutions `AddSqlDomain` migrations. The current
-protected user boundary was advanced on 2026-09-23 by the user-generated
-`RemoveAssignmentDifficulty` and `RemoveQuizDifficulty` migrations and their EF
-snapshot updates. Runtime work must not edit any of those files.
-`scripts/ci/check-sql-runtime.py` now checks all 96 protected migration/snapshot
-files plus 104 Domain/Data files and retention of the original source files. The
-authoritative limitations and test results are in QA_RUNTIME.md.
+created Tasks, Execution and Solutions `AddSqlDomain` migrations. The repository also
+contains the user-generated 2026-09-23 `RemoveAssignmentDifficulty`,
+`RemoveQuizDifficulty` and `AddRoleHierarchy` migrations and their EF snapshot updates.
+Existing migration history remains user-owned and must not be rewritten. Active CI no
+longer freezes Domain/Data/migration files by checksum: `scripts/ci/check-ef-migrations.py`
+asks EF Core whether each DbContext has pending model changes and fails when a model
+change is not represented by a committed migration. `scripts/ci/check-sql-runtime.py`
+keeps the SQL runtime structural/source-retention checks. The authoritative limitations
+and test results are in QA_RUNTIME.md.
 
 ## End-to-end paths implemented
 
