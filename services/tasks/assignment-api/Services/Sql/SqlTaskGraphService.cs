@@ -224,10 +224,10 @@ internal static class SqlTaskGraphService
                 options.UpdateChecks ? source.StateCheck ?? new() : Read<SqlStateCheck>(old?.StateCheckSettingsJson) ?? new(),
                 options.UpdateChecks ? source.SchemaCheck ?? new() : Read<SqlSchemaCheck>(old?.SchemaCheckSettingsJson) ?? new(),
                 options.UpdateContent ? source.Limits ?? new() : Read<SqlLimits>(old?.LimitsJson) ?? new(), targets.ToArray(), root?.ConcurrencyStamp);
-            await SqlTaskService.SaveSpec(db, item.Assignment.Id, request, user, admin, ct);
-            // Imports create a draft and revalidate. Neither imported flags nor stale expected
-            // artifacts can publish it; an already published revision remains authoritative.
-            if (root?.PublishedVersionId is null) item.Assignment.IsVisible = false;
+            await SqlTaskService.SaveSpec(db, item.Assignment.Id, request, user, admin, ct, preserveAssignmentVisibility: true);
+            // The first fully validated revision is published by the validation dispatcher.
+            // Existing published assignments keep their current published revision until an
+            // editor explicitly publishes a later imported draft.
         }
         await db.SaveChangesAsync(ct);
     }

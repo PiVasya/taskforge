@@ -445,7 +445,9 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var query = db.Assignments.AsNoTracking().Where(x => allowedIds.Contains(x.CourseId));
-            if (!includeHidden) query = query.Where(x => x.IsVisible);
+            if (!includeHidden) query = query.Where(x => x.IsVisible
+                && (x.Type != SqlTaskTypes.SqlTest
+                    || db.SqlAssignmentSpecs.Any(spec => spec.AssignmentId == x.Id && spec.PublishedVersionId != null)));
 
             var rows = await query
                 .Select(x => new { x.Id, x.CourseId })
@@ -839,6 +841,8 @@ internal static partial class AssignmentApiEndpoints
                 var nextSort = nextSortByCourse.GetValueOrDefault(targetCourseId, 0);
                 nextSortByCourse[targetCourseId] = nextSort + 1;
                 var assignment = await BuildAssignmentEntityAsync(targetCourseId, createRequest, nextSort, clients, cfg, ct);
+                if (assignment.Type == SqlTaskTypes.SqlTest && importOptions.UpdateVisibility)
+                    assignment.IsVisible = createRequest.IsVisible ?? !(createRequest.IsHidden ?? false);
                 created.Add(assignment);
                 processed.Add((key, taskCourseRef, assignment, "created"));
             }
@@ -849,8 +853,6 @@ internal static partial class AssignmentApiEndpoints
             {
                 var (sqlUser, sqlAdmin) = SqlTaskService.Editor(http, cfg);
                 await SqlTaskGraphService.Import(db, graphPayload, processed, importOptions, sqlUser, sqlAdmin, ct);
-                foreach (var item in processed.Where(x => x.Assignment.Type == SqlTaskTypes.SqlTest && x.Assignment.IsVisible))
-                    if (!await SqlTaskService.HasPublishedRevision(db, item.Assignment.Id, ct)) item.Assignment.IsVisible = false;
                 await db.SaveChangesAsync(ct);
             }
             if (sqlImportTransaction is not null) await sqlImportTransaction.CommitAsync(ct);
@@ -990,7 +992,7 @@ internal static partial class AssignmentApiEndpoints
                 && (request.Type == SqlTaskTypes.SqlTest || assignment.Type == SqlTaskTypes.SqlTest))
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_TYPE_IMMUTABLE", message = "Create a separate SQL assignment instead of changing its type." });
             if (assignment.Type == SqlTaskTypes.SqlTest && (request.IsHidden.HasValue ? !request.IsHidden.Value : request.IsVisible == true) && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Validate and publish a SQL revision before making it visible." });
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0443\u0436\u043d\u043e \u0441\u043d\u0430\u0447\u0430\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c." });
             var oldRating = assignment.Rating;
             var oldVisible = assignment.IsVisible;
             await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
@@ -1050,7 +1052,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.FindAsync([assignmentId], ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (assignment.Type == SqlTaskTypes.SqlTest && request.IsVisible && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Validate and publish a SQL revision before making it visible." });
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0443\u0436\u043d\u043e \u0441\u043d\u0430\u0447\u0430\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c." });
             var changed = assignment.IsVisible != request.IsVisible;
             assignment.IsVisible = request.IsVisible;
             await db.SaveChangesAsync(ct);

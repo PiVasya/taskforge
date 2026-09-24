@@ -110,3 +110,37 @@ test('offline historical target can be explicitly moved to newest online profile
  assert.equal(changed[0].referenceSqlOverride,'select 42');
  assert.equal(changed[0].sort,4);
 });
+
+test('SQL publication errors are presented as compact preparation state without server text leakage',()=>{
+ const error={response:{status:409,data:{code:'SQL_NOT_PUBLISHED',message:'Every enabled engine must pass validation before publication or execution.'}}};
+ const view=m.sqlErrorPresentation(error,error.response.data.message);
+ assert.equal(view.code,'SQL_NOT_PUBLISHED');
+ assert.equal(view.title,'SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e');
+ assert.equal(view.detail.includes('Every enabled engine'),false);
+});
+
+test('SQL runtime failures are presented as service unavailability',()=>{
+ const error={response:{status:503,data:{code:'SQL_SERVICE_UNAVAILABLE',message:'upstream failed'}}};
+ const view=m.sqlErrorPresentation(error,error.response.data.message);
+ assert.equal(view.code,'SQL_SERVICE_UNAVAILABLE');
+ assert.equal(view.title,'SQL \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d');
+ assert.equal(view.detail.includes('upstream failed'),false);
+});
+
+test('unknown SQL errors keep a safe generic title and supplied user-facing detail',()=>{
+ const error={response:{status:400,data:{code:'SQL_DOCUMENT_INVALID'}}};
+ const view=m.sqlErrorPresentation(error,'\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0435 \u0434\u0430\u043d\u043d\u044b\u0435');
+ assert.equal(view.title,'\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043a\u0440\u044b\u0442\u044c SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435');
+ assert.equal(view.detail,'\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0435 \u0434\u0430\u043d\u043d\u044b\u0435');
+});
+
+test('SQL editor polling observes automatic first publication and new concurrency stamp',()=>{
+ const current={draftVersionId:'draft-1',publishedVersionId:null,concurrencyStamp:'old',validation:[1],profiles:[1],local:'keep'};
+ const latest={draftVersionId:'draft-1',publishedVersionId:'draft-1',concurrencyStamp:'new',validation:[2],profiles:[2]};
+ const merged=m.mergeSqlEditorPoll(current,latest);
+ assert.equal(merged.publishedVersionId,'draft-1');
+ assert.equal(merged.concurrencyStamp,'new');
+ assert.deepEqual(merged.validation,[2]);
+ assert.equal(merged.local,'keep');
+ assert.equal(m.mergeSqlEditorPoll(current,{...latest,draftVersionId:'draft-2'}),current);
+});

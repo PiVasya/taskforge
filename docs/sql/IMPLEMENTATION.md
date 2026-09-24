@@ -45,8 +45,10 @@ The solve page has Monaco SQL, engine choice, Run/Check, result/schema/data snap
 and standard submission history. Every Run starts from the initial dataset; this is
 not a persistent SQL console. Check emits normal submit analytics, Run is separate.
 Fresh graph export is version 5 with shared datasets[]. Legacy 3/4 remain accepted.
-Private checks are exported only when checks are selected. Imported SQL assignments
-must be validated and explicitly published on their destination runtime.
+Private checks are exported only when checks are selected. The first revision of a SQL
+assignment is published automatically only after every enabled engine has validated the
+dataset and expected artifact. Later imported/editor revisions stay as drafts and still
+require explicit publication, so an existing published task is never replaced silently.
 
 ## Runtime and execution boundary
 

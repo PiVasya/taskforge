@@ -33,7 +33,7 @@ internal static class SqlTaskService
     }
 
     internal static async Task<SqlAssignmentSpecVersion> SaveSpec(TasksDbContext db, Guid assignmentId,
-        SqlSpecInput input, Guid userId, bool admin, CancellationToken ct)
+        SqlSpecInput input, Guid userId, bool admin, CancellationToken ct, bool preserveAssignmentVisibility = false)
     {
         SqlPortableValidator.Spec(input);
         var assignment = await db.Assignments.SingleOrDefaultAsync(x => x.Id == assignmentId, ct) ?? throw new SqlNotFoundException();
@@ -53,7 +53,7 @@ internal static class SqlTaskService
             if (input.ConcurrencyStamp.HasValue) throw new DbUpdateConcurrencyException();
             root = new SqlAssignmentSpec { AssignmentId = assignmentId };
             db.SqlAssignmentSpecs.Add(root);
-            assignment.IsVisible = false;
+            if (!preserveAssignmentVisibility) assignment.IsVisible = false;
             await db.SaveChangesAsync(ct);
         }
         else if (input.ConcurrencyStamp != root.ConcurrencyStamp) throw new DbUpdateConcurrencyException();
@@ -177,20 +177,76 @@ internal static class SqlTaskService
     internal static async Task<bool> HasPublishedRevision(TasksDbContext db, Guid assignmentId, CancellationToken ct)
         => await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId && x.PublishedVersionId != null, ct);
 
+    internal static async Task<bool> TryAutoPublishInitialRevision(TasksDbContext db, Guid versionId, CancellationToken ct)
+    {
+        var root = await db.SqlAssignmentSpecs.SingleOrDefaultAsync(
+            x => x.DraftVersionId == versionId && x.PublishedVersionId == null, ct);
+        if (root is null) return false;
+
+        var spec = await db.SqlAssignmentSpecVersions.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == versionId, ct);
+        if (spec is null) return false;
+
+        var targets = await db.SqlAssignmentEngineTargets.AsNoTracking()
+            .Where(x => x.SpecVersionId == versionId)
+            .ToListAsync(ct);
+        var targetIds = targets.Select(x => x.Id).ToArray();
+        var profileIds = targets.Select(x => x.EngineProfileId).Distinct().ToArray();
+        var receipts = await db.SqlExpectedArtifacts.AsNoTracking()
+            .Where(x => targetIds.Contains(x.EngineTargetId))
+            .ToListAsync(ct);
+        var datasetReceipts = await db.SqlDatasetEngineValidations.AsNoTracking()
+            .Where(x => x.DatasetVersionId == spec.DatasetVersionId && profileIds.Contains(x.EngineProfileId))
+            .ToListAsync(ct);
+
+        var states = targets.Select(target =>
+        {
+            var expected = receipts.SingleOrDefault(x => x.EngineTargetId == target.Id);
+            var dataset = datasetReceipts.SingleOrDefault(x => x.EngineProfileId == target.EngineProfileId);
+            return new SqlPublicationTargetState(
+                target.Enabled,
+                expected?.Status,
+                dataset?.Status,
+                expected?.ExpectedJson is not null);
+        }).ToArray();
+
+        if (!SqlPublicationPolicy.CanAutoPublishInitialRevision(
+                root.PublishedVersionId, root.DraftVersionId, versionId, states))
+            return false;
+
+        // Keep the automatic first publication behind the exact same readiness gate
+        // as the explicit editor publish endpoint. Later revisions remain explicit.
+        foreach (var target in targets.Where(x => x.Enabled))
+            _ = await Payload(db, versionId, target.EngineProfileId, true, ct);
+
+        root.PublishedVersionId = versionId;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return false;
+        }
+    }
+
     internal static string ContentHash(string content) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
 }
 internal sealed class SqlAccessException : Exception { }
 internal sealed class SqlNotFoundException : Exception { }
 internal sealed class SqlNotReadyException : Exception { }
+internal sealed class SqlNotPublishedException : Exception { }
 
 internal sealed class SqlEndpointFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         try { return await next(context); }
-        catch (SqlAccessException) { return HttpResults.Json(new { code = "EDITOR_REQUIRED", message = "Editor access is required." }, statusCode: 403); }
-        catch (SqlNotFoundException) { return HttpResults.NotFound(new { code = "SQL_RESOURCE_NOT_FOUND", message = "SQL resource is unavailable." }); }
-        catch (SqlNotReadyException) { return HttpResults.Conflict(new { code = "SQL_NOT_VALIDATED", message = "Every enabled engine must pass validation before publication or execution." }); }
+        catch (SqlAccessException) { return HttpResults.Json(new { code = "EDITOR_REQUIRED", message = "\u0422\u0440\u0435\u0431\u0443\u044e\u0442\u0441\u044f \u043f\u0440\u0430\u0432\u0430 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430." }, statusCode: 403); }
+        catch (SqlNotFoundException) { return HttpResults.NotFound(new { code = "SQL_RESOURCE_NOT_FOUND", message = "SQL-\u0440\u0435\u0441\u0443\u0440\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d." }); }
+        catch (SqlNotPublishedException) { return HttpResults.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0435\u0449\u0451 \u043d\u0435 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u043e." }); }
+        catch (SqlNotReadyException) { return HttpResults.Conflict(new { code = "SQL_NOT_VALIDATED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0435\u0449\u0451 \u043d\u0435 \u043f\u0440\u043e\u0448\u043b\u043e \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0443 \u0432\u0441\u0435\u0445 \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0445 \u0434\u0432\u0438\u0436\u043a\u043e\u0432." }); }
         catch (DbUpdateConcurrencyException) { return HttpResults.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource changed. Reload before saving." }); }
         catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg && pg.SqlState == "23505")
         { return HttpResults.Conflict(new { code = "SQL_EDIT_CONFLICT", message = "The resource was concurrently created or updated. Reload and retry." }); }

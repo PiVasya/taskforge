@@ -37,7 +37,7 @@ internal static partial class AssignmentApiEndpoints
             {
                 var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
                 if (root?.PublishedVersionId is null || !engineProfileId.HasValue)
-                    return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED", message = "A published SQL revision and engine profile are required." });
+                    return Microsoft.AspNetCore.Http.Results.Conflict(new { code = root?.PublishedVersionId is null ? "SQL_NOT_PUBLISHED" : "SQL_ENGINE_REQUIRED", message = root?.PublishedVersionId is null ? "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0435 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u043e." : "SQL-\u0434\u0432\u0438\u0436\u043e\u043a \u043d\u0435 \u0432\u043a\u043b\u044e\u0447\u0451\u043d \u0432 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u043d\u0443\u044e \u0440\u0435\u0432\u0438\u0437\u0438\u044e." });
                 try
                 {
                     var payload = await TaskForge.Tasks.Api.Services.Sql.SqlTaskService.Payload(db, root.PublishedVersionId.Value, engineProfileId.Value, true, ct);

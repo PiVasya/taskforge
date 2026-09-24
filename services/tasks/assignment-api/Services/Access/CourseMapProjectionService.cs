@@ -26,7 +26,7 @@ internal sealed class CourseMapProjectionService
     // Bump when learner visibility semantics change. Keeping the policy version in
     // projection keys makes old immutable projections fail closed into a fresh stream
     // instead of replaying graph geometry produced by an older evaluator.
-    private const int ProgressionPolicyVersion = 2;
+    private const int ProgressionPolicyVersion = 3;
 
     private static readonly ConcurrentDictionary<string, Lazy<Task<CourseMapSnapshot?>>> SnapshotBuilds = new();
 
@@ -323,8 +323,12 @@ internal sealed class CourseMapProjectionService
             var authoritativeAccessibleCourseIds = bypassStudentVisibility
                 ? allCourseIds.ToHashSet()
                 : await LoadAccessibleCourseIdsAsync(allCourseIds, userId, _clients, _cfg, ct);
+            var publishedSqlIds = bypassStudentVisibility
+                ? new HashSet<Guid>()
+                : await LoadPublishedSqlAssignmentIdsAsync(snapshot.Assignments, ct);
             var relevantAssignmentIds = snapshot.Assignments
-                .Where(x => authoritativeAccessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
+                .Where(x => authoritativeAccessibleCourseIds.Contains(x.CourseId)
+                    && IsAssignmentVisibleToLearner(x, bypassStudentVisibility, publishedSqlIds))
                 .Select(x => x.Id)
                 .ToArray();
             var authoritativeSolved = await LoadSolvedAssignmentIdsAsync(userId, relevantAssignmentIds, _db, _clients, _cfg, ct);
@@ -660,8 +664,12 @@ internal sealed class CourseMapProjectionService
             return null;
         }
 
+        var publishedSqlIds = bypassStudentVisibility
+            ? new HashSet<Guid>()
+            : await LoadPublishedSqlAssignmentIdsAsync(snapshot.Assignments, ct);
         var assignments = snapshot.Assignments
-            .Where(x => accessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
+            .Where(x => accessibleCourseIds.Contains(x.CourseId)
+                && IsAssignmentVisibleToLearner(x, bypassStudentVisibility, publishedSqlIds))
             .ToList();
         solvedIds ??= await LoadSolvedAssignmentIdsAsync(userId, assignments.Select(x => x.Id), _db, _clients, _cfg, ct);
         TaskForgeDebugTrace.Map("PROJECTION_EVAL_INPUT",
@@ -826,6 +834,32 @@ internal sealed class CourseMapProjectionService
             CancellationToken.None);
         return snapshot;
     }
+
+    private async Task<HashSet<Guid>> LoadPublishedSqlAssignmentIdsAsync(
+        IEnumerable<CourseMapProgressionService.AssignmentProgressionRow> assignments,
+        CancellationToken ct)
+    {
+        var sqlIds = assignments
+            .Where(x => x.Type == TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest)
+            .Select(x => x.Id)
+            .Distinct()
+            .ToArray();
+        if (sqlIds.Length == 0) return new HashSet<Guid>();
+        return (await _db.SqlAssignmentSpecs.AsNoTracking()
+                .Where(x => sqlIds.Contains(x.AssignmentId) && x.PublishedVersionId != null)
+                .Select(x => x.AssignmentId)
+                .ToListAsync(ct))
+            .ToHashSet();
+    }
+
+    private static bool IsAssignmentVisibleToLearner(
+        CourseMapProgressionService.AssignmentProgressionRow assignment,
+        bool bypassStudentVisibility,
+        IReadOnlySet<Guid> publishedSqlIds)
+        => bypassStudentVisibility
+            || (assignment.IsVisible
+                && (assignment.Type != TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+                    || publishedSqlIds.Contains(assignment.Id)));
 
     private async Task<CourseMapSnapshot?> BuildSnapshotAsync(CourseMapMetaInternalResponse meta, CancellationToken ct)
     {
@@ -1376,7 +1410,7 @@ internal sealed class CourseMapProjectionService
             Array.Empty<Guid>());
 
     private string SnapshotKey(Guid rootCourseId, int version)
-        => TaskForgeCache.Key("tasks:course-map-snapshot:v1", rootCourseId, version);
+        => TaskForgeCache.Key("tasks:course-map-snapshot:v2", rootCourseId, version);
 
     private string ProjectionKey(string token)
         => TaskForgeCache.Key("tasks:course-map-projection:v1", ProgressionPolicyVersion, token);

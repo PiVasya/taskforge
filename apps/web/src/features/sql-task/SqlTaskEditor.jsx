@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import CodeEditor from '../../components/CodeEditor';
 import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
-import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, logicalEngineProfiles, refreshDatasetCatalogBestEffort, replaceEngineTargetProfile, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
+import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, logicalEngineProfiles, mergeSqlEditorPoll, refreshDatasetCatalogBestEffort, replaceEngineTargetProfile, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
 
 function invalidateSelection(selectionRef) {
@@ -73,10 +73,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
       try {
         const status = await api.sqlRuntime(); if (!stopped) setRuntime(status);
         const engines = await api.sqlEngines(); if (!stopped) setProfiles(engines);
-        if (view?.draftVersionId && !operation.current) { const latest = await api.sqlEdit(assignmentId); if (!stopped) setView(old => {
-          if (old?.draftVersionId !== latest.draftVersionId) return old;
-          return { ...old, validation: latest.validation, profiles: latest.profiles };
-        }); }
+        if (view?.draftVersionId && !operation.current) { const latest = await api.sqlEdit(assignmentId); if (!stopped) setView(old => mergeSqlEditorPoll(old, latest)); }
       } catch { /* Read-only polling does not discard the author's unsaved state. */ }
     };
     void refresh(); const timer = setInterval(refresh, 3000);

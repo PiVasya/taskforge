@@ -129,7 +129,7 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct) ?? throw new SqlNotFoundException();
             if (!await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) throw new SqlNotFoundException();
             var root = await db.SqlAssignmentSpecs.AsNoTracking().SingleOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
-            if (root?.PublishedVersionId is null) throw new SqlNotReadyException();
+            if (root?.PublishedVersionId is null) throw new SqlNotPublishedException();
             var version = await db.SqlAssignmentSpecVersions.AsNoTracking().SingleAsync(x => x.Id == root.PublishedVersionId, ct);
             var dataset = await db.SqlDatasetVersions.AsNoTracking().SingleAsync(x => x.Id == version.DatasetVersionId, ct);
             var rows = await (from target in db.SqlAssignmentEngineTargets.AsNoTracking()

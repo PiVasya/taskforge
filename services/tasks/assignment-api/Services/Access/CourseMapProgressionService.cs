@@ -136,7 +136,10 @@ internal static class CourseMapProgressionService
         requestedSubtreeCourseIds.IntersectWith(accessibleCourseIds);
 
         var assignmentRows = await db.Assignments.AsNoTracking()
-            .Where(x => accessibleCourseIds.Contains(x.CourseId) && (bypassStudentVisibility || x.IsVisible))
+            .Where(x => accessibleCourseIds.Contains(x.CourseId)
+                && (bypassStudentVisibility || (x.IsVisible
+                    && (x.Type != TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+                        || db.SqlAssignmentSpecs.Any(spec => spec.AssignmentId == x.Id && spec.PublishedVersionId != null)))))
             .Select(x => new AssignmentProgressionRow(
                 x.Id,
                 x.CourseId,

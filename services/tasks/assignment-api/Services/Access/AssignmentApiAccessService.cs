@@ -43,6 +43,13 @@ internal static class AssignmentApiAccessService
             TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", userId), ("assignment", assignment.Id), ("allowed", false), ("reason", "assignment-hidden"));
             return false;
         }
+        if (assignment.Type == TaskForge.Tasks.Api.Services.Sql.SqlTaskTypes.SqlTest
+            && !await db.SqlAssignmentSpecs.AsNoTracking().AnyAsync(
+                x => x.AssignmentId == assignment.Id && x.PublishedVersionId != null, ct))
+        {
+            TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", userId), ("assignment", assignment.Id), ("allowed", false), ("reason", "sql-not-published"));
+            return false;
+        }
         if (!userId.HasValue)
         {
             TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", "anonymous"), ("assignment", assignment.Id), ("allowed", false), ("reason", "no-user"));

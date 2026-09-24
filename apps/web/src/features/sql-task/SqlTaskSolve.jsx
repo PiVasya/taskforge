@@ -7,7 +7,7 @@ import { Button, Card, Select } from '../../components/ui';
 import { getApiErrorMessage } from '../../api/http';
 import { getMySolutionDetails } from '../../api/solutions';
 import { checkSql, runSql, sqlAssignment, sqlPreview } from '../../api/sqlTasks';
-import { isPending, ownSnapshot, resultLabel } from './sqlModel';
+import { isPending, ownSnapshot, resultLabel, sqlErrorPresentation } from './sqlModel';
 import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
 import SqlCheckComparison from './SqlCheckComparison';
@@ -36,6 +36,7 @@ export default function SqlTaskSolve({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [availabilityError, setAvailabilityError] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [retry, setRetry] = useState(null);
   const [result, setResult] = useState(null);
@@ -66,7 +67,7 @@ export default function SqlTaskSolve({
         setReceipt(read(`${key}:receipt`));
         setRetry(read(`${key}:request`));
       } catch (e) {
-        if (live) setError(getApiErrorMessage(e));
+        if (live) setAvailabilityError(sqlErrorPresentation(e, getApiErrorMessage(e)));
       } finally {
         if (live) setLoading(false);
       }
@@ -116,7 +117,7 @@ export default function SqlTaskSolve({
         }
       } catch (e) {
         if (stopped) return;
-        setError(getApiErrorMessage(e));
+        setError(sqlErrorPresentation(e, getApiErrorMessage(e)).detail);
         if ([403, 404, 410].includes(e?.response?.status)) {
           setReceipt(null);
           write(`${key}:receipt`, null);
@@ -179,7 +180,7 @@ export default function SqlTaskSolve({
       }
     } catch (e) {
       if (!mounted.current) return;
-      setError(getApiErrorMessage(e));
+      setError(sqlErrorPresentation(e, getApiErrorMessage(e)).detail);
       setStatus('');
       if (e?.response?.status && e.response.status < 500) {
         setRetry(null);
@@ -207,7 +208,19 @@ export default function SqlTaskSolve({
     return <Card className="sql-loading-card" role="status">Загрузка…</Card>;
   }
   if (!spec) {
-    return <Card className="sql-loading-card"><div className="sql-inline-error" role="alert">{error || 'Задание ещё не опубликовано.'}</div></Card>;
+    const unavailable = availabilityError || {
+      title: 'SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e',
+      detail: '\u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.',
+    };
+    return (
+      <Card className="sql-unavailable-card" role="alert">
+        <Database size={20} aria-hidden="true" />
+        <div className="sql-unavailable-copy">
+          <div className="sql-unavailable-title">{unavailable.title}</div>
+          <div className="sql-unavailable-detail">{unavailable.detail}</div>
+        </div>
+      </Card>
+    );
   }
 
   const target = spec.targets.find(item => item.engineProfileId === engineId);

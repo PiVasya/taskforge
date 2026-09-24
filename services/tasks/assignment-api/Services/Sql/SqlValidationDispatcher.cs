@@ -12,6 +12,8 @@ namespace TaskForge.Tasks.Api.Services.Sql;
 internal sealed class SqlValidationDispatcher(IServiceScopeFactory scopes, IHttpClientFactory clients,
     IConfiguration cfg, ILogger<SqlValidationDispatcher> logger) : BackgroundService
 {
+    private Queue<Guid>? initialPublicationBackfill;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -31,6 +33,7 @@ internal sealed class SqlValidationDispatcher(IServiceScopeFactory scopes, IHttp
                     catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested) { }
                     catch (Exception ex) { logger.LogWarning("SQL validation {ReceiptId} could not advance: {ErrorType}", id, ex.GetType().Name); }
                 });
+                await PublishReadyInitialDrafts(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning("SQL validation dispatcher unavailable: {ErrorType}", ex.GetType().Name); }
@@ -98,6 +101,41 @@ internal sealed class SqlValidationDispatcher(IServiceScopeFactory scopes, IHttp
         receipt.ValidatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         logger.LogInformation("SQL validation {ReceiptId} engine={EngineId} status={Status}", receipt.Id, target.EngineProfileId, receipt.Status);
+        if (receipt.Status == "valid")
+        {
+            var published = await SqlTaskService.TryAutoPublishInitialRevision(db, target.SpecVersionId, ct);
+            if (published)
+                logger.LogInformation("SQL initial revision {SpecVersionId} was published after validation", target.SpecVersionId);
+        }
+    }
+
+    private async Task PublishReadyInitialDrafts(CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TasksDbContext>();
+        if (initialPublicationBackfill is null)
+        {
+            var versionIds = await db.SqlAssignmentSpecs.AsNoTracking()
+                .Where(x => x.PublishedVersionId == null && x.DraftVersionId != null)
+                .OrderBy(x => x.UpdatedAt)
+                .Select(x => x.DraftVersionId!.Value)
+                .ToListAsync(ct);
+            initialPublicationBackfill = new Queue<Guid>(versionIds);
+            if (versionIds.Count > 0)
+                logger.LogInformation("SQL initial publication backfill queued {Count} draft revisions", versionIds.Count);
+        }
+
+        for (var i = 0; i < 32 && initialPublicationBackfill.Count > 0; i++)
+        {
+            var versionId = initialPublicationBackfill.Dequeue();
+            try
+            {
+                if (await SqlTaskService.TryAutoPublishInitialRevision(db, versionId, ct))
+                    logger.LogInformation("SQL initial revision {SpecVersionId} was backfilled as published", versionId);
+            }
+            catch (SqlNotReadyException) { }
+            catch (DbUpdateConcurrencyException) { }
+        }
     }
 
     private static string SafeDiagnostic(JsonElement result)

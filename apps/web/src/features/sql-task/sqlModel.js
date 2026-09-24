@@ -102,6 +102,51 @@ export function resultLabel(status) {
     JudgeUnavailable: '\u0414\u0432\u0438\u0436\u043e\u043a \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d', Previewed: '\u0417\u0430\u043f\u0443\u0441\u043a \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d' })[status] || status;
 }
 
+const SQL_PREPARING_CODES = new Set(['SQL_NOT_PUBLISHED', 'SQL_NOT_VALIDATED', 'SQL_NOT_READY']);
+const SQL_RUNTIME_CODES = new Set([
+  'SQL_SERVICE_UNAVAILABLE',
+  'SQL_SERVICE_TIMEOUT',
+  'SQL_QUEUE_UNAVAILABLE',
+  'SQL_ENGINE_UNAVAILABLE',
+  'SQL_WORKER_UNAVAILABLE',
+  'SQL_RUNTIME_UNAVAILABLE',
+]);
+
+export function mergeSqlEditorPoll(current, latest) {
+  if (!current || current.draftVersionId !== latest?.draftVersionId) return current;
+  return {
+    ...current,
+    validation: latest.validation,
+    profiles: latest.profiles,
+    publishedVersionId: latest.publishedVersionId,
+    concurrencyStamp: latest.concurrencyStamp,
+  };
+}
+
+export function sqlErrorPresentation(error, fallbackMessage = '') {
+  const code = error?.normalized?.code || error?.response?.data?.code || '';
+  const status = Number(error?.response?.status || 0);
+  if (SQL_PREPARING_CODES.has(code)) {
+    return {
+      title: 'SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e',
+      detail: '\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u0435\u0449\u0451 \u0433\u043e\u0442\u043e\u0432\u0438\u0442\u0441\u044f \u043a \u0440\u0430\u0431\u043e\u0442\u0435. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.',
+      code,
+    };
+  }
+  if (SQL_RUNTIME_CODES.has(code) || status >= 500) {
+    return {
+      title: 'SQL \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d',
+      detail: '\u0421\u0435\u0440\u0432\u0438\u0441 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f SQL \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.',
+      code,
+    };
+  }
+  return {
+    title: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043a\u0440\u044b\u0442\u044c SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435',
+    detail: fallbackMessage || '\u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443.',
+    code,
+  };
+}
+
 
 export function logicalEngineProfiles(profiles, targets, onlineFingerprints) {
   const catalog = Array.isArray(profiles) ? profiles : [];
