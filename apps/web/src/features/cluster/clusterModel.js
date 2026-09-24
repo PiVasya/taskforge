@@ -195,17 +195,89 @@ export function percent(used, total) {
   const u = number(used), t = number(total);
   return u !== null && u >= 0 && t !== null && t > 0 ? Math.max(0, Math.min(100, u / t * 100)) : null;
 }
+export const CONTAINER_GROUP_LABELS = {
+  application: 'Приложение', sql: 'SQL runtime', infrastructure: 'Инфраструктура',
+  updater: 'Обновления', maintenance: 'Служебный', other: 'Другое',
+};
+export const CONTAINER_EXPECTED_LABELS = {
+  running: 'Должен работать', prepared: 'Должен быть подготовлен', hold: 'Без изменений',
+  'on-demand': 'По требованию', 'not-assigned': 'Не назначен', unknown: 'Не определено',
+};
 export function containerState(c) {
-  return String(c.state || c.status || 'unknown').toLowerCase();
+  return String(c?.state || c?.status || 'unknown').toLowerCase();
+}
+export function containerExpected(c) {
+  return String(c?.expectedState || c?.expected_state || 'unknown').toLowerCase();
 }
 export function containerTone(c, node) {
   const state = containerState(c);
-  if (!node.online || node.telemetryFresh === false) return 'muted';
-  if (c.oomKilled || state === 'restarting' || state === 'dead' || c.health === 'unhealthy') return 'bad';
-  if (state === 'missing') return 'bad';
-  if (state === 'running') return c.health === 'starting' ? 'warn' : 'good';
-  if (['created', 'exited', 'stopped'].includes(state)) return primaryRole(node.role) ? 'warn' : 'muted';
+  const expected = containerExpected(c);
+  const health = String(c?.health || '').toLowerCase();
+  if (!node?.online || node?.telemetryFresh === false) return 'muted';
+  if (c?.oomKilled || state === 'restarting' || state === 'dead' || health === 'unhealthy') return 'bad';
+  if (state === 'missing') return ['on-demand', 'not-assigned', 'unknown'].includes(expected) ? 'muted' : 'bad';
+  if (expected === 'running') {
+    if (state !== 'running') return 'bad';
+    return health === 'starting' ? 'warn' : 'good';
+  }
+  if (expected === 'prepared') {
+    if (['created', 'exited', 'stopped'].includes(state)) return 'accent';
+    if (state === 'running') return health === 'starting' ? 'warn' : 'good';
+  }
+  if (expected === 'hold') {
+    if (state === 'running') return health === 'starting' ? 'warn' : 'good';
+    if (['created', 'exited', 'stopped'].includes(state)) return 'accent';
+  }
+  if (state === 'running') return health === 'starting' ? 'warn' : 'good';
+  if (['created', 'exited', 'stopped'].includes(state)) return primaryRole(node?.role) ? 'warn' : 'muted';
   return 'muted';
+}
+export function containerStatusLabel(c, node) {
+  const state = containerState(c);
+  const expected = containerExpected(c);
+  const health = String(c?.health || '').toLowerCase();
+  if (!node?.online || node?.telemetryFresh === false) return 'Последний снимок';
+  if (c?.oomKilled) return 'OOM killed';
+  if (state === 'running') {
+    if (health === 'unhealthy') return 'Работает · unhealthy';
+    if (health === 'starting') return 'Запускается';
+    return health === 'healthy' ? 'Работает · healthy' : 'Работает';
+  }
+  if (state === 'restarting') return 'Перезапускается';
+  if (state === 'dead') return 'Dead';
+  if (state === 'missing') return expected === 'on-demand' ? 'Не создан · по требованию' : 'Отсутствует';
+  if (['created', 'exited', 'stopped'].includes(state) && ['prepared', 'hold'].includes(expected)) return 'Подготовлен';
+  if (state === 'created') return 'Создан';
+  if (state === 'exited') return 'Остановлен';
+  if (state === 'stopped') return 'Остановлен';
+  return state || 'Нет данных';
+}
+export function containerNeedsAttention(c, node) {
+  return ['bad', 'warn'].includes(containerTone(c, node));
+}
+export function containerSummary(node) {
+  const list = array(node?.containers);
+  return {
+    total: list.length,
+    running: list.filter(c => containerState(c) === 'running').length,
+    prepared: list.filter(c => ['created', 'exited', 'stopped'].includes(containerState(c)) && ['prepared', 'hold'].includes(containerExpected(c))).length,
+    issues: list.filter(c => containerNeedsAttention(c, node)).length,
+    missing: list.filter(c => containerState(c) === 'missing' && !['on-demand', 'not-assigned'].includes(containerExpected(c))).length,
+    unhealthy: list.filter(c => String(c?.health || '').toLowerCase() === 'unhealthy').length,
+    restarting: list.filter(c => containerState(c) === 'restarting').length,
+  };
+}
+export function containersMatrix(nodes) {
+  const rows = new Map();
+  for (const node of array(nodes)) for (const container of array(node?.containers)) {
+    const name = container?.service || container?.name;
+    if (!name) continue;
+    if (!rows.has(name)) rows.set(name, { group: container.group || 'other', cells: {} });
+    const row = rows.get(name);
+    if (!row.group || row.group === 'other') row.group = container.group || 'other';
+    row.cells[node.id] = container;
+  }
+  return [...rows].sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => ({ name, group: value.group, cells: value.cells }));
 }
 export function nodeTone(node) {
   if (!node.online) return 'bad';

@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import ReactFlow, { applyNodeChanges, Background, Handle, MarkerType, MiniMap, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Cloud, Database, Focus, Grip, LayoutGrid, LockKeyhole, Maximize2, Minimize2, Minus, Move, Network, Plus, Server, UnlockKeyhole } from 'lucide-react';
-import { array, autoPositions, countPair, dateTime, EDGE_ID, nodeTone, NODE_HEIGHT, NODE_WIDTH, PHASE_LABELS, primaryRole, readLayout, saveLayout } from './clusterModel';
+import { array, autoPositions, containerSummary, dateTime, EDGE_ID, nodeTone, NODE_HEIGHT, NODE_WIDTH, PHASE_LABELS, primaryRole, readLayout, saveLayout } from './clusterModel';
 import { CopyValue, Tag } from './ClusterShared';
 
 const Handles = () => <>{[['l', Position.Left], ['r', Position.Right], ['t', Position.Top], ['b', Position.Bottom]].flatMap(([id, position]) =>
@@ -12,13 +12,14 @@ const ServerCard = memo(({ data }) => {
   const n = data.node;
   const isPrimary = primaryRole(n.role);
   const tone = nodeTone(n);
+  const containers = containerSummary(n);
   return <div className={`tf-cluster-node ${data.selected ? 'is-selected' : ''} is-${tone}`}>
     <Handles />
     <div className="tf-cluster-node-head"><span className="tf-cluster-node-letter">{n.id}</span><div><strong>Сервер {n.id}</strong><span>{n.host?.hostname || `Node Agent${n.bundleRevision ? ` · r${n.bundleRevision}` : ''}`}</span></div><Grip size={16} className="tf-cluster-grip" /></div>
     <div className="tf-cluster-node-tags"><Tag tone={isPrimary ? 'accent' : 'muted'}>{isPrimary ? 'PRIMARY' : n.role === 'unreachable' ? 'НЕТ СВЯЗИ' : ['standby', 'replica'].includes(n.role) ? 'STANDBY' : 'РОЛЬ ?'}</Tag><Tag>{String(n.appProfile || '—').toUpperCase()}</Tag><Tag tone={tone} dot>{n.online ? n.telemetryFresh === false ? 'Устарело' : 'Онлайн' : 'Офлайн'}</Tag></div>
     <div className="tf-cluster-node-addresses"><CopyValue value={n.network?.publicHost} label="IP" compact /><CopyValue value={n.network?.wireguardIp} label="WG" compact /></div>
     <div className="tf-cluster-node-bottom"><span>{isPrimary ? 'Публичный трафик' : 'Горячий резерв'}</span><Tag tone={!n.online || n.telemetryFresh === false ? 'muted' : (isPrimary ? n.trafficReady : n.hotStartReady) ? 'good' : 'warn'}>{!n.online || n.telemetryFresh === false ? 'Нет свежих данных' : (isPrimary ? n.trafficReady : n.hotStartReady) ? 'Готов' : 'Не готов'}</Tag></div>
-    <div className="tf-cluster-node-foot"><span>Контейнеры подготовлены</span><strong>{countPair(n.docker?.preparedAppCount, n.docker?.assignedAppCount)}</strong></div>
+    <div className="tf-cluster-node-foot"><span>Контейнеры · {containers.running}/{containers.total}</span><Tag tone={containers.issues ? 'bad' : 'good'}>{containers.issues ? `Проблем: ${containers.issues}` : 'OK'}</Tag></div>
   </div>;
 });
 ServerCard.displayName = 'ClusterServerCard';

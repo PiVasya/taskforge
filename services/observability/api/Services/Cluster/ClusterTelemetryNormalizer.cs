@@ -88,7 +88,7 @@ internal static class ClusterTelemetryNormalizer
         var containers = new JsonArray();
         foreach (var c in (docker["containers"] as JsonArray ?? new()).OfType<JsonObject>())
         {
-            var clean = Pick(c, "service", "name", "health", "started_at", "cpu", "memory", "cpu_percent", "memory_bytes", "memory_limit_bytes", "image_fingerprint");
+            var clean = Pick(c, "service", "name", "group", "health", "expected_state", "assigned", "started_at", "finished_at", "exit_code", "error", "cpu", "memory", "cpu_percent", "memory_bytes", "memory_limit_bytes", "image_fingerprint");
             clean["state"] = Text(c["state"]) ?? Text(c["status"]) ?? "unknown";
             clean["restart_count"] = (int?)(Number(c["restart_count"]) ?? Number(c["restart"]));
             clean["oom"] = c["oom"]?.DeepClone();

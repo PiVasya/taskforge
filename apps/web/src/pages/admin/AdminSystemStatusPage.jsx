@@ -11,10 +11,10 @@ import ClusterNodeDetails from '../../features/cluster/ClusterNodeDetails';
 import PrimarySwitchDialog from '../../features/cluster/PrimarySwitchDialog';
 import ClusterDiagnosticsDialog from '../../features/cluster/ClusterDiagnosticsDialog';
 import ClusterLogCleanupDialog from '../../features/cluster/ClusterLogCleanupDialog';
-import { ClusterEvents, ImageMatrix } from '../../features/cluster/ClusterTables';
+import { ClusterEvents, ContainerMatrix, ImageMatrix } from '../../features/cluster/ClusterTables';
 import { Empty, Tag } from '../../features/cluster/ClusterShared';
 import {
-  array, countPair, DASH, dateTime, logCleanupEligibility, PHASE_LABELS, primarySwitchComplete, primarySwitchProgress, REASONS,
+  array, containerSummary, countPair, DASH, dateTime, logCleanupEligibility, PHASE_LABELS, primarySwitchComplete, primarySwitchProgress, REASONS,
 } from '../../features/cluster/clusterModel';
 import '../../features/cluster/cluster.css';
 
@@ -183,8 +183,10 @@ export default function AdminSystemStatusPage() {
   const issues = nodes.flatMap(n => [...new Set([
     ...array(n.healthReasons), ...(n.telemetryFresh === false ? ['telemetry-stale'] : []),
   ])].map(reason => ({ node: n.id, reason })));
-  const available = data?.summary?.imageAvailable ?? nodes.reduce((sum, n) => sum + (n.docker?.imagesReady || 0), 0);
-  const assigned = data?.summary?.imageAssigned ?? nodes.reduce((sum, n) => sum + (n.docker?.assignedAppCount || 0), 0);
+  const containerFallback = nodes.reduce((acc, node) => { const value = containerSummary(node); acc.total += value.total; acc.running += value.running; acc.issues += value.issues; acc.missing += value.missing; return acc; }, { total: 0, running: 0, issues: 0, missing: 0 });
+  const containersTotal = data?.summary?.containersTotal ?? containerFallback.total;
+  const containersRunning = data?.summary?.containersRunning ?? containerFallback.running;
+  const containerIssues = data?.summary?.containersIssues ?? containerFallback.issues;
 
   useEffect(() => {
     if (!pendingSwitch || !data) return;
@@ -285,7 +287,7 @@ export default function AdminSystemStatusPage() {
         <OverviewItem icon={ShieldCheck} label="Горячий резерв" value={countPair(hot, reserves.length)} hint="Готовность к запуску" tone={hot === reserves.length && reserves.length ? 'good' : 'warn'} />
         <OverviewItem icon={Database} label="PostgreSQL" value={pgReady ? 'Здоров' : 'Проверить'} hint={activeFresh ? `Primary ${activeId}` : 'Primary не подтверждён'} tone={pgReady ? 'good' : 'warn'} />
         <OverviewItem icon={Cloud} label="Cloudflare" value={activeFresh && edge?.dns_synced ? `→ ${edge.target_node || DASH}` : DASH} hint={activeFresh ? PHASE_LABELS[edge?.phase] || 'Нет подтверждения' : 'Нет свежих данных'} tone={activeFresh && edge?.success ? 'good' : 'muted'} />
-        <OverviewItem icon={Box} label="Образы доступны" value={assigned ? countPair(available, assigned) : DASH} hint={data.summary?.images === 'synchronized' ? 'Версии совпадают' : data.summary?.imageDifferent ? `Различаются: ${data.summary.imageDifferent}` : 'Версии не подтверждены'} tone={data.summary?.imageMissing ? 'warn' : 'muted'} />
+        <OverviewItem icon={Box} label="Контейнеры" value={containersTotal ? countPair(containersRunning, containersTotal) : DASH} hint={containerIssues ? `Требуют внимания: ${containerIssues}` : 'Работают / всего на нодах'} tone={containerIssues ? 'warn' : containersTotal ? 'good' : 'muted'} />
         <OverviewItem icon={Activity} label="Участники голосования" value={countPair(data.summary?.quorum, data.summary?.quorumTotal)} hint="По доступности агентов" />
       </section>
 
@@ -297,6 +299,7 @@ export default function AdminSystemStatusPage() {
       {nodes.length > 0 ? <>
         <ClusterMap nodes={nodes} activeId={activeId} selectedId={selected?.id} onSelect={setSelectedId} storageKey={`taskforge.cluster.layout.v2:${data.cluster || 'default'}`} />
         <ClusterNodeDetails node={selected} nodes={nodes} onSelect={setSelectedId} onPromote={nodeId => openPrimarySwitch(nodeId)} primarySwitchDisabled={!!pendingSwitch} />
+        <ContainerMatrix nodes={nodes} />
         <ImageMatrix nodes={nodes} />
       </> : <div className="tf-cluster-panel"><Empty>Агенты ещё не передали данные о нодах.</Empty></div>}
       <ClusterEvents events={data.events} />

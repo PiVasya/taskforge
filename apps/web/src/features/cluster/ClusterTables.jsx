@@ -1,7 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDown, Box, CheckCircle2, Info, Search, XCircle } from 'lucide-react';
-import { array, dateTime, IMAGE_LABELS, imageCell, primaryRole, servicesMatrix } from './clusterModel';
+import { array, CONTAINER_EXPECTED_LABELS, CONTAINER_GROUP_LABELS, containerExpected, containerNeedsAttention, containerStatusLabel, containerTone, containersMatrix, dateTime, IMAGE_LABELS, imageCell, primaryRole, servicesMatrix } from './clusterModel';
 import { Empty, Tag } from './ClusterShared';
+
+export function ContainerMatrix({ nodes }) {
+  const [query, setQuery] = useState('');
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const rows = useMemo(() => containersMatrix(nodes), [nodes]);
+  const filtered = rows.filter(row => row.name.toLowerCase().includes(query.toLowerCase()) && (!onlyIssues || nodes.some(node => row.cells[node.id] && containerNeedsAttention(row.cells[node.id], node))));
+  const issueCount = rows.reduce((sum, row) => sum + nodes.filter(node => row.cells[node.id] && containerNeedsAttention(row.cells[node.id], node)).length, 0);
+  return <section className="tf-cluster-panel"><div className="tf-cluster-panel-head"><div className="tf-cluster-heading"><Activity size={18} /><h2>Контейнеры кластера</h2><Tag tone={issueCount ? 'warn' : 'good'}>{issueCount ? `Проблем: ${issueCount}` : 'Без проблем'}</Tag></div></div><div className="tf-cluster-table-tools"><label className="tf-cluster-search"><Search size={15} /><input aria-label="Поиск контейнера в кластере" placeholder="Найти сервис…" value={query} onChange={e => setQuery(e.target.value)} /></label><button type="button" className="tf-cluster-button" aria-pressed={onlyIssues} onClick={() => setOnlyIssues(v => !v)}><AlertTriangle size={14} />Только проблемы</button><span className="tf-cluster-muted">{filtered.length} / {rows.length}</span></div>
+    <p className="tf-cluster-note tf-cluster-matrix-note"><Info size={15} />Здесь видно фактическое состояние одного и того же Compose-сервиса на всех нодах. Нормально подготовленный standby не считается ошибкой.</p>
+    <div className="tf-cluster-table-scroll"><table className="tf-cluster-table tf-cluster-container-matrix"><thead><tr><th>Сервис</th><th>Группа</th>{nodes.map(n => <th key={n.id}>Сервер {n.id}<small>{primaryRole(n.role) ? 'Primary' : ['standby', 'replica'].includes(n.role) ? 'Резерв' : 'Роль не подтверждена'}</small></th>)}</tr></thead><tbody>{filtered.map(row => <tr key={row.name}><th scope="row">{row.name}</th><td><small>{CONTAINER_GROUP_LABELS[row.group] || row.group || 'Другое'}</small></td>{nodes.map(node => {
+      const c = row.cells[node.id];
+      if (!c) return <td key={node.id}><Tag tone="muted">Нет данных</Tag><small>Агент не передал контейнер</small></td>;
+      return <td key={node.id}><Tag tone={containerTone(c, node)} dot>{containerStatusLabel(c, node)}</Tag><small>{c.expectedState ? `Ожидается: ${CONTAINER_EXPECTED_LABELS[containerExpected(c)] || c.expectedState}` : c.health && c.health !== 'none' ? `Health: ${c.health}` : 'Ожидаемое состояние не передано'}</small></td>;
+    })}</tr>)}</tbody></table>{!filtered.length && <Empty>{rows.length ? 'Нет контейнеров по выбранному фильтру.' : 'Данные о контейнерах ещё не получены.'}</Empty>}</div></section>;
+}
 
 export function ImageMatrix({ nodes }) {
   const [query, setQuery] = useState('');

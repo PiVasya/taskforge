@@ -601,8 +601,20 @@ public sealed partial class ClusterTelemetryService(
         var imageMissing = 0;
         var imageUnknown = 0;
         var imageAvailable = 0;
+        var containersTotal = 0;
+        var containersRunning = 0;
+        var containersIssues = 0;
+        var containersMissing = 0;
         foreach (var node in sanitizedNodes)
         {
+            if (node.GetValueOrDefault("docker") is { } dockerSummary)
+            {
+                var json = System.Text.Json.JsonSerializer.SerializeToNode(dockerSummary) as JsonObject;
+                containersTotal += json?["containerCount"]?.GetValue<int>() ?? 0;
+                containersRunning += json?["runningContainerCount"]?.GetValue<int>() ?? 0;
+                containersIssues += json?["issueContainerCount"]?.GetValue<int>() ?? 0;
+                containersMissing += json?["missingContainerCount"]?.GetValue<int>() ?? 0;
+            }
             if (node["services"] is not object[] services) continue;
             foreach (var obj in services.OfType<Dictionary<string, object?>>())
             {
@@ -656,6 +668,10 @@ public sealed partial class ClusterTelemetryService(
                 imageUnknown,
                 imageAvailable,
                 imageAssigned,
+                containersTotal,
+                containersRunning,
+                containersIssues,
+                containersMissing,
                 quorum = live.Count(x => x.Payload?["node"]?["dcs_voter"]?.GetValue<bool>() == true),
                 quorumTotal = topologyMeta.Values.Count(x => x["dcs_voter"]?.GetValue<bool>() == true),
                 mode = live.Select(x => x.Payload?["node"]?["deployment_mode"]?.GetValue<string>()).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "unknown",
@@ -732,16 +748,39 @@ public sealed partial class ClusterTelemetryService(
                 {
                     ["service"] = c["service"]?.GetValue<string>(),
                     ["name"] = c["name"]?.GetValue<string>(),
+                    ["group"] = c["group"]?.GetValue<string>(),
                     ["state"] = c["state"]?.GetValue<string>(),
                     ["health"] = c["health"]?.GetValue<string>(),
+                    ["expectedState"] = c["expected_state"]?.GetValue<string>(),
+                    ["assigned"] = c["assigned"]?.GetValue<bool>(),
                     ["restartCount"] = c["restart_count"]?.GetValue<int>(),
                     ["oomKilled"] = c["oom"]?.GetValue<bool>(),
                     ["startedAt"] = c["started_at"]?.GetValue<string>(),
+                    ["finishedAt"] = c["finished_at"]?.GetValue<string>(),
+                    ["exitCode"] = c["exit_code"]?.GetValue<int>(),
+                    ["error"] = c["error"]?.GetValue<string>(),
+                    ["imageFingerprint"] = c["image_fingerprint"]?.GetValue<string>(),
                     ["cpu"] = c["cpu"]?.GetValue<string>(),
                     ["memory"] = c["memory"]?.GetValue<string>(),
                 });
             }
         }
+
+        var runningContainers = containers.Count(c => string.Equals(c.GetValueOrDefault("state")?.ToString(), "running", StringComparison.OrdinalIgnoreCase));
+        var missingContainers = containers.Count(c => string.Equals(c.GetValueOrDefault("state")?.ToString(), "missing", StringComparison.OrdinalIgnoreCase));
+        var unhealthyContainers = containers.Count(c => string.Equals(c.GetValueOrDefault("health")?.ToString(), "unhealthy", StringComparison.OrdinalIgnoreCase));
+        var restartingContainers = containers.Count(c => string.Equals(c.GetValueOrDefault("state")?.ToString(), "restarting", StringComparison.OrdinalIgnoreCase));
+        var issueContainers = containers.Count(c =>
+        {
+            var stateValue = c.GetValueOrDefault("state")?.ToString()?.ToLowerInvariant() ?? "unknown";
+            var expected = c.GetValueOrDefault("expectedState")?.ToString()?.ToLowerInvariant() ?? string.Empty;
+            var badState = stateValue is "dead" or "restarting" || c.GetValueOrDefault("oomKilled") is true
+                || string.Equals(c.GetValueOrDefault("health")?.ToString(), "unhealthy", StringComparison.OrdinalIgnoreCase);
+            if (badState) return true;
+            if (stateValue == "missing") return expected is "running" or "prepared";
+            if (expected == "running" && stateValue != "running") return true;
+            return false;
+        });
 
         var role = p["ha"]?["role"]?.GetValue<string>() ?? "unknown";
         var trafficReady = p["ha"]?["traffic_ready"]?.GetValue<bool>() == true;
@@ -832,6 +871,11 @@ public sealed partial class ClusterTelemetryService(
                 preparedAppCount = p["docker"]?["prepared_app_count"]?.GetValue<int>() ?? 0,
                 imagesReady = p["docker"]?["images_ready"]?.GetValue<int>() ?? 0,
                 imagesMissing = p["docker"]?["images_missing"]?.GetValue<int>() ?? 0,
+                runningContainerCount = runningContainers,
+                missingContainerCount = missingContainers,
+                unhealthyContainerCount = unhealthyContainers,
+                restartingContainerCount = restartingContainers,
+                issueContainerCount = issueContainers,
             },
             ["services"] = services.ToArray(),
             ["containers"] = containers.ToArray(),

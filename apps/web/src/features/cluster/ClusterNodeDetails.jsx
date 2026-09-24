@@ -1,34 +1,38 @@
 import React, { useMemo, useState } from 'react';
 import { Box, CheckCircle2, Cloud, Cpu, Database, Globe2, Info, Network, Repeat2, Search, Server, ShieldCheck } from 'lucide-react';
-import { array, bytes, containerState, containerTone, countPair, DASH, dateTime, duration, nodeTone, number, PHASE_LABELS, primaryRole, primarySwitchEligibility, REASONS } from './clusterModel';
+import { array, bytes, CONTAINER_EXPECTED_LABELS, CONTAINER_GROUP_LABELS, containerExpected, containerState, containerStatusLabel, containerSummary, containerTone, countPair, DASH, dateTime, duration, nodeTone, number, PHASE_LABELS, primaryRole, primarySwitchEligibility, REASONS } from './clusterModel';
 import { CopyValue, Empty, Metric, ResourceBar, Row, Tag } from './ClusterShared';
 
 const roleLabel = n => primaryRole(n.role) ? 'Основной сервер' : !n.online ? 'Сервер недоступен' : ['standby', 'replica'].includes(n.role) ? 'Резервный сервер' : 'Роль уточняется';
 const appMode = { primary: 'Основное приложение', 'primary-existing': 'Основное приложение', 'warm-standby': 'Подготовлен к запуску', assist: 'Вспомогательный режим', off: 'Выключено', 'fenced-patroni-unknown': 'Защитная остановка' };
-const statusLabel = (c, node) => {
-  const state = containerState(c);
-  if (state === 'running') return c.health === 'healthy' ? 'Здоров' : c.health === 'unhealthy' ? 'Нездоров' : c.health === 'starting' ? 'Запускается' : 'Работает';
-  if (['created', 'exited', 'stopped'].includes(state)) return primaryRole(node.role) ? 'Остановлен' : 'Подготовлен';
-  return ({ missing: 'Отсутствует', restarting: 'Перезапуск', dead: 'Остановлен с ошибкой', paused: 'На паузе' })[state] || 'Нет данных';
-};
-
 function Containers({ node }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const containers = array(node.containers);
+  const summary = containerSummary(node);
   const filtered = useMemo(() => containers.filter(c => {
     const state = containerState(c);
     const tone = containerTone(c, node);
+    const expected = containerExpected(c);
     const matchesQuery = String(c.service || c.name || '').toLowerCase().includes(query.trim().toLowerCase());
     const matchesFilter = filter === 'all'
       || (filter === 'issues' && ['bad', 'warn'].includes(tone))
       || (filter === 'running' && state === 'running')
-      || (filter === 'prepared' && ['created', 'exited', 'stopped'].includes(state));
+      || (filter === 'prepared' && ['created', 'exited', 'stopped'].includes(state) && ['prepared', 'hold'].includes(expected))
+      || (filter === 'stopped' && ['created', 'exited', 'stopped', 'missing', 'dead'].includes(state));
     return matchesQuery && matchesFilter;
   }), [containers, query, filter, node]);
-  return <div className="tf-cluster-containers"><div className="tf-cluster-table-tools"><label className="tf-cluster-search"><Search size={15} /><input aria-label="Поиск контейнера" value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти сервис…" /></label><div className="tf-cluster-segments" role="group" aria-label="Фильтр контейнеров">{[['all', 'Все'], ['issues', 'Внимание'], ['running', 'Работают'], ['prepared', 'Подготовлены']].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div><span className="tf-cluster-muted">{filtered.length} / {containers.length}</span></div>
-    <div className="tf-cluster-table-scroll"><table className="tf-cluster-table"><thead><tr><th>Сервис</th><th>Состояние</th><th>CPU</th><th>RAM</th><th>Рестарты</th><th>Запущен</th></tr></thead><tbody>{filtered.map((c, i) => <tr key={c.service || c.name || i}><th scope="row"><strong>{c.service || c.name || DASH}</strong>{c.name && c.name !== c.service && <small>{c.name}</small>}</th><td><Tag tone={containerTone(c, node)} dot>{statusLabel(c, node)}</Tag>{c.oomKilled && <Tag tone="bad">OOM</Tag>}</td><td>{c.cpu || DASH}</td><td>{c.memory || DASH}</td><td>{c.restartCount ?? DASH}</td><td>{dateTime(c.startedAt)}</td></tr>)}</tbody></table>{!filtered.length && <Empty>По этому фильтру контейнеров нет.</Empty>}</div>
-    <p className="tf-cluster-note">Контейнеры приложений. На резервной ноде «Подготовлен» — нормальное состояние. Прочерк означает отсутствие измерения.</p>
+  return <div className="tf-cluster-containers">
+    <div className="tf-cluster-container-summary">
+      <span><small>Всего</small><strong>{summary.total}</strong></span>
+      <span className="is-good"><small>Работают</small><strong>{summary.running}</strong></span>
+      <span className="is-accent"><small>Подготовлены</small><strong>{summary.prepared}</strong></span>
+      <span className={summary.issues ? 'is-bad' : 'is-good'}><small>Требуют внимания</small><strong>{summary.issues}</strong></span>
+      <span className={summary.missing ? 'is-bad' : ''}><small>Отсутствуют</small><strong>{summary.missing}</strong></span>
+    </div>
+    <div className="tf-cluster-table-tools"><label className="tf-cluster-search"><Search size={15} /><input aria-label="Поиск контейнера" value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти сервис…" /></label><div className="tf-cluster-segments" role="group" aria-label="Фильтр контейнеров">{[['all', 'Все'], ['issues', 'Проблемы'], ['running', 'Работают'], ['prepared', 'Подготовлены'], ['stopped', 'Не работают']].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div><span className="tf-cluster-muted">{filtered.length} / {containers.length}</span></div>
+    <div className="tf-cluster-table-scroll"><table className="tf-cluster-table tf-cluster-container-table"><thead><tr><th>Сервис</th><th>Группа</th><th>Ожидается</th><th>Фактически</th><th>Рестарты</th><th>Exit</th><th>Запущен / завершён</th></tr></thead><tbody>{filtered.map((c, i) => <tr key={`${c.service || c.name || i}-${c.name || ''}`}><th scope="row"><strong>{c.service || c.name || DASH}</strong>{c.name && c.name !== c.service && <small>{c.name}</small>}</th><td>{CONTAINER_GROUP_LABELS[c.group] || c.group || DASH}</td><td><small>{CONTAINER_EXPECTED_LABELS[containerExpected(c)] || containerExpected(c) || DASH}</small></td><td><Tag tone={containerTone(c, node)} dot>{containerStatusLabel(c, node)}</Tag>{c.oomKilled && <Tag tone="bad">OOM</Tag>}{c.error && <small title={c.error}>{c.error}</small>}</td><td>{c.restartCount ?? DASH}</td><td>{c.exitCode ?? DASH}</td><td>{containerState(c) === 'running' ? dateTime(c.startedAt) : dateTime(c.finishedAt || c.startedAt)}</td></tr>)}</tbody></table>{!filtered.length && <Empty>По этому фильтру контейнеров нет.</Empty>}</div>
+    <p className="tf-cluster-note">Показывается фактическое состояние Compose-контейнеров и ожидаемое состояние с учётом роли ноды. «Подготовлен» на резерве — штатно; «Отсутствует» при ожидании running/prepared — проблема.</p>
   </div>;
 }
 

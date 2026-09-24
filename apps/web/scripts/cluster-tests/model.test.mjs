@@ -233,3 +233,18 @@ test('server log cleanup only targets online r73+ agents that expose maintenance
   assert.deepEqual(model.logCleanupEligibility({ online: true, bundleRevision: '73' }), { ready: true, reason: null, revision: 73 });
   assert.deepEqual(model.logCleanupEligibility({ online: true, bundleRevision: '74', logCleanupAvailable: false }), { ready: false, reason: 'agent-too-old', revision: 74 });
 });
+
+test('r74 container policy distinguishes dead infrastructure from prepared standby apps', () => {
+  const standby = { id: 'B', online: true, telemetryFresh: true, role: 'standby' };
+  assert.equal(model.containerTone({ state: 'exited', expectedState: 'prepared', group: 'application' }, standby), 'accent');
+  assert.equal(model.containerTone({ state: 'exited', expectedState: 'running', group: 'infrastructure' }, standby), 'bad');
+  assert.equal(model.containerTone({ state: 'missing', expectedState: 'running' }, standby), 'bad');
+  assert.equal(model.containerTone({ state: 'missing', expectedState: 'on-demand' }, standby), 'muted');
+  assert.equal(model.containerStatusLabel({ state: 'exited', expectedState: 'prepared' }, standby), 'Подготовлен');
+  const summary = model.containerSummary({ ...standby, containers: [
+    { state: 'running', health: 'healthy', expectedState: 'running' },
+    { state: 'exited', expectedState: 'prepared' },
+    { state: 'missing', expectedState: 'running' },
+  ] });
+  assert.deepEqual(summary, { total: 3, running: 1, prepared: 1, issues: 1, missing: 1, unhealthy: 0, restarting: 0 });
+});
