@@ -5,6 +5,7 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Analytics;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
+using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 
 namespace TaskForge.Tasks.Api.Endpoints;
 
@@ -12,10 +13,17 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapInsightsEndpoints(WebApplication app)
     {
-        app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid assignmentId, TasksDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
+        app.MapGet("/api/admin/assignments/{assignmentId:guid}/insights", async (Guid assignmentId, HttpContext http, TasksDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+            if (!await CanViewAssignmentAnalyticsAsync(assignment, http, cfg, httpFactory, ct))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new { message = "Аналитика задания доступна только для разрешённых курсов.", code = "ASSIGNMENT_ANALYTICS_FORBIDDEN" },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
 
             var analyticsSettings = AssignmentAnalyticsSettingsService.FromJson(assignment.AnalyticsSettingsJson);
             var taskAttempts = await db.Attempts.AsNoTracking()

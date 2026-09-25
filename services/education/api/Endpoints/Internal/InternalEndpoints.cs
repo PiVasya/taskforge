@@ -43,14 +43,16 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { userId, groupIds = ids });
         });
 
-        app.MapGet("/api/internal/courses/{courseId:guid}/access/{userId:guid}", async (Guid courseId, Guid userId, EducationDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/internal/courses/{courseId:guid}/access/{userId:guid}", async (Guid courseId, Guid userId, EducationDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             TaskForgeDebugTrace.Map("EDU_ACCESS_BEGIN", ("user", userId), ("course", courseId), ("mode", "single"));
             var allById = await LoadCoursesWithAncestorsAsync(new[] { courseId }, db, ct);
             if (!allById.TryGetValue(courseId, out var course)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             var groupIds = await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync(ct);
-            var access = new EducationAccessContext(userId, false, false, groupIds.ToHashSet());
+            var ownerIds = DeserializeIds(course.OwnerIdsJson);
+            var levels = await LoadUserAccessLevelsAsync(ownerIds.Append(userId), clients, cfg, ct);
+            var access = BuildInternalAccess(userId, groupIds, levels);
             var rootCourseId = ResolveRootCourseId(course, allById);
             var mapJson = await db.CourseMaps.AsNoTracking()
                 .Where(x => x.RootCourseId == rootCourseId)
@@ -77,11 +79,12 @@ internal static partial class EducationApiEndpoints
                 canEdit,
                 course.IsPublic && !course.IsHiddenFromStudents,
                 rootCourseId,
-                hasProgressionRules));
+                hasProgressionRules,
+                IsCourseOwner(access, course)));
         });
 
 
-        app.MapPost("/api/internal/courses/access", async (CourseAccessBatchRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/internal/courses/access", async (CourseAccessBatchRequest request, EducationDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var courseIds = (request.CourseIds ?? Array.Empty<Guid>())
                 .Where(x => x != Guid.Empty)
@@ -104,8 +107,10 @@ internal static partial class EducationApiEndpoints
                 .Where(x => x.UserId == request.UserId)
                 .Select(x => x.GroupId)
                 .ToListAsync(ct);
-            var access = new EducationAccessContext(request.UserId, false, request.BypassStudentVisibility, groupIds.ToHashSet());
             var allById = await LoadCoursesWithAncestorsAsync(courseIds, db, ct);
+            var relevantOwnerIds = courseIds.Where(allById.ContainsKey).SelectMany(id => DeserializeIds(allById[id].OwnerIdsJson));
+            var levels = await LoadUserAccessLevelsAsync(relevantOwnerIds.Append(request.UserId), clients, cfg, ct);
+            var access = BuildInternalAccess(request.UserId, groupIds, levels, request.BypassStudentVisibility);
             var courses = courseIds.Where(allById.ContainsKey).Select(id => allById[id]).ToList();
 
             var byId = courses.ToDictionary(x => x.Id);
@@ -134,7 +139,8 @@ internal static partial class EducationApiEndpoints
                         CanEditCourse(access, course),
                         course.IsPublic && !course.IsHiddenFromStudents,
                         rootCourseId,
-                        progressionByRootId.GetValueOrDefault(rootCourseId));
+                        progressionByRootId.GetValueOrDefault(rootCourseId),
+                        IsCourseOwner(access, course));
                 })
                 .ToArray();
 

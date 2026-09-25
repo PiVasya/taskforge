@@ -24,8 +24,9 @@ public sealed class AssignmentAnalyticsHub : Hub
         var http = Context.GetHttpContext();
         if (http == null) return;
         if (!AssignmentApiAccessService.IsEditor(http, _cfg)) return;
-        var exists = await _db.Assignments.AsNoTracking().AnyAsync(x => x.Id == id, Context.ConnectionAborted);
-        if (!exists) return;
+        var assignment = await _db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, Context.ConnectionAborted);
+        if (assignment == null) return;
+        if (!await AssignmentApiAccessService.CanViewAssignmentAnalyticsAsync(assignment, http, _cfg, _httpFactory, Context.ConnectionAborted)) return;
         await Groups.AddToGroupAsync(Context.ConnectionId, AssignmentAnalyticsHubGroups.ForAssignment(id));
     }
 

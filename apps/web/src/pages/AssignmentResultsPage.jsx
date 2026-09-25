@@ -4,7 +4,6 @@ import { Card, Button, Badge } from '../components/ui';
 import { getAssignment } from '../api/assignments';
 import { getMySolutionDetails } from '../api/solutions';
 import { sanitizeRunnerText } from '../utils/runnerText';
-import { useRoleFlags } from '../contexts/EditorModeContext';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 
 function displayClean(s) {
@@ -230,7 +229,6 @@ export default function AssignmentResultsPage() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') || 'full';
   const solutionId = searchParams.get('solutionId') || null;
-  const { isAdmin } = useRoleFlags();
 
   const [a, setA] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -368,7 +366,7 @@ export default function AssignmentResultsPage() {
   }
 
   const rawCases = res.cases ?? res.testCases ?? res.results ?? res.result?.cases ?? res.result?.results ?? [];
-  const canViewHiddenTests = isAdmin || a?.canEdit === true;
+  const canViewHiddenTests = a?.canEdit === true;
   const cases = Array.isArray(rawCases) ? rawCases.filter((c) => canViewHiddenTests || !isHiddenTestCase(c)) : [];
   const status = String(res.status || res.verdict || '').toLowerCase();
   const pending = res.isPending === true || res.result?.pending === true || ['preparing', 'queued', 'running', 'pending'].includes(status);

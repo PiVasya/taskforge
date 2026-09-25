@@ -52,7 +52,7 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new PagedResult<CourseDto>(pageRows, currentPage, size, total, currentPage * size < total));
         });
 
-        app.MapPost("/api/courses", async (CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/courses", async (CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
@@ -63,6 +63,15 @@ internal static partial class EducationApiEndpoints
             if ((ownerIds == null || ownerIds.Length == 0) && currentUserId.HasValue)
             {
                 ownerIds = new[] { currentUserId.Value };
+            }
+            if (ownerIds is { Length: > 0 })
+            {
+                var requestedLevels = await LoadUserAccessLevelsAsync(ownerIds.Append(currentUserId!.Value), clients, cfg, ct);
+                var mergedRanks = new Dictionary<Guid, int>(access.UserRanks ?? new Dictionary<Guid, int>());
+                foreach (var level in requestedLevels) mergedRanks[level.UserId] = level.EffectiveRank;
+                access = access with { UserRanks = mergedRanks };
+                if (ownerIds.Any(ownerId => !CanAssignCourseOwner(access, ownerId)))
+                    return CourseOwnerForbidden();
             }
 
             var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
@@ -227,7 +236,7 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
@@ -235,7 +244,16 @@ internal static partial class EducationApiEndpoints
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!CanEditCourse(access, course)) return CourseEditForbidden();
-            course.OwnerIdsJson = Serialize(request.OwnerIds);
+            var requestedOwnerIds = (request.OwnerIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToArray();
+            var currentOwnerIds = DeserializeIds(course.OwnerIdsJson);
+            var ownerIdsToValidate = currentOwnerIds.Concat(requestedOwnerIds).Append(access.UserId!.Value).Distinct().ToArray();
+            var requestedLevels = await LoadUserAccessLevelsAsync(ownerIdsToValidate, clients, cfg, ct);
+            var mergedRanks = new Dictionary<Guid, int>(access.UserRanks ?? new Dictionary<Guid, int>());
+            foreach (var level in requestedLevels) mergedRanks[level.UserId] = level.EffectiveRank;
+            access = access with { UserRanks = mergedRanks };
+            if (!access.IsSuperAdmin && currentOwnerIds.Where(ownerId => ownerId != access.UserId.Value).Any(ownerId => !CanAssignCourseOwner(access, ownerId))) return CourseOwnerForbidden();
+            if (requestedOwnerIds.Any(ownerId => !CanAssignCourseOwner(access, ownerId))) return CourseOwnerForbidden();
+            course.OwnerIdsJson = Serialize(requestedOwnerIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
@@ -248,6 +266,11 @@ internal static partial class EducationApiEndpoints
     private static IResult CourseEditForbidden()
         => Microsoft.AspNetCore.Http.Results.Json(
             new { message = "Недостаточно прав для изменения курса.", code = "COURSE_EDIT_FORBIDDEN" },
+            statusCode: StatusCodes.Status403Forbidden);
+
+    private static IResult CourseOwnerForbidden()
+        => Microsoft.AspNetCore.Http.Results.Json(
+            new { message = "Нельзя назначить владельца курса с равной или более высокой ролью.", code = "COURSE_OWNER_FORBIDDEN" },
             statusCode: StatusCodes.Status403Forbidden);
 
     private static HashSet<Guid> CollectCourseSubtreeIds(Guid rootCourseId, IEnumerable<(Guid Id, Guid? ParentCourseId)> rows)

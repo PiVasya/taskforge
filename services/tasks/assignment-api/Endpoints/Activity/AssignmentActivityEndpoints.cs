@@ -8,6 +8,7 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Hubs;
 using TaskForge.Tasks.Api.Services.Analytics;
+using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using TaskForge.Tasks.Api.Services.Access;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentApiSerializationService;
@@ -144,8 +145,12 @@ internal static partial class AssignmentApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { accepted = true, stored = events.Count });
         });
 
-        app.MapGet("/api/admin/assignments/{assignmentId:guid}/activity", async (Guid assignmentId, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/admin/assignments/{assignmentId:guid}/activity", async (Guid assignmentId, HttpContext http, TasksDbContext db, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanViewAssignmentAnalyticsAsync(assignment, http, cfg, clients, ct))
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Аналитика задания недоступна.", code = "ASSIGNMENT_ANALYTICS_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             var rows = await db.AssignmentActivityEvents.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId)
                 .OrderByDescending(x => x.CreatedAt)
@@ -176,8 +181,12 @@ internal static partial class AssignmentApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
-        app.MapGet("/api/admin/assignments/{assignmentId:guid}/sessions", async (Guid assignmentId, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/admin/assignments/{assignmentId:guid}/sessions", async (Guid assignmentId, HttpContext http, TasksDbContext db, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanViewAssignmentAnalyticsAsync(assignment, http, cfg, clients, ct))
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Аналитика задания недоступна.", code = "ASSIGNMENT_ANALYTICS_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             var rows = await db.AssignmentWorkSessions.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId)
                 .OrderByDescending(x => x.RiskScore)
@@ -187,8 +196,12 @@ internal static partial class AssignmentApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
-        app.MapGet("/api/admin/assignments/{assignmentId:guid}/users/{userId:guid}/timeline", async (Guid assignmentId, Guid userId, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/admin/assignments/{assignmentId:guid}/users/{userId:guid}/timeline", async (Guid assignmentId, Guid userId, HttpContext http, TasksDbContext db, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct) =>
         {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanViewAssignmentAnalyticsAsync(assignment, http, cfg, clients, ct))
+                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Аналитика задания недоступна.", code = "ASSIGNMENT_ANALYTICS_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             var rows = await db.AssignmentActivityEvents.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId && x.UserId == userId)
                 .OrderBy(x => x.CreatedAt)

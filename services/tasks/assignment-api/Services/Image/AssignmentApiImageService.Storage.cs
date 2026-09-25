@@ -145,7 +145,8 @@ internal static partial class AssignmentApiImageService
             var combined = json.TryGetProperty("combined_similarity", out var c) && c.TryGetDouble(out var cv) ? cv : 0.0;
             var clip = json.TryGetProperty("clip_similarity", out var cl) && cl.TryGetDouble(out var clv) ? clv : combined;
             var passed = json.TryGetProperty("passed", out var p) && p.ValueKind == JsonValueKind.True;
-            return Microsoft.AspNetCore.Http.Results.Ok(new { passed, similarity = System.Math.Round(combined * 100, 2), clipSimilarity = System.Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json, referenceUrl = IsEditor(http, cfg) ? expectedSpec.ExpectedImageUrl : null });
+            var canEditCourse = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, CancellationToken.None);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { passed, similarity = System.Math.Round(combined * 100, 2), clipSimilarity = System.Math.Round(clip * 100, 2), threshold = thresholdPercent, analyzer = json, referenceUrl = canEditCourse ? expectedSpec.ExpectedImageUrl : null });
         }
         catch (Exception ex)
         {

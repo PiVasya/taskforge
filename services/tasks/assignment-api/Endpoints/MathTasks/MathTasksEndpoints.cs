@@ -25,15 +25,23 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapMathTasksEndpoints(WebApplication app)
     {
-        app.MapGet("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db) =>
+        app.MapGet("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для редактирования math-задания нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             return Microsoft.AspNetCore.Http.Results.Ok(MathSpecToJsonObject(ReadMathSpec(assignment)));
         });
 
-        app.MapPut("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db) => IsEditor(http, cfg) ? await SaveSpec(assignmentId, payload, db, kind: "math") : Microsoft.AspNetCore.Http.Results.Json(new { message = "Для редактирования math-задания нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden));
+        app.MapPut("/api/math-tasks/{assignmentId:guid}/edit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для редактирования math-задания нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            return await SaveSpec(assignmentId, payload, db, kind: "math");
+        });
 
         app.MapPost("/api/math-tasks/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) => await StartMath(assignmentId, http, cfg, db, clients, ct));
 

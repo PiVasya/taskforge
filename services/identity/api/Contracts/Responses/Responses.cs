@@ -19,6 +19,8 @@ public sealed record ActivitySummaryDto(int SolvedAssignments, int TotalAttempts
     public static ActivitySummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+public sealed record UserAccessLevelDto(Guid UserId, string PrimaryRole, string[] Roles, int EffectiveRank, bool IsSuperAdmin, bool CanAuthorCourses);
+
 public sealed record UserSummaryDto(
     Guid Id,
     Guid UserId,

@@ -30,6 +30,7 @@ internal static partial class AssignmentApiEndpoints
             if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для загрузки эталона нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
             var assignment = await db.Assignments.FindAsync(assignmentId);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             var form = await req.ReadFormAsync(ct);
             var file = form.Files.FirstOrDefault();
             if (file == null || file.Length == 0) return Problem(400, "IMAGE_REFERENCE_REQUIRED", "request.validation", "Выберите эталонную картинку для image-test.");

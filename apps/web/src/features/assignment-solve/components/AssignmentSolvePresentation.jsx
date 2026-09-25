@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Card, Button } from '../../../components/ui';
-import IfEditor from '../../../components/IfEditor';
+import { useEditorMode } from '../../../contexts/EditorModeContext';
 import StatementViewer from '../../../components/tiptap/StatementViewer';
 import { ArrowLeft, BarChart3, ChevronDown, GitBranch, LoaderCircle, LockKeyhole } from 'lucide-react';
 import { useSolveDraft } from '../solveDraftStore';
@@ -223,9 +223,10 @@ function SolvePart({ loading = false, delay = 0, minHeight, className = '', chil
 const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
   courseId,
   assignmentId,
-  isAdmin = false,
+  canEdit = false,
 }) {
   const navigate = useNavigate();
+  const { isEditorMode } = useEditorMode();
   const goBack = React.useCallback(() => {
     navigate(`/course/${courseId}`);
   }, [courseId, navigate]);
@@ -242,16 +243,16 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
         </Button>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        {isAdmin ? (
+        {canEdit ? (
           <Link to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
             <BarChart3 size={16} className="mr-2" /> Аналитика задания
           </Link>
         ) : null}
-        <IfEditor>
+        {canEdit && isEditorMode ? (
           <Link to={`/assignment/${assignmentId}/edit`} className="btn-outline">
             Редактировать
           </Link>
-        </IfEditor>
+        ) : null}
       </div>
     </div>
   );

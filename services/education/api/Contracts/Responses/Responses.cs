@@ -11,7 +11,12 @@ public sealed record EducationAccessContext(
     Guid? UserId,
     bool IsEditorOrAdmin,
     bool BypassStudentVisibility,
-    HashSet<Guid> GroupIds);
+    HashSet<Guid> GroupIds,
+    int RoleRank = 0,
+    bool IsSuperAdmin = false,
+    IReadOnlyDictionary<Guid, int>? UserRanks = null);
+
+public sealed record UserAccessLevelDto(Guid UserId, string PrimaryRole, string[] Roles, int EffectiveRank, bool IsSuperAdmin, bool CanAuthorCourses);
 
 public sealed record CourseDto(Guid Id, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, Guid[] VisibleGroupIds, Guid[] OwnerIds, bool CanEdit, bool IsCompletedForCurrentUser, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? ParentCourseId, int Sort);
 
@@ -21,7 +26,7 @@ public sealed record CourseGraphImportItemResponse(string Key, Guid Id, string T
 
 public sealed record CourseGraphImportEnsureResponse(List<CourseGraphImportItemResponse> Courses);
 
-public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules);
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules, bool IsOwner = false);
 
 public sealed record CourseTreeCourseDto(Guid Id, Guid? ParentCourseId, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, int Sort);
 

@@ -48,6 +48,42 @@ internal static partial class IdentityApiEndpoints
         });
 
 
+        app.MapPost("/api/internal/users/access-levels", async (UserIdsRequest request, IdentityDbContext db, CancellationToken ct) =>
+        {
+            var ids = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+            if (ids.Length == 0) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<UserAccessLevelDto>());
+
+            var users = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            var featureAssignments = await db.UserFeatureRoles.AsNoTracking()
+                .Where(x => ids.Contains(x.UserId))
+                .ToListAsync(ct);
+            var roleCodes = users.Select(x => NormalizeRoleCode(x.Role))
+                .Concat(featureAssignments.Select(x => NormalizeRoleCode(x.Code)))
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var roleRows = await db.FeatureRoles.AsNoTracking()
+                .Where(x => roleCodes.Contains(x.Code) && x.IsActive)
+                .Select(x => new { x.Code, x.Rank })
+                .ToListAsync(ct);
+            var roleRanks = roleRows.ToDictionary(x => x.Code, x => x.Rank, StringComparer.OrdinalIgnoreCase);
+            var featuresByUser = featureAssignments
+                .GroupBy(x => x.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Code).ToArray());
+
+            var rows = users.Select(user =>
+            {
+                var roles = MergeRoles(user.Role, featuresByUser.GetValueOrDefault(user.Id) ?? Array.Empty<string>());
+                var primary = NormalizeRole(user.Role);
+                var rank = roles.Select(role => roleRanks.GetValueOrDefault(role, UserRoleRank)).DefaultIfEmpty(UserRoleRank).Max();
+                var superAdmin = roles.Contains("SuperAdmin", StringComparer.OrdinalIgnoreCase);
+                var canAuthor = superAdmin || roles.Any(role => role is "Admin" or "Editor" or "LearningEditor");
+                return new UserAccessLevelDto(user.Id, primary, roles, rank, superAdmin, canAuthor);
+            }).ToArray();
+            return Microsoft.AspNetCore.Http.Results.Ok(rows);
+        });
+
+
         app.MapPost("/api/internal/feature-roles/users/{userId:guid}/roles", async (Guid userId, RoleAssignRequest request, IdentityDbContext db, CancellationToken ct) =>
         {
             var code = NormalizeRoleCode(request.Code);

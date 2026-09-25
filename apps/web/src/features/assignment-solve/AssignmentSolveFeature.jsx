@@ -12,7 +12,6 @@ import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
 import { Play, CheckCircle2, XCircle } from 'lucide-react';
-import { useRoleFlags } from '../../contexts/EditorModeContext';
 import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
@@ -91,7 +90,6 @@ export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
   const notify = useNotify();
-  const { isAdmin } = useRoleFlags();
   const { codeSolveLayout } = useEditorUiSettings();
 
   const [a, setA] = useState(null);
@@ -955,7 +953,7 @@ export default function AssignmentSolvePage() {
       </Card>
     );
     return <>
-      <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} isAdmin={isAdmin} />
+      <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} canEdit={a?.canEdit === true} />
       <SqlTaskSolve
         key={a.id}
         assignment={a}
@@ -978,7 +976,7 @@ export default function AssignmentSolvePage() {
         <AssignmentSolveHeader
           courseId={a.courseId}
           assignmentId={a.id}
-          isAdmin={isAdmin}
+          canEdit={a?.canEdit === true}
         />
 
         {partLoading.tests ? (
@@ -1000,7 +998,7 @@ export default function AssignmentSolvePage() {
         <AssignmentSolveHeader
           courseId={a.courseId}
           assignmentId={a.id}
-          isAdmin={isAdmin}
+          canEdit={a?.canEdit === true}
         />
 
         {partLoading.tests ? (
@@ -1154,7 +1152,7 @@ export default function AssignmentSolvePage() {
         <AssignmentSolveHeader
           courseId={a.courseId}
           assignmentId={a.id}
-          isAdmin={isAdmin}
+          canEdit={a?.canEdit === true}
         />
 
         <div className="grid lg:grid-cols-3 gap-6">
@@ -1178,7 +1176,7 @@ export default function AssignmentSolvePage() {
               </SolvePart>
             </Card>
 
-            {(expectedUrl || isAdmin || a?.canEdit === true) ? (
+            {(expectedUrl || a?.canEdit === true) ? (
               <Card>
                 <div className="flex items-center justify-between mb-3">
                   <div className="font-medium">Эталон</div>
@@ -1333,7 +1331,7 @@ export default function AssignmentSolvePage() {
     );
   }
 
-  const canViewHiddenTests = isAdmin || a?.canEdit === true;
+  const canViewHiddenTests = a?.canEdit === true;
   const allAssignmentTests = Array.isArray(a.testCases) ? a.testCases : [];
   const visibleTests = canViewHiddenTests ? allAssignmentTests : allAssignmentTests.filter((t) => !isHiddenTestCase(t));
   const assignmentTestsTitle = canViewHiddenTests ? 'Тесты задания' : 'Публичные тесты';
@@ -1395,7 +1393,7 @@ export default function AssignmentSolvePage() {
       <AssignmentSolveHeader
         courseId={a.courseId}
         assignmentId={a.id}
-        isAdmin={isAdmin}
+        canEdit={a?.canEdit === true}
       />
 
       

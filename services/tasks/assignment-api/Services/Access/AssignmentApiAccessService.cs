@@ -34,10 +34,14 @@ internal static class AssignmentApiAccessService
             ("assignmentVisible", assignment.IsVisible),
             ("editorBypass", editor));
 
-        if (editor)
+        if (editor && userId.HasValue)
         {
-            TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", userId), ("assignment", assignment.Id), ("allowed", true), ("reason", "editor-bypass"));
-            return true;
+            var editorCourseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId.Value, clients, cfg, ct);
+            if (editorCourseAccess?.CanEdit == true)
+            {
+                TaskForgeDebugTrace.Map("ASSIGNMENT_ACCESS_END", ("user", userId), ("assignment", assignment.Id), ("allowed", true), ("reason", "course-editor-bypass"));
+                return true;
+            }
         }
         if (!assignment.IsVisible)
         {
@@ -113,16 +117,42 @@ internal static class AssignmentApiAccessService
 
     internal static async Task<bool> CanUserAccessCourseAsync(Guid courseId, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
     {
-        if (IsEditor(http, cfg)) return true;
         var userId = TaskForgeRequestSecurity.UserId(http, cfg);
         if (!userId.HasValue) return false;
         var access = await LoadCourseAccessAsync(courseId, userId.Value, clients, cfg, ct);
-        return access?.CanView == true;
+        return access?.CanView == true || access?.CanEdit == true;
     }
 
     internal static async Task<CourseAccessDto?> LoadCourseAccessAsync(Guid courseId, Guid userId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
         return await GetInternalAsync<CourseAccessDto>(clients, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/access/{userId:D}", ct);
+    }
+
+    internal static async Task<bool> CanUserEditCourseAsync(Guid courseId, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+    {
+        var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+        if (!userId.HasValue) return false;
+        var access = await LoadCourseAccessAsync(courseId, userId.Value, clients, cfg, ct);
+        return access?.CanEdit == true;
+    }
+
+    internal static async Task<CourseAccessDto?> LoadCurrentUserCourseAccessAsync(Guid courseId, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+    {
+        var userId = TaskForgeRequestSecurity.UserId(http, cfg);
+        if (!userId.HasValue) return null;
+        return await LoadCourseAccessAsync(courseId, userId.Value, clients, cfg, ct);
+    }
+
+    internal static async Task<bool> CanViewAssignmentAnalyticsAsync(Assignment assignment, HttpContext http, IConfiguration cfg, IHttpClientFactory clients, CancellationToken ct)
+    {
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
+        if (principal == null) return false;
+        if (TaskForgeRequestSecurity.HasAnyRole(principal, "SuperAdmin")) return true;
+
+        var access = await LoadCurrentUserCourseAccessAsync(assignment.CourseId, http, cfg, clients, ct);
+        if (TaskForgeRequestSecurity.HasAnyRole(principal, "Admin")) return access?.CanEdit == true;
+        if (TaskForgeRequestSecurity.HasAnyRole(principal, "Editor", "LearningEditor")) return access?.IsOwner == true;
+        return false;
     }
 
 

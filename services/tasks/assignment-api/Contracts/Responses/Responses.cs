@@ -11,7 +11,7 @@ using TaskForge.Tasks.Api.Domain;
 
 namespace TaskForge.Tasks.Api.Contracts;
 
-public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules);
+public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic, Guid RootCourseId, bool HasProgressionRules, bool IsOwner = false);
 
 public sealed record SolvedAssignmentsResponse(Guid UserId, Guid[]? SolvedAssignmentIds);
 

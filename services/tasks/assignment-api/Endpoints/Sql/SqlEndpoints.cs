@@ -82,21 +82,26 @@ internal static partial class AssignmentApiEndpoints
         });
 
         var specs = app.MapGroup("/api/assignments/{assignmentId:guid}/sql").AddEndpointFilter<SqlEndpointFilter>();
-        specs.MapGet("/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+        specs.MapGet("/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             SqlTaskService.Editor(http, cfg);
-            if (!await db.Assignments.AnyAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct)) throw new SqlNotFoundException();
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct) ?? throw new SqlNotFoundException();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             return Results.Ok(await SqlTaskService.EditorView(db, assignmentId, ct));
         });
-        specs.MapPut("/edit", async (Guid assignmentId, SqlSpecInput input, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+        specs.MapPut("/edit", async (Guid assignmentId, SqlSpecInput input, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var (user, admin) = SqlTaskService.Editor(http, cfg);
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct) ?? throw new SqlNotFoundException();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             await SqlTaskService.SaveSpec(db, assignmentId, input, user, admin, ct);
             return Results.Ok(await SqlTaskService.EditorView(db, assignmentId, ct));
         });
-        specs.MapPost("/validate", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+        specs.MapPost("/validate", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             SqlTaskService.Editor(http, cfg);
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct) ?? throw new SqlNotFoundException();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == assignmentId, ct) ?? throw new SqlNotFoundException();
             var targetIds = db.SqlAssignmentEngineTargets.Where(x => x.SpecVersionId == root.DraftVersionId && x.Enabled).Select(x => x.Id);
             var failed = await db.SqlExpectedArtifacts.Where(x => targetIds.Contains(x.EngineTargetId) && x.Status == "invalid").ToListAsync(ct);
@@ -109,9 +114,11 @@ internal static partial class AssignmentApiEndpoints
             await db.SaveChangesAsync(ct);
             return Results.Ok(await SqlTaskService.EditorView(db, assignmentId, ct));
         });
-        specs.MapPost("/publish", async (Guid assignmentId, SqlPublishInput input, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+        specs.MapPost("/publish", async (Guid assignmentId, SqlPublishInput input, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             SqlTaskService.Editor(http, cfg);
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId && x.Type == SqlTaskTypes.SqlTest, ct) ?? throw new SqlNotFoundException();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             var root = await db.SqlAssignmentSpecs.SingleOrDefaultAsync(x => x.AssignmentId == assignmentId, ct) ?? throw new SqlNotFoundException();
             if (root.ConcurrencyStamp != input.ConcurrencyStamp || root.DraftVersionId != input.VersionId) throw new DbUpdateConcurrencyException();

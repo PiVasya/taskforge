@@ -20,6 +20,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
+builder.Services.AddHttpClient();
 builder.Services.AddSingleton<CourseMapPresenceStore>();
 builder.Services.AddDbContext<EducationDbContext>(options =>
 {

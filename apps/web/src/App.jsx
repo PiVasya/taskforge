@@ -100,6 +100,10 @@ export default function App() {
               <Route path="/assignment/:assignmentId/edit" element={<AssignmentEditPage />} />
             </Route>
 
+            <Route element={<EditorRoute fallbackTo="courses" requireEditorMode={false} />}>
+              <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
+            </Route>
+
             <Route element={<AdminRoute />}>
               <Route path="/admin/solutions" element={<AdminSolutionsPage />} />
               <Route path="/admin/badges" element={<AdminBadgesPage />} />
@@ -119,7 +123,6 @@ export default function App() {
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/users/:userId" element={<AdminUserManagementPage />} />
               <Route path="/admin/minecraft-links" element={<AdminMinecraftLinksPage />} />
-              <Route path="/admin/assignments/:assignmentId/insights" element={<AdminAssignmentInsightsPage />} />
             </Route>
           </Route>
 

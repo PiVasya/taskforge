@@ -48,8 +48,33 @@ internal static class EducationApiCommonService
 
     internal static bool CanEditCourse(EducationAccessContext access, Course course)
     {
-        _ = course;
-        return access.IsEditorOrAdmin;
+        if (!access.IsEditorOrAdmin || !access.UserId.HasValue) return false;
+        if (access.IsSuperAdmin) return true;
+
+        var owners = DeserializeIds(course.OwnerIdsJson);
+        if (owners.Contains(access.UserId.Value)) return true;
+        if (owners.Length == 0) return true;
+
+        var ranks = access.UserRanks;
+        if (ranks is null) return false;
+        foreach (var ownerId in owners)
+        {
+            if (!ranks.TryGetValue(ownerId, out var ownerRank)) return false;
+            if (ownerRank >= access.RoleRank) return false;
+        }
+        return true;
+    }
+
+    internal static bool IsCourseOwner(EducationAccessContext access, Course course)
+        => access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value);
+
+    internal static bool CanAssignCourseOwner(EducationAccessContext access, Guid ownerId)
+    {
+        if (!access.IsEditorOrAdmin || !access.UserId.HasValue || ownerId == Guid.Empty) return false;
+        if (access.IsSuperAdmin || ownerId == access.UserId.Value) return true;
+        return access.UserRanks is not null
+            && access.UserRanks.TryGetValue(ownerId, out var rank)
+            && rank < access.RoleRank;
     }
 
     internal static void NormalizeCourseAudience(Course course)
