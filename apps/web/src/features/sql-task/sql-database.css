@@ -325,9 +325,13 @@
 }
 
 html.neo-brutal .sql-db-grid th,
-html.neo-brutal .sql-db-sort,
 html.neo-brutal .sql-db-grid th:first-child {
-  color: rgb(var(--neo-ink)) !important;
+  background: rgb(var(--muted)) !important;
+  color: rgb(var(--text)) !important;
+}
+
+html.neo-brutal .sql-db-sort {
+  color: rgb(var(--text)) !important;
 }
 
 html.neo-brutal .sql-db-grid {

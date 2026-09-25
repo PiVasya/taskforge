@@ -723,14 +723,10 @@ export default function AssignmentSolvePage() {
     if (!text || submitPhase === 'idle') return null;
     const danger = submitPhase === 'error';
     const success = submitPhase === 'final' && result?.__allPassed;
-    const cls = danger
-      ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200'
-      : success
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
-        : 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200';
+    const tone = danger ? 'danger' : success ? 'success' : 'info';
     return (
       <div
-        className={`rounded-xl border px-3 py-2 text-sm ${cls}`}
+        className={`solve-tone-panel is-${tone} rounded-xl px-3 py-2 text-sm`}
         data-taskforge-automation-id="solution-submit-state"
         data-taskforge-agent-role="solution-status"
         data-taskforge-agent-state={submitPhase === 'final' ? (result?.__allPassed ? 'accepted' : 'rejected') : submitPhase}
@@ -751,22 +747,12 @@ export default function AssignmentSolvePage() {
     const solutionId = result?.id || result?.Id || result?.solutionId || result?.SolutionId || null;
     const resultUrl = `/assignment/${assignmentId}/results${solutionId ? `?solutionId=${encodeURIComponent(solutionId)}` : ''}`;
 
-    const toneClass = {
-      success: 'border-emerald-400/30 bg-emerald-500/5',
-      danger: 'border-rose-400/30 bg-rose-500/5',
-      info: 'border-sky-400/30 bg-sky-500/5',
-    }[summary.tone] || 'border-neutral-300/30';
-
-    const badgeClass = {
-      success: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30',
-      danger: 'bg-rose-500/15 text-rose-300 border-rose-400/30',
-      info: 'bg-sky-500/15 text-sky-300 border-sky-400/30',
-    }[summary.tone] || 'bg-white/10';
+    const tone = ['success', 'danger', 'info'].includes(summary.tone) ? summary.tone : 'info';
 
     return (
       <Card
         id="solution-check-result"
-        className={`scroll-mt-24 ${toneClass}`}
+        className={`solve-result-card is-${tone} scroll-mt-24`}
         data-taskforge-automation-id="solution-status"
         data-taskforge-agent-role="solution-status"
         data-taskforge-agent-state={pending ? "running" : result?.__allPassed ? "accepted" : "rejected"}
@@ -775,11 +761,11 @@ export default function AssignmentSolvePage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                <span className={`solve-result-badge is-${tone} rounded-full px-3 py-1 text-xs font-semibold`}>
                   {summary.title}
                 </span>
               </div>
-              <div className="mt-2 text-sm text-neutral-400">{summary.description}</div>
+              <div className="solve-muted-copy mt-2 text-sm">{summary.description}</div>
             </div>
             {solutionId ? (
               <a href={resultUrl} target="_blank" rel="noreferrer" className="btn-outline shrink-0">
@@ -789,15 +775,15 @@ export default function AssignmentSolvePage() {
           </div>
 
           {policyUi ? (
-            <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm">
-              <div className="font-semibold text-rose-200 mb-2">{policyUi.title}</div>
-              <ul className="list-disc pl-5 space-y-1 text-rose-100/90">
+            <div className="solve-policy-panel rounded-2xl p-4 text-sm">
+              <div className="solve-policy-title font-semibold mb-2">{policyUi.title}</div>
+              <ul className="solve-policy-list list-disc pl-5 space-y-1">
                 {(policyUi.bullets || []).slice(0, 8).map((item, idx) => (
                   <li key={idx}>{item}</li>
                 ))}
               </ul>
               {policyUi.hitLines?.length ? (
-                <div className="mt-3 rounded-xl bg-black/20 p-3 text-xs text-rose-100/75 whitespace-pre-wrap">
+                <div className="solve-policy-hit-lines mt-3 rounded-xl p-3 text-xs whitespace-pre-wrap">
                   {policyUi.hitLines.map((x) => `• ${x}`).join('\n')}
                 </div>
               ) : null}
@@ -807,14 +793,14 @@ export default function AssignmentSolvePage() {
           {(output.message || output.stdout || output.stderr) ? (
             <div className="grid gap-3">
               {output.message && !policyUi ? (
-                <div className="rounded-2xl border border-white/10 bg-black/10 p-3 text-sm text-neutral-300">
+                <div className="solve-output-panel rounded-2xl p-3 text-sm">
                   {displayRunnerText(output.message)}
                 </div>
               ) : null}
               {output.stdout ? (
                 <div>
                   <div className="text-xs text-neutral-500 mb-1">stdout</div>
-                  <pre className="rounded-2xl border border-white/10 bg-black/20 p-3 text-xs whitespace-pre-wrap overflow-x-auto">
+                  <pre className="solve-output-panel rounded-2xl p-3 text-xs whitespace-pre-wrap overflow-x-auto">
                     {displayText(output.stdout)}
                   </pre>
                 </div>
@@ -822,7 +808,7 @@ export default function AssignmentSolvePage() {
               {output.stderr && !policyUi ? (
                 <div>
                   <div className="text-xs text-neutral-500 mb-1">stderr / compile error</div>
-                  <pre className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 text-xs text-rose-100 whitespace-pre-wrap overflow-x-auto">
+                  <pre className="solve-output-panel is-error rounded-2xl p-3 text-xs whitespace-pre-wrap overflow-x-auto">
                     {displayRunnerText(output.stderr)}
                   </pre>
                 </div>
@@ -841,13 +827,13 @@ export default function AssignmentSolvePage() {
               const errorText = c.compileStderr || c.stderr || c.error || '';
               const casePolicy = parsePolicyText(errorText);
               return (
-                <div key={`${result?.id || result?.solutionId || checkedDraftKey || 'solution'}-case-${i}`} className={`solve-test-case-reveal rounded-2xl border border-white/10 bg-black/10 p-3 ${isHiddenTestCase(c) ? 'border-amber-300/40 bg-amber-500/5' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 75}ms` }}>
+                <div key={`${result?.id || result?.solutionId || checkedDraftKey || 'solution'}-case-${i}`} className={`solve-test-case-reveal solve-test-case-panel rounded-2xl p-3${isHiddenTestCase(c) ? ' is-hidden-test' : ''}`} style={{ '--solve-test-delay': `${Math.min(i, 12) * 75}ms` }}>
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-medium">Тест #{i + 1}</div>
                       {isHiddenTestCase(c) && <Badge intent="warning">Скрытый тест</Badge>}
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${passed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                    <span className={`solve-test-verdict ${passed ? 'is-passed' : 'is-failed'} rounded-full px-2 py-0.5 text-xs`}>
                       {passed ? 'OK' : 'FAIL'}
                     </span>
                   </div>
@@ -899,7 +885,7 @@ export default function AssignmentSolvePage() {
                   {errorText && !casePolicy ? (
                     <div>
                       <div className="text-xs text-neutral-500 mb-1">Ошибки</div>
-                      <pre className="whitespace-pre-wrap text-xs text-rose-200">{displayRunnerText(errorText)}</pre>
+                      <pre className="solve-error-output whitespace-pre-wrap text-xs">{displayRunnerText(errorText)}</pre>
                     </div>
                   ) : null}
                 </div>
@@ -955,7 +941,7 @@ export default function AssignmentSolvePage() {
   if (!a) {
     return (
       <>
-        <div className="text-red-600">{error || 'Задание не найдено'}</div>
+        <div className="solve-error-text">{error || 'Задание не найдено'}</div>
       </>
     );
   }
@@ -1249,14 +1235,14 @@ export default function AssignmentSolvePage() {
                 </div>
 
                 {imgError ? (
-                  <div className="text-rose-700 dark:text-rose-300 whitespace-pre-wrap">
+                  <div className="solve-error-text whitespace-pre-wrap">
                     {imgError}
                   </div>
                 ) : null}
 
                 
                 {imgCompare && (
-                  <Card id="image-test-result" className="p-4 space-y-3 border-emerald-400/30 bg-emerald-500/5 scroll-mt-24">
+                  <Card id="image-test-result" className="solve-result-card is-info p-4 space-y-3 scroll-mt-24">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="font-semibold">Результат</h3>
                       <div className="flex items-center gap-2">
@@ -1268,9 +1254,9 @@ export default function AssignmentSolvePage() {
                         {imgCompare.isTrial ? (
                           <Badge variant="outline">Пробник</Badge>
                         ) : imgCompare.passed ? (
-                          <Badge intent="success">Пройдено ✓</Badge>
+                          <Badge variant="outline" className="solve-result-badge is-success">Пройдено ✓</Badge>
                         ) : (
-                          <Badge intent="danger">Не пройдено</Badge>
+                          <Badge variant="outline" className="solve-result-badge is-danger">Не пройдено</Badge>
                         )}
                       </div>
                     </div>
@@ -1358,7 +1344,7 @@ export default function AssignmentSolvePage() {
     return (
       <div
         key={`${a.id || assignmentId}-test-${i}`}
-        className={`solve-test-case-reveal rounded border p-3 ${isHiddenTestCase(t) ? 'border-amber-300/60 bg-amber-500/5' : ''}`}
+        className={`solve-test-case-reveal solve-test-case-panel rounded p-3${isHiddenTestCase(t) ? ' is-hidden-test' : ''}`}
         style={{ '--solve-test-delay': `${Math.min(i, 18) * 78}ms` }}
       >
         <div className="flex items-center justify-between gap-2 mb-1">
@@ -1456,20 +1442,20 @@ export default function AssignmentSolvePage() {
                   <div className="flex items-center gap-2 text-sm">
                     {result.__allPassed ? (
                       <>
-                        <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                        <CheckCircle2 className="solve-state-icon" size={16} /> Все тесты пройдены
                       </>
                     ) : (
                       <>
-                        <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                        <XCircle className="solve-error-text" size={16} /> Не все тесты пройдены
                       </>
                     )}
                   </div>
                 )}
 
                 {policyUi && (
-                  <div className="rounded border border-red-200 bg-red-50 p-3 text-sm">
-                    <div className="font-medium text-red-800 mb-2">{policyUi.title}</div>
-                    <ul className="list-disc pl-5 text-red-800 space-y-1">
+                  <div className="solve-policy-panel rounded p-3 text-sm">
+                    <div className="solve-policy-title font-medium mb-2">{policyUi.title}</div>
+                    <ul className="solve-policy-list list-disc pl-5 space-y-1">
                       {(policyUi.bullets || []).slice(0, 4).map((x, i) => (
                         <li key={i}>{x}</li>
                       ))}
@@ -1477,7 +1463,7 @@ export default function AssignmentSolvePage() {
                   </div>
                 )}
 
-                {error && <div className="text-sm text-red-600">{error}</div>}
+                {error && <div className="solve-error-text text-sm">{error}</div>}
                 {renderSubmitState()}
               </div>
             </Card>
@@ -1495,11 +1481,11 @@ export default function AssignmentSolvePage() {
                     <div className="flex items-center gap-2 text-sm">
                       {result.__allPassed ? (
                         <>
-                          <CheckCircle2 className="text-emerald-600" size={16} /> Все тесты пройдены
+                          <CheckCircle2 className="solve-state-icon" size={16} /> Все тесты пройдены
                         </>
                       ) : (
                         <>
-                          <XCircle className="text-red-600" size={16} /> Не все тесты пройдены
+                          <XCircle className="solve-error-text" size={16} /> Не все тесты пройдены
                         </>
                       )}
                     </div>
@@ -1507,9 +1493,9 @@ export default function AssignmentSolvePage() {
                 </div>
 
                 {policyUi && (
-                  <div className="rounded border border-red-200 bg-red-50 p-3 text-sm mb-3">
-                    <div className="font-medium text-red-800 mb-2">{policyUi.title}</div>
-                    <ul className="list-disc pl-5 text-red-800 space-y-1">
+                  <div className="solve-policy-panel rounded p-3 text-sm mb-3">
+                    <div className="solve-policy-title font-medium mb-2">{policyUi.title}</div>
+                    <ul className="solve-policy-list list-disc pl-5 space-y-1">
                       {(policyUi.bullets || []).slice(0, 4).map((x, i) => (
                         <li key={i}>{x}</li>
                       ))}
@@ -1538,7 +1524,7 @@ export default function AssignmentSolvePage() {
                 />
               </div>
 
-              {error && <div className="text-sm text-red-600">{error}</div>}
+              {error && <div className="solve-error-text text-sm">{error}</div>}
               {renderSubmitState()}
             </div>
           </Card>

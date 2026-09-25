@@ -43,6 +43,7 @@ test('code terminal shows the assignment title and only adds solved text after c
 test('code node uses shell prompts for command, language output, and solved output', async () => {
   const nodeSource = await fs.readFile(new URL('../../src/features/course-assignments/nodes/CodeTestNode.jsx', import.meta.url), 'utf8');
   assert.match(nodeSource, />~#<\/span>/);
+  assert.doesNotMatch(nodeSource, /course-map-code-terminal-cursor/);
   assert.doesNotMatch(nodeSource, /course-map-code-terminal-bar/);
   assert.match(nodeSource, /course-map-code-terminal-line is-output is-language/);
   assert.match(nodeSource, /course-map-code-terminal-line is-output is-result/);
@@ -62,6 +63,8 @@ test('code shell content keeps the shared node card instead of replacing it with
   assert.doesNotMatch(shellCss, /background:\s*rgba\(4,\s*6,\s*9/);
   assert.doesNotMatch(shellCss, /background:\s*rgba\(3,\s*4,\s*6/);
   assert.doesNotMatch(shellCss, /\.course-map-node--code\s*\{[\s\S]*?border:\s*0;/);
-  assert.match(shellCss, /\.course-map-node--code\.is-solved[\s\S]*?opacity:\s*\.5;/);
+  assert.match(shellCss, /\.course-map-node--code\.is-solved[\s\S]*?opacity:\s*1;/);
+  assert.match(shellCss, /\.course-map-node--code\.is-solved \.course-map-code-terminal[\s\S]*?opacity:\s*\.5;/);
+  assert.match(shellCss, /\.course-map-node--code\.is-solved \.course-map-handle\.react-flow__handle[\s\S]*?opacity:\s*1/);
 });
 

@@ -1,3 +1,155 @@
+
+/* Solve-page semantic surfaces follow the active TaskForge palette.
+   Meaning is carried by labels/icons/border treatment, never a second red/green/yellow/blue palette. */
+.solve-muted-copy {
+  color: rgb(var(--text-muted));
+}
+
+.solve-tone-panel,
+.solve-result-card,
+.solve-policy-panel,
+.solve-output-panel,
+.solve-test-case-panel,
+.solve-constraints {
+  border: 1px solid rgba(var(--border) / .82);
+  background: color-mix(in srgb, rgb(var(--card)) 88%, rgb(var(--muted)) 12%);
+  color: rgb(var(--text));
+}
+
+.solve-tone-panel.is-success,
+.solve-result-card.is-success {
+  border-color: rgba(var(--accent) / .42);
+  background: rgba(var(--accent) / .07);
+}
+
+.solve-tone-panel.is-danger,
+.solve-result-card.is-danger,
+.solve-policy-panel,
+.solve-output-panel.is-error {
+  border-color: rgba(var(--accent) / .5);
+  border-left: 4px solid rgb(var(--accent));
+  background: rgba(var(--accent) / .055);
+}
+
+.solve-tone-panel.is-info,
+.solve-result-card.is-info {
+  border-color: rgba(var(--border) / .88);
+  background: rgba(var(--muted) / .42);
+}
+
+.solve-result-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(var(--accent) / .42) !important;
+  background: rgba(var(--accent) / .1) !important;
+  color: color-mix(in srgb, rgb(var(--text)) 82%, rgb(var(--accent)) 18%) !important;
+}
+
+.solve-result-badge.is-danger {
+  border-style: dashed !important;
+}
+
+.solve-policy-title,
+.solve-constraints-title {
+  color: rgb(var(--text));
+}
+
+.solve-policy-list {
+  color: color-mix(in srgb, rgb(var(--text)) 90%, rgb(var(--text-muted)) 10%);
+}
+
+.solve-policy-hit-lines {
+  border: 1px solid rgba(var(--border) / .68);
+  background: rgba(var(--muted) / .55);
+  color: rgb(var(--text));
+}
+
+.solve-output-panel {
+  background: rgba(var(--muted) / .34);
+}
+
+.solve-error-text,
+.solve-error-output,
+.solve-state-icon {
+  color: color-mix(in srgb, rgb(var(--text)) 74%, rgb(var(--accent)) 26%);
+}
+
+.solve-test-case-panel.is-hidden-test {
+  border-style: dashed;
+  border-color: rgba(var(--accent) / .42);
+  background: rgba(var(--accent) / .045);
+}
+
+.solve-test-verdict {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(var(--border) / .78);
+  background: rgba(var(--muted) / .5);
+  color: rgb(var(--text));
+  font-weight: 750;
+}
+
+.solve-test-verdict.is-passed {
+  border-color: rgba(var(--accent) / .4);
+  background: rgba(var(--accent) / .09);
+}
+
+.solve-test-verdict.is-failed {
+  border-color: rgba(var(--accent) / .48);
+  border-style: dashed;
+}
+
+.solve-constraints {
+  border-color: rgba(var(--border) / .86);
+  background: rgba(var(--muted) / .34);
+}
+
+.solve-constraint-chip {
+  display: inline-flex;
+  border: 1px solid rgba(var(--accent) / .38);
+  border-radius: .4rem;
+  background: rgba(var(--accent) / .08);
+  color: color-mix(in srgb, rgb(var(--text)) 82%, rgb(var(--accent)) 18%);
+}
+
+.solve-constraint-chip.is-forbidden {
+  border-style: dashed;
+  background: rgba(var(--muted) / .58);
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .solve-tone-panel,
+html.neo-brutal .solve-result-card,
+html.neo-brutal .solve-policy-panel,
+html.neo-brutal .solve-output-panel,
+html.neo-brutal .solve-test-case-panel,
+html.neo-brutal .solve-constraints {
+  border-color: rgb(var(--neo-ink));
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+}
+
+html.neo-brutal .solve-tone-panel.is-success,
+html.neo-brutal .solve-tone-panel.is-danger,
+html.neo-brutal .solve-result-card.is-success,
+html.neo-brutal .solve-result-card.is-danger,
+html.neo-brutal .solve-result-badge,
+html.neo-brutal .solve-constraint-chip.is-required {
+  background: color-mix(in srgb, rgb(var(--card)) 84%, rgb(var(--brand-200)) 16%) !important;
+}
+
+html.neo-brutal .solve-policy-panel,
+html.neo-brutal .solve-output-panel.is-error {
+  border-left: 5px solid rgb(var(--brand-400));
+}
+
+html.neo-brutal .solve-test-case-panel.is-hidden-test,
+html.neo-brutal .solve-test-verdict.is-failed,
+html.neo-brutal .solve-constraint-chip.is-forbidden {
+  border-color: rgb(var(--neo-ink));
+  border-style: dashed;
+}
+
 .solve-tests-card {
   overflow: hidden;
 }

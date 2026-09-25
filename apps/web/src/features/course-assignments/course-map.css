@@ -411,7 +411,7 @@
 
 .course-map-shell.is-viewer .course-map-handle.react-flow__handle {
   pointer-events: none;
-  opacity: .72;
+  opacity: 1;
 }
 
 .course-map-node-hover {
@@ -2236,22 +2236,6 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   white-space: nowrap;
 }
 
-.course-map-code-terminal-cursor {
-  width: .5em;
-  height: .98em;
-  flex: 0 0 .5em;
-  align-self: center;
-  margin-left: -2px;
-  border-radius: 1px;
-  background: color-mix(in srgb, rgb(var(--text)) 82%, transparent);
-  animation: course-map-shell-cursor 1.05s steps(1, end) infinite;
-}
-
-@keyframes course-map-shell-cursor {
-  0%, 48% { opacity: 1; }
-  49%, 100% { opacity: 0; }
-}
-
 .course-map-code-terminal-output-prompt {
   flex: 0 0 auto;
   color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--text)) 30%);
@@ -2275,20 +2259,40 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   text-transform: none;
 }
 
-/* A solved code assignment stays visually faded, but keeps the same base node shell. */
+/* Solved code assignments stay visually faded without fading ReactFlow handles. */
 .course-map-node--code.is-solved,
 .course-map-node--code.is-solved:hover,
 .course-map-node--code.is-solved.is-selected,
 .course-map-node--code.is-solved:focus-within {
+  opacity: 1;
+  border-color: rgba(var(--border) / .46);
+  border-left-color: rgba(var(--accent) / .46);
+  background:
+    linear-gradient(90deg, rgba(var(--accent) / .022), transparent 34%),
+    color-mix(in srgb, rgb(var(--card)) 50%, transparent);
+  box-shadow: 0 10px 26px rgba(10, 14, 24, .055);
+}
+
+.course-map-node--code.is-solved .course-map-code-terminal,
+.course-map-node--code.is-solved .course-map-node-access-badges {
   opacity: .5;
+}
+
+.course-map-node--code.is-solved .course-map-handle.react-flow__handle {
+  opacity: 1 !important;
+}
+
+html.neo-brutal .course-map-node--code.is-solved,
+html.neo-brutal .course-map-node--code.is-solved:hover,
+html.neo-brutal .course-map-node--code.is-solved.is-selected,
+html.neo-brutal .course-map-node--code.is-solved:focus-within {
+  border-color: rgba(var(--neo-ink) / .52) !important;
+  border-left-color: rgba(var(--neo-ink) / .52) !important;
+  background: color-mix(in srgb, rgb(var(--card)) 50%, transparent) !important;
+  box-shadow: 5px 5px 0 0 rgba(var(--neo-ink) / .52) !important;
 }
 
 html.neo-brutal .course-map-code-terminal-prompt {
   color: color-mix(in srgb, rgb(var(--brand-300)) 78%, rgb(var(--text)) 22%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .course-map-code-terminal-cursor {
-    animation: none;
-  }
-}

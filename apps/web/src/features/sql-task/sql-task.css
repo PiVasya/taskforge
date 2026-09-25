@@ -826,7 +826,8 @@ html.neo-brutal .sql-task th {
 
 html.neo-brutal .sql-result-table th,
 html.neo-brutal .sql-compare-table th {
-  color: rgb(var(--neo-ink)) !important;
+  background: rgb(var(--muted)) !important;
+  color: rgb(var(--text)) !important;
 }
 
 html.neo-brutal .sql-result-table,

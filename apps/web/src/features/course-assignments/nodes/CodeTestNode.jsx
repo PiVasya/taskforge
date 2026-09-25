@@ -31,7 +31,6 @@ export default function CodeTestNode({ data, selected }) {
           <div className="course-map-code-terminal-line is-command">
             <span className="course-map-code-terminal-prompt" aria-hidden="true">~#</span>
             <span className="course-map-code-terminal-title">{terminal.title}</span>
-            <span className="course-map-code-terminal-cursor" aria-hidden="true" />
           </div>
           {terminal.languageLabel ? (
             <div className="course-map-code-terminal-line is-output is-language">

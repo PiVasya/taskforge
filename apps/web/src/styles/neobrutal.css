@@ -500,8 +500,8 @@ html.neo-brutal table {
 }
 
 html.neo-brutal th {
-  background: rgb(var(--brand-100));
-  color: rgb(20 20 22) !important;
+  background: rgb(var(--muted)) !important;
+  color: rgb(var(--text)) !important;
   font-weight: 850;
 }
 
