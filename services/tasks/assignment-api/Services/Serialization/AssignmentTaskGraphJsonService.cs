@@ -32,7 +32,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static readonly HashSet<string> CourseFields = new(StringComparer.Ordinal)
     {
-        "key", "id", "title"
+        "key", "id", "title", "isPublic", "isHiddenFromStudents", "visibleGroupIds"
     };
 
     private static readonly HashSet<string> ConnectionFields = new(StringComparer.Ordinal)

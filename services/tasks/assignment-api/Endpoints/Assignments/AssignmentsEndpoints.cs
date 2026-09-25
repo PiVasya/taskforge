@@ -756,7 +756,10 @@ internal static partial class AssignmentApiEndpoints
                         {
                             key = x.Key,
                             id = graphCourseIds[x.Key],
-                            title = x.Title
+                            title = x.Title,
+                            isPublic = x.IsPublic,
+                            isHiddenFromStudents = x.IsHiddenFromStudents,
+                            visibleGroupIds = x.VisibleGroupIds ?? Array.Empty<Guid>()
                         }).ToArray()
                     },
                     ct);

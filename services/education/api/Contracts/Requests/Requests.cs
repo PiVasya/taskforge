@@ -9,7 +9,7 @@ namespace TaskForge.Education.Api.Contracts;
 
 public sealed record CourseIdsRequest(Guid[]? CourseIds);
 
-public sealed record CourseGraphImportItemRequest(string Key, Guid? Id, string? Title);
+public sealed record CourseGraphImportItemRequest(string Key, Guid? Id, string? Title, bool? IsPublic, bool? IsHiddenFromStudents, Guid[]? VisibleGroupIds);
 
 public sealed record CourseGraphImportEnsureRequest(Guid RootCourseId, Guid? OwnerId, CourseGraphImportItemRequest[]? Courses);
 

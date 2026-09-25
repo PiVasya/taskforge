@@ -207,6 +207,9 @@ internal static partial class EducationApiEndpoints
                 var desiredId = item.Id.HasValue && item.Id.Value != Guid.Empty ? item.Id.Value : Guid.NewGuid();
                 if (existingById.TryGetValue(desiredId, out var existing))
                 {
+                    if (item.IsPublic.HasValue) existing.IsPublic = item.IsPublic.Value;
+                    if (item.IsHiddenFromStudents.HasValue) existing.IsHiddenFromStudents = item.IsHiddenFromStudents.Value;
+                    if (item.VisibleGroupIds != null) existing.VisibleGroupIdsJson = Serialize(item.VisibleGroupIds);
                     response.Add(new CourseGraphImportItemResponse(key, existing.Id, existing.Title, false));
                     continue;
                 }
@@ -217,12 +220,12 @@ internal static partial class EducationApiEndpoints
                     Id = desiredId,
                     Title = title,
                     Description = null,
-                    IsPublic = false,
-                    IsHiddenFromStudents = false,
+                    IsPublic = item.IsPublic ?? false,
+                    IsHiddenFromStudents = item.IsHiddenFromStudents ?? false,
                     ParentCourseId = request.RootCourseId,
                     Sort = ++maxSort,
                     OwnerIdsJson = Serialize(request.OwnerId.HasValue && request.OwnerId.Value != Guid.Empty ? new[] { request.OwnerId.Value } : Array.Empty<Guid>()),
-                    VisibleGroupIdsJson = "[]"
+                    VisibleGroupIdsJson = Serialize(item.VisibleGroupIds ?? Array.Empty<Guid>())
                 };
                 NormalizeCourseAudience(course);
                 created.Add(course);
