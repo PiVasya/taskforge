@@ -2049,7 +2049,7 @@ html.neo-brutal .course-map-node--locked:hover .course-map-locked-requirement {
 }
 
 .course-map-node--sql { border-color: rgba(81, 149, 223, .6); }
-.course-map-node--sql .course-map-code-watermark { color: rgba(81,149,223,.16); font-size: 26px; }
+.course-map-node--sql .course-map-code-watermark { right: 112px; color: rgba(81,149,223,.16); font-size: 26px; }
 
 /* Learner progress compaction */
 .course-map-node.is-solved {
@@ -2175,4 +2175,218 @@ html.neo-brutal .course-map-course-collapse:hover,
 html.neo-brutal .course-map-course-collapse:focus-visible {
   background: rgb(var(--brand-200));
   box-shadow: 3px 3px 0 0 rgb(var(--neo-ink));
+}
+
+/* Code assignments: compact translucent terminal -------------------------------- */
+.course-map-node--code {
+  min-width: 286px;
+  max-width: 420px;
+  min-height: 92px;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+}
+
+.course-map-node--code:hover,
+.course-map-node--code.is-selected,
+.course-map-node--code.is-solved,
+.course-map-node--code.is-solved:hover,
+.course-map-node--code.is-solved.is-selected,
+.course-map-node--code.is-solved:focus-within {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+}
+
+.course-map-node--code::after,
+.course-map-node--code.is-solved::after {
+  display: none;
+}
+
+.course-map-code-terminal {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border: 1px solid rgba(var(--border) / .72);
+  border-radius: 15px;
+  background:
+    linear-gradient(145deg, rgba(var(--card) / .72), rgba(var(--card) / .54)),
+    rgba(var(--bg) / .12);
+  box-shadow:
+    0 12px 30px rgba(5, 8, 16, .16),
+    inset 0 1px 0 rgba(255, 255, 255, .035);
+  backdrop-filter: blur(12px) saturate(1.08);
+  -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+}
+
+.course-map-node--code:hover .course-map-code-terminal,
+.course-map-node--code.is-selected .course-map-code-terminal,
+.course-map-node--code:focus-within .course-map-code-terminal {
+  border-color: rgba(var(--accent) / .58);
+  background:
+    linear-gradient(145deg, rgba(var(--card) / .8), rgba(var(--card) / .62)),
+    rgba(var(--bg) / .12);
+  box-shadow:
+    0 16px 38px rgba(5, 8, 16, .2),
+    0 0 0 1px rgba(var(--accent) / .1),
+    inset 0 1px 0 rgba(255, 255, 255, .045);
+  transform: translateY(-1px);
+}
+
+.course-map-code-terminal-bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 11px;
+  border-bottom: 1px solid rgba(var(--border) / .52);
+  background: rgba(var(--bg) / .22);
+  color: color-mix(in srgb, rgb(var(--text)) 46%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 9px;
+  letter-spacing: .035em;
+  text-transform: lowercase;
+}
+
+.course-map-code-terminal-lights {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.course-map-code-terminal-lights i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--text) / .22);
+}
+
+.course-map-code-terminal-lights i:first-child {
+  background: rgba(var(--accent) / .58);
+}
+
+.course-map-code-terminal-caption {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .72;
+}
+
+.course-map-code-terminal-language {
+  justify-self: end;
+  border: 1px solid rgba(var(--accent) / .28);
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: rgba(var(--accent) / .08);
+  color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--text)) 30%);
+  font-weight: 750;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+
+.course-map-code-terminal-body {
+  min-height: 62px;
+  padding: 12px 13px 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.course-map-code-terminal-line {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.course-map-code-terminal-line + .course-map-code-terminal-line {
+  margin-top: 8px;
+}
+
+.course-map-code-terminal-prompt {
+  color: rgba(var(--accent) / .82);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.course-map-code-terminal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, rgb(var(--text)) 92%, transparent);
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.course-map-code-terminal-line.is-result {
+  color: rgb(110 220 157);
+}
+
+.course-map-code-terminal-line.is-result .course-map-code-terminal-prompt,
+.course-map-code-terminal-status {
+  color: inherit;
+}
+
+.course-map-code-terminal-status {
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.course-map-node--code.is-solved .course-map-code-terminal {
+  opacity: .76;
+}
+
+.course-map-node--code.is-solved:hover .course-map-code-terminal,
+.course-map-node--code.is-solved.is-selected .course-map-code-terminal,
+.course-map-node--code.is-solved:focus-within .course-map-code-terminal {
+  opacity: .96;
+}
+
+html.neo-brutal .course-map-node--code,
+html.neo-brutal .course-map-node--code:hover,
+html.neo-brutal .course-map-node--code.is-selected,
+html.neo-brutal .course-map-node--code.is-solved {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html.neo-brutal .course-map-node--code .course-map-code-terminal {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: .7rem;
+  background: color-mix(in srgb, rgb(var(--neo-paper-alt)) 82%, transparent);
+  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.neo-brutal .course-map-node--code:hover .course-map-code-terminal,
+html.neo-brutal .course-map-node--code.is-selected .course-map-code-terminal {
+  box-shadow: 6px 6px 0 0 rgb(var(--neo-ink));
+  transform: translate(-1px, -1px);
+}
+
+html.neo-brutal .course-map-code-terminal-bar {
+  border-bottom: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--brand-100));
+  color: rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-code-terminal-title,
+html.neo-brutal .course-map-code-terminal-caption {
+  color: rgb(var(--neo-ink));
+}
+
+html.neo-brutal .course-map-code-terminal-language {
+  border: 2px solid rgb(var(--neo-ink));
+  background: rgb(var(--brand-200));
+  color: rgb(var(--neo-ink));
 }

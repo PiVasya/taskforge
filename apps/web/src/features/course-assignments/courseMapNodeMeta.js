@@ -55,6 +55,26 @@ export function getAssignmentProgrammingLanguage(assignment) {
   return String(assignment.allowedLanguages.find((value) => String(value || '').trim()) || '').trim();
 }
 
+
+export function getCourseMapCodeTerminalModel(assignment) {
+  const entity = assignment || {};
+  const title = String(entity?.title || '').trim() || 'Без названия';
+  const languageLabel = getCourseMapLanguageLabel(getAssignmentProgrammingLanguage(entity));
+  const solved = Boolean(
+    entity?.solvedByCurrentUser
+      || entity?.isSolved
+      || entity?.completedByCurrentUser
+      || entity?.progressStatus === 'solved'
+  );
+
+  return {
+    title,
+    languageLabel,
+    solved,
+    statusLabel: solved ? 'решено' : '',
+  };
+}
+
 export function getCourseMapAssignmentFooterLabel(type, assignment, fallback = '') {
   const assignmentType = String(type || '').trim().toLowerCase();
   if (assignmentType === 'sql-test') return '';

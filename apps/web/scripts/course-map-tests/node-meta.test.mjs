@@ -26,3 +26,16 @@ test('non-code cards ignore accidental generic language fields', () => {
   assert.equal(model.getCourseMapAssignmentFooterLabel('math', { language: 'csharp' }, 'Задание'), 'Задание');
   assert.equal(model.getCourseMapAssignmentFooterLabel('test', { language: 'csharp' }, '5 вопросов'), '5 вопросов');
 });
+
+
+test('code terminal shows the assignment title and only adds solved text after completion', () => {
+  assert.deepEqual(
+    model.getCourseMapCodeTerminalModel({ title: '2. Двоичный поиск', language: 'javascript' }),
+    { title: '2. Двоичный поиск', languageLabel: 'JS', solved: false, statusLabel: '' },
+  );
+
+  assert.deepEqual(
+    model.getCourseMapCodeTerminalModel({ title: '1. Ввод', language: 'csharp', progressStatus: 'solved' }),
+    { title: '1. Ввод', languageLabel: 'C#', solved: true, statusLabel: 'решено' },
+  );
+});

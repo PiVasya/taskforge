@@ -1,37 +1,59 @@
 import React from 'react';
-import { Code2 } from 'lucide-react';
-import { activateCourseMapAssignmentNode, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
-import { getAssignmentProgrammingLanguage, getCourseMapAssignmentFooterLabel, getCourseMapLanguageLabel } from '../courseMapNodeMeta';
+import { activateCourseMapAssignmentNode, CourseMapHandles, NodeAccessBadges, NodeHover } from './CourseMapNodePrimitives';
+import { getCourseMapCodeTerminalModel } from '../courseMapNodeMeta';
 
 export default function CodeTestNode({ data, selected }) {
   const assignment = data?.entity || {};
-  const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
-  const language = getAssignmentProgrammingLanguage(assignment);
-  const languageLabel = getCourseMapLanguageLabel(language);
-  const footerLabel = getCourseMapAssignmentFooterLabel('code-test', assignment, 'Код');
+  const terminal = getCourseMapCodeTerminalModel(assignment);
+
   return (
     <div
-      className={`course-map-node course-map-node--code${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
+      className={`course-map-node course-map-node--code${selected ? ' is-selected' : ''}${terminal.solved ? ' is-solved' : ''}`}
       data-taskforge-automation-id={`assignment-${assignment.id || data?.entityId}`}
       data-taskforge-agent-role="course-map-node"
       data-taskforge-entity="assignment"
       data-taskforge-entity-id={assignment.id || data?.entityId}
       data-taskforge-assignment-type="code-test"
-      data-taskforge-agent-state={solved ? 'solved' : 'unsolved'}
+      data-taskforge-agent-state={terminal.solved ? 'solved' : 'unsolved'}
       data-taskforge-agent-kind="code-test"
       data-taskforge-agent-action="open-assignment"
       onClick={(event) => activateCourseMapAssignmentNode(event, data, data?.onOpen)}
       onKeyDown={(event) => activateCourseMapAssignmentNode(event, data, data?.onOpen)}
-      role={data?.editorMode ? undefined : "link"}
+      role={data?.editorMode ? undefined : 'link'}
       tabIndex={data?.editorMode ? undefined : 0}
-      aria-label={`Задание с кодом: ${assignment.title || 'Без названия'}`}
+      aria-label={`Задание с кодом: ${terminal.title}`}
     >
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
-      <NodeTopline icon={Code2} title={assignment.title} />
-      <AssignmentFooter assignment={assignment} label={footerLabel} />
-      <div className="course-map-code-watermark">{'{ }  ;'}</div>
-      <NodeHover entity={assignment} meta={languageLabel || null} />
+
+      <div className="course-map-code-terminal">
+        <div className="course-map-code-terminal-bar" aria-hidden="true">
+          <span className="course-map-code-terminal-lights">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="course-map-code-terminal-caption">terminal</span>
+          {terminal.languageLabel ? (
+            <span className="course-map-code-terminal-language">{terminal.languageLabel}</span>
+          ) : null}
+        </div>
+
+        <div className="course-map-code-terminal-body">
+          <div className="course-map-code-terminal-line is-command">
+            <span className="course-map-code-terminal-prompt" aria-hidden="true">$</span>
+            <span className="course-map-code-terminal-title">{terminal.title}</span>
+          </div>
+          {terminal.solved ? (
+            <div className="course-map-code-terminal-line is-result">
+              <span className="course-map-code-terminal-prompt" aria-hidden="true">›</span>
+              <span className="course-map-code-terminal-status">{terminal.statusLabel}</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <NodeHover entity={assignment} meta={terminal.languageLabel || null} />
     </div>
   );
 }
