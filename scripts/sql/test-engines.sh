@@ -89,7 +89,7 @@ docker run -d --name "$pg" -p 127.0.0.1::5432 \
   -c log_min_error_statement=panic -c log_error_verbosity=terse >/dev/null
 
 docker run -d --name "$my" -p 127.0.0.1::3306 \
-  --user 999:999 --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 1g --memory-swap 1g --cpus 1 --pids-limit 192 \
   --tmpfs /var/lib/mysql:rw,size=512m,uid=999,gid=999,mode=0700 \
   --tmpfs /var/run/mysqld:rw,size=8m,uid=999,gid=999,mode=0770 --tmpfs /tmp:rw,size=32m \
