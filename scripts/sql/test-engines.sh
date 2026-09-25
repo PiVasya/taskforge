@@ -79,7 +79,7 @@ mydigest="$(docker image inspect "$myimage" --format '{{index .RepoDigests 0}}')
 # Bind only random loopback ports. These are throw-away test databases; no
 # production database, Patroni network, host DB directory or persistent volume is used.
 docker run -d --name "$pg" -p 127.0.0.1::5432 \
-  --user 999:999 --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 768m --memory-swap 768m --cpus 1 --pids-limit 128 \
   --tmpfs /var/lib/postgresql:rw,size=384m,uid=999,gid=999,mode=0700 \
   --tmpfs /var/run/postgresql:rw,size=8m,uid=999,gid=999,mode=0770 --tmpfs /tmp:rw,size=32m \
@@ -91,8 +91,8 @@ docker run -d --name "$pg" -p 127.0.0.1::5432 \
 docker run -d --name "$my" -p 127.0.0.1::3306 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 1g --memory-swap 1g --cpus 1 --pids-limit 192 \
-  --tmpfs /var/lib/mysql:rw,size=512m,uid=999,gid=999,mode=0700 \
-  --tmpfs /var/run/mysqld:rw,size=8m,uid=999,gid=999,mode=0770 --tmpfs /tmp:rw,size=32m \
+  --tmpfs /var/lib/mysql:rw,size=512m \
+  --tmpfs /var/run/mysqld:rw,size=8m --tmpfs /tmp:rw,size=32m \
   -e MYSQL_ROOT_PASSWORD="$password" -e MYSQL_ROOT_HOST=% -e SQL_SANDBOX_MARKER="$marker" \
   -v "$ROOT/infrastructure/sql/mysql-init:/docker-entrypoint-initdb.d:ro" "$myimage" \
   --innodb-buffer-pool-size=134217728 --innodb-redo-log-capacity=67108864 --performance-schema=OFF \
