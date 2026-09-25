@@ -54,7 +54,11 @@ internal static partial class EducationApiEndpoints
 
         app.MapPost("/api/courses", async (CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
-            var currentUserId = TaskForgeRequestSecurity.UserId(http, cfg);
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+            if (!access.IsEditorOrAdmin) return CourseEditForbidden();
+
+            var currentUserId = access.UserId;
             var ownerIds = request.OwnerIds?.Where(x => x != Guid.Empty).Distinct().ToArray();
             if ((ownerIds == null || ownerIds.Length == 0) && currentUserId.HasValue)
             {
@@ -62,9 +66,14 @@ internal static partial class EducationApiEndpoints
             }
 
             var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
-            if (parentId.HasValue && !await db.Courses.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct))
+            if (parentId.HasValue)
             {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+                var parent = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == parentId.Value, ct);
+                if (parent is null)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+                }
+                if (!CanEditCourse(access, parent)) return CourseEditForbidden();
             }
 
             var maxSort = await db.Courses.Where(x => x.ParentCourseId == parentId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
@@ -82,7 +91,7 @@ internal static partial class EducationApiEndpoints
             NormalizeCourseAudience(course);
             db.Courses.Add(course);
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
         app.MapGet("/api/courses/{id:guid}", async (Guid id, HttpContext http, EducationDbContext db, IConfiguration cfg, CancellationToken ct) =>
@@ -98,10 +107,14 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var course = await db.Courses.FindAsync(new object[] { id }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!CanEditCourse(access, course)) return CourseEditForbidden();
             if (!string.IsNullOrWhiteSpace(request.Title)) course.Title = request.Title.Trim();
             course.Description = request.Description;
             if (request.IsPublic.HasValue) course.IsPublic = request.IsPublic.Value;
@@ -112,11 +125,14 @@ internal static partial class EducationApiEndpoints
             NormalizeCourseAudience(course);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapDelete("/api/courses/{id:guid}", async (Guid id, EducationDbContext db, CancellationToken ct) =>
+        app.MapDelete("/api/courses/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var rows = await db.Courses
                 .Select(x => new { x.Id, x.ParentCourseId })
                 .ToListAsync(ct);
@@ -126,35 +142,49 @@ internal static partial class EducationApiEndpoints
             var subtree = await db.Courses
                 .Where(x => subtreeIds.Contains(x.Id))
                 .ToListAsync(ct);
+            if (subtree.Any(course => !CanEditCourse(access, course))) return CourseEditForbidden();
 
             db.Courses.RemoveRange(subtree);
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted", deletedCourses = subtree.Count });
         });
 
-        app.MapPatch("/api/courses/{courseId:guid}/sort", async (Guid courseId, CourseSortRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPatch("/api/courses/{courseId:guid}/sort", async (Guid courseId, CourseSortRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+            if (!CanEditCourse(access, course)) return CourseEditForbidden();
             course.Sort = System.Math.Max(0, request.Sort);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPatch("/api/courses/{courseId:guid}/position", async (Guid courseId, CoursePositionRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPatch("/api/courses/{courseId:guid}/position", async (Guid courseId, CoursePositionRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Курс не найден.", code = "COURSE_NOT_FOUND" });
+            if (!CanEditCourse(access, course)) return CourseEditForbidden();
 
             var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
             if (parentId == course.Id)
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Курс нельзя вложить сам в себя.", code = "COURSE_PARENT_SELF" }, statusCode: StatusCodes.Status400BadRequest);
             }
-            if (parentId.HasValue && !await db.Courses.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct))
+            if (parentId.HasValue)
             {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+                var parent = await db.Courses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == parentId.Value, ct);
+                if (parent is null)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new { message = "Родительский курс не найден.", code = "COURSE_PARENT_NOT_FOUND" }, statusCode: StatusCodes.Status400BadRequest);
+                }
+                if (!CanEditCourse(access, parent)) return CourseEditForbidden();
             }
             if (await WouldCreateCourseCycleAsync(course.Id, parentId, db, ct))
             {
@@ -166,6 +196,8 @@ internal static partial class EducationApiEndpoints
                 .OrderBy(x => x.Sort)
                 .ThenBy(x => x.Title)
                 .ToListAsync(ct);
+            if (siblings.Any(sibling => !CanEditCourse(access, sibling))) return CourseEditForbidden();
+
             var position = System.Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
 
             course.ParentCourseId = parentId;
@@ -178,32 +210,45 @@ internal static partial class EducationApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPost("/api/courses/{courseId:guid}/visible-groups", async (Guid courseId, CourseGroupsRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/courses/{courseId:guid}/visible-groups", async (Guid courseId, CourseGroupsRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!CanEditCourse(access, course)) return CourseEditForbidden();
             course.VisibleGroupIdsJson = Serialize(request.GroupIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, EducationDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/courses/{courseId:guid}/owners", async (Guid courseId, CourseOwnersRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
         {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!CanEditCourse(access, course)) return CourseEditForbidden();
             course.OwnerIdsJson = Serialize(request.OwnerIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, canEdit: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
         return app;
     }
 
+
+    private static IResult CourseEditForbidden()
+        => Microsoft.AspNetCore.Http.Results.Json(
+            new { message = "Недостаточно прав для изменения курса.", code = "COURSE_EDIT_FORBIDDEN" },
+            statusCode: StatusCodes.Status403Forbidden);
 
     private static HashSet<Guid> CollectCourseSubtreeIds(Guid rootCourseId, IEnumerable<(Guid Id, Guid? ParentCourseId)> rows)
     {

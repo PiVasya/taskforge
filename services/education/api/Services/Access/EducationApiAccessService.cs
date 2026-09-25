@@ -21,7 +21,7 @@ internal static class EducationApiAccessService
         var groupIds = userId.HasValue
             ? await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId.Value).Select(x => x.GroupId).ToListAsync(ct)
             : new List<Guid>();
-        return new EducationAccessContext(userId, isEditor, groupIds.ToHashSet());
+        return new EducationAccessContext(userId, isEditor, false, groupIds.ToHashSet());
     }
 
 }

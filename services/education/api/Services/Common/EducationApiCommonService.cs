@@ -15,14 +15,14 @@ internal static class EducationApiCommonService
 {
     internal static bool CanViewCourse(EducationAccessContext access, Course course, bool blockedByHierarchy = false)
     {
-        if (access.IsEditorOrAdmin) return true;
+        if (access.IsEditorOrAdmin || access.BypassStudentVisibility) return true;
         if (blockedByHierarchy) return false;
         return CanViewCourseDirect(access, course);
     }
 
     internal static bool CanViewCourseWithAncestors(EducationAccessContext access, Course course, IReadOnlyDictionary<Guid, Course> byId)
     {
-        if (access.IsEditorOrAdmin) return true;
+        if (access.IsEditorOrAdmin || access.BypassStudentVisibility) return true;
         var current = course;
         var seen = new HashSet<Guid>();
         while (seen.Add(current.Id))
@@ -37,7 +37,7 @@ internal static class EducationApiCommonService
 
     internal static HashSet<Guid> BuildUnavailableCourseIds(EducationAccessContext access, IEnumerable<Course> courses)
     {
-        if (access.IsEditorOrAdmin) return new HashSet<Guid>();
+        if (access.IsEditorOrAdmin || access.BypassStudentVisibility) return new HashSet<Guid>();
         var rows = courses.ToList();
         var byId = rows.ToDictionary(x => x.Id);
         return rows
@@ -48,8 +48,8 @@ internal static class EducationApiCommonService
 
     internal static bool CanEditCourse(EducationAccessContext access, Course course)
     {
-        if (access.IsEditorOrAdmin) return true;
-        return access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value);
+        _ = course;
+        return access.IsEditorOrAdmin;
     }
 
     internal static void NormalizeCourseAudience(Course course)

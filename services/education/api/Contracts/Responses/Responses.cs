@@ -7,7 +7,11 @@ using TaskForge.Education.Api.Domain;
 
 namespace TaskForge.Education.Api.Contracts;
 
-public sealed record EducationAccessContext(Guid? UserId, bool IsEditorOrAdmin, HashSet<Guid> GroupIds);
+public sealed record EducationAccessContext(
+    Guid? UserId,
+    bool IsEditorOrAdmin,
+    bool BypassStudentVisibility,
+    HashSet<Guid> GroupIds);
 
 public sealed record CourseDto(Guid Id, string Title, string? Description, bool IsPublic, bool IsHiddenFromStudents, Guid[] VisibleGroupIds, Guid[] OwnerIds, bool CanEdit, bool IsCompletedForCurrentUser, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? ParentCourseId, int Sort);
 

@@ -50,7 +50,7 @@ internal static partial class EducationApiEndpoints
             if (!allById.TryGetValue(courseId, out var course)) return Microsoft.AspNetCore.Http.Results.NotFound();
 
             var groupIds = await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync(ct);
-            var access = new EducationAccessContext(userId, false, groupIds.ToHashSet());
+            var access = new EducationAccessContext(userId, false, false, groupIds.ToHashSet());
             var rootCourseId = ResolveRootCourseId(course, allById);
             var mapJson = await db.CourseMaps.AsNoTracking()
                 .Where(x => x.RootCourseId == rootCourseId)
@@ -104,7 +104,7 @@ internal static partial class EducationApiEndpoints
                 .Where(x => x.UserId == request.UserId)
                 .Select(x => x.GroupId)
                 .ToListAsync(ct);
-            var access = new EducationAccessContext(request.UserId, request.BypassStudentVisibility, groupIds.ToHashSet());
+            var access = new EducationAccessContext(request.UserId, false, request.BypassStudentVisibility, groupIds.ToHashSet());
             var allById = await LoadCoursesWithAncestorsAsync(courseIds, db, ct);
             var courses = courseIds.Where(allById.ContainsKey).Select(id => allById[id]).ToList();
 
