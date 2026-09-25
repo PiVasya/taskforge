@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import QuotaPill from '../../../components/QuotaPill';
 import { Card, Button } from '../../../components/ui';
 import IfEditor from '../../../components/IfEditor';
 import StatementViewer from '../../../components/tiptap/StatementViewer';
@@ -225,7 +224,6 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
   courseId,
   assignmentId,
   isAdmin = false,
-  showQuota = false,
 }) {
   const navigate = useNavigate();
   const goBack = React.useCallback(() => {
@@ -244,7 +242,6 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
         </Button>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        {showQuota ? <QuotaPill bucket="tasks" /> : null}
         {isAdmin ? (
           <Link to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
             <BarChart3 size={16} className="mr-2" /> Аналитика задания

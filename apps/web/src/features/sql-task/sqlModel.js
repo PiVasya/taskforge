@@ -64,6 +64,39 @@ export function datasetIssues(doc) {
   return errors;
 }
 
+
+
+export function ruCountLabel(value, one, few, many) {
+  const number = Math.abs(Math.trunc(Number(value) || 0));
+  const lastTwo = number % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return many;
+  const last = number % 10;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+export function datasetOverview(definition, seed) {
+  const sourceTables = Array.isArray(definition?.tables) ? definition.tables : [];
+  const sourceSeed = seed && typeof seed === 'object' ? seed : {};
+  const tables = sourceTables
+    .map((table) => {
+      const name = String(table?.name || '').trim();
+      if (!name) return null;
+      const columns = (Array.isArray(table?.columns) ? table.columns : [])
+        .map(column => String(column?.name || '').trim())
+        .filter(Boolean);
+      const rows = Array.isArray(sourceSeed[name]) ? sourceSeed[name].length : 0;
+      return { name, columns, rows };
+    })
+    .filter(Boolean);
+  return {
+    databases: (Array.isArray(definition?.databases) ? definition.databases : []).map(value => String(value || '').trim()).filter(Boolean),
+    tables,
+    totalRows: tables.reduce((sum, table) => sum + table.rows, 0),
+  };
+}
+
 export function validationReadyForTargets(targets, validation) {
   const enabled = (Array.isArray(targets) ? targets : []).filter(t => t?.enabled !== false);
   if (!enabled.length) return false;

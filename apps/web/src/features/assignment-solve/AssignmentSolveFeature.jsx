@@ -969,7 +969,7 @@ export default function AssignmentSolvePage() {
       </Card>
     );
     return <>
-      <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} isAdmin={isAdmin} showQuota />
+      <AssignmentSolveHeader courseId={a.courseId} assignmentId={a.id} isAdmin={isAdmin} />
       <SqlTaskSolve
         key={a.id}
         assignment={a}
@@ -993,7 +993,6 @@ export default function AssignmentSolvePage() {
           courseId={a.courseId}
           assignmentId={a.id}
           isAdmin={isAdmin}
-          showQuota
         />
 
         {partLoading.tests ? (
@@ -1016,7 +1015,6 @@ export default function AssignmentSolvePage() {
           courseId={a.courseId}
           assignmentId={a.id}
           isAdmin={isAdmin}
-          showQuota
         />
 
         {partLoading.tests ? (
@@ -1171,7 +1169,6 @@ export default function AssignmentSolvePage() {
           courseId={a.courseId}
           assignmentId={a.id}
           isAdmin={isAdmin}
-          showQuota
         />
 
         <div className="grid lg:grid-cols-3 gap-6">

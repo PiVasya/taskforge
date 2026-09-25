@@ -67,6 +67,27 @@ test('dataset catalog refresh is best effort and cannot fail the SQL save workfl
 });
 
 
+
+test('learner dataset overview is derived from published definition and seed without leaking row values',()=>{
+ const definition={databases:['cinema'],tables:[
+  {name:'movies',columns:[{name:'id'},{name:'title'},{name:'year'}]},
+  {name:'genres',columns:[{name:'id'},{name:'name'}]}
+ ]};
+ const seed={movies:[{id:'1',title:'Arrival',year:'2016'},{id:'2',title:'Interstellar',year:'2014'}],genres:[{id:'1',name:'Sci-Fi'}]};
+ const overview=m.datasetOverview(definition,seed);
+ assert.deepEqual(overview.databases,['cinema']);
+ assert.equal(overview.totalRows,3);
+ assert.deepEqual(overview.tables,[
+  {name:'movies',columns:['id','title','year'],rows:2},
+  {name:'genres',columns:['id','name'],rows:1}
+ ]);
+ assert.equal(JSON.stringify(overview).includes('Arrival'),false);
+ assert.equal(m.ruCountLabel(1,'таблица','таблицы','таблиц'),'таблица');
+ assert.equal(m.ruCountLabel(3,'таблица','таблицы','таблиц'),'таблицы');
+ assert.equal(m.ruCountLabel(11,'таблица','таблицы','таблиц'),'таблиц');
+ assert.equal(m.ruCountLabel(21,'таблица','таблицы','таблиц'),'таблица');
+});
+
 test('publication readiness requires every enabled engine validation receipt',()=>{
  const targets=[{engineProfileId:'sqlite',enabled:true},{engineProfileId:'mysql',enabled:true},{engineProfileId:'pg',enabled:false}];
  assert.equal(m.validationReadyForTargets(targets,[{engineProfileId:'sqlite',datasetStatus:'valid',status:'valid'}]),false);
@@ -143,4 +164,13 @@ test('SQL editor polling observes automatic first publication and new concurrenc
  assert.deepEqual(merged.validation,[2]);
  assert.equal(merged.local,'keep');
  assert.equal(m.mergeSqlEditorPoll(current,{...latest,draftVersionId:'draft-2'}),current);
+});
+
+
+test('learner SQL action dock exposes check only and never renders a separate run action', async()=>{
+ const solveSource=await fs.readFile(new URL('../../src/features/sql-task/SqlTaskSolve.jsx',import.meta.url),'utf8');
+ assert.ok(solveSource.includes('primaryLabel="Проверить"'));
+ assert.ok(solveSource.includes("onPrimary={() => void submit('check')}"));
+ assert.equal(solveSource.includes("key: 'sql-run'"),false);
+ assert.equal(solveSource.includes("label: 'Запустить'"),false);
 });

@@ -584,7 +584,7 @@ html.neo-brutal .sql-task th {
 }
 
 .sql-task-solve .sql-editor-tools.has-engine {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sql-task-solve .sql-engine-select {
@@ -851,7 +851,7 @@ html.neo-brutal .sql-compare-table {
   }
 
   .sql-task-solve .sql-editor-tools.has-engine {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sql-task-solve .sql-db-button {
@@ -890,6 +890,117 @@ html.neo-brutal .sql-compare-table {
   border-width: 2px;
 }
 
+
+.sql-task-solve .sql-learner-context-column {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.sql-task-solve .sql-database-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem !important;
+}
+
+.sql-task-solve .sql-database-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.sql-task-solve .sql-database-card-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid rgba(var(--border) / 0.72);
+  border-radius: 0.7rem;
+  background: rgba(var(--muted) / 0.52);
+}
+
+.sql-task-solve .sql-database-card-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.sql-task-solve .sql-database-card-copy strong {
+  font-size: 0.84rem;
+  line-height: 1.25;
+}
+
+.sql-task-solve .sql-database-card-copy span,
+.sql-task-solve .sql-database-table span,
+.sql-task-solve .sql-database-more {
+  color: rgb(var(--text-muted));
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.sql-task-solve .sql-database-table-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sql-task-solve .sql-database-table {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.48rem 0.6rem;
+  border: 1px solid rgba(var(--border) / 0.58);
+  border-radius: 0.65rem;
+  background: rgba(var(--muted) / 0.28);
+}
+
+.sql-task-solve .sql-database-table code {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--text));
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql-task-solve .sql-database-table span {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql-task-solve .sql-database-more {
+  padding-inline: 0.2rem;
+}
+
+.sql-task-solve .sql-database-card .sql-db-button {
+  width: 100%;
+  min-height: 2.55rem;
+}
+
+html.neo-brutal .sql-task-solve .sql-database-card-icon,
+html.neo-brutal .sql-task-solve .sql-database-table {
+  border-width: 2px;
+  border-color: rgb(var(--neo-ink));
+}
+
+@media (max-width: 520px) {
+  .sql-task-solve .sql-database-table {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.18rem;
+  }
+
+  .sql-task-solve .sql-database-table span {
+    text-align: left;
+  }
+}
 
 /* Learner SQL has its own workspace: SQL is a first-class task type, not a narrow code sidebar. */
 .sql-task-solve .sql-learner-workspace {

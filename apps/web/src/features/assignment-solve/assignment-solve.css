@@ -150,12 +150,13 @@
 }
 
 .solve-action-dock--navigation-only {
-  width: auto;
+  width: min(13.5rem, calc(100vw - 2.5rem));
   max-width: calc(100vw - 2.5rem);
 }
 
 .solve-action-dock--navigation-only .solve-action-dock-panel {
-  width: max-content;
+  display: flex;
+  width: 100%;
   max-width: 100%;
   padding: 0;
   border: 0;
@@ -179,8 +180,9 @@
 
 .solve-action-dock-panel {
   pointer-events: auto;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   align-items: center;
   gap: 0.5rem;
   width: 100%;
@@ -235,8 +237,9 @@
 }
 
 .solve-action-button {
-  flex: 1 1 10.5rem;
-  width: auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 2.75rem;
   justify-content: center;
   white-space: nowrap;
@@ -259,7 +262,11 @@
 
   .solve-action-dock-panel {
     display: grid;
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-columns: auto;
   }
+
 
   .solve-action-button {
     width: 100%;
@@ -376,7 +383,7 @@
 .solve-next-control {
   position: relative;
   z-index: 1;
-  flex: 0 1 auto;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
 }
@@ -384,9 +391,9 @@
 .solve-next-button {
   display: inline-flex;
   align-items: center;
-  flex: 0 1 auto;
-  width: auto;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   gap: 0.4rem;
   padding-inline: 0.95rem;
 }

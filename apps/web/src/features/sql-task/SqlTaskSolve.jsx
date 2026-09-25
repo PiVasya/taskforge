@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, CheckCircle2, Database, Play, RotateCcw, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, Database, RotateCcw, XCircle } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import CodeEditor from '../../components/CodeEditor';
 import { Button, Card, Select } from '../../components/ui';
 import { getApiErrorMessage } from '../../api/http';
 import { getMySolutionDetails } from '../../api/solutions';
 import { checkSql, runSql, sqlAssignment, sqlPreview } from '../../api/sqlTasks';
-import { isPending, ownSnapshot, resultLabel, sqlErrorPresentation } from './sqlModel';
+import { datasetOverview, isPending, ownSnapshot, resultLabel, ruCountLabel, sqlErrorPresentation } from './sqlModel';
 import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
 import SqlCheckComparison from './SqlCheckComparison';
@@ -257,8 +257,8 @@ export default function SqlTaskSolve({
             <RotateCcw size={16} />
           </Button>
         </div>
-        <div className={`sql-editor-tools${spec.targets.length > 1 ? ' has-engine' : ''}`}>
-          {spec.targets.length > 1 ? (
+        {spec.targets.length > 1 ? (
+          <div className="sql-editor-tools has-engine">
             <Select
               className="sql-engine-select"
               aria-label="SQL-движок"
@@ -270,19 +270,8 @@ export default function SqlTaskSolve({
                 <option value={item.engineProfileId} key={item.engineProfileId}>{item.displayName}</option>
               ))}
             </Select>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            className="sql-db-button"
-            aria-label="Открыть базу данных"
-            title="Открыть базу данных"
-            onClick={() => navigate(`/assignment/${assignment.id}/database`)}
-          >
-            <Database size={16} />
-            <span>Открыть базу</span>
-          </Button>
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="sql-editor-wrap">
@@ -315,12 +304,56 @@ export default function SqlTaskSolve({
   );
 
   const resultCard = result ? (lastKind === 'check' && result?.check?.comparison ? <SqlCheckComparison snapshot={result} /> : <SqlSnapshot snapshot={result} />) : null;
+  const database = datasetOverview(spec.definition, spec.seed);
+  const databasePanel = (
+    <Card className="sql-database-card">
+      <div className="sql-database-card-header">
+        <div className="sql-database-card-icon" aria-hidden="true"><Database size={18} /></div>
+        <div className="sql-database-card-copy">
+          <strong>Учебная база</strong>
+          <span>
+            {database.tables.length
+              ? `${database.tables.length} ${ruCountLabel(database.tables.length, 'таблица', 'таблицы', 'таблиц')} · ${database.totalRows} ${ruCountLabel(database.totalRows, 'строка', 'строки', 'строк')}`
+              : 'Структура базы доступна для просмотра'}
+          </span>
+        </div>
+      </div>
+      {database.tables.length ? (
+        <div className="sql-database-table-list" aria-label="Таблицы учебной базы">
+          {database.tables.slice(0, 4).map(table => (
+            <div className="sql-database-table" key={table.name}>
+              <code>{table.name}</code>
+              <span>{table.columns.slice(0, 4).join(', ')}{table.columns.length > 4 ? '…' : ''}</span>
+            </div>
+          ))}
+          {database.tables.length > 4 ? <div className="sql-database-more">Ещё {database.tables.length - 4}</div> : null}
+        </div>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        className="sql-db-button"
+        aria-label="Открыть базу данных"
+        title="Открыть базу данных"
+        onClick={() => navigate(`/assignment/${assignment.id}/database`)}
+      >
+        <Database size={16} />
+        <span>Открыть базу</span>
+      </Button>
+    </Card>
+  );
+  const statementPanel = (
+    <div className="sql-learner-context-column">
+      {statement}
+      {databasePanel}
+    </div>
+  );
 
   return (
     <div className="sql-task-solve">
       <div className={`sql-learner-workspace ${layout === 'editorTop' ? 'is-editor-first' : ''}`}>
-        {layout === 'editorTop' ? editorCard : statement}
-        {layout === 'editorTop' ? statement : editorCard}
+        {layout === 'editorTop' ? editorCard : statementPanel}
+        {layout === 'editorTop' ? statementPanel : editorCard}
         {resultCard ? <div className="sql-learner-result">{resultCard}</div> : null}
       </div>
 
@@ -336,14 +369,6 @@ export default function SqlTaskSolve({
         primaryAutomationId="submit-sql-solution"
         primaryAgentAction="submit-sql-solution"
         onPrimary={() => void submit('check')}
-        secondaryActions={[{
-          key: 'sql-run',
-          label: 'Запустить',
-          icon: <Play size={16} />,
-          variant: 'outline',
-          disabled,
-          onClick: () => void submit('run'),
-        }]}
       />
     </div>
   );
