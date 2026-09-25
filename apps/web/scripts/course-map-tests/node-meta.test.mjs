@@ -40,12 +40,28 @@ test('code terminal shows the assignment title and only adds solved text after c
   );
 });
 
-test('code node shell prompt puts language on the second line and solved output stays lowercase', async () => {
+test('code node uses shell prompts for command, language output, and solved output', async () => {
   const nodeSource = await fs.readFile(new URL('../../src/features/course-assignments/nodes/CodeTestNode.jsx', import.meta.url), 'utf8');
   assert.match(nodeSource, />~#<\/span>/);
   assert.doesNotMatch(nodeSource, /course-map-code-terminal-bar/);
-  assert.match(nodeSource, /course-map-code-terminal-line is-language/);
+  assert.match(nodeSource, /course-map-code-terminal-line is-output is-language/);
+  assert.match(nodeSource, /course-map-code-terminal-line is-output is-result/);
+  assert.equal((nodeSource.match(/course-map-code-terminal-output-prompt/g) || []).length, 2);
+  assert.ok(nodeSource.includes('&gt;</span>'));
   assert.ok(nodeSource.includes('<span className="course-map-code-terminal-language">{terminal.languageLabel}</span>'));
   assert.ok(nodeSource.indexOf('is-language') < nodeSource.indexOf('is-result'));
   assert.equal(model.getCourseMapCodeTerminalModel({ title: 'Probe', isSolved: true }).statusLabel, 'решено');
 });
+
+test('code shell content keeps the shared node card instead of replacing it with a black terminal card', async () => {
+  const css = await fs.readFile(new URL('../../src/features/course-assignments/course-map.css', import.meta.url), 'utf8');
+  const marker = '/* Code assignments: shell content inside the shared course-map node ------------- */';
+  const shellCss = css.slice(css.indexOf(marker));
+  assert.ok(shellCss.includes('.course-map-code-terminal {'));
+  assert.ok(shellCss.includes('background: transparent;'));
+  assert.doesNotMatch(shellCss, /background:\s*rgba\(4,\s*6,\s*9/);
+  assert.doesNotMatch(shellCss, /background:\s*rgba\(3,\s*4,\s*6/);
+  assert.doesNotMatch(shellCss, /\.course-map-node--code\s*\{[\s\S]*?border:\s*0;/);
+  assert.match(shellCss, /\.course-map-node--code\.is-solved[\s\S]*?opacity:\s*\.5;/);
+});
+

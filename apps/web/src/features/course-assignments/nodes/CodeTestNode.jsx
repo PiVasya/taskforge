@@ -34,12 +34,14 @@ export default function CodeTestNode({ data, selected }) {
             <span className="course-map-code-terminal-cursor" aria-hidden="true" />
           </div>
           {terminal.languageLabel ? (
-            <div className="course-map-code-terminal-line is-language">
+            <div className="course-map-code-terminal-line is-output is-language">
+              <span className="course-map-code-terminal-output-prompt" aria-hidden="true">&gt;</span>
               <span className="course-map-code-terminal-language">{terminal.languageLabel}</span>
             </div>
           ) : null}
           {terminal.solved ? (
-            <div className="course-map-code-terminal-line is-result">
+            <div className="course-map-code-terminal-line is-output is-result">
+              <span className="course-map-code-terminal-output-prompt" aria-hidden="true">&gt;</span>
               <span className="course-map-code-terminal-status">{terminal.statusLabel}</span>
             </div>
           ) : null}

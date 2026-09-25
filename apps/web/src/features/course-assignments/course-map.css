@@ -2177,70 +2177,19 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   box-shadow: 3px 3px 0 0 rgb(var(--neo-ink));
 }
 
-/* Code assignments: compact shell prompt ---------------------------------------- */
-.course-map-node--code {
-  min-width: 286px;
-  max-width: 420px;
-  min-height: 88px;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  box-shadow: none;
-  filter: none;
-}
-
-.course-map-node--code:hover,
-.course-map-node--code.is-selected,
-.course-map-node--code.is-solved,
-.course-map-node--code.is-solved:hover,
-.course-map-node--code.is-solved.is-selected,
-.course-map-node--code.is-solved:focus-within {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  filter: none;
-}
-
-.course-map-node--code::after,
-.course-map-node--code.is-solved::after {
-  display: none;
-}
-
+/* Code assignments: shell content inside the shared course-map node ------------- */
 .course-map-code-terminal {
   position: relative;
   z-index: 1;
-  overflow: hidden;
-  min-height: 88px;
-  border: 1px solid rgba(255, 255, 255, .11);
-  border-radius: 12px;
-  background: rgba(4, 6, 9, .82);
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, .22),
-    inset 0 1px 0 rgba(255, 255, 255, .025);
-  backdrop-filter: blur(9px) saturate(1.04);
-  -webkit-backdrop-filter: blur(9px) saturate(1.04);
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease, opacity .16s ease;
-}
-
-.course-map-node--code:hover .course-map-code-terminal,
-.course-map-node--code.is-selected .course-map-code-terminal,
-.course-map-node--code:focus-within .course-map-code-terminal {
-  border-color: rgba(var(--accent) / .48);
-  background: rgba(4, 6, 9, .9);
-  box-shadow:
-    0 15px 34px rgba(0, 0, 0, .28),
-    0 0 0 1px rgba(var(--accent) / .08),
-    inset 0 1px 0 rgba(255, 255, 255, .03);
-  transform: translateY(-1px);
+  min-width: 0;
+  background: transparent;
 }
 
 .course-map-code-terminal-body {
   display: flex;
-  min-height: 88px;
+  min-width: 0;
   flex-direction: column;
   justify-content: center;
-  padding: 13px 15px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
@@ -2257,35 +2206,44 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
 }
 
 .course-map-code-terminal-line + .course-map-code-terminal-line {
-  margin-top: 7px;
+  margin-top: 5px;
+}
+
+.course-map-code-terminal-line.is-output {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .course-map-code-terminal-prompt {
   flex: 0 0 auto;
-  color: color-mix(in srgb, rgb(var(--accent)) 80%, white 20%);
+  color: color-mix(in srgb, rgb(var(--accent)) 80%, rgb(var(--text)) 20%);
   font-size: 13px;
-  font-weight: 780;
+  font-weight: 820;
   line-height: 1.4;
 }
 
 .course-map-code-terminal-title {
   min-width: 0;
   overflow: hidden;
-  color: rgba(244, 246, 249, .92);
+  color: rgb(var(--text));
   font-size: 13px;
-  font-weight: 610;
+  font-weight: 650;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .course-map-code-terminal-cursor {
-  width: 1px;
-  height: 1.08em;
-  flex: 0 0 1px;
+  width: .5em;
+  height: .98em;
+  flex: 0 0 .5em;
   align-self: center;
-  margin-left: -3px;
-  background: rgba(244, 246, 249, .82);
+  margin-left: -2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, rgb(var(--text)) 82%, transparent);
   animation: course-map-shell-cursor 1.05s steps(1, end) infinite;
 }
 
@@ -2294,75 +2252,39 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   49%, 100% { opacity: 0; }
 }
 
-.course-map-code-terminal-line.is-language,
-.course-map-code-terminal-line.is-result {
-  padding-left: 0;
+.course-map-code-terminal-output-prompt {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--text)) 30%);
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1.35;
 }
 
 .course-map-code-terminal-language {
-  color: rgba(244, 246, 249, .46);
+  color: color-mix(in srgb, rgb(var(--text)) 58%, rgb(var(--card)) 42%);
   font-size: 11px;
-  font-weight: 540;
+  font-weight: 600;
   line-height: 1.35;
 }
 
 .course-map-code-terminal-status {
-  color: rgba(244, 246, 249, .58);
+  color: color-mix(in srgb, rgb(var(--accent)) 62%, rgb(var(--text)) 38%);
   font-size: 11px;
-  font-weight: 560;
+  font-weight: 620;
   line-height: 1.35;
   text-transform: none;
 }
 
-.course-map-node--code.is-solved .course-map-code-terminal {
+/* A solved code assignment stays visually faded, but keeps the same base node shell. */
+.course-map-node--code.is-solved,
+.course-map-node--code.is-solved:hover,
+.course-map-node--code.is-solved.is-selected,
+.course-map-node--code.is-solved:focus-within {
   opacity: .5;
-}
-
-.course-map-node--code.is-solved:hover .course-map-code-terminal,
-.course-map-node--code.is-solved.is-selected .course-map-code-terminal,
-.course-map-node--code.is-solved:focus-within .course-map-code-terminal {
-  opacity: .5;
-}
-
-html.neo-brutal .course-map-node--code,
-html.neo-brutal .course-map-node--code:hover,
-html.neo-brutal .course-map-node--code.is-selected,
-html.neo-brutal .course-map-node--code.is-solved {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-html.neo-brutal .course-map-node--code .course-map-code-terminal {
-  border: 2px solid rgb(var(--neo-ink));
-  border-radius: .65rem;
-  background: rgba(3, 4, 6, .92);
-  box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-html.neo-brutal .course-map-node--code:hover .course-map-code-terminal,
-html.neo-brutal .course-map-node--code.is-selected .course-map-code-terminal {
-  background: rgba(3, 4, 6, .97);
-  box-shadow: 6px 6px 0 0 rgb(var(--neo-ink));
-  transform: translate(-1px, -1px);
 }
 
 html.neo-brutal .course-map-code-terminal-prompt {
-  color: rgb(var(--brand-300));
-}
-
-html.neo-brutal .course-map-code-terminal-title {
-  color: rgba(255, 255, 255, .94);
-}
-
-html.neo-brutal .course-map-code-terminal-language {
-  color: rgba(255, 255, 255, .55);
-}
-
-html.neo-brutal .course-map-code-terminal-status {
-  color: rgba(255, 255, 255, .62);
+  color: color-mix(in srgb, rgb(var(--brand-300)) 78%, rgb(var(--text)) 22%);
 }
 
 @media (prefers-reduced-motion: reduce) {
