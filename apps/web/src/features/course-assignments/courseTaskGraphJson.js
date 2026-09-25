@@ -13,7 +13,7 @@ const TASK_FIELDS = new Set([
   'imageTestSimilarityThreshold', 'sql',
 ]);
 const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'connections', 'layout', 'datasets']);
-const COURSE_FIELDS = new Set(['key', 'id', 'title']);
+const COURSE_FIELDS = new Set(['key', 'id', 'title', 'isPublic', 'isHiddenFromStudents', 'visibleGroupIds']);
 const CONNECTION_FIELDS = new Set(['from', 'to', 'access']);
 const ACCESS_FIELDS = new Set(['hidden', 'sequential']);
 const LEGACY_LAYOUT_FIELDS = new Set([

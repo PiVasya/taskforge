@@ -81,7 +81,13 @@ internal static class AssignmentTaskGraphJsonService
         "ids", "content", "checks", "visibility", "connections", "connectionAccess", "layout"
     };
 
-    internal sealed record GraphCourse(string Key, Guid Id, string Title);
+    internal sealed record GraphCourse(
+        string Key,
+        Guid Id,
+        string Title,
+        bool IsPublic = false,
+        bool IsHiddenFromStudents = false,
+        IReadOnlyList<Guid>? VisibleGroupIds = null);
 
     internal sealed record GraphTask(string Key, string CourseRef, JsonElement Source);
 
@@ -274,7 +280,10 @@ internal static class AssignmentTaskGraphJsonService
                     }
                     if (id == Guid.Empty && string.IsNullOrWhiteSpace(title))
                         issues.Add(new ValidationIssue($"{path}.title", "Для нового вложенного курса без id укажите title."));
-                    courses.Add(new GraphCourse(key, id, title));
+                    var isPublic = ReadBool(courseElement, "isPublic", false);
+                    var isHiddenFromStudents = ReadBool(courseElement, "isHiddenFromStudents", false);
+                    var visibleGroupIds = ReadGuidArray(courseElement, "visibleGroupIds");
+                    courses.Add(new GraphCourse(key, id, title, isPublic, isHiddenFromStudents, visibleGroupIds));
                 }
             }
         }
@@ -436,6 +445,25 @@ internal static class AssignmentTaskGraphJsonService
             }, issues);
     }
 
+    private static bool ReadBool(JsonElement element, string property, bool fallback)
+    {
+        return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True
+            ? true
+            : element.TryGetProperty(property, out value) && value.ValueKind == JsonValueKind.False
+                ? false
+                : fallback;
+    }
+
+    private static IReadOnlyList<Guid> ReadGuidArray(JsonElement element, string property)
+    {
+        var result = new List<Guid>();
+        if (!element.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Array) return result;
+        foreach (var item in value.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String && Guid.TryParse(item.GetString(), out var id))
+                result.Add(id);
+        return result;
+    }
+
     internal static JsonObject BuildExport(
         Guid courseId,
         IReadOnlyList<Assignment> assignments,
@@ -564,7 +592,10 @@ internal static class AssignmentTaskGraphJsonService
             {
                 ["key"] = keyByCourseId[course.Id],
                 ["id"] = course.Id.ToString("D"),
-                ["title"] = course.Title
+                ["title"] = course.Title,
+                ["isPublic"] = course.IsPublic,
+                ["isHiddenFromStudents"] = course.IsHiddenFromStudents,
+                ["visibleGroupIds"] = new JsonArray()
             });
         }
 
