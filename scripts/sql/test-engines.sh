@@ -81,8 +81,8 @@ mydigest="$(docker image inspect "$myimage" --format '{{index .RepoDigests 0}}')
 docker run -d --name "$pg" -p 127.0.0.1::5432 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 768m --memory-swap 768m --cpus 1 --pids-limit 128 \
-  --tmpfs /var/lib/postgresql:rw,size=384m,uid=999,gid=999,mode=0700 \
-  --tmpfs /var/run/postgresql:rw,size=8m,uid=999,gid=999,mode=0770 --tmpfs /tmp:rw,size=32m \
+  --tmpfs /var/lib/postgresql:rw,size=384m,mode=0700 \
+  --tmpfs /var/run/postgresql:rw,size=8m,mode=0770 --tmpfs /tmp:rw,size=32m \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD="$password" -e SQL_SANDBOX_MARKER="$marker" \
   -v "$ROOT/infrastructure/sql/postgres-init:/docker-entrypoint-initdb.d:ro" "$pgimage" \
   -c shared_buffers=64MB -c max_connections=32 -c fsync=off -c full_page_writes=off \
@@ -99,7 +99,7 @@ docker run -d --name "$my" -p 127.0.0.1::3306 \
   --skip-log-bin --mysqlx=OFF --local-infile=OFF --secure-file-priv=NULL --max-connections=32 >/dev/null
 
 docker run -d --name "$rabbit" -p 127.0.0.1::5672 -p 127.0.0.1::15672 \
-  --memory 512m --cpus 1 --pids-limit 128 --tmpfs /var/lib/rabbitmq:rw,size=128m,uid=999,gid=999 \
+  --memory 512m --cpus 1 --pids-limit 128 --tmpfs /var/lib/rabbitmq:rw,size=128m, \
   -e RABBITMQ_DEFAULT_USER=taskforge -e RABBITMQ_DEFAULT_PASS="$password" \
   -e 'RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=+S 2:2 +A 4' "$rabbitimage" >/dev/null
 
