@@ -2177,14 +2177,14 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   box-shadow: 3px 3px 0 0 rgb(var(--neo-ink));
 }
 
-/* Code assignments: compact translucent terminal -------------------------------- */
+/* Code assignments: compact shell prompt ---------------------------------------- */
 .course-map-node--code {
   min-width: 286px;
   max-width: 420px;
-  min-height: 92px;
+  min-height: 88px;
   padding: 0;
   border: 0;
-  border-radius: 15px;
+  border-radius: 12px;
   background: transparent;
   box-shadow: none;
   filter: none;
@@ -2211,143 +2211,117 @@ html.neo-brutal .course-map-course-collapse:focus-visible {
   position: relative;
   z-index: 1;
   overflow: hidden;
-  border: 1px solid rgba(var(--border) / .72);
-  border-radius: 15px;
-  background:
-    linear-gradient(145deg, rgba(var(--card) / .72), rgba(var(--card) / .54)),
-    rgba(var(--bg) / .12);
+  min-height: 88px;
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 12px;
+  background: rgba(4, 6, 9, .82);
   box-shadow:
-    0 12px 30px rgba(5, 8, 16, .16),
-    inset 0 1px 0 rgba(255, 255, 255, .035);
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+    0 12px 28px rgba(0, 0, 0, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .025);
+  backdrop-filter: blur(9px) saturate(1.04);
+  -webkit-backdrop-filter: blur(9px) saturate(1.04);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease, opacity .16s ease;
 }
 
 .course-map-node--code:hover .course-map-code-terminal,
 .course-map-node--code.is-selected .course-map-code-terminal,
 .course-map-node--code:focus-within .course-map-code-terminal {
-  border-color: rgba(var(--accent) / .58);
-  background:
-    linear-gradient(145deg, rgba(var(--card) / .8), rgba(var(--card) / .62)),
-    rgba(var(--bg) / .12);
+  border-color: rgba(var(--accent) / .48);
+  background: rgba(4, 6, 9, .9);
   box-shadow:
-    0 16px 38px rgba(5, 8, 16, .2),
-    0 0 0 1px rgba(var(--accent) / .1),
-    inset 0 1px 0 rgba(255, 255, 255, .045);
+    0 15px 34px rgba(0, 0, 0, .28),
+    0 0 0 1px rgba(var(--accent) / .08),
+    inset 0 1px 0 rgba(255, 255, 255, .03);
   transform: translateY(-1px);
 }
 
-.course-map-code-terminal-bar {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 0 11px;
-  border-bottom: 1px solid rgba(var(--border) / .52);
-  background: rgba(var(--bg) / .22);
-  color: color-mix(in srgb, rgb(var(--text)) 46%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 9px;
-  letter-spacing: .035em;
-  text-transform: lowercase;
-}
-
-.course-map-code-terminal-lights {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.course-map-code-terminal-lights i {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(var(--text) / .22);
-}
-
-.course-map-code-terminal-lights i:first-child {
-  background: rgba(var(--accent) / .58);
-}
-
-.course-map-code-terminal-caption {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: .72;
-}
-
-.course-map-code-terminal-language {
-  justify-self: end;
-  border: 1px solid rgba(var(--accent) / .28);
-  border-radius: 5px;
-  padding: 2px 5px;
-  background: rgba(var(--accent) / .08);
-  color: color-mix(in srgb, rgb(var(--accent)) 70%, rgb(var(--text)) 30%);
-  font-weight: 750;
-  letter-spacing: .02em;
-  text-transform: none;
-}
-
 .course-map-code-terminal-body {
-  min-height: 62px;
-  padding: 12px 13px 13px;
+  display: flex;
+  min-height: 88px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 13px 15px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 .course-map-code-terminal-line {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 7px;
   min-width: 0;
 }
 
+.course-map-code-terminal-line.is-command {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .course-map-code-terminal-line + .course-map-code-terminal-line {
-  margin-top: 8px;
+  margin-top: 7px;
 }
 
 .course-map-code-terminal-prompt {
-  color: rgba(var(--accent) / .82);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.35;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, rgb(var(--accent)) 80%, white 20%);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.4;
 }
 
 .course-map-code-terminal-title {
   min-width: 0;
-  overflow-wrap: anywhere;
-  color: color-mix(in srgb, rgb(var(--text)) 92%, transparent);
+  overflow: hidden;
+  color: rgba(244, 246, 249, .92);
   font-size: 13px;
-  font-weight: 680;
-  line-height: 1.35;
+  font-weight: 610;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.course-map-code-terminal-cursor {
+  width: 1px;
+  height: 1.08em;
+  flex: 0 0 1px;
+  align-self: center;
+  margin-left: -3px;
+  background: rgba(244, 246, 249, .82);
+  animation: course-map-shell-cursor 1.05s steps(1, end) infinite;
+}
+
+@keyframes course-map-shell-cursor {
+  0%, 48% { opacity: 1; }
+  49%, 100% { opacity: 0; }
+}
+
+.course-map-code-terminal-line.is-language,
 .course-map-code-terminal-line.is-result {
-  color: rgb(110 220 157);
+  padding-left: 0;
 }
 
-.course-map-code-terminal-line.is-result .course-map-code-terminal-prompt,
-.course-map-code-terminal-status {
-  color: inherit;
-}
-
-.course-map-code-terminal-status {
+.course-map-code-terminal-language {
+  color: rgba(244, 246, 249, .46);
   font-size: 11px;
-  font-weight: 720;
+  font-weight: 540;
   line-height: 1.35;
+}
+
+.course-map-code-terminal-status {
+  color: rgba(244, 246, 249, .58);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-transform: none;
 }
 
 .course-map-node--code.is-solved .course-map-code-terminal {
-  opacity: .76;
+  opacity: .5;
 }
 
 .course-map-node--code.is-solved:hover .course-map-code-terminal,
 .course-map-node--code.is-solved.is-selected .course-map-code-terminal,
 .course-map-node--code.is-solved:focus-within .course-map-code-terminal {
-  opacity: .96;
+  opacity: .5;
 }
 
 html.neo-brutal .course-map-node--code,
@@ -2361,8 +2335,8 @@ html.neo-brutal .course-map-node--code.is-solved {
 
 html.neo-brutal .course-map-node--code .course-map-code-terminal {
   border: 2px solid rgb(var(--neo-ink));
-  border-radius: .7rem;
-  background: color-mix(in srgb, rgb(var(--neo-paper-alt)) 82%, transparent);
+  border-radius: .65rem;
+  background: rgba(3, 4, 6, .92);
   box-shadow: 4px 4px 0 0 rgb(var(--neo-ink));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -2370,23 +2344,29 @@ html.neo-brutal .course-map-node--code .course-map-code-terminal {
 
 html.neo-brutal .course-map-node--code:hover .course-map-code-terminal,
 html.neo-brutal .course-map-node--code.is-selected .course-map-code-terminal {
+  background: rgba(3, 4, 6, .97);
   box-shadow: 6px 6px 0 0 rgb(var(--neo-ink));
   transform: translate(-1px, -1px);
 }
 
-html.neo-brutal .course-map-code-terminal-bar {
-  border-bottom: 2px solid rgb(var(--neo-ink));
-  background: rgb(var(--brand-100));
-  color: rgb(var(--neo-ink));
+html.neo-brutal .course-map-code-terminal-prompt {
+  color: rgb(var(--brand-300));
 }
 
-html.neo-brutal .course-map-code-terminal-title,
-html.neo-brutal .course-map-code-terminal-caption {
-  color: rgb(var(--neo-ink));
+html.neo-brutal .course-map-code-terminal-title {
+  color: rgba(255, 255, 255, .94);
 }
 
 html.neo-brutal .course-map-code-terminal-language {
-  border: 2px solid rgb(var(--neo-ink));
-  background: rgb(var(--brand-200));
-  color: rgb(var(--neo-ink));
+  color: rgba(255, 255, 255, .55);
+}
+
+html.neo-brutal .course-map-code-terminal-status {
+  color: rgba(255, 255, 255, .62);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-map-code-terminal-cursor {
+    animation: none;
+  }
 }

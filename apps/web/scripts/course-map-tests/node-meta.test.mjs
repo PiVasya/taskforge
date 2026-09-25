@@ -39,3 +39,13 @@ test('code terminal shows the assignment title and only adds solved text after c
     { title: '1. Ввод', languageLabel: 'C#', solved: true, statusLabel: 'решено' },
   );
 });
+
+test('code node shell prompt puts language on the second line and solved output stays lowercase', async () => {
+  const nodeSource = await fs.readFile(new URL('../../src/features/course-assignments/nodes/CodeTestNode.jsx', import.meta.url), 'utf8');
+  assert.match(nodeSource, />~#<\/span>/);
+  assert.doesNotMatch(nodeSource, /course-map-code-terminal-bar/);
+  assert.match(nodeSource, /course-map-code-terminal-line is-language/);
+  assert.ok(nodeSource.includes('<span className="course-map-code-terminal-language">{terminal.languageLabel}</span>'));
+  assert.ok(nodeSource.indexOf('is-language') < nodeSource.indexOf('is-result'));
+  assert.equal(model.getCourseMapCodeTerminalModel({ title: 'Probe', isSolved: true }).statusLabel, 'решено');
+});

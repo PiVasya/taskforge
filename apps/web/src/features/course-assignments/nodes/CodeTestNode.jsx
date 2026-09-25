@@ -27,26 +27,19 @@ export default function CodeTestNode({ data, selected }) {
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
 
       <div className="course-map-code-terminal">
-        <div className="course-map-code-terminal-bar" aria-hidden="true">
-          <span className="course-map-code-terminal-lights">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="course-map-code-terminal-caption">terminal</span>
-          {terminal.languageLabel ? (
-            <span className="course-map-code-terminal-language">{terminal.languageLabel}</span>
-          ) : null}
-        </div>
-
         <div className="course-map-code-terminal-body">
           <div className="course-map-code-terminal-line is-command">
-            <span className="course-map-code-terminal-prompt" aria-hidden="true">$</span>
+            <span className="course-map-code-terminal-prompt" aria-hidden="true">~#</span>
             <span className="course-map-code-terminal-title">{terminal.title}</span>
+            <span className="course-map-code-terminal-cursor" aria-hidden="true" />
           </div>
+          {terminal.languageLabel ? (
+            <div className="course-map-code-terminal-line is-language">
+              <span className="course-map-code-terminal-language">{terminal.languageLabel}</span>
+            </div>
+          ) : null}
           {terminal.solved ? (
             <div className="course-map-code-terminal-line is-result">
-              <span className="course-map-code-terminal-prompt" aria-hidden="true">›</span>
               <span className="course-map-code-terminal-status">{terminal.statusLabel}</span>
             </div>
           ) : null}
