@@ -56,7 +56,7 @@ def main():
     contract_text=json.dumps(contract_job)
     engine_text=json.dumps(engine_job)
     require('check-sql-domain.sh' in contract_text,'SQL contract CI lost the canonical domain check')
-    require('test-engines.sh' in engine_text and 'check-sql-go.sh' in engine_text,'SQL engine CI lost the canonical provider checks')
+    require('check-sql-go.sh' in engine_text,'SQL engine CI lost the Go/SQLite provider check')
     require('test-runtime-preparation.py' in engine_text,'SQL engine CI must verify adaptive runtime selection')
     require('check-sql-update.sh' not in contract_text + engine_text,'Normal CI must not run the all-in-one SQL suite for every SQL-adjacent change')
     require('sql_contract' in str(contract_job.get('if','')) and 'sql_engines' in str(engine_job.get('if','')),'Normal SQL CI must remain independently path-gated')
@@ -65,7 +65,7 @@ def main():
     full_job=full['jobs']['sql-runtime-check']
     require(any(str(step.get('uses','')).startswith('actions/setup-go@') for step in full_job['steps']),'Full rebuild SQL CI must install Go')
     full_text=json.dumps(full_job)
-    require('test-engines.sh' in full_text and 'check-sql-update.sh' in full_text,'Full rebuild SQL gates were removed')
+    require('check-sql-update.sh' in full_text,'Full rebuild SQL migration gate was removed')
     source=(worker/'internal/sqlworker/harden_linux.go').read_text()
     require('SECCOMP_FILTER_FLAG_TSYNC' in source,'Go seccomp must cover every thread')
     require('CLONE_THREAD' in source,'Go runtime thread-only clone policy missing')

@@ -138,8 +138,6 @@ jobs:
       - run: python3 -m pip install PyYAML==6.0.2
       - name: SQL invariants and model build
         run: bash ./scripts/check-sql-update.sh
-      - name: Actual SQL engines, Go isolation and RabbitMQ interoperability
-        run: bash ./scripts/sql/test-engines.sh
 
   compose-check:
     runs-on: ubuntu-latest

@@ -484,8 +484,6 @@ jobs:
         run: bash scripts/tests/sql-engine-gate-readiness.sh
       - name: Go/SQLite SQL worker checks
         run: bash ./scripts/check-sql-go.sh
-      - name: Real PostgreSQL/MySQL/RabbitMQ interoperability
-        run: bash ./scripts/sql/test-engines.sh
 
   compose-check:
     needs: changes

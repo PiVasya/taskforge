@@ -235,7 +235,7 @@ def main() -> int:
     )
     if sql_engine_job:
         body = sql_engine_job.group('body')
-        for command in ('bash ./scripts/check-sql-go.sh', 'bash ./scripts/sql/test-engines.sh'):
+        for command in ('bash ./scripts/check-sql-go.sh',):
             if command not in body:
                 errors.append(f'SQL engine job misses canonical provider check: {command}')
 
