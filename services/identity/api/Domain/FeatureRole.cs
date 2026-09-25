@@ -10,6 +10,8 @@ public sealed class FeatureRole
     public bool IsSystem { get; set; }
     public bool IsAssignable { get; set; } = true;
     public bool IsActive { get; set; } = true;
+
+    public string? CiMigrationProbe { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
