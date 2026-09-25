@@ -285,6 +285,10 @@
   color: rgba(var(--fg) / 0.5);
 }
 
+.course-map-node-footer.is-status-only {
+  justify-content: flex-end;
+}
+
 .course-map-node-status {
   display: inline-flex;
   align-items: center;

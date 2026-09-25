@@ -1,11 +1,14 @@
 import React from 'react';
 import { Code2 } from 'lucide-react';
 import { activateCourseMapAssignmentNode, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { getAssignmentProgrammingLanguage, getCourseMapAssignmentFooterLabel, getCourseMapLanguageLabel } from '../courseMapNodeMeta';
 
 export default function CodeTestNode({ data, selected }) {
   const assignment = data?.entity || {};
   const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
-  const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '');
+  const language = getAssignmentProgrammingLanguage(assignment);
+  const languageLabel = getCourseMapLanguageLabel(language);
+  const footerLabel = getCourseMapAssignmentFooterLabel('code-test', assignment, 'Код');
   return (
     <div
       className={`course-map-node course-map-node--code${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
@@ -26,9 +29,9 @@ export default function CodeTestNode({ data, selected }) {
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Code2} title={assignment.title} />
-      <AssignmentFooter assignment={assignment} fallback="Код" />
+      <AssignmentFooter assignment={assignment} label={footerLabel} />
       <div className="course-map-code-watermark">{'{ }  ;'}</div>
-      <NodeHover entity={assignment} meta={language || null} />
+      <NodeHover entity={assignment} meta={languageLabel || null} />
     </div>
   );
 }

@@ -1,11 +1,14 @@
 import React from 'react';
 import { Image } from 'lucide-react';
 import { activateCourseMapAssignmentNode, AssignmentFooter, CourseMapHandles, NodeAccessBadges, NodeHover, NodeTopline } from './CourseMapNodePrimitives';
+import { getAssignmentProgrammingLanguage, getCourseMapAssignmentFooterLabel, getCourseMapLanguageLabel } from '../courseMapNodeMeta';
 
 export default function ImageCodeNode({ data, selected }) {
   const assignment = data?.entity || {};
   const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
-  const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '');
+  const language = getAssignmentProgrammingLanguage(assignment);
+  const languageLabel = getCourseMapLanguageLabel(language);
+  const footerLabel = getCourseMapAssignmentFooterLabel('image-test', assignment, 'Задание');
   return (
     <div
       className={`course-map-node course-map-node--image${selected ? ' is-selected' : ''}${solved ? ' is-solved' : ''}`}
@@ -26,9 +29,9 @@ export default function ImageCodeNode({ data, selected }) {
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Image} title={assignment.title} />
-      <AssignmentFooter assignment={assignment} fallback="Задание" />
+      <AssignmentFooter assignment={assignment} label={footerLabel} />
       <div className="course-map-image-grid">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
-      <NodeHover entity={assignment} meta={language || null} />
+      <NodeHover entity={assignment} meta={languageLabel || null} />
     </div>
   );
 }

@@ -94,12 +94,12 @@ export function NodeTopline({ icon: Icon, title, badge }) {
   );
 }
 
-export function AssignmentFooter({ assignment, fallback }) {
+export function AssignmentFooter({ assignment, label = '' }) {
   const solved = Boolean(assignment?.solvedByCurrentUser || assignment?.isSolved || assignment?.completedByCurrentUser || assignment?.progressStatus === 'solved');
-  const language = assignment?.language || (Array.isArray(assignment?.allowedLanguages) ? assignment.allowedLanguages[0] : '') || fallback || '';
+  const footerLabel = String(label || '').trim();
   return (
-    <div className="course-map-node-footer">
-      <span>{language || 'Задание'}</span>
+    <div className={`course-map-node-footer${footerLabel ? '' : ' is-status-only'}`}>
+      {footerLabel ? <span>{footerLabel}</span> : null}
       <span className={`course-map-node-status${solved ? ' is-solved' : ''}`}>
         {solved ? <CheckCircle2 size={12} /> : <Circle size={11} />}
         {solved ? 'решено' : 'не решено'}

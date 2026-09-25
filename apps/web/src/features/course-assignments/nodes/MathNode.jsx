@@ -25,7 +25,7 @@ export default function MathNode({ data, selected }) {
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Sigma} title={assignment.title} />
-      <AssignmentFooter assignment={assignment} fallback="Задание" />
+      <AssignmentFooter assignment={assignment} label="Задание" />
       <div className="course-map-math-watermark">Σ x² √</div>
       <NodeHover entity={assignment} />
     </div>

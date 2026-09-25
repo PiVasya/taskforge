@@ -25,9 +25,9 @@ export default function SqlNode({ data, selected }) {
       <CourseMapHandles />
       <NodeAccessBadges effects={data?.accessEffects} editorMode={data?.editorMode} />
       <NodeTopline icon={Database} title={assignment.title} />
-      <AssignmentFooter assignment={assignment} fallback="SQL" />
+      <AssignmentFooter assignment={assignment} />
       <div className="course-map-code-watermark">{'SELECT *'}</div>
-      <NodeHover entity={assignment} meta="SQL" />
+      <NodeHover entity={assignment} />
     </div>
   );
 }
