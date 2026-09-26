@@ -59,6 +59,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         if (payload?.Job is not null)
         {
             logger.LogInformation("Claimed execution job {JobId} for submission {SubmissionId}, language {Language}.", payload.Job.Id, payload.Job.SubmissionId, payload.Job.Language);
+            Console.WriteLine($"[EXECUTION] JOB CLAIMED job={payload.Job.Id} submission={payload.Job.SubmissionId} language={payload.Job.Language}");
         }
         return payload?.Job;
     }

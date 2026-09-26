@@ -163,6 +163,7 @@ func (w *Worker) heartbeat(ctx context.Context) {
 	}
 }
 func (w *Worker) execute(ctx context.Context, job Job) {
+	slog.Info("sql_job_started", "job", job.ID, "worker", w.Config.WorkerID, "kind", job.Kind, "engine", job.Payload.Profile.Engine, "target", job.Payload.Profile.Fingerprint)
 	defer w.jobs.Done()
 	defer func() { <-w.slots; w.signal() }()
 	leaseCtx, cancel := context.WithCancel(ctx)
@@ -220,7 +221,7 @@ func (w *Worker) execute(ctx context.Context, job Job) {
 		release()
 	}
 	if leaseCtx.Err() != nil || errors.Is(e, ErrLostLease) {
-		slog.Info("sql_lease_lost", "job", job.ID, "engine", job.Payload.Profile.Engine)
+		slog.Info("sql_lease_lost", "job", job.ID, "engine", job.Payload.Profile.Engine, "worker", w.Config.WorkerID)
 		return
 	}
 	if e != nil {
@@ -239,7 +240,7 @@ func (w *Worker) execute(ctx context.Context, job Job) {
 	for leaseCtx.Err() == nil {
 		e = w.Client.Complete(leaseCtx, w.Config.WorkerID, job, out, duration)
 		if e == nil {
-			slog.Info("sql_attempt", "job", job.ID, "engine", job.Payload.Profile.Engine, "materialization", job.Payload.MaterializationKey, "verdict", out.Verdict, "duration_ms", duration.Milliseconds())
+			slog.Info("sql_job_completed", "job", job.ID, "worker", w.Config.WorkerID, "engine", job.Payload.Profile.Engine, "materialization", job.Payload.MaterializationKey, "verdict", out.Verdict, "duration_ms", duration.Milliseconds())
 			return
 		}
 		if errors.Is(e, ErrLostLease) || time.Now().After(until) {

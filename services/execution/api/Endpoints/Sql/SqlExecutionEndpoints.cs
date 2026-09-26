@@ -81,6 +81,7 @@ internal static partial class ExecutionApiEndpoints
                     .SetProperty(x => x.LeaseToken, token).SetProperty(x => x.LeaseExpiresAt, now.AddSeconds(45)), ct);
                 if (count == 0) continue;
                 var job = await db.ExecutionJobs.AsNoTracking().SingleAsync(x => x.Id == id, ct);
+                Console.WriteLine($"[SQL] JOB CLAIMED job={job.Id} worker={request.WorkerId} kind={job.Kind} target={job.Target} attempt={job.AttemptCount}");
                 return Microsoft.AspNetCore.Http.Results.Ok(new { job = SqlQueueService.View(job) });
             }
             return Microsoft.AspNetCore.Http.Results.Ok(new { job = (object?)null });
@@ -111,6 +112,7 @@ internal static partial class ExecutionApiEndpoints
             if (job.Kind == "sql-materialize" && request.Verdict is not ("Validated" or "ValidationFailed" or "JudgeUnavailable")) throw new ArgumentException("Materialization requires a validation verdict.");
             if (request.Passed != (request.Verdict == "Accepted")) throw new ArgumentException("Verdict and passed flag disagree.");
             job.Status = request.Verdict; job.CompletedAt = DateTimeOffset.UtcNow;
+            Console.WriteLine($"[SQL] JOB COMPLETED job={jobId} worker={request.WorkerId} verdict={request.Verdict} passed={request.Passed} durationMs={request.DurationMs}");
             db.ExecutionResults.Add(new ExecutionResult { JobId = jobId, Status = request.Verdict, Passed = request.Passed,
                 Score = request.Passed ? 100 : 0, DurationMs = Math.Clamp(request.DurationMs, 0, 900_000), ResultJson = request.Result.GetRawText() });
             await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
