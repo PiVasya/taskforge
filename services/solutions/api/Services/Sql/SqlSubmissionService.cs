@@ -37,6 +37,7 @@ internal static class SqlSubmissionService
     internal static async Task Dispatch(SolutionsDbContext db, SolutionSubmission sub, IHttpClientFactory factory,
         IConfiguration cfg, CancellationToken ct)
     {
+        Console.WriteLine($"[SQL] DISPATCH START submission={sub.Id} status={sub.Status}");
         if (sub.Status != "Preparing" || sub.SqlSpecVersionId is null || sub.SqlEngineProfileId is null) return;
         var payload = await SqlHttp.Send<SqlJobPayload>(factory, cfg, HttpMethod.Get,
             $"{TasksUrl(cfg)}/api/internal/sql/specs/{sub.SqlSpecVersionId}/targets/{sub.SqlEngineProfileId}", null, ct)
@@ -48,6 +49,7 @@ internal static class SqlSubmissionService
             $"{ExecutionUrl(cfg)}/api/internal/execution/sql-jobs",
             new SqlCreateJob("sql-check", $"sql:check:{sub.Id:N}", sub.Id, sub.UserId, payload), ct)
             ?? throw new InvalidOperationException("No durable job receipt.");
+        Console.WriteLine($"[SQL] DISPATCH JOB job={job.Id} submission={sub.Id} status={job.Status}");
         // A very fast completion can arrive before this update. Never downgrade it to Queued.
         var charged = WasCharged(sub.ResultJson);
         var pending = SqlWire.Serialize(new { verdict = "Queued", pending = true, executionJobId = job.Id, energyCharged = charged });

@@ -27,6 +27,7 @@ internal static partial class SolutionsApiEndpoints
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
             if (!userId.HasValue) return Unauthorized();
+            Console.WriteLine($"[SQL] CHECK RECEIVED user={userId} assignment={request.AssignmentId} request={request.RequestId}");
             ValidateSqlAttempt(request);
             if (!await CanAccessSql(request.AssignmentId, userId.Value, http, cfg, factory, ct)) return Microsoft.AspNetCore.Http.Results.NotFound();
             var payload = await SqlSubmissionService.Published(factory, cfg, request.AssignmentId, request.EngineProfileId, ct);
@@ -54,9 +55,11 @@ internal static partial class SolutionsApiEndpoints
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
             if (!userId.HasValue) return Unauthorized();
+            Console.WriteLine($"[SQL] CHECK RECEIVED user={userId} assignment={request.AssignmentId} request={request.RequestId}");
             ValidateSqlAttempt(request);
             if (!await CanAccessSql(request.AssignmentId, userId.Value, http, cfg, factory, ct)) return Microsoft.AspNetCore.Http.Results.NotFound();
             var id = SqlSubmissionService.RequestSubmissionId(userId.Value, request.RequestId);
+            Console.WriteLine($"[SQL] CHECK SUBMISSION id={id}");
             var existing = await db.Submissions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
             if (existing is not null) return ExistingSqlSubmission(existing, request, userId.Value);
             // Pin the version before consuming energy or saving a submission.

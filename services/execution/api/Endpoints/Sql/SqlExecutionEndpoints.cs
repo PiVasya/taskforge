@@ -25,6 +25,7 @@ internal static partial class ExecutionApiEndpoints
         });
         group.MapPost("", async (SqlCreateJob request, ExecutionDbContext db, SqlWakeups wakeups, IConfiguration cfg, CancellationToken ct) =>
         {
+            Console.WriteLine($"[SQL] CREATE START kind={request.Kind} user={request.UserId} submission={request.SubmissionId} assignment={request.Payload?.AssignmentId}");
             SqlQueueService.Validate(request);
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(704638912)", ct);
@@ -51,6 +52,7 @@ internal static partial class ExecutionApiEndpoints
                 Code = string.Empty, Language = string.Empty, Status = "queued"
             };
             db.ExecutionJobs.Add(job); await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
+            Console.WriteLine($"[SQL] CREATE DONE job={job.Id} status={job.Status}");
             wakeups.Signal();
             return Microsoft.AspNetCore.Http.Results.Ok(SqlQueueService.View(job));
         });
