@@ -22,7 +22,7 @@ func TestRunnerFencesExpiredLeaseBeforeContextErrPublication(t *testing.T) {
 		ID:      "10000000-0000-4000-8000-000000000006",
 		Kind:    "sql-preview",
 		Payload: h.payload,
-	}, h.adapter, h.profile)
+	}, h.adapter, h.profile, h.profile)
 	if !errors.Is(err, ErrLostLease) {
 		t.Fatalf("expired lease must be fenced as ErrLostLease, got verdict=%q err=%v", out.Verdict, err)
 	}

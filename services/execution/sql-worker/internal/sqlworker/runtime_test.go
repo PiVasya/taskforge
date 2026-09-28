@@ -166,12 +166,34 @@ func newHarness(t *testing.T, options ...PoolOptions) *harness {
 }
 func (h *harness) run(t *testing.T, kind string, p Payload) Outcome {
 	t.Helper()
-	out, e := h.runner.Run(context.Background(), Job{ID: "10000000-0000-4000-8000-000000000006", Kind: kind, Payload: p}, h.adapter, h.profile)
+	out, e := h.runner.Run(context.Background(), Job{ID: "10000000-0000-4000-8000-000000000006", Kind: kind, Payload: p}, h.adapter, h.profile, h.profile)
 	if e != nil {
 		t.Fatal(e)
 	}
 	return out
 }
+func TestRunnerUsesPhysicalRuntimeIdentityForCertifiedAlias(t *testing.T) {
+	h := newHarness(t)
+	alias := h.profile
+	alias.ID = "10000000-0000-4000-8000-000000000099"
+	alias.EngineVersion = h.profile.EngineVersion + "-historical-alias"
+	alias.RuntimeDigest = "sha256:" + textHash("historical-runtime-alias")
+	alias.Fingerprint = textHash("historical-profile-alias")
+	payload := fixture(alias)
+	out, err := h.runner.Run(context.Background(), Job{
+		ID:      "10000000-0000-4000-8000-000000000098",
+		Kind:    "sql-preview",
+		Payload: payload,
+	}, h.adapter, alias, h.profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Verdict != "Previewed" {
+		b, _ := json.Marshal(out.Result)
+		t.Fatalf("certified historical alias must execute on the active physical runtime, got %s: %s", out.Verdict, b)
+	}
+}
+
 func (h *harness) materialize(t *testing.T, p Payload, source string) Payload {
 	t.Helper()
 	p.ReferenceSQL = &source
@@ -464,7 +486,7 @@ func TestSQLMixedConcurrentRuns(t *testing.T) {
 				payload.Expected = nil
 				payload.ExpectedContentHash = nil
 			}
-			out, e := h.runner.Run(context.Background(), Job{Kind: kind, Payload: payload}, h.adapter, h.profile)
+			out, e := h.runner.Run(context.Background(), Job{Kind: kind, Payload: payload}, h.adapter, h.profile, h.profile)
 			want := "Accepted"
 			if kind == "sql-preview" {
 				want = "Previewed"
@@ -506,7 +528,7 @@ func TestSQLLoad100Run100Check(t *testing.T) {
 				payload.Expected = nil
 				payload.ExpectedContentHash = nil
 			}
-			out, e := h.runner.Run(context.Background(), Job{Kind: kind, Payload: payload}, h.adapter, h.profile)
+			out, e := h.runner.Run(context.Background(), Job{Kind: kind, Payload: payload}, h.adapter, h.profile, h.profile)
 			mu.Lock()
 			defer mu.Unlock()
 			if e != nil || out.Verdict != want {

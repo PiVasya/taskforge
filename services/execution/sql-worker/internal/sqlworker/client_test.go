@@ -240,13 +240,16 @@ func TestRegistryAdvertisesAndAcquiresCompatibleImmutableProfile(t *testing.T) {
 	if len(targets) != 2 || !contains(targets, legacy.Fingerprint) {
 		t.Fatalf("compatible immutable profile was not advertised: %v", targets)
 	}
-	adapter, profile, release, err := r.Acquire(legacy.Fingerprint)
+	adapter, profile, runtimeProfile, release, err := r.Acquire(legacy.Fingerprint)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 	if adapter != a || profile.Fingerprint != legacy.Fingerprint || !sameJSON(profile, legacy) {
 		t.Fatal("compatible target did not preserve the exact historical profile contract")
+	}
+	if runtimeProfile.Fingerprint == legacy.Fingerprint || runtimeProfile.EngineVersion != "test" {
+		t.Fatalf("compatible alias must retain the active physical runtime profile: alias=%s runtime=%+v", legacy.Fingerprint, runtimeProfile)
 	}
 }
 
@@ -298,7 +301,7 @@ func TestRegistryControlPlaneOutageDoesNotDestroyCache(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatal("registration failed")
 	}
-	a1, p, release, e := r.Acquire(targets[0])
+	a1, p, _, release, e := r.Acquire(targets[0])
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -332,7 +335,7 @@ func TestRegistryRecoveryWaitsForActiveJob(t *testing.T) {
 	r := NewRegistry([]EngineAdapter{a}, &fakeProfiles{}, pool, NewMetrics())
 	r.Refresh(context.Background())
 	target := r.Targets()[0]
-	_, _, release, e := r.Acquire(target)
+	_, _, _, release, e := r.Acquire(target)
 	if e != nil {
 		t.Fatal(e)
 	}

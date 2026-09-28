@@ -277,7 +277,7 @@ func TestRealEnginesTimeoutAndCancellation(t *testing.T) {
 		p.Limits.TimeoutMS = 10000
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		_, e := h.runner.Run(ctx, Job{Kind: "sql-preview", Payload: p}, h.adapter, h.profile)
+		_, e := h.runner.Run(ctx, Job{Kind: "sql-preview", Payload: p}, h.adapter, h.profile, h.profile)
 		if e != ErrLostLease {
 			t.Fatal("cancelled lease could produce a verdict", e)
 		}

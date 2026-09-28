@@ -167,10 +167,14 @@ test('SQL editor polling observes automatic first publication and new concurrenc
 });
 
 
-test('learner SQL action dock exposes check only and never renders a separate run action', async()=>{
+test('learner SQL keeps one check action and renders failures below the workspace without reset/retry controls', async()=>{
  const solveSource=await fs.readFile(new URL('../../src/features/sql-task/SqlTaskSolve.jsx',import.meta.url),'utf8');
  assert.ok(solveSource.includes('primaryLabel="Проверить"'));
- assert.ok(solveSource.includes("onPrimary={() => void submit('check')}"));
+ assert.ok(solveSource.includes("onPrimary={() => void submit(retry?.kind || 'check', retry)}"));
+ assert.ok(solveSource.indexOf('sql-solve-feedback') > solveSource.indexOf('sql-learner-workspace'));
+ assert.equal(solveSource.includes('sql-reset-button'),false);
+ assert.equal(solveSource.includes('sql-retry'),false);
+ assert.equal(solveSource.includes('RotateCcw'),false);
  assert.equal(solveSource.includes("key: 'sql-run'"),false);
  assert.equal(solveSource.includes("label: 'Запустить'"),false);
 });

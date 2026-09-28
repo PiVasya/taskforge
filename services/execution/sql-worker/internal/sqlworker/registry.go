@@ -280,7 +280,7 @@ func (r *Registry) Targets() []string {
 	sort.Strings(out)
 	return out
 }
-func (r *Registry) Acquire(fingerprint string) (EngineAdapter, Profile, func(), error) {
+func (r *Registry) Acquire(fingerprint string) (EngineAdapter, Profile, Profile, func(), error) {
 	r.mu.Lock()
 	for _, e := range r.entries {
 		if !e.ready || e.profile == nil {
@@ -293,6 +293,7 @@ func (r *Registry) Acquire(fingerprint string) (EngineAdapter, Profile, func(), 
 		if ok {
 			e.active++
 			adapter := e.adapter
+			runtimeProfile := *e.profile
 			r.mu.Unlock()
 			r.metrics.Inc("sql_worker_inflight", adapter.Engine(), 1)
 			var once sync.Once
@@ -304,11 +305,11 @@ func (r *Registry) Acquire(fingerprint string) (EngineAdapter, Profile, func(), 
 					r.metrics.Inc("sql_worker_inflight", adapter.Engine(), -1)
 				})
 			}
-			return adapter, profile, release, nil
+			return adapter, profile, runtimeProfile, release, nil
 		}
 	}
 	r.mu.Unlock()
-	return nil, Profile{}, nil, Unavailable("This exact SQL runtime profile is not currently ready.")
+	return nil, Profile{}, Profile{}, nil, Unavailable("This exact SQL runtime profile is not currently ready.")
 }
 func (r *Registry) Status() []map[string]any {
 	r.mu.Lock()

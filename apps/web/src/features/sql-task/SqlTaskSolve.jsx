@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, CheckCircle2, Database, RotateCcw, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, Database, XCircle } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import CodeEditor from '../../components/CodeEditor';
 import { Button, Card, Select } from '../../components/ui';
@@ -14,6 +14,11 @@ import SqlCheckComparison from './SqlCheckComparison';
 
 const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
 const write = (key, value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+
+const learnerResultDetail = (status, result) => {
+  if (status === 'JudgeUnavailable') return 'SQL-движок временно недоступен. Попробуйте проверить решение ещё раз немного позже.';
+  return result?.error?.message || '';
+};
 
 export default function SqlTaskSolve({
   assignment,
@@ -202,6 +207,8 @@ export default function SqlTaskSolve({
     setLastKind('');
     setStatus('');
     setError('');
+    setRetry(null);
+    write(`${key}:request`, null);
   };
 
   if (loading) {
@@ -225,9 +232,12 @@ export default function SqlTaskSolve({
 
   const target = spec.targets.find(item => item.engineProfileId === engineId);
   const busy = sending || !!receipt;
-  const disabled = busy || !!retry || !source.trim() || !engineId;
+  const disabled = busy || !source.trim() || !engineId;
   const successful = status === 'Accepted';
   const showFeedback = Boolean(!busy && status && status !== 'Previewed' && !(lastKind === 'check' && result?.check?.comparison));
+  const feedbackDetail = learnerResultDetail(status, result);
+  const feedbackText = error || (showFeedback ? resultLabel(status) : '');
+  const feedbackTone = error || (showFeedback && !successful) ? 'error' : successful ? 'success' : 'info';
   const statusText = busy ? (String(status).toLowerCase() === 'running' ? 'Выполняется…' : 'В очереди…') : '';
   const engineLabel = target?.displayName || target?.engine || 'SQL';
   const modeLabel = spec.mode === 'state' ? 'Проверка данных' : spec.mode === 'schema' ? 'Проверка структуры' : 'Проверка результата';
@@ -243,19 +253,6 @@ export default function SqlTaskSolve({
               <span className="sql-context-pill">{modeLabel}</span>
             </div>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            className="sql-reset-button"
-            aria-label="Сбросить SQL"
-            title="Сбросить SQL"
-            disabled={busy || !!retry}
-            onClick={() => {
-              if (window.confirm('Восстановить стартовый SQL?')) setSource(target?.starterSql || '');
-            }}
-          >
-            <RotateCcw size={16} />
-          </Button>
         </div>
         {spec.targets.length > 1 ? (
           <div className="sql-editor-tools has-engine">
@@ -263,7 +260,7 @@ export default function SqlTaskSolve({
               className="sql-engine-select"
               aria-label="SQL-движок"
               value={engineId}
-              disabled={busy || !!retry}
+              disabled={busy}
               onChange={event => selectEngine(event.target.value)}
             >
               {spec.targets.map(item => (
@@ -279,31 +276,24 @@ export default function SqlTaskSolve({
           language="sql"
           modelPath={`sql-solve-${owner}-${assignment.id}-${spec.specVersionId}-${engineId}`}
           value={source}
-          onChange={value => setSource(value || '')}
-          readOnly={sending || !!retry}
+          onChange={value => {
+            setSource(value || '');
+            setError('');
+            if (retry) {
+              setRetry(null);
+              write(`${key}:request`, null);
+            }
+          }}
+          readOnly={sending}
           height={layout === 'editorTop' ? 460 : 390}
           automationId={`sql-source-${assignment.id}`}
         />
       </div>
 
-      {retry && !busy ? (
-        <div className="sql-retry" role="alert">
-          <span>Ответ не получен.</span>
-          <Button type="button" variant="outline" onClick={() => void submit(retry.kind, retry)}>Повторить</Button>
-        </div>
-      ) : null}
-      {error ? <div role="alert" className="sql-inline-error">{error}</div> : null}
-      {showFeedback ? (
-        <div className={successful ? 'sql-feedback is-success' : 'sql-feedback is-error'} role="status">
-          {successful ? <CheckCircle2 size={17} /> : <XCircle size={17} />}
-          <span>{resultLabel(status)}</span>
-          {result?.error ? <span className="sql-feedback-detail">{result.error.message}</span> : null}
-        </div>
-      ) : null}
     </Card>
   );
 
-  const resultCard = result ? (lastKind === 'check' && result?.check?.comparison ? <SqlCheckComparison snapshot={result} /> : <SqlSnapshot snapshot={result} />) : null;
+  const resultCard = result && !result?.error ? (lastKind === 'check' && result?.check?.comparison ? <SqlCheckComparison snapshot={result} /> : <SqlSnapshot snapshot={result} />) : null;
   const database = datasetOverview(spec.definition, spec.seed);
   const databasePanel = (
     <Card className="sql-database-card">
@@ -357,6 +347,16 @@ export default function SqlTaskSolve({
         {resultCard ? <div className="sql-learner-result">{resultCard}</div> : null}
       </div>
 
+      {feedbackText ? (
+        <Card className={`sql-solve-feedback is-${feedbackTone}`} role={feedbackTone === 'error' ? 'alert' : 'status'}>
+          {feedbackTone === 'success' ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+          <div className="sql-solve-feedback-copy">
+            <strong>{feedbackText}</strong>
+            {!error && feedbackDetail ? <span>{feedbackDetail}</span> : null}
+          </div>
+        </Card>
+      ) : null}
+
       <SolveActionDock
         nextOptions={nextOptions}
         nextLoading={nextLoading}
@@ -368,7 +368,7 @@ export default function SqlTaskSolve({
         primaryDisabled={disabled}
         primaryAutomationId="submit-sql-solution"
         primaryAgentAction="submit-sql-solution"
-        onPrimary={() => void submit('check')}
+        onPrimary={() => void submit(retry?.kind || 'check', retry)}
       />
     </div>
   );

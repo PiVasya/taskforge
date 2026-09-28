@@ -127,7 +127,7 @@ func (w *Worker) maintain(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				a, profile, release, e := w.Registry.Acquire(target)
+				a, profile, _, release, e := w.Registry.Acquire(target)
 				if e != nil {
 					success = false
 					break
@@ -214,10 +214,19 @@ func (w *Worker) execute(ctx context.Context, job Job) {
 		}
 	}()
 	defer func() { cancel(); watchers.Wait() }()
-	a, profile, release, e := w.Registry.Acquire(job.Payload.Profile.Fingerprint)
+	a, profile, runtimeProfile, release, e := w.Registry.Acquire(job.Payload.Profile.Fingerprint)
 	out := Outcome{Verdict: "JudgeUnavailable", Result: map[string]any{"error": Unavailable("The exact SQL runtime is no longer available.").PublicError}}
 	if e == nil {
-		out, e = w.Runner.Run(leaseCtx, job, a, profile)
+		if profile.Fingerprint != runtimeProfile.Fingerprint {
+			slog.Info("sql_runtime_alias_selected",
+				"job", job.ID,
+				"engine", profile.Engine,
+				"requested_target", profile.Fingerprint,
+				"requested_version", profile.EngineVersion,
+				"runtime_target", runtimeProfile.Fingerprint,
+				"runtime_version", runtimeProfile.EngineVersion)
+		}
+		out, e = w.Runner.Run(leaseCtx, job, a, profile, runtimeProfile)
 		release()
 	}
 	if leaseCtx.Err() != nil || errors.Is(e, ErrLostLease) {

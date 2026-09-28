@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -85,7 +86,7 @@ func ValidatePayload(job Job, profile Profile) error {
 	}
 	return nil
 }
-func (r *JobRunner) executeOnce(ctx context.Context, a EngineAdapter, p Payload, source string) (snapshot Snapshot, err error) {
+func (r *JobRunner) executeOnce(ctx context.Context, a EngineAdapter, p Payload, runtimeProfile Profile, source string) (snapshot Snapshot, err error) {
 	lease, e := r.Pool.Acquire(ctx, a, p)
 	if e != nil {
 		return EmptySnapshot(), e
@@ -101,7 +102,7 @@ func (r *JobRunner) executeOnce(ctx context.Context, a EngineAdapter, p Payload,
 	}()
 	done := r.Metrics.Measure("sql_db_execution", a.Engine())
 	defer done()
-	return r.Processes.Run(ctx, lease, p, source)
+	return r.Processes.Run(ctx, lease, p, runtimeProfile, source)
 }
 func snapshotError(s Snapshot) error {
 	if s.Error == nil {
@@ -121,7 +122,7 @@ func publicSnapshot(s Snapshot) (map[string]any, error) {
 	}
 	return out, nil
 }
-func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile Profile) (out Outcome, err error) {
+func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile Profile, runtimeProfile Profile) (out Outcome, err error) {
 	started := time.Now()
 	datasetValid := false
 	defer func() {
@@ -160,6 +161,10 @@ func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile P
 	if err = ValidatePayload(job, profile); err != nil {
 		return
 	}
+	if runtimeProfile.Engine != profile.Engine || runtimeProfile.AdapterVersion != profile.AdapterVersion || strings.TrimSpace(runtimeProfile.EngineVersion) == "" {
+		err = Unavailable("The certified SQL runtime alias no longer matches the active engine.")
+		return
+	}
 	if err = ctx.Err(); err != nil {
 		return
 	}
@@ -188,7 +193,7 @@ func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile P
 		var expected Artifact
 		for pass := 0; pass < 2; pass++ {
 			var snapshot Snapshot
-			snapshot, err = r.executeOnce(ctx, a, p, reference)
+			snapshot, err = r.executeOnce(ctx, a, p, runtimeProfile, reference)
 			if err != nil {
 				return
 			}
@@ -237,7 +242,7 @@ func (r *JobRunner) Run(ctx context.Context, job Job, a EngineAdapter, profile P
 		return
 	}
 	var snapshot Snapshot
-	snapshot, err = r.executeOnce(ctx, a, p, p.Source)
+	snapshot, err = r.executeOnce(ctx, a, p, runtimeProfile, p.Source)
 	if err != nil {
 		return
 	}
