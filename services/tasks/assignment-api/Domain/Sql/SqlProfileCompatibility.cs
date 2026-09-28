@@ -32,6 +32,12 @@ public static class SqlProfileCompatibility
         "8.4.0|sha256:f7a8e140a7d6d1e6e0c99eeb0489c50a186ee4ac44ff55323a176529b9a43d33"  // r70 OL8 / cpuv1
     };
 
+    internal static IQueryable<SqlEngineProfile> CandidateQuery(IQueryable<SqlEngineProfile> profiles, SqlEngineProfile current)
+        => profiles.Where(x => x.Key == current.Key
+            && x.Engine == current.Engine
+            && x.AdapterVersion == current.AdapterVersion
+            && x.SettingsSchemaVersion == current.SettingsSchemaVersion);
+
     public static bool IsCompatible(SqlEngineProfile current, SqlEngineProfile candidate)
     {
         if (!string.Equals(current.Key, candidate.Key, StringComparison.Ordinal)

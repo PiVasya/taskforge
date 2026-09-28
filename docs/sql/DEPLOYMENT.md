@@ -77,11 +77,12 @@ solutions-api, education-api, front, gateway and sql-worker come from this sourc
 revision. Rebuilding or installing only sql-worker is not the complete update.
 
 Use the same PostgreSQL RepoDigest on A/B and deploy Tasks API, Execution API and sql-worker
-from the same source revision. MySQL uses one certified 8.4.0 runtime family: x86-64-v2 capable
-nodes select the official Oracle Linux 9 image while older/masked CPUs select the official Oracle
-Linux 8 image. Those two immutable digests are the only cross-digest MySQL compatibility alias.
-Profile fingerprints remain exact and immutable, but worker build identity is no longer part of the
-semantic profile. Tasks API exposes a bounded compatibility set; sql-worker advertises those
+from the same source revision. Modern x86-64-v2 capable nodes converge on the historical published
+MySQL 8.4.11 Oracle Linux 9 runtime; older/masked CPUs use the certified MySQL 8.4.0 Oracle Linux
+8/cpuv1 fallback. The r70 MySQL 8.4.0 Oracle Linux 9 digest remains in the audited compatibility
+family so assignments published during that rollout remain executable. Only those three immutable
+runtime identities are cross-version/cross-digest aliases. Profile fingerprints remain exact and
+immutable, but worker build identity is no longer part of the semantic profile. Tasks API exposes a bounded compatibility set; sql-worker advertises those
 historical fingerprints in addition to its current profile and Execution API accepts the larger
 bounded capability list. This is an explicit semantic compatibility relation, not matching by
 visible engine name.

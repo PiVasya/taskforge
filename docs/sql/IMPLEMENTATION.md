@@ -115,11 +115,12 @@ shape; SQLite may ignore its former executor-derived RuntimeDigest only when it 
 A build-only worker update therefore keeps old published SQL working. A changed engine image,
 engine version, adapter/semantics version, relevant client runtime, collation/mode/compile option
 or another semantic setting normally remains a compatibility boundary and requires normal
-validation and publication of a new immutable specification. The only current server-image
-exception is the audited official MySQL 8.4.0 Oracle Linux 9/8 CPU-variant pair: both report the
-exact same MySQL 8.4.0 server release and are explicitly listed in `SqlProfileCompatibility`.
-Their immutable profile fingerprints stay different; compatibility is an explicit alias, never a
-runtime-digest rewrite or an engine-name wildcard.
+validation and publication of a new immutable specification. The only current server-image exception is the audited TaskForge MySQL 8.4 rollout family:
+the historical MySQL 8.4.11 Oracle Linux 9 production digest plus the MySQL 8.4.0 Oracle Linux 9
+and Oracle Linux 8/cpuv1 digests. Those exact immutable identities are listed in
+`SqlProfileCompatibility`; no other MySQL 8.4.x image/version is accepted. Their profile
+fingerprints stay different; compatibility is an explicit alias, never a runtime-digest rewrite
+or an engine-name wildcard.
 
 Logical datasets/specs/expected receipts are business data. GOLDEN/READY/sandbox
 state is local disposable cache in separate tmpfs mounts. Deleting all runtime

@@ -176,9 +176,7 @@ internal static partial class AssignmentApiEndpoints
             if (!SqlWire.IsHash(fingerprint)) throw new ArgumentException("Exact runtime target is required.");
             var current = await db.SqlEngineProfiles.AsNoTracking().SingleOrDefaultAsync(x => x.Fingerprint == fingerprint, ct)
                 ?? throw new SqlNotFoundException();
-            var candidates = await db.SqlEngineProfiles.AsNoTracking()
-                .Where(x => x.Key == current.Key && x.Engine == current.Engine && x.EngineVersion == current.EngineVersion
-                    && x.AdapterVersion == current.AdapterVersion && x.SettingsSchemaVersion == current.SettingsSchemaVersion)
+            var candidates = await SqlProfileCompatibility.CandidateQuery(db.SqlEngineProfiles.AsNoTracking(), current)
                 .OrderByDescending(x => x.CreatedAt).Take(1024).ToListAsync(ct);
             return Results.Ok(candidates.Where(x => SqlProfileCompatibility.IsCompatible(current, x))
                 .Select(SqlTaskService.Profile).ToArray());

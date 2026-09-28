@@ -17,15 +17,17 @@ business DBs, migrations or volumes. The worker refuses an unprepared marker/pro
 | SQL_WORKER_ID | unique sql-A / sql-B / local worker identity |
 | SQL_SANDBOX_MARKER | generated 64-hex runtime-only namespace authorization marker |
 | SQL_POSTGRES_PASSWORD / SQL_MYSQL_PASSWORD | generated runtime-admin credentials; parent worker only |
-| SQL_POSTGRES_IMAGE / SQL_MYSQL_IMAGE | saved registry image@sha256 pins; PostgreSQL defaults to postgres:18-bookworm. MySQL selects a certified MySQL 8.4.0 runtime by host capability: Oracle Linux 9 digest `dab7049a...` on x86-64-v2 capable hosts or Oracle Linux 8/cpuv1 digest `f7a8e140...` on older/masked x86-64 hosts |
+| SQL_POSTGRES_IMAGE / SQL_MYSQL_IMAGE | saved registry image@sha256 pins; PostgreSQL defaults to postgres:18-bookworm. Modern x86-64-v2 nodes converge on the published MySQL 8.4.11 Oracle Linux 9 digest `3466ba4a...`; older/masked x86-64 hosts use the certified MySQL 8.4.0 Oracle Linux 8/cpuv1 digest `f7a8e140...`. The r70 MySQL 8.4.0 Oracle Linux 9 digest `dab7049a...` remains a compatibility identity but is not selected for new modern-node runtime state. |
 | SQL_POSTGRES_RUNTIME_DIGEST / SQL_MYSQL_RUNTIME_DIGEST | matching sha256 fingerprints for registered profiles |
 | TASKFORGE_SQL_INIT_ROOT | wrapper-resolved init-script directory, not a user absolute project path |
 
 Preparation on another node must use the SAME PostgreSQL image and the SAME built sql-worker
-image. MySQL may differ only between the two certified 8.4.0 CPU variants selected by the runtime
-preflight; arbitrary per-node MySQL pins are not compatible. Share release policy, never node
-passwords/marker. Do not refresh floating tags independently on A and B. Intentional engine
-upgrades outside the certified pair need controlled revalidation.
+image. MySQL may differ only inside the three-identity audited TaskForge 8.4 compatibility family:
+8.4.11 OL9, r70 8.4.0 OL9, and the 8.4.0 OL8/cpuv1 fallback. Runtime preflight selects 8.4.11 on
+capable modern nodes and cpuv1 on older/masked CPUs; arbitrary per-node MySQL pins are not
+compatible. Share release policy, never node passwords/marker. Do not refresh floating tags
+independently on A and B. Engine upgrades outside the certified family need controlled
+revalidation.
 
 ## Configurable resource settings in the normal environment
 
