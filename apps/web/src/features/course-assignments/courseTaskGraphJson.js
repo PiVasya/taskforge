@@ -12,7 +12,7 @@ const TASK_FIELDS = new Set([
   'codeForbiddenCalls', 'codeRequiredCalls', 'isVisible', 'imageTestReferenceKey',
   'imageTestSimilarityThreshold', 'sql',
 ]);
-const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'connections', 'layout', 'datasets']);
+const TOP_LEVEL_FIELDS = new Set(['schemaVersion', 'format', 'scopes', 'guide', 'courses', 'tasks', 'deleteTasks', 'connections', 'layout', 'datasets']);
 const COURSE_FIELDS = new Set(['key', 'id', 'title', 'isPublic', 'isHiddenFromStudents', 'visibleGroupIds']);
 const CONNECTION_FIELDS = new Set(['from', 'to', 'access']);
 const ACCESS_FIELDS = new Set(['hidden', 'sequential']);
@@ -373,6 +373,7 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
     simpleCodeTask('final-task', 'Финальное задание'),
     { ...simpleTestTask('unplaced-draft', 'Черновик вне карты'), isVisible: false },
   ],
+  deleteTasks: [],
   connections: [
     { from: TASK_GRAPH_COURSE_REF, to: 'input-output' },
     { from: 'input-output', to: 'json-basics' },
@@ -475,11 +476,23 @@ const PROGRESSION_EXAMPLE = {
   ],
 };
 
+const DELETE_TASK_EXAMPLE = {
+  schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+  datasets: [],
+  format: TASK_GRAPH_FORMAT,
+  scopes: ['ids'],
+  courses: [],
+  tasks: [],
+  deleteTasks: ['11111111-1111-4111-8111-111111111111'],
+  connections: [],
+};
+
 export const TASK_GRAPH_EXAMPLES = [
   { key: 'mega', title: 'Мега-пример', type: 'вся схема', payload: TASK_GRAPH_MEGA_EXAMPLE },
   { key: 'chain', title: 'Цепочка', type: 'линейный путь', payload: SIMPLE_CHAIN_EXAMPLE },
   { key: 'branch', title: 'Развилка и слияние', type: 'ветви', payload: BRANCH_EXAMPLE },
   { key: 'progression', title: 'Скрытие и по одному', type: 'доступ', payload: PROGRESSION_EXAMPLE },
+  { key: 'delete-task', title: 'Удаление задания', type: 'deleteTasks', payload: DELETE_TASK_EXAMPLE },
 ];
 
 export const TASK_GRAPH_GUIDE_SECTIONS = [
@@ -492,6 +505,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'scopes', text: 'Показывает, какие разделы реально присутствуют в файле: ids, content, checks, visibility, connections, connectionAccess, layout.' },
       { field: 'courses', text: 'Вложенные course-ноды. Существующий id привязывает существующий курс; свободный UUID создаёт новый курс с этим id; без id TaskForge создаёт курс и генерирует UUID.' },
       { field: 'tasks', text: 'Задания текущего курса и его подкурсов. Поле course показывает, в каком курсе лежит задание. Порядок массива не задаёт порядок прохождения.' },
+      { field: 'deleteTasks', text: 'Явный список UUID заданий для удаления. Отсутствие задания в tasks никогда не означает удаление.' },
       { field: 'connections', text: 'Направленные связи между заданиями и course-нодами. Они задают цепочки, развилки, слияния и эффекты стрелок.' },
       { field: 'layout', text: 'Отдельный раздел координат и viewport. Он не смешивается с содержимым заданий.' },
     ],
@@ -518,6 +532,18 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'course', text: `Для задания: ${TASK_GRAPH_COURSE_REF} или key вложенного курса из courses. Существующее задание JSON не переносит между курсами.` },
       { field: 'без id', text: 'Новая задача или новый вложенный курс могут быть без id — TaskForge сам сгенерирует UUID. Для нового курса обязателен title; для новой задачи нужны полноценные поля её типа.' },
       { field: TASK_GRAPH_COURSE_REF, text: 'Ссылка на открытую ноду курса. Может быть источником connection и ключом позиции в layout.positions.' },
+    ],
+  },
+  {
+    key: 'deletions',
+    title: 'Удаление заданий',
+    items: [
+      { field: 'deleteTasks', text: `Массив UUID в schemaVersion ${TASK_GRAPH_SCHEMA_VERSION}. Удаляются только id, перечисленные здесь явно.` },
+      { field: 'scope ids', text: 'Если используется deleteTasks, в scopes должен присутствовать ids.' },
+      { field: 'подтверждение', text: 'Даже корректный deleteTasks не выполняется автоматически: в проверке импорта нужно отдельно разрешить удаление.' },
+      { field: 'безопасность', text: 'Нельзя удалить задание из чужого поддерева или одновременно обновлять и удалять один id.' },
+      { field: 'SQL', text: 'SQL-задание с сохранённой revision history физически не удаляется. Его нужно скрыть через isVisible=false.' },
+      { field: 'повторный импорт', text: 'Если id уже отсутствует, повторный импорт считает его уже удалённым и не падает.' },
     ],
   },
   {
@@ -579,6 +605,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'Связи', text: 'Разрешает менять топологию from → to для перечисленных заданий.' },
       { field: 'Эффекты связей', text: 'Разрешает менять hidden/sequential. Можно менять эффекты без перестройки топологии.' },
       { field: 'Позиции', text: 'Разрешает применять layout.positions и viewport. Если выключено, существующая раскладка остаётся.' },
+      { field: 'Удаления', text: 'Отдельное опасное разрешение. Оно выключено по умолчанию и требуется только если JSON содержит deleteTasks.' },
       { field: 'id не равно перезаписать всё', text: 'id только выбирает существующее задание. Реально изменяются только включённые категории.' },
     ],
   },
@@ -594,6 +621,7 @@ export const TASK_GRAPH_AI_PROMPT = `Ты работаешь с JSON-графо�
 - scopes: какие разделы действительно присутствуют
 - courses: вложенные course-ноды: существующие и новые
 - tasks: задания текущего курса и подкурсов
+- deleteTasks: явный список UUID заданий для удаления; отсутствие задания в tasks ничего не удаляет
 - connections: направленные связи
 - layout: позиции и viewport, только если они нужны
 
@@ -627,6 +655,9 @@ Scopes:
 18. codeRequiredCalls/codeForbiddenCalls — только учебные требования. Если конкретный синтаксис обязателен (например, while, do, &&, break), прямо напиши это в цели/условии задания.
 19. Не фиксируй одну синтаксическую форму, если по смыслу допустимы эквивалентные варианты: for/while, &&/вложенный if, float(x)/map(float, ...). Массив codeRequiredCalls имеет семантику AND, а не «любой из вариантов».
 20. Поле guide — документация. Не переноси примеры x/y из guide.layout в реальные поля; импорт должен игнорировать guide.
+21. Удаляй задания только в schemaVersion 5 через deleteTasks: ["uuid", ...]. Никогда не считай отсутствие задания в tasks командой удаления.
+22. Один id нельзя одновременно оставлять в tasks и добавлять в deleteTasks. Для deleteTasks обязательно сохрани scope ids.
+23. SQL-задания с сохранённой revision history не удаляй через deleteTasks; если их нужно убрать для учеников, ставь isVisible=false.
 
 Мега-пример:
 ${JSON.stringify(TASK_GRAPH_MEGA_EXAMPLE, null, 2)}
@@ -636,7 +667,11 @@ ${JSON.stringify(TASK_GRAPH_MEGA_EXAMPLE, null, 2)}
 
 function cleanId(value) {
   const text = String(value || '').trim();
-  if (!text || text === ZERO_GUID) return '';
+  if (!text) return '';
+  if (isGuid(text)) {
+    const normalized = text.toLowerCase();
+    return normalized === ZERO_GUID ? '' : normalized;
+  }
   return text;
 }
 
@@ -954,6 +989,7 @@ export function normalizeTaskGraphPayload(parsed) {
       format: 'legacy-assignment-list',
       courses: [],
       tasks: assignments.map((task, index) => ({ ...task, key: `task-${String(index + 1).padStart(3, '0')}` })),
+      deleteTasks: [],
       connections: [],
     };
   }
@@ -969,6 +1005,7 @@ export function normalizeTaskGraphPayload(parsed) {
     scopes,
     courses: Array.isArray(parsed.courses) ? parsed.courses : [],
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+    deleteTasks: Array.isArray(parsed.deleteTasks) ? parsed.deleteTasks : (parsed.deleteTasks ?? []),
     connections: Array.isArray(parsed.connections) ? parsed.connections : [],
     layout: isPlainObject(parsed.layout) ? parsed.layout : (parsed.layout ?? null),
   };
@@ -1019,6 +1056,9 @@ export function validateTaskGraphPayload(parsed) {
     issues.push({ path: '$.scopes', message: 'Добавьте scope layout, если документ содержит layout.' });
   }
   if (!Array.isArray(root?.tasks)) issues.push({ path: '$.tasks', message: 'Нужен массив заданий.' });
+  if (root?.deleteTasks !== undefined && root?.deleteTasks !== null && !Array.isArray(root.deleteTasks)) {
+    issues.push({ path: '$.deleteTasks', message: 'deleteTasks должен быть массивом GUID заданий.' });
+  }
   if (!Array.isArray(root?.connections)) issues.push({ path: '$.connections', message: 'Нужен массив связей.' });
   if (graph.tasks.length > TASK_GRAPH_MAX_TASKS) issues.push({ path: '$.tasks', message: `Не больше ${TASK_GRAPH_MAX_TASKS} заданий.` });
   if (graph.connections.length > TASK_GRAPH_MAX_CONNECTIONS) issues.push({ path: '$.connections', message: `Не больше ${TASK_GRAPH_MAX_CONNECTIONS} связей.` });
@@ -1074,6 +1114,29 @@ export function validateTaskGraphPayload(parsed) {
     if (id) idSet.add(id);
     issues.push(...validateTaskPayload(task, index, Boolean(id)));
   });
+
+  const deleteIdSet = new Set();
+  const deleteTasks = Array.isArray(graph.deleteTasks) ? graph.deleteTasks : [];
+  deleteTasks.forEach((value, index) => {
+    const path = `$.deleteTasks[${index}]`;
+    if (typeof value !== 'string' || !isGuid(value) || !cleanId(value)) {
+      issues.push({ path, message: 'Укажите корректный непустой GUID задания для удаления.' });
+      return;
+    }
+    const id = cleanId(value);
+    if (deleteIdSet.has(id)) issues.push({ path, message: 'Один id нельзя указывать в deleteTasks несколько раз.' });
+    deleteIdSet.add(id);
+    if (idSet.has(id)) issues.push({ path, message: 'Нельзя одновременно обновлять/создавать и удалять одно и то же задание.' });
+  });
+  if (deleteTasks.length > 0 && graph.schemaVersion !== TASK_GRAPH_SCHEMA_VERSION) {
+    issues.push({ path: '$.schemaVersion', message: `deleteTasks поддерживается только в schemaVersion ${TASK_GRAPH_SCHEMA_VERSION}.` });
+  }
+  if (deleteTasks.length > 0 && !graph.scopes.includes('ids')) {
+    issues.push({ path: '$.scopes', message: 'Добавьте scope ids, если JSON содержит deleteTasks.' });
+  }
+  if (graph.tasks.length + deleteTasks.length > TASK_GRAPH_MAX_TASKS) {
+    issues.push({ path: '$', message: `За один импорт можно обработать не больше ${TASK_GRAPH_MAX_TASKS} заданий суммарно, включая deleteTasks.` });
+  }
 
   validateLayout(graph.layout, graphRefSet, issues);
 
@@ -1140,7 +1203,8 @@ export function summarizeTaskGraphPayload(parsed) {
     const topology = legacy
       ? ' · без графа'
       : ` · ${graph.connections.length} связей${unplaced ? ` · вне карты ${unplaced}` : ''}`;
-    return `${graph.tasks.length} заданий${graph.courses?.length ? ` · курсов ${graph.courses.length}` : ''}${topology}${issues.length ? ` · ошибок ${issues.length}` : ''}`;
+    const deletions = Array.isArray(graph.deleteTasks) && graph.deleteTasks.length ? ` · удалить ${graph.deleteTasks.length}` : '';
+    return `${graph.tasks.length} заданий${deletions}${graph.courses?.length ? ` · курсов ${graph.courses.length}` : ''}${topology}${issues.length ? ` · ошибок ${issues.length}` : ''}`;
   } catch {
     return 'JSON не читается';
   }
@@ -1228,6 +1292,7 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
   const currentValidation = validateTaskGraphPayload(currentExport);
   const incoming = incomingValidation.graph;
   const current = currentValidation.graph;
+  const importIssues = [];
   const scopes = new Set(incoming.scopes || []);
   const options = {
     updateContent: importOptions.updateContent !== false && scopes.has('content'),
@@ -1236,17 +1301,50 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     updateConnections: importOptions.updateConnections !== false && scopes.has('connections'),
     updateConnectionAccess: importOptions.updateConnectionAccess !== false && scopes.has('connectionAccess'),
     updateLayout: importOptions.updateLayout !== false && scopes.has('layout'),
+    allowDeletes: importOptions.allowDeletes === true,
   };
   const currentById = new Map(current.tasks.map((task) => [cleanId(task.id), task]).filter(([id]) => id));
   const currentTitles = new Set(current.tasks.map((task) => String(task.title || '').trim().toLowerCase()).filter(Boolean));
   const incomingTitle = graphTitleByKey(incoming);
   const currentTitle = graphTitleByKey(current);
 
+  const deleteRows = (Array.isArray(incoming.deleteTasks) ? incoming.deleteTasks : []).map((rawId, index) => {
+    const id = cleanId(rawId);
+    const existing = id ? currentById.get(id) : null;
+    if (existing?.type === 'sql-test' && existing?.sql) {
+      importIssues.push({
+        path: `$.deleteTasks[${index}]`,
+        message: 'SQL-задание с сохранённой историей нельзя удалить. Скройте его через isVisible=false.',
+      });
+    }
+    const courseRef = String(existing?.course || TASK_GRAPH_COURSE_REF);
+    return {
+      index,
+      id,
+      title: String(existing?.title || id || `Удаление #${index + 1}`),
+      type: String(existing?.type || ''),
+      courseRef,
+      courseLabel: currentTitle.get(courseRef) || courseRef,
+      action: existing ? 'delete' : 'missing',
+      issues: [],
+    };
+  });
+
   const rows = incoming.tasks.map((task, index) => {
     const id = cleanId(task.id ?? task.assignmentId);
     const existing = id ? currentById.get(id) : null;
     const title = String(task.title || existing?.title || `Импорт #${index + 1}`).trim();
     const duplicateTitle = !existing && title && currentTitles.has(title.toLowerCase());
+    if (existing && options.updateContent && task.type !== undefined) {
+      const currentType = String(existing.type || '').trim().toLowerCase();
+      const nextType = String(task.type || '').trim().toLowerCase();
+      if (currentType && nextType && currentType !== nextType && (currentType === 'sql-test' || nextType === 'sql-test')) {
+        importIssues.push({
+          path: `$.tasks[${index}].type`,
+          message: 'Тип существующего SQL-задания нельзя менять через импорт. Создайте новое задание с новым id.',
+        });
+      }
+    }
     const changes = existing
       ? DIFF_FIELDS.map(([key, label]) => {
           const group = key === 'isVisible'
@@ -1262,7 +1360,8 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
         }).filter(Boolean)
       : [];
     const action = existing ? (changes.length ? 'update' : 'unchanged') : 'create';
-    const rowIssues = incomingValidation.issues.filter((issue) => issue.path === `$.tasks[${index}]` || issue.path.startsWith(`$.tasks[${index}].`));
+    const rowIssues = [...incomingValidation.issues, ...importIssues]
+      .filter((issue) => issue.path === `$.tasks[${index}]` || issue.path.startsWith(`$.tasks[${index}].`));
     return {
       index,
       id,
@@ -1297,8 +1396,15 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     const identity = incomingIdentity.get(String(task?.key || ''));
     if (identity?.startsWith('task:')) importedBoundIdentities.add(identity);
   }
+  for (const row of deleteRows) {
+    if (row.id) importedBoundIdentities.add(`task:${row.id}`);
+  }
 
+  const deletedBoundIdentities = new Set(deleteRows
+    .filter((row) => row.action === 'delete' && row.id)
+    .map((row) => `task:${row.id}`));
   const affectedCurrentConnections = new Map();
+  const forcedRemovedConnections = new Map();
   for (const [signature, row] of currentTopologyConnections) {
     const sourceIdentity = currentIdentity.get(row.connection.from);
     const targetIdentity = currentIdentity.get(row.connection.to);
@@ -1308,17 +1414,26 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
       || sourceImported
       || targetImported;
     if (affected) affectedCurrentConnections.set(signature, row);
+    if (deletedBoundIdentities.has(sourceIdentity) || deletedBoundIdentities.has(targetIdentity)) {
+      forcedRemovedConnections.set(signature, row);
+    }
   }
 
   const connectionAddedCount = incomingValidation.legacy || !options.updateConnections
     ? 0
     : [...incomingTopologyConnections.keys()].filter((signature) => !currentTopologyConnections.has(signature)).length;
-  const connectionRemovedCount = incomingValidation.legacy || !options.updateConnections
-    ? 0
-    : [...affectedCurrentConnections.keys()].filter((signature) => !incomingTopologyConnections.has(signature)).length;
-  const connectionUnchangedCount = incomingValidation.legacy || !options.updateConnections
+  const removedConnections = new Map(forcedRemovedConnections);
+  if (!incomingValidation.legacy && options.updateConnections) {
+    for (const [signature, row] of affectedCurrentConnections) {
+      if (!incomingTopologyConnections.has(signature)) removedConnections.set(signature, row);
+    }
+  }
+  const connectionRemovedCount = incomingValidation.legacy ? 0 : removedConnections.size;
+  const connectionUnchangedCount = incomingValidation.legacy
     ? currentTopologyConnections.size
-    : [...incomingTopologyConnections.keys()].filter((signature) => currentTopologyConnections.has(signature)).length;
+    : !options.updateConnections
+      ? Math.max(0, currentTopologyConnections.size - forcedRemovedConnections.size)
+      : [...incomingTopologyConnections.keys()].filter((signature) => currentTopologyConnections.has(signature)).length;
   const connectionAccessChangedCount = incomingValidation.legacy || !options.updateConnectionAccess
     ? 0
     : [...incomingTopologyConnections.entries()].filter(([signature, row]) => {
@@ -1340,11 +1455,10 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
           && !sameValue(normalizeAccess(currentRow.connection.access), normalizeAccess(connection.access))) status = 'update';
         return connectionRow(connection, index, incomingTitle, status);
       });
-  const removedConnectionRows = incomingValidation.legacy || !options.updateConnections
+  const removedConnectionRows = incomingValidation.legacy
     ? []
-    : [...affectedCurrentConnections.entries()]
-        .filter(([signature]) => !incomingTopologyConnections.has(signature))
-        .map(([, row]) => connectionRow(row.connection, row.index, currentTitle, 'remove'));
+    : [...removedConnections.values()]
+        .map((row) => connectionRow(row.connection, row.index, currentTitle, 'remove'));
 
 
   const currentCourseIds = new Set((current.courses || []).map((course) => cleanId(course?.id)).filter(Boolean));
@@ -1353,22 +1467,35 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     return !id || !currentCourseIds.has(id);
   }).length;
   const courseExistingCount = Math.max(0, (incoming.courses || []).length - courseCreateCount);
+  const layoutPositionCount = incoming.layout?.positions && typeof incoming.layout.positions === 'object'
+    ? Object.keys(incoming.layout.positions).length
+    : 0;
+  const hasImportWork = rows.length > 0
+    || deleteRows.length > 0
+    || (incoming.courses || []).length > 0
+    || (!incomingValidation.legacy && (options.updateConnections || options.updateConnectionAccess) && incoming.connections.length > 0)
+    || (options.updateLayout && layoutPositionCount > 0);
 
   return {
-    total: rows.length,
+    total: rows.length + deleteRows.length,
     courseCount: Array.isArray(incoming.courses) ? incoming.courses.length : 0,
     courseCreateCount,
     courseExistingCount,
     createCount: rows.filter((row) => row.action === 'create').length,
     updateCount: rows.filter((row) => row.action === 'update').length,
     unchangedCount: rows.filter((row) => row.action === 'unchanged').length,
+    deleteRequestCount: deleteRows.length,
+    deleteCount: deleteRows.filter((row) => row.action === 'delete').length,
+    deleteMissingCount: deleteRows.filter((row) => row.action === 'missing').length,
+    requiresDeleteConfirmation: deleteRows.some((row) => row.action === 'delete') && !options.allowDeletes,
     withoutIdCount: rows.filter((row) => !row.id).length,
     duplicateTitleCount: rows.filter((row) => row.duplicateTitle).length,
-    validationErrorCount: incomingValidation.issues.length,
-    graphIssues: incomingValidation.issues,
+    validationErrorCount: incomingValidation.issues.length + importIssues.length,
+    graphIssues: [...incomingValidation.issues, ...importIssues],
     legacy: incomingValidation.legacy,
     scopes: incoming.scopes || [],
-    layoutPositionCount: incoming.layout?.positions && typeof incoming.layout.positions === 'object' ? Object.keys(incoming.layout.positions).length : 0,
+    layoutPositionCount,
+    hasImportWork,
     importOptions: options,
     connectionCount: incomingValidation.legacy ? current.connections.length : incoming.connections.length,
     connectionAddedCount,
@@ -1378,6 +1505,12 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     connectionRows,
     removedConnectionRows,
     unplacedCount,
+    deleteRows: deleteRows.map((row) => ({
+      ...row,
+      issues: [...incomingValidation.issues, ...importIssues]
+        .filter((issue) => issue.path === `$.deleteTasks[${row.index}]` || issue.path.startsWith(`$.deleteTasks[${row.index}].`))
+        .map((issue) => issue.message),
+    })),
     rows,
   };
 }

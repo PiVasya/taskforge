@@ -218,8 +218,17 @@ function nodeForDescriptor(descriptor, position, existing = null) {
 }
 
 export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, assignments, courseId }) {
-  const rawNodes = Array.isArray(nodes) ? nodes : [];
-  const rawEdges = Array.isArray(edges) ? edges : [];
+  const deletedAssignmentIds = new Set((Array.isArray(taskGraph?.deleteTasks) ? taskGraph.deleteTasks : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean));
+  const initialNodes = Array.isArray(nodes) ? nodes : [];
+  const deletedNodeIds = new Set(initialNodes
+    .filter((node) => node?.type !== 'course' && deletedAssignmentIds.has(entityIdOf(node)))
+    .map((node) => String(node?.id || ''))
+    .filter(Boolean));
+  const rawNodes = initialNodes.filter((node) => !deletedNodeIds.has(String(node?.id || '')));
+  const rawEdges = (Array.isArray(edges) ? edges : [])
+    .filter((edge) => !deletedNodeIds.has(String(edge?.source || '')) && !deletedNodeIds.has(String(edge?.target || '')));
   const connections = Array.isArray(taskGraph?.connections) ? taskGraph.connections : [];
   const apply = graphApplyOptions(taskGraph);
   const { descriptors, tasks, assignmentById } = buildDescriptors(taskGraph, taskMappings, courseId, assignments);
@@ -289,6 +298,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
       importedNodeIds,
       createdNodeIds,
       unplacedAssignmentIds: [],
+      deletedNodeCount: deletedNodeIds.size,
       detachedCount: 0,
       connectionCount: 0,
       viewport: apply.layout && taskGraph?.layout?.viewport ? { ...taskGraph.layout.viewport } : null,
@@ -402,6 +412,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
     importedNodeIds,
     createdNodeIds,
     unplacedAssignmentIds,
+    deletedNodeCount: deletedNodeIds.size,
     detachedCount: unplacedAssignmentIds.length,
     connectionCount: importedEdges.length,
     viewport: apply.layout && taskGraph?.layout?.viewport ? { ...taskGraph.layout.viewport } : null,

@@ -19,7 +19,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static readonly HashSet<string> TopLevelFields = new(StringComparer.Ordinal)
     {
-        "schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout", "datasets"
+        "schemaVersion", "format", "scopes", "guide", "courses", "tasks", "deleteTasks", "connections", "layout", "datasets"
     };
 
     private static readonly HashSet<string> TaskFields = new(StringComparer.Ordinal)
@@ -107,7 +107,8 @@ internal static class AssignmentTaskGraphJsonService
         bool UpdateVisibility = true,
         bool UpdateConnections = true,
         bool UpdateConnectionAccess = true,
-        bool UpdateLayout = true);
+        bool UpdateLayout = true,
+        bool AllowDeletes = false);
 
     internal sealed record GraphConnection(string From, string To, string HiddenEffect, string SequentialEffect)
     {
@@ -134,6 +135,7 @@ internal static class AssignmentTaskGraphJsonService
     {
         internal required IReadOnlyList<GraphCourse> Courses { get; init; }
         internal required IReadOnlyList<GraphTask> Tasks { get; init; }
+        internal required IReadOnlyList<Guid> DeleteTaskIds { get; init; }
         internal required IReadOnlyList<GraphConnection> Connections { get; init; }
         internal required IReadOnlySet<string> Scopes { get; init; }
         internal JsonElement? Layout { get; init; }
@@ -146,6 +148,9 @@ internal static class AssignmentTaskGraphJsonService
             {
                 tasks.Add(new JsonObject { ["key"] = task.Key });
             }
+
+            var deleteTasks = new JsonArray();
+            foreach (var assignmentId in DeleteTaskIds) deleteTasks.Add(assignmentId.ToString("D"));
 
             var connections = new JsonArray();
             foreach (var connection in Connections)
@@ -171,6 +176,7 @@ internal static class AssignmentTaskGraphJsonService
                 ["scopes"] = BuildScopesJson(Scopes),
                 ["courses"] = courses,
                 ["tasks"] = tasks,
+                ["deleteTasks"] = deleteTasks,
                 ["datasets"] = new JsonArray(),
                 ["connections"] = connections
             };
@@ -357,6 +363,50 @@ internal static class AssignmentTaskGraphJsonService
             taskIndex++;
         }
 
+        var deleteTaskIds = new List<Guid>();
+        var deleteTaskIdSet = new HashSet<Guid>();
+        if (root.TryGetProperty("deleteTasks", out var deleteTasksElement) && deleteTasksElement.ValueKind != JsonValueKind.Null)
+        {
+            if (deleteTasksElement.ValueKind != JsonValueKind.Array)
+            {
+                issues.Add(new ValidationIssue("$.deleteTasks", "deleteTasks должен быть массивом GUID заданий."));
+            }
+            else
+            {
+                var deleteIndex = 0;
+                foreach (var deleteElement in deleteTasksElement.EnumerateArray())
+                {
+                    var path = $"$.deleteTasks[{deleteIndex}]";
+                    deleteIndex++;
+                    if (deleteElement.ValueKind != JsonValueKind.String
+                        || !Guid.TryParse(deleteElement.GetString(), out var assignmentId)
+                        || assignmentId == Guid.Empty)
+                    {
+                        issues.Add(new ValidationIssue(path, "Укажите корректный непустой GUID задания для удаления."));
+                        continue;
+                    }
+                    if (!deleteTaskIdSet.Add(assignmentId))
+                    {
+                        issues.Add(new ValidationIssue(path, "Один id нельзя указывать в deleteTasks несколько раз."));
+                        continue;
+                    }
+                    if (ids.Contains(assignmentId))
+                    {
+                        issues.Add(new ValidationIssue(path, "Нельзя одновременно обновлять/создавать и удалять одно и то же задание."));
+                        continue;
+                    }
+                    deleteTaskIds.Add(assignmentId);
+                }
+            }
+        }
+
+        if (deleteTaskIds.Count > 0 && schemaVersion != SchemaVersion)
+            issues.Add(new ValidationIssue("$.schemaVersion", $"deleteTasks поддерживается только в schemaVersion {SchemaVersion}."));
+        if (deleteTaskIds.Count > 0 && !scopes.Contains("ids"))
+            issues.Add(new ValidationIssue("$.scopes", "Добавьте scope ids, если JSON содержит deleteTasks."));
+        if (tasks.Count + deleteTaskIds.Count > MaxTasks)
+            issues.Add(new ValidationIssue("$", $"За один импорт можно обработать не больше {MaxTasks} заданий суммарно, включая deleteTasks."));
+
         var declaredKeys = tasks.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
         var declaredRefs = new HashSet<string>(courseRefs, StringComparer.Ordinal);
         declaredRefs.UnionWith(declaredKeys);
@@ -438,6 +488,7 @@ internal static class AssignmentTaskGraphJsonService
             {
                 Courses = courses,
                 Tasks = tasks,
+                DeleteTaskIds = deleteTaskIds,
                 Connections = connections,
                 Scopes = scopes,
                 Layout = layout,
@@ -636,6 +687,7 @@ internal static class AssignmentTaskGraphJsonService
             ["scopes"] = BuildScopesJson(scopes),
             ["courses"] = coursesJson,
             ["tasks"] = tasksJson,
+            ["deleteTasks"] = new JsonArray(),
             ["datasets"] = sql?.Datasets.DeepClone() ?? new JsonArray(),
             ["connections"] = connectionsJson
         };
@@ -682,11 +734,12 @@ internal static class AssignmentTaskGraphJsonService
                 ["rootCourseReference"] = CourseReference,
                 ["maxTasks"] = MaxTasks,
                 ["maxConnections"] = MaxConnections,
-                ["topLevel"] = Strings("schemaVersion", "format", "scopes", "guide", "courses", "tasks", "connections", "layout", "datasets"),
+                ["topLevel"] = Strings("schemaVersion", "format", "scopes", "guide", "courses", "tasks", "deleteTasks", "connections", "layout", "datasets"),
                 ["rules"] = Strings(
                     "key обязателен и уникален среди courses и tasks.",
                     "$course обозначает курс, из которого выполняется импорт. Его нельзя использовать как key обычной ноды.",
                     "Порядок прохождения задаётся connections, а не порядком объектов в tasks.",
+                    "Отсутствие задания в tasks никогда не удаляет его. Для удаления нужен явный deleteTasks с id и отдельное подтверждение удаления при импорте.",
                     "Циклы в connections запрещены: карта должна оставаться DAG.",
                     "Не добавляйте analyticsSettings: это не часть canonical task-graph JSON.",
                     "Не помещайте эталонное/готовое решение в description, если это отдельно не требуется автором курса.",
@@ -763,6 +816,20 @@ internal static class AssignmentTaskGraphJsonService
                         ["attempts"] = "testSettings.unlimitedAttempts=true включает бесконечные попытки; maxAttempts остаётся обычным лимитом при false."
                     }
                 }
+            },
+            ["deleteTasks"] = new JsonObject
+            {
+                ["purpose"] = "Явное удаление существующих заданий по UUID. Обычное отсутствие задания в tasks ничего не удаляет.",
+                ["example"] = new JsonArray { "33333333-3333-4333-8333-333333333333" },
+                ["rules"] = Strings(
+                    $"deleteTasks доступен только в schemaVersion {SchemaVersion}; каждый элемент — непустой GUID существующего задания.",
+                    "Для deleteTasks нужен scope ids.",
+                    "Нельзя одновременно перечислять один id в tasks и deleteTasks.",
+                    "Удаление требует отдельного подтверждения в окне проверки импорта и серверной опции allowDeletes=true.",
+                    "Задание из чужого поддерева удалить нельзя.",
+                    "Повторный импорт уже удалённого id безопасен: он считается уже отсутствующим.",
+                    "SQL-задание с сохранённой revision history физически не удаляется; вместо этого скройте его через isVisible=false."
+                )
             },
             ["connections"] = new JsonObject
             {

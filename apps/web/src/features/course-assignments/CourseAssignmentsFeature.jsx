@@ -93,6 +93,7 @@ const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
   updateConnections: true,
   updateConnectionAccess: true,
   updateLayout: true,
+  allowDeletes: false,
 });
 
 export default function CourseAssignmentsPage() {
@@ -262,6 +263,7 @@ export default function CourseAssignmentsPage() {
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
   const [jsonImportCurrentExport, setJsonImportCurrentExport] = useState(null);
+  const [jsonImportApplyError, setJsonImportApplyError] = useState(null);
   const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS });
   const [jsonImportOptions, setJsonImportOptions] = useState({ ...DEFAULT_JSON_IMPORT_OPTIONS });
   const [graphImportRequest, setGraphImportRequest] = useState(null);
@@ -342,6 +344,7 @@ export default function CourseAssignmentsPage() {
     closeContextMenu();
     closeCreateMenu();
     setJsonDocsOpen(false);
+    setJsonImportOptions((current) => ({ ...current, allowDeletes: false }));
     setJsonImportDialogOpen(true);
   }, [closeContextMenu, closeCreateMenu]);
 
@@ -840,6 +843,8 @@ export default function CourseAssignmentsPage() {
 
   const handleJsonImportTextChange = (value) => {
     setJsonImportText(value);
+    setJsonImportOptions((current) => current.allowDeletes ? { ...current, allowDeletes: false } : current);
+    setJsonImportApplyError(null);
     if (!String(value || "").trim()) {
       setJsonImportPreview("пусто");
       return;
@@ -888,6 +893,7 @@ export default function CourseAssignmentsPage() {
 
   const applyJsonImport = async (parsed) => {
     setJsonImportBusy(true);
+    setJsonImportApplyError(null);
     try {
       const res = await importAssignmentsFromJson(courseId, parsed, jsonImportOptions);
       await Promise.all([reloadAssignments(), reloadCourseData()]);
@@ -897,6 +903,8 @@ export default function CourseAssignmentsPage() {
       setJsonImportDialogOpen(false);
       const created = res?.createdCount ?? 0;
       const updated = res?.updatedCount ?? 0;
+      const deleted = res?.deletedCount ?? 0;
+      const alreadyDeleted = res?.alreadyDeletedCount ?? 0;
       const createdCourses = res?.createdCourseCount ?? 0;
       const taskGraph = res?.taskGraph || res?.graph;
       const taskMappings = Array.isArray(res?.taskMappings) ? res.taskMappings : [];
@@ -907,16 +915,17 @@ export default function CourseAssignmentsPage() {
           .filter(Boolean);
         setContentLayout('flow');
         setGraphImportRequest({
-          key: `${Date.now()}:${[...mappedIds, ...taskMappings.map((item) => item?.assignmentId)].filter(Boolean).join(',')}`,
+          key: `${Date.now()}:${[...mappedIds, ...(taskGraph?.deleteTasks || []), ...taskMappings.map((item) => item?.assignmentId)].filter(Boolean).join(',')}`,
           taskGraph,
           taskMappings,
         });
-        notify.success(`Импорт завершён: создано заданий ${created}, курсов ${createdCourses}, обновлено ${updated}. Карта обновляется.`);
+        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}, удалено ${deleted}${alreadyDeleted ? `, уже отсутствовало ${alreadyDeleted}` : ''}, курсов создано ${createdCourses}. Карта обновляется.`);
       } else {
-        notify.success(`Импорт завершён: создано заданий ${created}, курсов ${createdCourses}, обновлено ${updated}`);
+        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}, удалено ${deleted}${alreadyDeleted ? `, уже отсутствовало ${alreadyDeleted}` : ''}, курсов создано ${createdCourses}`);
       }
     } catch (e) {
-      handleApiError(e, notify, "Не удалось импортировать JSON");
+      const parsedError = handleApiError(e, false, "Не удалось импортировать JSON");
+      setJsonImportApplyError(parsedError);
     } finally {
       setJsonImportBusy(false);
     }
@@ -938,6 +947,7 @@ export default function CourseAssignmentsPage() {
     }
 
     setJsonImportBusy(true);
+    setJsonImportApplyError(null);
     try {
       const currentExport = await exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS);
       const diff = buildTaskGraphImportDiff(parsed, currentExport, jsonImportOptions);
@@ -945,7 +955,7 @@ export default function CourseAssignmentsPage() {
       setJsonImportParsed(parsed);
       setJsonImportDiff(diff);
       setJsonImportDiffOpen(true);
-      if (diff.total === 0) notify.warn("В JSON не найдено заданий для импорта");
+      if (!diff.hasImportWork) notify.warn("В JSON нет данных, которые можно применить");
       if (diff.validationErrorCount > 0) notify.warn(`В JSON есть ошибки: ${diff.validationErrorCount}`);
     } catch (e) {
       handleApiError(e, notify, "Не удалось подготовить дифф импорта");
@@ -955,6 +965,7 @@ export default function CourseAssignmentsPage() {
   };
 
   const handleJsonImportOptionChange = (key, value) => {
+    setJsonImportApplyError(null);
     setJsonImportOptions((current) => {
       const next = { ...current, [key]: value };
       if (jsonImportParsed && jsonImportCurrentExport) {
@@ -975,6 +986,10 @@ export default function CourseAssignmentsPage() {
     }
     if (jsonImportDiff?.validationErrorCount > 0) {
       notify.error("Сначала исправьте ошибки JSON");
+      return;
+    }
+    if (jsonImportDiff?.requiresDeleteConfirmation) {
+      notify.error("Подтвердите удаление заданий в проверке импорта");
       return;
     }
     await applyJsonImport(jsonImportParsed);
@@ -1124,7 +1139,11 @@ export default function CourseAssignmentsPage() {
         open={jsonImportDiffOpen}
         diff={jsonImportDiff}
         busy={jsonImportBusy}
-        onClose={() => setJsonImportDiffOpen(false)}
+        error={jsonImportApplyError}
+        onClose={() => {
+          setJsonImportApplyError(null);
+          setJsonImportDiffOpen(false);
+        }}
         onApply={handleApplyPreparedJsonImport}
         importOptions={jsonImportOptions}
         onImportOptionChange={handleJsonImportOptionChange}

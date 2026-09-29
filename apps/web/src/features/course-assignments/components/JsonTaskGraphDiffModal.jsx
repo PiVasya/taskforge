@@ -18,10 +18,10 @@ function EffectBadges({ row }) {
   );
 }
 
-function ConnectionList({ title, rows, removed = false }) {
+function ConnectionList({ title, rows, removed = false, defaultOpen = false }) {
   if (!rows?.length) return null;
   return (
-    <details open={!removed} className={`rounded-2xl border ${removed ? 'border-amber-400/60 bg-amber-500/5' : 'border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/15'}`}>
+    <details open={defaultOpen} className={`rounded-2xl border ${removed ? 'border-amber-400/60 bg-amber-500/5' : 'border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/15'}`}>
       <summary className="cursor-pointer select-none px-4 py-3 font-semibold">
         {title} · {rows.length}
       </summary>
@@ -67,7 +67,41 @@ function ImportOption({ checked, disabled = false, onChange, label, hint }) {
   );
 }
 
-export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClose, onApply, importOptions = {}, onImportOptionChange }) {
+function DeleteList({ rows }) {
+  if (!rows?.length) return null;
+  return (
+    <details className="rounded-2xl border border-red-400/60 bg-red-500/5">
+      <summary className="cursor-pointer select-none px-4 py-3 font-semibold">Удаление заданий · {rows.length}</summary>
+      <div className="max-h-[420px] space-y-2 overflow-auto border-t border-red-400/30 p-3">
+        {rows.map((row) => (
+          <div key={`${row.index}:${row.id}`} className="rounded-xl border border-red-400/35 bg-[rgb(var(--card))]/80 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap gap-2">
+                  <Badge intent={row.action === 'delete' ? 'danger' : 'warning'}>
+                    {row.action === 'delete' ? 'Будет удалено' : 'Уже отсутствует'}
+                  </Badge>
+                  {row.type ? <Badge variant="outline">{row.type}</Badge> : null}
+                </div>
+                <div className="mt-2 break-words font-semibold">{row.title}</div>
+                <div className="mt-1 break-all text-xs text-neutral-500">id: {row.id}</div>
+                <div className="mt-1 text-xs text-neutral-500">курс: {row.courseLabel}</div>
+              </div>
+              <div className="text-xs text-neutral-500">#{row.index + 1}</div>
+            </div>
+            {row.issues?.length ? (
+              <div className="mt-3 rounded-xl border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm text-red-950 dark:text-red-100">
+                {row.issues.map((issue) => <div key={issue}>{issue}</div>)}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error = null, onClose, onApply, importOptions = {}, onImportOptionChange }) {
   React.useEffect(() => {
     if (!(open && diff) || typeof document === 'undefined') return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -94,13 +128,23 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}><X size={16} /> Назад</Button>
-            <Button onClick={onApply} disabled={busy || diff.total === 0 || diff.validationErrorCount > 0}>
+            <Button onClick={onApply} disabled={busy || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation}>
               <FileJson size={16} /> {busy ? 'Импортирую…' : 'Импортировать'}
             </Button>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
+              <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={17} /> Импорт не выполнен</div>
+              <div className="mt-1">{error.primaryMessage || error.userMessage || 'Не удалось импортировать JSON.'}</div>
+              {error.howToFix?.length ? (
+                <div className="mt-2 text-xs opacity-80">{error.howToFix.slice(0, 2).join(' ')}</div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
           <div className="mb-2 text-sm font-semibold">Какие части существующих заданий можно обновить</div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -114,11 +158,30 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           <div className="mt-2 text-xs text-neutral-500">ID связывает строку JSON с существующим заданием. Галочки определяют, какие его части будут обновлены.</div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-          <Stat label="Заданий" value={diff.total} />
+        {diff.deleteRequestCount > 0 ? (
+          <div className="mt-3 rounded-2xl border border-red-400/60 bg-red-500/5 p-3">
+            <div className="text-sm font-semibold">Удаления из JSON требуют отдельного подтверждения</div>
+            <div className="mt-1 text-xs text-neutral-500">
+              Ничего не удаляется из-за отсутствия в <code>tasks</code>. Удаляются только UUID из <code>deleteTasks</code>.
+            </div>
+            <div className="mt-3">
+              <ImportOption
+                checked={Boolean(importOptions.allowDeletes)}
+                disabled={diff.deleteCount === 0}
+                onChange={(value) => onImportOptionChange?.('allowDeletes', value)}
+                label={`Разрешить удалить ${diff.deleteCount} ${diff.deleteCount === 1 ? 'задание' : 'заданий'}`}
+                hint={diff.deleteMissingCount > 0 ? `Уже отсутствует: ${diff.deleteMissingCount}` : ''}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+          <Stat label="Операций" value={diff.total} />
           <Stat label="Курсов" value={diff.courseCount || 0} />
           <Stat label="Будет создано" value={diff.createCount} />
           <Stat label="Будет обновлено" value={diff.updateCount} />
+          <Stat label="Будет удалено" value={diff.deleteCount || 0} danger={diff.deleteCount > 0} />
           <Stat label="Без изменений" value={diff.unchangedCount} />
           <Stat label="Связей" value={diff.connectionCount} />
           <Stat label="Ошибок" value={diff.validationErrorCount} danger={diff.validationErrorCount > 0} />
@@ -134,6 +197,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
           {diff.courseCreateCount > 0 ? <Badge variant="outline">Создастся курсов: {diff.courseCreateCount}</Badge> : null}
           {diff.courseExistingCount > 0 ? <Badge variant="outline">Существующих курсов: {diff.courseExistingCount}</Badge> : null}
           {diff.layoutPositionCount > 0 ? <Badge variant="outline">Позиций: {diff.layoutPositionCount}</Badge> : null}
+          {diff.deleteMissingCount > 0 ? <Badge intent="warning">Уже отсутствует: {diff.deleteMissingCount}</Badge> : null}
         </div>
 
         {diff.legacy ? (
@@ -165,6 +229,10 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, onClo
             <ConnectionList title="Связи, которые исчезнут" rows={diff.removedConnectionRows} removed />
           </div>
         ) : null}
+
+        <div className="mt-4">
+          <DeleteList rows={diff.deleteRows} />
+        </div>
 
           <div className="mt-4 space-y-3 pb-2">
             {diff.rows.map((row) => (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Copy, FileJson, GitBranch, ListTree, MapPinned, Sparkles, Unplug } from 'lucide-react';
+import { Bot, Copy, FileJson, GitBranch, ListTree, MapPinned, Sparkles, Trash2, Unplug } from 'lucide-react';
 
 import { Badge, Button } from '../../../components/ui';
 import {
@@ -21,7 +21,7 @@ export default function JsonImportHelp({ busy = false, onCopyAiPrompt, onCopyExa
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))]/65 p-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500"><ListTree size={14} /> Задания</div>
-          <div className="mt-2 text-sm"><code>key</code> связывает объекты внутри файла. <code>id</code> используется только для обновления задания.</div>
+          <div className="mt-2 text-sm"><code>key</code> связывает объекты внутри файла. <code>id</code> привязывает существующее задание или задаёт UUID нового.</div>
         </div>
         <div className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))]/65 p-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500"><GitBranch size={14} /> Связи</div>
@@ -29,7 +29,7 @@ export default function JsonImportHelp({ busy = false, onCopyAiPrompt, onCopyExa
         </div>
         <div className="rounded-2xl border border-[rgba(var(--accent)/0.45)] bg-[rgba(var(--accent)/0.08)] p-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500"><MapPinned size={14} /> Расположение</div>
-          <div className="mt-2 text-sm">Координат в JSON нет. Новые ноды раскладывает TaskForge, существующие сохраняют свои позиции.</div>
+          <div className="mt-2 text-sm">Координаты карты хранятся только в <code>layout.positions</code>. Если layout не передан, новые ноды раскладывает TaskForge, а существующие сохраняют позиции.</div>
         </div>
       </div>
 
@@ -48,6 +48,13 @@ export default function JsonImportHelp({ busy = false, onCopyAiPrompt, onCopyExa
           <div className="mt-3 text-sm text-neutral-500">
             Задание без единой связи импортируется, но не размещается. После импорта оно появится в списке «Не на карте». Добавьте его на поле кнопкой рядом с названием.
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-red-400/55 bg-red-500/5 p-4">
+        <div className="flex items-center gap-2 font-semibold"><Trash2 size={16} /> Явное удаление</div>
+        <div className="mt-2 text-sm text-neutral-500">
+          Чтобы удалить задание, добавьте его UUID в <code>deleteTasks</code>. Простое отсутствие задания в <code>tasks</code> ничего не удаляет. Перед применением TaskForge отдельно попросит разрешить удаление.
         </div>
       </div>
 

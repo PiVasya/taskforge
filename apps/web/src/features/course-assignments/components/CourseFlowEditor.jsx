@@ -2671,7 +2671,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       if (saved) {
         const unplacedCount = result.unplacedAssignmentIds.length;
         const unplacedText = unplacedCount ? `, вне карты: ${unplacedCount}` : '';
-        notify.success(`Граф применён: ${result.connectionCount} связей${unplacedText}`);
+        const deletedText = result.deletedNodeCount ? `, удалено с карты: ${result.deletedNodeCount}` : '';
+        notify.success(`Граф применён: ${result.connectionCount} связей${deletedText}${unplacedText}`);
       }
       onGraphImportComplete?.(requestKey);
     })();

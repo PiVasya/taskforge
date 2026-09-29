@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
+using TaskForge.Tasks.Api.Services.Import;
 using TaskForge.Tasks.Api.Services.Sql;
 using TaskForge.Tasks.Api.Domain.Sql;
 
@@ -37,7 +38,8 @@ internal static partial class AssignmentApiEndpoints
             ReadOption(options, "updateVisibility", true),
             ReadOption(options, "updateConnections", true),
             ReadOption(options, "updateConnectionAccess", true),
-            ReadOption(options, "updateLayout", true));
+            ReadOption(options, "updateLayout", true),
+            ReadOption(options, "allowDeletes", false));
     }
 
     private static JsonElement ReadGraphImportPayload(JsonElement payload)
@@ -632,6 +634,8 @@ internal static partial class AssignmentApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "JSON не содержит заданий.", code = "IMPORT_EMPTY" }, statusCode: StatusCodes.Status400BadRequest);
             }
             if (sourceItems.Count == 0 && taskGraph != null
+                && taskGraph.Courses.Count == 0
+                && taskGraph.DeleteTaskIds.Count == 0
                 && !importOptions.UpdateConnections
                 && !importOptions.UpdateConnectionAccess
                 && !importOptions.UpdateLayout)
@@ -678,6 +682,14 @@ internal static partial class AssignmentApiEndpoints
                         ? req
                         : req with { Id = null };
                 var itemIssues = ValidateImportedAssignment(validationRequest, i + 1).ToList();
+                if (isExisting
+                    && !string.IsNullOrWhiteSpace(validationRequest.Type)
+                    && AssignmentImportPolicy.IsImmutableSqlTypeChange(
+                        existingRowById[req.Id!.Value].Type,
+                        NormalizeAssignmentType(validationRequest.Type)))
+                {
+                    itemIssues.Add(AssignmentImportPolicy.SqlTypeImmutableMessage);
+                }
                 if (taskGraph != null && !isExisting && !taskGraph.Scopes.Contains("content"))
                     itemIssues.Add("Для создания нового задания JSON должен содержать scope content и полноценное описание задания.");
                 if (itemIssues.Count == 0) continue;
@@ -702,6 +714,84 @@ internal static partial class AssignmentApiEndpoints
                 .Where(x => allowedImportCourseIds.Contains(x.CourseId))
                 .ToDictionary(x => x.Id);
             var usedIds = existingRows.Select(x => x.Id).ToHashSet();
+
+            var deleteRows = new List<Assignment>();
+            var alreadyDeletedCount = 0;
+            if (taskGraph != null && taskGraph.DeleteTaskIds.Count > 0)
+            {
+                var deleteIds = taskGraph.DeleteTaskIds.Distinct().ToArray();
+                var foundDeleteRows = await db.Assignments
+                    .Where(x => deleteIds.Contains(x.Id))
+                    .ToListAsync(ct);
+                var foundDeleteById = foundDeleteRows.ToDictionary(x => x.Id);
+                alreadyDeletedCount = deleteIds.Count(id => !foundDeleteById.ContainsKey(id));
+
+                var deleteIssues = new List<object>();
+                for (var index = 0; index < taskGraph.DeleteTaskIds.Count; index++)
+                {
+                    var id = taskGraph.DeleteTaskIds[index];
+                    if (!foundDeleteById.TryGetValue(id, out var row)) continue;
+                    if (!allowedImportCourseIds.Contains(row.CourseId))
+                    {
+                        deleteIssues.Add(new
+                        {
+                            path = $"$.deleteTasks[{index}]",
+                            message = "Задание с таким id находится вне импортируемого поддерева."
+                        });
+                        continue;
+                    }
+                    deleteRows.Add(row);
+                }
+
+                if (deleteIssues.Count > 0)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "Импорт остановлен: некоторые задания нельзя удалить из этого поддерева.",
+                        code = "TASK_GRAPH_DELETE_ID_INVALID",
+                        issues = deleteIssues
+                    }, statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                if (deleteRows.Count > 0)
+                {
+                    var deleteRowIds = deleteRows.Select(x => x.Id).ToArray();
+                    var retainedSqlIds = await db.SqlAssignmentSpecs.AsNoTracking()
+                        .Where(x => deleteRowIds.Contains(x.AssignmentId))
+                        .Select(x => x.AssignmentId)
+                        .Distinct()
+                        .ToListAsync(ct);
+                    if (retainedSqlIds.Count > 0)
+                    {
+                        var retainedSet = retainedSqlIds.ToHashSet();
+                        var sqlIssues = taskGraph.DeleteTaskIds
+                            .Select((id, index) => new { id, index })
+                            .Where(x => retainedSet.Contains(x.id))
+                            .Select(x => new
+                            {
+                                path = $"$.deleteTasks[{x.index}]",
+                                message = AssignmentImportPolicy.SqlDeleteRetainedMessage
+                            })
+                            .ToList();
+                        return Microsoft.AspNetCore.Http.Results.Json(new
+                        {
+                            message = "Импорт остановлен: некоторые SQL-задания нельзя удалить.",
+                            code = "SQL_HISTORY_RETAINED",
+                            issues = sqlIssues
+                        }, statusCode: StatusCodes.Status409Conflict);
+                    }
+                }
+
+                if (deleteRows.Count > 0 && !importOptions.AllowDeletes)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new
+                    {
+                        message = "JSON содержит удаление заданий. Подтвердите удаление в окне проверки импорта.",
+                        code = "TASK_GRAPH_DELETE_CONFIRMATION_REQUIRED",
+                        deleteCount = deleteRows.Count
+                    }, statusCode: StatusCodes.Status409Conflict);
+                }
+            }
 
             if (taskGraph != null && graphCourseIds != null)
             {
@@ -793,8 +883,10 @@ internal static partial class AssignmentApiEndpoints
                 id => (maxSortRows.FirstOrDefault(x => x.CourseId == id)?.MaxSort ?? -1) + 1);
             var created = new List<Assignment>();
             var updated = new List<Assignment>();
+            var deleted = new List<Assignment>();
             var processed = new List<(string? Key, string CourseRef, Assignment Assignment, string Action)>();
             var ratingAffectedAssignmentIds = new HashSet<Guid>();
+            var deletedRatingUsers = new Dictionary<Guid, Guid[]>();
             await using var sqlImportTransaction = taskGraph?.SourceSchemaVersion == SchemaVersion
                 ? await db.Database.BeginTransactionAsync(ct) : null;
 
@@ -811,9 +903,16 @@ internal static partial class AssignmentApiEndpoints
                     var oldRating = existing.Rating;
                     var oldVisible = existing.IsVisible;
                     var filteredRequest = FilterExistingImportRequest(request, importOptions);
-                    if (!string.IsNullOrWhiteSpace(filteredRequest.Type) && filteredRequest.Type != existing.Type
-                        && (filteredRequest.Type == SqlTaskTypes.SqlTest || existing.Type == SqlTaskTypes.SqlTest))
-                        throw new ArgumentException("Create a separate SQL assignment instead of changing a populated assignment type.");
+                    if (!string.IsNullOrWhiteSpace(filteredRequest.Type)
+                        && AssignmentImportPolicy.IsImmutableSqlTypeChange(existing.Type, NormalizeAssignmentType(filteredRequest.Type)))
+                    {
+                        return Microsoft.AspNetCore.Http.Results.Conflict(new
+                        {
+                            code = "SQL_TYPE_IMMUTABLE",
+                            message = AssignmentImportPolicy.SqlTypeImmutableMessage,
+                            assignmentId = existing.Id
+                        });
+                    }
                     await ApplyAssignmentRequestAsync(existing, filteredRequest, clients, cfg, ct);
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
@@ -836,6 +935,26 @@ internal static partial class AssignmentApiEndpoints
                 processed.Add((key, taskCourseRef, assignment, "created"));
             }
 
+            if (deleteRows.Count > 0)
+            {
+                var deleteIds = deleteRows.Select(x => x.Id).ToArray();
+                var deleteAttempts = await db.Attempts
+                    .Where(x => deleteIds.Contains(x.TaskAssignmentId))
+                    .ToListAsync(ct);
+                foreach (var row in deleteRows)
+                {
+                    deletedRatingUsers[row.Id] = deleteAttempts
+                        .Where(x => x.TaskAssignmentId == row.Id)
+                        .Select(x => x.UserId)
+                        .Where(x => x != Guid.Empty)
+                        .Distinct()
+                        .ToArray();
+                }
+                if (deleteAttempts.Count > 0) db.Attempts.RemoveRange(deleteAttempts);
+                db.Assignments.RemoveRange(deleteRows);
+                deleted.AddRange(deleteRows);
+            }
+
             if (created.Count > 0) db.Assignments.AddRange(created);
             await db.SaveChangesAsync(ct);
             if (taskGraph?.SourceSchemaVersion == SchemaVersion)
@@ -854,6 +973,17 @@ internal static partial class AssignmentApiEndpoints
                     .Distinct()
                     .ToListAsync(ct);
                 await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, affectedId, users, "assignment-import-updated", ct);
+            }
+
+            foreach (var deletedEntry in deletedRatingUsers)
+            {
+                await MarkAssignmentRatingDirtyInSolutionsAsync(
+                    clients,
+                    cfg,
+                    deletedEntry.Key,
+                    deletedEntry.Value,
+                    "assignment-import-deleted",
+                    ct);
             }
 
             JsonObject? importedTaskGraph = null;
@@ -887,6 +1017,9 @@ internal static partial class AssignmentApiEndpoints
                     });
                 }
 
+                var mappedDeleteTasks = new JsonArray();
+                foreach (var deletedId in taskGraph.DeleteTaskIds) mappedDeleteTasks.Add(deletedId.ToString("D"));
+
                 importedTaskGraph = new JsonObject
                 {
                     ["schemaVersion"] = SchemaVersion,
@@ -894,6 +1027,7 @@ internal static partial class AssignmentApiEndpoints
                     ["scopes"] = BuildScopesJson(taskGraph.Scopes),
                     ["courses"] = mappedCourses,
                     ["tasks"] = mappedTasks,
+                    ["deleteTasks"] = mappedDeleteTasks,
                     ["datasets"] = new JsonArray(),
                     ["connections"] = mappedConnections,
                     ["layout"] = taskGraph.Layout.HasValue ? JsonNode.Parse(taskGraph.Layout.Value.GetRawText()) : null,
@@ -904,7 +1038,8 @@ internal static partial class AssignmentApiEndpoints
                         ["visibility"] = importOptions.UpdateVisibility,
                         ["connections"] = importOptions.UpdateConnections,
                         ["connectionAccess"] = importOptions.UpdateConnectionAccess,
-                        ["layout"] = importOptions.UpdateLayout
+                        ["layout"] = importOptions.UpdateLayout,
+                        ["deletions"] = importOptions.AllowDeletes
                     }
                 };
             }
@@ -913,8 +1048,11 @@ internal static partial class AssignmentApiEndpoints
             {
                 createdCount = created.Count,
                 updatedCount = updated.Count,
+                deletedCount = deleted.Count,
+                alreadyDeletedCount,
+                deletedAssignmentIds = deleted.Select(x => x.Id).ToArray(),
                 createdCourseCount,
-                totalCount = processed.Count,
+                totalCount = processed.Count + (taskGraph?.DeleteTaskIds.Count ?? 0),
                 assignments = processed.Select(x => ToDto(x.Assignment, includeSensitive: true)).ToList(),
                 taskGraph = importedTaskGraph
             });
@@ -980,9 +1118,9 @@ internal static partial class AssignmentApiEndpoints
             var assignment = await db.Assignments.FindAsync(assignmentId);
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            if (!string.IsNullOrWhiteSpace(request.Type) && request.Type != assignment.Type
-                && (request.Type == SqlTaskTypes.SqlTest || assignment.Type == SqlTaskTypes.SqlTest))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_TYPE_IMMUTABLE", message = "Create a separate SQL assignment instead of changing its type." });
+            if (!string.IsNullOrWhiteSpace(request.Type)
+                && AssignmentImportPolicy.IsImmutableSqlTypeChange(assignment.Type, NormalizeAssignmentType(request.Type)))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_TYPE_IMMUTABLE", message = AssignmentImportPolicy.SqlTypeImmutableMessage });
             if (assignment.Type == SqlTaskTypes.SqlTest && (request.IsHidden.HasValue ? !request.IsHidden.Value : request.IsVisible == true) && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0443\u0436\u043d\u043e \u0441\u043d\u0430\u0447\u0430\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c." });
             var oldRating = assignment.Rating;
@@ -1008,7 +1146,7 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             if (assignment.Type == SqlTaskTypes.SqlTest && await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = "SQL revision history is retained for submissions. Hide the assignment instead of deleting it." });
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = AssignmentImportPolicy.SqlDeleteRetainedMessage });
             var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
             var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
             db.Attempts.RemoveRange(attempts);
