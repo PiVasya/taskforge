@@ -52,7 +52,3 @@ export async function getAssignments(courseId) {
   const { data } = await api.get(`/api/courses/${courseId}/assignments`);
   return data;
 }
-export async function createAssignment(courseId, payload) {
-  const { data } = await api.post(`/api/courses/${courseId}/assignments`, payload);
-  return data;
-}

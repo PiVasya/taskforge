@@ -7,8 +7,6 @@ import { notifyOnce } from "../../utils/notifyOnce";
 import { getApiErrorMessage } from "../../api/http";
 
 import { getAssignmentForEdit, updateAssignment, deleteAssignment } from "../../api/assignments";
-import { getTaskTestEdit, saveTaskTestEdit } from "../../api/taskTests";
-import { getMathTaskEdit, saveMathTaskEdit } from "../../api/mathTasks";
 
 import { Button, Field, Input, Textarea, Select, Badge } from "../../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
@@ -36,11 +34,15 @@ export default function AssignmentEditPage() {
     queryFn: async () => {
       const assignment = await getAssignmentForEdit(assignmentId);
       const normalizedType = String(assignment?.type || '').trim();
-      const [testEdit, mathEdit] = await Promise.all([
-        normalizedType === 'test' ? getTaskTestEdit(assignmentId).catch(() => null) : Promise.resolve(null),
-        normalizedType === 'math' ? getMathTaskEdit(assignmentId).catch(() => null) : Promise.resolve(null),
-      ]);
-      return { assignment, testEdit, mathEdit };
+      return {
+        assignment,
+        testEdit: normalizedType === 'test'
+          ? { settings: assignment?.testSettings || {}, questions: Array.isArray(assignment?.questions) ? assignment.questions : [] }
+          : null,
+        mathEdit: normalizedType === 'math'
+          ? { settings: assignment?.testSettings || {}, blocks: Array.isArray(assignment?.blocks) ? assignment.blocks : [] }
+          : null,
+      };
     },
     enabled: Boolean(assignmentId),
     staleTime: 60_000,
@@ -462,11 +464,40 @@ export default function AssignmentEditPage() {
     }
 
     try {
+      const normalizedType = (type || "code-test").trim();
+      const cleanedQuestions = normalizedType === "test"
+        ? (testQuestions || []).map((q) => {
+            const acceptedAnswers = Array.isArray(q?.acceptedAnswers)
+              ? q.acceptedAnswers
+                  .map((x) => (typeof x === "string" ? x : ""))
+                  .map((x) => x.replace(/\r/g, ""))
+                  .filter((x) => x.trim().length > 0)
+              : [];
+            return { ...q, acceptedAnswers };
+          })
+        : undefined;
+      const cleanedBlocks = normalizedType === "math"
+        ? (mathBlocks || []).map((b) => ({
+            ...b,
+            acceptedAnswers: Array.isArray(b?.acceptedAnswers)
+              ? b.acceptedAnswers
+                  .map((x) => (typeof x === "string" ? x : ""))
+                  .map((x) => x.replace(/\r/g, ""))
+                  .filter((x) => x.trim().length > 0)
+              : [],
+            orderItems: Array.isArray(b?.orderItems)
+              ? b.orderItems
+                  .map((x) => (typeof x === "string" ? x : ""))
+                  .map((x) => x.replace(/\r/g, ""))
+                  .filter((x) => x.trim().length > 0)
+              : [],
+          }))
+        : undefined;
 
       const payload = {
         title: title.trim(),
         description,
-        type: (type || "code-test").trim(),
+        type: normalizedType,
         allowedLanguages: (LANGS_BY_TYPE[(type || "").trim()] && Array.isArray(allowedLanguages) && allowedLanguages.length > 0) ? allowedLanguages : null,
         tags: (tags || "").trim(),
         rating: Number(rating) >= 0 ? Number(rating) : 1,
@@ -481,8 +512,8 @@ export default function AssignmentEditPage() {
               .split("\n")
               .map((x) => x.trim())
               .filter((x) => x.length > 0)
-          : [],
-        starterCode: (["code-test", "image-test"].includes((type || "").trim())) ? (starterCode || "") : "",
+          : undefined,
+        starterCode: (["code-test", "image-test"].includes((type || "").trim())) ? (starterCode || "") : undefined,
 
         codeRequiredCalls: (["code-test", "image-test"].includes((type || "").trim()))
           ? (codeRequiredCallsText || "")
@@ -490,7 +521,7 @@ export default function AssignmentEditPage() {
               .split("\n")
               .map((x) => x.trim())
               .filter((x) => x.length > 0)
-          : [],
+          : undefined,
         
         
         testCases:
@@ -506,14 +537,17 @@ export default function AssignmentEditPage() {
                 threshold: (type || "").trim() === "image-test" ? (Number(t.threshold) || Number(imageTestThreshold) || 90) : undefined,
                 isHidden: !!t.isHidden,
               }))
-            : [],
+            : undefined,
 
         
         imageTestReferenceKey:
-          (type || "").trim() === "image-test" ? imageTestReferenceKey || null : null,
+          (type || "").trim() === "image-test" ? imageTestReferenceKey || null : undefined,
         imageTestSimilarityThreshold:
-          (type || "").trim() === "image-test" ? Number(imageTestThreshold) || 90 : null,
+          (type || "").trim() === "image-test" ? Number(imageTestThreshold) || 90 : undefined,
 
+        testSettings: normalizedType === "test" ? testSettings : normalizedType === "math" ? mathSettings : undefined,
+        questions: normalizedType === "test" ? cleanedQuestions : undefined,
+        blocks: normalizedType === "math" ? cleanedBlocks : undefined,
         analyticsSettings,
       };
 
@@ -521,45 +555,6 @@ export default function AssignmentEditPage() {
       if (type === 'sql-test') await sqlEditorRef.current?.save();
 
       
-      if ((type || "").trim() === "test") {
-        
-        
-        const cleanedQuestions = (testQuestions || []).map((q) => {
-          const aa = Array.isArray(q?.acceptedAnswers)
-            ? q.acceptedAnswers
-                .map((x) => (typeof x === "string" ? x : ""))
-                .map((x) => x.replace(/\r/g, ""))
-                .filter((x) => x.trim().length > 0)
-            : [];
-          return { ...q, acceptedAnswers: aa };
-        });
-        await saveTaskTestEdit(assignmentId, {
-          settings: testSettings,
-          questions: cleanedQuestions,
-        });
-      }
-
-      if ((type || "").trim() === "math") {
-        const cleanedBlocks = (mathBlocks || []).map((b) => ({
-          ...b,
-          acceptedAnswers: Array.isArray(b?.acceptedAnswers)
-            ? b.acceptedAnswers
-                .map((x) => (typeof x === "string" ? x : ""))
-                .map((x) => x.replace(/\r/g, ""))
-                .filter((x) => x.trim().length > 0)
-            : [],
-          orderItems: Array.isArray(b?.orderItems)
-            ? b.orderItems
-                .map((x) => (typeof x === "string" ? x : ""))
-                .map((x) => x.replace(/\r/g, ""))
-                .filter((x) => x.trim().length > 0)
-            : [],
-        }));
-        await saveMathTaskEdit(assignmentId, {
-          settings: mathSettings,
-          blocks: cleanedBlocks,
-        });
-      }
       try {
         queryClient.setQueryData(editQueryKey, (previous = {}) => ({
           ...previous,
@@ -727,7 +722,7 @@ export default function AssignmentEditPage() {
             </Field>
 
             <Field label="Тип">
-              <Select value={type} disabled={editQuery.data?.assignment?.type === "sql-test"} onChange={(e) => setType(e.target.value)}>
+              <Select value={type} disabled onChange={(e) => setType(e.target.value)}>
                 <option value="code-test">code-test</option>
                 <option value="image-test">image-test</option>
                 <option value="test">test</option>

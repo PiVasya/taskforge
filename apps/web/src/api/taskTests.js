@@ -19,12 +19,3 @@ export async function getMyTaskTestAttempt(attemptId) {
   const { data } = await api.get(`/api/me/test-attempts/${attemptId}`);
   return data;
 }
-
-export async function getTaskTestEdit(assignmentId) {
-  const { data } = await api.get(`/api/task-tests/${assignmentId}/edit`);
-  return data;
-}
-
-export async function saveTaskTestEdit(assignmentId, payload) {
-  await api.put(`/api/task-tests/${assignmentId}/edit`, payload);
-}

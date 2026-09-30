@@ -19,12 +19,3 @@ export async function getMyMathAttempt(attemptId) {
   const { data } = await api.get(`/api/me/math-attempts/${attemptId}`);
   return data;
 }
-
-export async function getMathTaskEdit(assignmentId) {
-  const { data } = await api.get(`/api/math-tasks/${assignmentId}/edit`);
-  return data;
-}
-
-export async function saveMathTaskEdit(assignmentId, payload) {
-  await api.put(`/api/math-tasks/${assignmentId}/edit`, payload);
-}

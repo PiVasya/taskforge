@@ -49,8 +49,14 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var spec = await LoadJudgeSpecAsync(assignmentId, cfg, httpFactory, ct);
-            if (spec?.Type == "sql-test")
+            if (string.Equals(spec?.Type, "sql-test", StringComparison.OrdinalIgnoreCase))
                 return Problem(400, "SQL_ENDPOINT_REQUIRED", "solutions.validation", "SQL assignments require the SQL Check endpoint and an exact engine profile.");
+            if (string.Equals(spec?.Type, "test", StringComparison.OrdinalIgnoreCase))
+                return Problem(400, "TEST_ENDPOINT_REQUIRED", "solutions.validation", "Обычные тесты проверяются через endpoint тестовых попыток, а не через code judge.");
+            if (string.Equals(spec?.Type, "math", StringComparison.OrdinalIgnoreCase))
+                return Problem(400, "MATH_ENDPOINT_REQUIRED", "solutions.validation", "Математические задания проверяются через endpoint математических попыток, а не через code judge.");
+            if (string.Equals(spec?.Type, "image-test", StringComparison.OrdinalIgnoreCase))
+                return Problem(400, "IMAGE_ENDPOINT_REQUIRED", "solutions.validation", "Image-test задания проверяются через image pipeline, а не через обычный code judge.");
 
             var sub = new SolutionSubmission
             {

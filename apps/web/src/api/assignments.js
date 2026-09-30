@@ -48,14 +48,31 @@ export async function getAssignmentTests(assignmentId) {
   return res.data;
 }
 
+const AUTHORING_KIND_PATH = {
+  'code-test': 'code-assignments',
+  'image-test': 'image-assignments',
+  test: 'test-assignments',
+  math: 'math-assignments',
+  'sql-test': 'sql-assignments',
+};
+
+function authoringPath(type) {
+  return AUTHORING_KIND_PATH[String(type || '').trim()] || null;
+}
+
 export async function getAssignmentForEdit(assignmentId) {
-  const res = await api.get(`/api/assignments/${assignmentId}/edit`);
+  const meta = await api.get(`/api/assignments/${assignmentId}/edit-meta`);
+  const path = authoringPath(meta.data?.type);
+  if (!path) throw new Error(`Unsupported assignment type: ${meta.data?.type || ''}`);
+  const res = await api.get(`/api/${path}/${assignmentId}/edit`);
   return res.data;
 }
 
 
 export async function createAssignment(courseId, payload) {
-  const res = await api.post(`/api/courses/${courseId}/assignments`, payload);
+  const path = authoringPath(payload?.type);
+  if (!path) throw new Error(`Unsupported assignment type: ${payload?.type || ''}`);
+  const res = await api.post(`/api/courses/${courseId}/${path}`, payload);
   return res.data;
 }
 
@@ -71,7 +88,9 @@ export async function exportAssignmentsToJson(courseId, options = {}) {
 
 
 export async function updateAssignment(assignmentId, payload) {
-  const res = await api.put(`/api/assignments/${assignmentId}`, payload);
+  const path = authoringPath(payload?.type);
+  if (!path) throw new Error(`Unsupported assignment type: ${payload?.type || ''}`);
+  const res = await api.put(`/api/${path}/${assignmentId}`, payload);
   return res.data;
 }
 

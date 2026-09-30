@@ -18,5 +18,13 @@ public sealed class RequestSecurityTests
             TaskForgeRequestSecurity.GetRequirement("tasks", "GET", $"/api/courses/{id:D}"));
         Assert.Equal(TaskForgeRequestSecurity.Requirement.Internal,
             TaskForgeRequestSecurity.GetRequirement("tasks", "GET", "/api/internal/courses/x"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "GET", $"/api/assignments/{id:D}/edit-meta"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "GET", $"/api/code-assignments/{id:D}/edit"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "PUT", $"/api/test-assignments/{id:D}"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "GET", $"/api/sql-assignments/{id:D}/edit"));
     }
 }

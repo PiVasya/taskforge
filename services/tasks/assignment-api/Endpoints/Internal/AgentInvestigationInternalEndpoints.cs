@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Data;
+using TaskForge.Tasks.Api.Services.Testing;
+using TaskForge.Tasks.Api.Services.Specs;
 
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
 using static TaskForge.Tasks.Api.Services.Results.AssignmentApiResultsService;
+using static TaskForge.Tasks.Api.Services.Serialization.AssignmentApiSerializationService;
 
 namespace TaskForge.Tasks.Api.Endpoints;
 
@@ -161,9 +164,14 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null)
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
 
+            var testSpec = string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)
+                ? await TestAssignmentSpecService.ReadAsync(db, assignment, ct)
+                : null;
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignment = ToDto(assignment, includeSensitive: true),
+                test = testSpec is null ? null : TaskSpecToJsonObject(testSpec),
                 assignmentUrl = $"/assignment/{assignment.Id:D}",
                 editUrl = $"/assignment/{assignment.Id:D}/edit"
             });

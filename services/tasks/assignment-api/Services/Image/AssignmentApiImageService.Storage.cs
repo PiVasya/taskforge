@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Specs;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -106,7 +107,10 @@ internal static partial class AssignmentApiImageService
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
+        if (!string.Equals(NormalizeAssignmentType(assignment.Type), "image-test", StringComparison.Ordinal))
+            return Problem(409, "IMAGE_ASSIGNMENT_TYPE_REQUIRED", "image-test.type", "Этот endpoint доступен только для image-test заданий.");
+        var imageSpec = await AssignmentTypeSpecService.ReadImageAsync(db, assignment);
+        var root = JsonNode.Parse(imageSpec.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
         var referenceKey = NodeString(root, "imageTestReferenceKey") ?? NodeString(root, "expectedImageKey") ?? NodeString(root, "referenceKey") ?? NodeString(root, "imageKey");
         var referenceBase64 = StripDataUrl(NodeString(root, "referenceBase64") ?? NodeString(root, "expectedImageBase64") ?? NodeString(root, "imageBase64"));
         if (string.IsNullOrWhiteSpace(referenceKey) && string.IsNullOrWhiteSpace(referenceBase64)) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания ещё не загружена эталонная картинка.");
@@ -114,14 +118,14 @@ internal static partial class AssignmentApiImageService
         var actual = form.Files.FirstOrDefault();
         if (actual == null || actual.Length == 0) return Problem(400, "IMAGE_ACTUAL_REQUIRED", "request.validation", "Выберите изображение для сравнения.");
         if (actual.Length > MaxImageUploadBytes(cfg)) return Problem(413, "IMAGE_ACTUAL_TOO_LARGE", "request.validation", $"Изображение для сравнения слишком большое. Максимум: {MaxImageUploadBytes(cfg) / 1024 / 1024} МБ.");
-        var expectedSpec = new ImageTestCaseSpec("Основной тест", string.Empty, string.Empty, referenceBase64, referenceKey, JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90), false, NodeString(root, "referenceContentType") ?? "image/png", NodeString(root, "referenceFileName") ?? "expected.png");
+        var expectedSpec = new ImageTestCaseSpec("Основной тест", string.Empty, string.Empty, referenceBase64, referenceKey, JsonInt(imageSpec.TestsJson, "imageTestSimilarityThreshold", 90), false, NodeString(root, "referenceContentType") ?? "image/png", NodeString(root, "referenceFileName") ?? "expected.png");
         var expected = await LoadExpectedImageAsync(expectedSpec, clients, cfg, CancellationToken.None);
         await using var actualMs = new MemoryStream();
         await actual.CopyToAsync(actualMs);
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-compare-upload", http.RequestAborted) is { } quotaProblem) return quotaProblem;
-        var thresholdPercent = JsonInt(assignment.TestsJson, "imageTestSimilarityThreshold", 90);
+        var thresholdPercent = JsonInt(imageSpec.TestsJson, "imageTestSimilarityThreshold", 90);
         var threshold = System.Math.Clamp(thresholdPercent / 100.0, 0.0, 1.0);
         try
         {

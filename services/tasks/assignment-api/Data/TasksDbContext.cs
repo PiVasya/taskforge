@@ -9,6 +9,10 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 {
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<CodeAssignmentSpec> CodeAssignmentSpecs => Set<CodeAssignmentSpec>();
+    public DbSet<ImageAssignmentSpec> ImageAssignmentSpecs => Set<ImageAssignmentSpec>();
+    public DbSet<MathAssignmentSpec> MathAssignmentSpecs => Set<MathAssignmentSpec>();
+    public DbSet<TestAssignmentSpec> TestAssignmentSpecs => Set<TestAssignmentSpec>();
     public DbSet<TaskAttempt> Attempts => Set<TaskAttempt>();
     public DbSet<AssignmentActivityEvent> AssignmentActivityEvents => Set<AssignmentActivityEvent>();
     public DbSet<AssignmentWorkSession> AssignmentWorkSessions => Set<AssignmentWorkSession>();
@@ -61,6 +65,61 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
             entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
             entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
             entity.Property(x => x.AnalyticsSettingsJson).HasColumnType("jsonb");
+        });
+
+
+        modelBuilder.Entity<CodeAssignmentSpec>(entity =>
+        {
+            entity.ToTable("CodeAssignmentSpecs");
+            entity.HasKey(x => x.AssignmentId);
+            entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.AllowedLanguagesCsv).HasMaxLength(300);
+            entity.Property(x => x.TestsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
+            entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
+            entity.HasOne<Assignment>()
+                .WithOne()
+                .HasForeignKey<CodeAssignmentSpec>(x => x.AssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ImageAssignmentSpec>(entity =>
+        {
+            entity.ToTable("ImageAssignmentSpecs");
+            entity.HasKey(x => x.AssignmentId);
+            entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.AllowedLanguagesCsv).HasMaxLength(300);
+            entity.Property(x => x.TestsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.CodeForbiddenCallsJson).HasColumnType("jsonb");
+            entity.Property(x => x.CodeRequiredCallsJson).HasColumnType("jsonb");
+            entity.HasOne<Assignment>()
+                .WithOne()
+                .HasForeignKey<ImageAssignmentSpec>(x => x.AssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MathAssignmentSpec>(entity =>
+        {
+            entity.ToTable("MathAssignmentSpecs");
+            entity.HasKey(x => x.AssignmentId);
+            entity.Property(x => x.SettingsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.BlocksJson).HasColumnType("jsonb").IsRequired();
+            entity.HasOne<Assignment>()
+                .WithOne()
+                .HasForeignKey<MathAssignmentSpec>(x => x.AssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestAssignmentSpec>(entity =>
+        {
+            entity.ToTable("TestAssignmentSpecs");
+            entity.HasKey(x => x.AssignmentId);
+            entity.Property(x => x.SettingsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.QuestionsJson).HasColumnType("jsonb").IsRequired();
+            entity.HasOne<Assignment>()
+                .WithOne()
+                .HasForeignKey<TestAssignmentSpec>(x => x.AssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
 

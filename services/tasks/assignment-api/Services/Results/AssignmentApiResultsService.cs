@@ -7,8 +7,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Specs;
 
 using TaskForge.Tasks.Api.Contracts;
+using TaskForge.Tasks.Api.Services.Testing;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Image.AssignmentApiImageService;
@@ -68,12 +70,12 @@ internal static class AssignmentApiResultsService
 
         if (kind == "math")
         {
-            var spec = assignment == null ? null : ReadMathSpec(assignment);
+            var spec = assignment == null ? null : await AssignmentTypeSpecService.ReadMathAsync(db, assignment);
             var allowReview = isAdmin || spec?.Settings.AllowReview == true;
             return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = spec?.Settings.PassPercent ?? 60, attempt.TotalScore, attempt.EarnedScore, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview, blocks = allowReview ? JsonPropArray(review, "blocks") : Array.Empty<object>() });
         }
 
-        var testSpec = assignment == null ? null : ReadTaskSpec(assignment);
+        var testSpec = assignment == null ? null : await TestAssignmentSpecService.ReadAsync(db, assignment);
         var testAllowReview = isAdmin || testSpec?.Settings.AllowReview == true;
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = testSpec?.Settings.PassPercent ?? 60, totalQuestions = attempt.TotalUnits, correctQuestions = attempt.CorrectUnits, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview = testAllowReview, questions = testAllowReview ? JsonPropArray(review, "questions") : Array.Empty<object>() });
     }

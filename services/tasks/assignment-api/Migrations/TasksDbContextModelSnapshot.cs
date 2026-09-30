@@ -389,6 +389,106 @@ namespace TaskForge.Tasks.Api.Migrations
                     b.ToTable("AssignmentWorkSessions", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.CodeAssignmentSpec", b =>
+                {
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AllowedLanguagesCsv")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("CodeForbiddenCallsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CodeRequiredCallsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StarterCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AssignmentId");
+
+                    b.ToTable("CodeAssignmentSpecs", (string)null);
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.ImageAssignmentSpec", b =>
+                {
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AllowedLanguagesCsv")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("CodeForbiddenCallsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CodeRequiredCallsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StarterCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AssignmentId");
+
+                    b.ToTable("ImageAssignmentSpecs", (string)null);
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.MathAssignmentSpec", b =>
+                {
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlocksJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AssignmentId");
+
+                    b.ToTable("MathAssignmentSpecs", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Tasks.Api.Domain.ServiceSchemaMarker", b =>
                 {
                     b.Property<Guid>("Id")
@@ -979,6 +1079,57 @@ namespace TaskForge.Tasks.Api.Migrations
                     b.ToTable("TaskAttempts", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TestAssignmentSpec", b =>
+                {
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("QuestionsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AssignmentId");
+
+                    b.ToTable("TestAssignmentSpecs", (string)null);
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.CodeAssignmentSpec", b =>
+                {
+                    b.HasOne("TaskForge.Tasks.Api.Domain.Assignment", null)
+                        .WithOne()
+                        .HasForeignKey("TaskForge.Tasks.Api.Domain.CodeAssignmentSpec", "AssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.ImageAssignmentSpec", b =>
+                {
+                    b.HasOne("TaskForge.Tasks.Api.Domain.Assignment", null)
+                        .WithOne()
+                        .HasForeignKey("TaskForge.Tasks.Api.Domain.ImageAssignmentSpec", "AssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.MathAssignmentSpec", b =>
+                {
+                    b.HasOne("TaskForge.Tasks.Api.Domain.Assignment", null)
+                        .WithOne()
+                        .HasForeignKey("TaskForge.Tasks.Api.Domain.MathAssignmentSpec", "AssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TaskForge.Tasks.Api.Domain.Sql.SqlAssignmentEngineTarget", b =>
                 {
                     b.HasOne("TaskForge.Tasks.Api.Domain.Sql.SqlEngineProfile", null)
@@ -1060,6 +1211,15 @@ namespace TaskForge.Tasks.Api.Migrations
                         .WithOne()
                         .HasForeignKey("TaskForge.Tasks.Api.Domain.Sql.SqlExpectedArtifact", "EngineTargetId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TestAssignmentSpec", b =>
+                {
+                    b.HasOne("TaskForge.Tasks.Api.Domain.Assignment", null)
+                        .WithOne()
+                        .HasForeignKey("TaskForge.Tasks.Api.Domain.TestAssignmentSpec", "AssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

@@ -132,15 +132,21 @@ public static class TaskForgeRequestSecurity
             return Requirement.Authenticated;
         if (path == "/api/courses" || path.StartsWith("/api/courses/")) return safeMethod ? Requirement.Authenticated : Requirement.Editor;
         if (path == "/api/groups" || path.StartsWith("/api/groups/")) return safeMethod ? Requirement.Authenticated : Requirement.Admin;
+        if (path.StartsWith("/api/code-assignments")
+            || path.StartsWith("/api/image-assignments")
+            || path.StartsWith("/api/test-assignments")
+            || path.StartsWith("/api/math-assignments")
+            || path.StartsWith("/api/sql-assignments"))
+            return Requirement.Editor;
         if (path == "/api/assignments/course-progress") return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/activity/batch")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/submit")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Authenticated;
-        if (path.StartsWith("/api/assignments/") && path.EndsWith("/edit")) return Requirement.Editor;
+        if (path.StartsWith("/api/assignments/") && (path.EndsWith("/edit") || path.EndsWith("/edit-meta"))) return Requirement.Editor;
         if (path.StartsWith("/api/assignments/") && path.Contains("/image-test/reference")) return Requirement.Editor;
         if (path.StartsWith("/api/assignments/") && path.Contains("/image-test")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments")) return writeMethod ? Requirement.Editor : Requirement.Authenticated;
-        if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks")) return path.EndsWith("/edit") ? Requirement.Editor : Requirement.Authenticated;
+        if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks")) return Requirement.Authenticated;
         if (path.StartsWith("/api/tests")) return Requirement.Editor;
 
         if (path.StartsWith("/api/compiler") || path.StartsWith("/api/execution") || path.StartsWith("/api/image-runners")) return Requirement.Editor;

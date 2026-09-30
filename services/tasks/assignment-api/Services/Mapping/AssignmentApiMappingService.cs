@@ -10,6 +10,8 @@ using TaskForge.Tasks.Api.Domain;
 
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Services.Analytics;
+using TaskForge.Tasks.Api.Services.Specs;
+using TaskForge.Tasks.Api.Services.Testing;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Image.AssignmentApiImageService;
@@ -22,19 +24,6 @@ namespace TaskForge.Tasks.Api.Services.Mapping;
 
 internal static class AssignmentApiMappingService
 {
-    internal static async Task<IResult> SaveSpec(Guid assignmentId, JsonElement payload, TasksDbContext db, string kind)
-    {
-        var assignment = await db.Assignments.FindAsync(assignmentId);
-        if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var node = JsonNode.Parse(payload.GetRawText()) as JsonObject ?? new JsonObject();
-        NormalizeIds(node, kind == "test" ? "questions" : "blocks");
-        assignment.TestsJson = node.ToJsonString(JsonOptions());
-        assignment.Type = kind;
-        assignment.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync();
-        return Microsoft.AspNetCore.Http.Results.Ok(kind == "test" ? TaskSpecToJsonObject(ParseTaskSpec(node)) : MathSpecToJsonObject(ParseMathSpec(node)));
-    }
-
     internal static async Task<T?> GetInternalAsync<T>(IHttpClientFactory httpFactory, IConfiguration cfg, string baseUrl, string path, CancellationToken ct)
     {
         try
@@ -62,7 +51,10 @@ internal static class AssignmentApiMappingService
 
     internal static object ToDto(Assignment x, bool includeSensitive = false, bool isSolved = false)
     {
-        var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
+        var type = NormalizeAssignmentType(x.Type);
+        var detachedTest = type == "test";
+        var executable = type is "code-test" or "image-test";
+        var tests = detachedTest ? null : (includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson));
         return new
         {
             x.Id,
@@ -70,22 +62,22 @@ internal static class AssignmentApiMappingService
             x.Title,
             x.Description,
             x.Type,
-            x.Language,
-            allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
-            x.StarterCode,
+            Language = executable ? x.Language : string.Empty,
+            allowedLanguages = executable ? ParseCsv(x.AllowedLanguagesCsv, x.Language) : Array.Empty<string>(),
+            StarterCode = executable ? x.StarterCode : null,
             tests,
             testCases = tests,
-            testsJson = includeSensitive ? x.TestsJson : null,
+            testsJson = includeSensitive && !detachedTest ? x.TestsJson : null,
             tags = x.Tags ?? string.Empty,
             rating = x.Rating,
             isHidden = !x.IsVisible,
             isAiDraft = false,
             lifecycleStatus = x.IsVisible ? "published" : "draft",
-            taskConstraints = TaskConstraintsDto(x),
-            codeForbiddenCalls = includeSensitive ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
-            codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
-            imageTestReferenceKey = includeSensitive ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
-            imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
+            taskConstraints = executable ? TaskConstraintsDto(x) : new { kind = "assignment", required = Array.Empty<string>(), forbidden = Array.Empty<string>(), note = "" },
+            codeForbiddenCalls = includeSensitive && executable ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
+            codeRequiredCalls = includeSensitive && executable ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
+            imageTestReferenceKey = includeSensitive && type == "image-test" ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
+            imageTestSimilarityThreshold = type == "image-test" ? JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90) : (int?)null,
             analyticsSettings = includeSensitive ? ParseJson(x.AnalyticsSettingsJson) ?? AssignmentAnalyticsSettingsService.ToPublicDto(AssignmentAnalyticsSettingsService.Default()) : null,
             x.IsVisible,
             x.Sort,
@@ -100,23 +92,25 @@ internal static class AssignmentApiMappingService
 
     internal static object ToSolveShellDto(Assignment x, bool includeSensitive = false, bool isSolved = false)
     {
+        var type = NormalizeAssignmentType(x.Type);
+        var executable = type is "code-test" or "image-test";
         return new
         {
             x.Id,
             x.CourseId,
             x.Title,
             x.Type,
-            x.Language,
-            allowedLanguages = ParseCsv(x.AllowedLanguagesCsv, x.Language),
-            x.StarterCode,
+            Language = executable ? x.Language : string.Empty,
+            allowedLanguages = executable ? ParseCsv(x.AllowedLanguagesCsv, x.Language) : Array.Empty<string>(),
+            StarterCode = executable ? x.StarterCode : null,
             tags = x.Tags ?? string.Empty,
             rating = x.Rating,
             isHidden = !x.IsVisible,
             isAiDraft = false,
             lifecycleStatus = x.IsVisible ? "published" : "draft",
-            taskConstraints = TaskConstraintsDto(x),
-            codeForbiddenCalls = includeSensitive ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
-            codeRequiredCalls = includeSensitive ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
+            taskConstraints = executable ? TaskConstraintsDto(x) : new { kind = "assignment", required = Array.Empty<string>(), forbidden = Array.Empty<string>(), note = "" },
+            codeForbiddenCalls = includeSensitive && executable ? ParseStringArrayJson(x.CodeForbiddenCallsJson) : Array.Empty<string>(),
+            codeRequiredCalls = includeSensitive && executable ? ParseStringArrayJson(x.CodeRequiredCallsJson) : Array.Empty<string>(),
             analyticsSettings = includeSensitive ? ParseJson(x.AnalyticsSettingsJson) ?? AssignmentAnalyticsSettingsService.ToPublicDto(AssignmentAnalyticsSettingsService.Default()) : null,
             x.IsVisible,
             x.Sort,
@@ -136,6 +130,8 @@ internal static class AssignmentApiMappingService
 
     internal static object ToSolveStatementDto(Assignment x, bool includeSensitive = false)
     {
+        var type = NormalizeAssignmentType(x.Type);
+        var executable = type is "code-test" or "image-test";
         return new
         {
             x.Id,
@@ -144,7 +140,7 @@ internal static class AssignmentApiMappingService
             x.Description,
             tags = x.Tags ?? string.Empty,
             rating = x.Rating,
-            taskConstraints = TaskConstraintsDto(x),
+            taskConstraints = executable ? TaskConstraintsDto(x) : new { kind = "assignment", required = Array.Empty<string>(), forbidden = Array.Empty<string>(), note = "" },
             canEdit = includeSensitive,
             x.UpdatedAt
         };
@@ -152,16 +148,18 @@ internal static class AssignmentApiMappingService
 
     internal static object ToSolveTestsDto(Assignment x, bool includeSensitive = false)
     {
-        var tests = includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson);
+        var type = NormalizeAssignmentType(x.Type);
+        var detachedTest = type == "test";
+        var tests = detachedTest ? null : (includeSensitive ? ParseJson(x.TestsJson) : PublicTestsJson(x.TestsJson));
         return new
         {
             x.Id,
             x.Type,
             tests,
             testCases = tests,
-            testsJson = includeSensitive ? x.TestsJson : null,
-            imageTestReferenceKey = includeSensitive ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
-            imageTestSimilarityThreshold = JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90),
+            testsJson = includeSensitive && !detachedTest ? x.TestsJson : null,
+            imageTestReferenceKey = includeSensitive && type == "image-test" ? JsonString(x.TestsJson, "imageTestReferenceKey") : null,
+            imageTestSimilarityThreshold = type == "image-test" ? JsonInt(x.TestsJson, "imageTestSimilarityThreshold", 90) : (int?)null,
             canEdit = includeSensitive,
             x.UpdatedAt
         };
@@ -174,53 +172,73 @@ internal static class AssignmentApiMappingService
         x.Title,
         x.Title,
         x.Type,
-        x.Language,
+        NormalizeAssignmentType(x.Type) is "code-test" or "image-test" ? x.Language : string.Empty,
         x.Rating,
         x.IsVisible,
         x.Sort);
 
-    internal static async Task ApplyAssignmentRequestAsync(Assignment assignment, AssignmentRequest request, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static async Task ApplyAssignmentRequestAsync(Assignment assignment, AssignmentRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
+        var previousType = NormalizeAssignmentType(assignment.Type);
+        var nextType = !string.IsNullOrWhiteSpace(request.Type) ? NormalizeExplicitAssignmentType(request.Type) : previousType;
+
         if (!string.IsNullOrWhiteSpace(request.Title)) assignment.Title = request.Title.Trim();
         if (request.Description != null) assignment.Description = request.Description;
-        if (!string.IsNullOrWhiteSpace(request.Type)) assignment.Type = NormalizeAssignmentType(request.Type);
-        if (!string.IsNullOrWhiteSpace(request.Language)) assignment.Language = NormalizeLanguage(request.Language) ?? assignment.Language;
-        if (request.AllowedLanguages != null) assignment.AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages);
         if (request.Tags != null) assignment.Tags = request.Tags;
         if (request.Rating.HasValue) assignment.Rating = System.Math.Max(0, request.Rating.Value);
         if (request.Sort.HasValue) assignment.Sort = System.Math.Max(0, request.Sort.Value);
-        if (request.StarterCode != null) assignment.StarterCode = request.StarterCode;
 
-        var nextType = !string.IsNullOrWhiteSpace(request.Type) ? NormalizeAssignmentType(request.Type) : assignment.Type;
-        if (string.Equals(nextType, "image-test", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(previousType, nextType, StringComparison.Ordinal))
+            throw new InvalidOperationException("Assignment.Type is immutable after creation.");
+
+        switch (nextType)
         {
-            var hasRealSpec = HasMeaningfulJsonText(request.TestsJson) || HasMeaningfulJsonElement(request.Tests) || HasMeaningfulJsonElement(request.TestCases);
-            if (hasRealSpec || request.ImageTestReferenceKey != null || request.ImageTestSimilarityThreshold.HasValue)
+            case "code-test":
+                await AssignmentTypeSpecService.SaveCodeFromRequestAsync(db, assignment, request, ct);
+                break;
+            case "image-test":
+                await AssignmentTypeSpecService.SaveImageFromRequestAsync(db, assignment, request, clients, cfg, ct);
+                break;
+            case "test":
             {
-                assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(hasRealSpec ? RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson : assignment.TestsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+                var incomingTestsJson = RawJson(request.Tests) ?? request.TestsJson;
+                if (!string.Equals(previousType, "test", StringComparison.Ordinal))
+                {
+                    assignment.TestsJson = null;
+                    await TestAssignmentSpecService.MergeFromRequestAsync(db, assignment, incomingTestsJson ?? "{}", ct);
+                }
+                else if (incomingTestsJson != null)
+                {
+                    await TestAssignmentSpecService.MergeFromRequestAsync(db, assignment, incomingTestsJson, ct);
+                }
+                else
+                {
+                    await TestAssignmentSpecService.EnsureDetachedAsync(db, assignment, ct);
+                }
+                break;
             }
-        }
-        else if (nextType != "sql-test" && (request.TestsJson != null || request.Tests.HasValue || request.TestCases.HasValue))
-        {
-            var incomingTestsJson = RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson;
-            assignment.TestsJson = nextType is "test" or "math"
-                ? MergeInteractiveSpecJsonForStorage(assignment.TestsJson, incomingTestsJson, nextType)
-                : NormalizeSpecJsonForStorage(incomingTestsJson, nextType);
+            case "math":
+                await AssignmentTypeSpecService.SaveMathFromRequestAsync(db, assignment, request, ct);
+                break;
+            case "sql-test":
+                assignment.Language = string.Empty;
+                assignment.AllowedLanguagesCsv = null;
+                assignment.StarterCode = null;
+                assignment.TestsJson = null;
+                assignment.CodeForbiddenCallsJson = null;
+                assignment.CodeRequiredCallsJson = null;
+                break;
         }
 
-        if (request.CodeForbiddenCalls != null) assignment.CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls);
-        if (request.CodeRequiredCalls != null) assignment.CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls);
         if (request.AnalyticsSettings.HasValue) assignment.AnalyticsSettingsJson = AssignmentAnalyticsSettingsService.NormalizeJson(request.AnalyticsSettings);
         if (request.IsVisible.HasValue) assignment.IsVisible = request.IsVisible.Value;
         if (request.IsHidden.HasValue) assignment.IsVisible = !request.IsHidden.Value;
         assignment.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    internal static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, AssignmentRequest request, int sort, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static async Task<Assignment> BuildAssignmentEntityAsync(Guid courseId, AssignmentRequest request, int sort, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
-        var type = NormalizeAssignmentType(request.Type);
-        var testsJson = RawJson(request.Tests) ?? RawJson(request.TestCases) ?? request.TestsJson;
-        testsJson = NormalizeSpecJsonForStorage(testsJson, type);
+        var type = string.IsNullOrWhiteSpace(request.Type) ? "code-test" : NormalizeExplicitAssignmentType(request.Type);
         var assignment = new Assignment
         {
             Id = request.Id.HasValue && request.Id.Value != Guid.Empty ? request.Id.Value : Guid.NewGuid(),
@@ -228,22 +246,36 @@ internal static class AssignmentApiMappingService
             Title = Clean(request.Title, "Новое задание"),
             Description = request.Description,
             Type = type,
-            Language = type == "sql-test" ? string.Empty : NormalizeLanguage(request.Language) ?? (type == "image-test" ? "python" : "csharp"),
-            AllowedLanguagesCsv = NormalizeLanguagesCsv(request.AllowedLanguages),
+            Language = type switch { "code-test" => NormalizeLanguage(request.Language) ?? "csharp", "image-test" => NormalizeLanguage(request.Language) ?? "python", _ => string.Empty },
+            AllowedLanguagesCsv = null,
             Tags = request.Tags,
             Rating = System.Math.Max(0, request.Rating ?? 1),
-            StarterCode = request.StarterCode,
-            TestsJson = type is "image-test" or "sql-test" ? null : testsJson,
-            CodeForbiddenCallsJson = StringArrayJson(request.CodeForbiddenCalls),
-            CodeRequiredCallsJson = StringArrayJson(request.CodeRequiredCalls),
+            StarterCode = null,
+            TestsJson = null,
+            CodeForbiddenCallsJson = null,
+            CodeRequiredCallsJson = null,
             AnalyticsSettingsJson = AssignmentAnalyticsSettingsService.NormalizeJson(request.AnalyticsSettings),
             IsVisible = type != "sql-test" && (request.IsVisible ?? !(request.IsHidden ?? false)),
             Sort = request.Sort ?? sort
         };
 
-        if (type == "image-test")
+        switch (type)
         {
-            assignment.TestsJson = (await MergeAndMaterializeImageTestPayloadAsync(testsJson, request, assignment.Id, clients, cfg, ct)).ToJsonString(JsonOptions());
+            case "code-test":
+                await AssignmentTypeSpecService.SaveCodeFromRequestAsync(db, assignment, request, ct);
+                break;
+            case "image-test":
+                await AssignmentTypeSpecService.SaveImageFromRequestAsync(db, assignment, request, clients, cfg, ct);
+                break;
+            case "test":
+            {
+                var testsJson = RawJson(request.Tests) ?? request.TestsJson;
+                await TestAssignmentSpecService.MergeFromRequestAsync(db, assignment, testsJson, ct);
+                break;
+            }
+            case "math":
+                await AssignmentTypeSpecService.SaveMathFromRequestAsync(db, assignment, request, ct);
+                break;
         }
 
         return assignment;

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
+using TaskForge.Tasks.Api.Services.Specs;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -47,17 +48,28 @@ internal static partial class AssignmentApiEndpoints
                 catch (TaskForge.Tasks.Api.Services.Sql.SqlNotReadyException) { return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED" }); }
             }
 
+            var normalizedType = NormalizeAssignmentType(assignment.Type);
+            if (normalizedType is "test" or "math" or "image-test")
+            {
+                return Microsoft.AspNetCore.Http.Results.Ok(new
+                {
+                    assignment.Id,
+                    assignment.Type
+                });
+            }
+
+            var codeSpec = await AssignmentTypeSpecService.ReadCodeAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignment.Id,
                 assignment.Type,
-                assignment.Language,
-                allowedLanguages = ParseCsv(assignment.AllowedLanguagesCsv, assignment.Language),
-                codeForbiddenCalls = ParseStringArrayJson(assignment.CodeForbiddenCallsJson),
-                codeRequiredCalls = ParseStringArrayJson(assignment.CodeRequiredCallsJson),
-                tests = ParseJson(assignment.TestsJson),
-                testCases = ParseJson(assignment.TestsJson),
-                testsJson = assignment.TestsJson
+                language = codeSpec.Language,
+                allowedLanguages = ParseCsv(codeSpec.AllowedLanguagesCsv, codeSpec.Language),
+                codeForbiddenCalls = ParseStringArrayJson(codeSpec.CodeForbiddenCallsJson),
+                codeRequiredCalls = ParseStringArrayJson(codeSpec.CodeRequiredCallsJson),
+                tests = ParseJson(codeSpec.TestsJson),
+                testCases = ParseJson(codeSpec.TestsJson),
+                testsJson = codeSpec.TestsJson
             });
         });
 

@@ -23,7 +23,7 @@ internal static class AssignmentApiSerializationService
 {
     internal static int JsonNodeInt(JsonObject o, string name, int fallback) => int.TryParse(NodeString(o, name), out var v) ? v : fallback;
 
-    internal static TaskSpec ReadTaskSpec(Assignment assignment)
+    internal static TaskSpec ReadLegacyTaskSpec(Assignment assignment)
     {
         var root = JsonNode.Parse(string.IsNullOrWhiteSpace(assignment.TestsJson) ? "{}" : assignment.TestsJson!) as JsonObject ?? new JsonObject();
         return ParseTaskSpec(root);
@@ -39,10 +39,10 @@ internal static class AssignmentApiSerializationService
         }
     }
 
-    internal static JsonObject ToImportDto(Assignment x)
+    internal static JsonObject ToImportDto(Assignment x, TaskSpec? testSpec = null)
     {
         var type = NormalizeAssignmentType(x.Type);
-        var testsPayload = ExportTestsPayload(x);
+        var testsPayload = ExportTestsPayload(x, testSpec);
         var testsJson = x.TestsJson;
         var codeForbiddenCalls = ParseStringArrayJson(x.CodeForbiddenCallsJson);
         var codeRequiredCalls = ParseStringArrayJson(x.CodeRequiredCallsJson);
@@ -61,6 +61,13 @@ internal static class AssignmentApiSerializationService
             ["starterCode"] = x.StarterCode ?? string.Empty,
             ["isVisible"] = x.IsVisible
         };
+
+        if (type is "test" or "math" or "sql-test")
+        {
+            obj.Remove("language");
+            obj.Remove("allowedLanguages");
+            obj.Remove("starterCode");
+        }
 
         if (type is "code-test" or "image-test")
         {
@@ -92,12 +99,12 @@ internal static class AssignmentApiSerializationService
         return obj;
     }
 
-    internal static object? ExportTestsPayload(Assignment x)
+    internal static object? ExportTestsPayload(Assignment x, TaskSpec? testSpec = null)
     {
         var type = NormalizeAssignmentType(x.Type);
         return type switch
         {
-            "test" => TaskSpecToJsonObject(ReadTaskSpec(x)),
+            "test" => TaskSpecToJsonObject(testSpec ?? ReadLegacyTaskSpec(x)),
             "math" => MathSpecToJsonObject(ReadMathSpec(x)),
             _ => ParseJson(x.TestsJson)
         };
@@ -197,18 +204,28 @@ internal static class AssignmentApiSerializationService
         _ => true
     };
 
-    internal static string NormalizeAssignmentType(string? value)
+    internal static bool TryNormalizeAssignmentType(string? value, out string normalized)
     {
         var s = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return s switch
+        normalized = s switch
         {
             "code" or "code_test" or "codetest" or "programming" or "programming-test" => "code-test",
             "image" or "image_test" or "imagetest" or "drawing" or "drawing-test" => "image-test",
             "quiz" or "task-test" or "multiple-choice" => "test",
             "math-test" or "math_task" or "math-task" => "math",
             "image-test" or "code-test" or "test" or "math" or "sql-test" => s,
-            _ => "code-test"
+            _ => string.Empty
         };
+        return normalized.Length > 0;
+    }
+
+    internal static string NormalizeAssignmentType(string? value)
+        => TryNormalizeAssignmentType(value, out var normalized) ? normalized : "code-test";
+
+    internal static string NormalizeExplicitAssignmentType(string? value)
+    {
+        if (TryNormalizeAssignmentType(value, out var normalized)) return normalized;
+        throw new InvalidOperationException($"неизвестный тип задания: '{value}'");
     }
 
     internal static bool HasImportShapeFields(JsonElement source)
@@ -223,7 +240,7 @@ internal static class AssignmentApiSerializationService
 
     internal static string InferAssignmentTypeFromJson(JsonElement source, string? explicitType)
     {
-        if (!string.IsNullOrWhiteSpace(explicitType)) return NormalizeAssignmentType(explicitType);
+        if (!string.IsNullOrWhiteSpace(explicitType)) return NormalizeExplicitAssignmentType(explicitType);
         if (source.ValueKind != JsonValueKind.Object) return "code-test";
 
         if (TryGetPropertyLoose(source, "blocks", out var blocks) && blocks.ValueKind == JsonValueKind.Array) return "math";
@@ -403,7 +420,7 @@ internal static class AssignmentApiSerializationService
 
         var explicitType = FirstString(source, "type", "kind", "assignmentType");
         var inferredType = InferAssignmentTypeFromJson(source, explicitType);
-        var type = !string.IsNullOrWhiteSpace(explicitType) ? explicitType : (HasImportShapeFields(source) ? inferredType : null);
+        var type = !string.IsNullOrWhiteSpace(explicitType) ? NormalizeExplicitAssignmentType(explicitType) : (HasImportShapeFields(source) ? inferredType : null);
         var normalizedType = NormalizeAssignmentType(type ?? inferredType);
         var tests = PickTestsElement(source, normalizedType);
         var testsJson = tests.HasValue ? null : FirstString(source, "testsJson");
@@ -441,8 +458,11 @@ internal static class AssignmentApiSerializationService
         var title = (request.Title ?? string.Empty).Trim();
         if (!isPatch && title.Length == 0) yield return "title обязателен.";
         if (title.Length > 200) yield return "title не должен быть длиннее 200 символов.";
-        var type = NormalizeAssignmentType(request.Type);
-        if (hasExplicitType && !new[] { "code-test", "image-test", "test", "math", "sql-test" }.Contains(type, StringComparer.OrdinalIgnoreCase)) yield return "type должен быть code-test, image-test, test или math.";
+        var type = hasExplicitType && TryNormalizeAssignmentType(request.Type, out var explicitType)
+            ? explicitType
+            : NormalizeAssignmentType(request.Type);
+        if (hasExplicitType && !TryNormalizeAssignmentType(request.Type, out _))
+            yield return "type должен быть code-test, image-test, test, math или sql-test.";
         if (request.Rating.HasValue && request.Rating.Value < 0) yield return "rating не может быть отрицательным.";
         if (request.Sort.HasValue && request.Sort.Value < 0) yield return "sort не может быть отрицательным.";
         var mustValidateSpec = !isPatch;

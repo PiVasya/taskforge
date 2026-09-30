@@ -7,7 +7,13 @@ public sealed class Assignment
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string Type { get; set; } = "code-test";
+    // Language remains a lightweight denormalized display/search value for executable assignments.
+    // Authoritative executable configuration lives in CodeAssignmentSpec/ImageAssignmentSpec.
     public string Language { get; set; } = "csharp";
+
+    // Legacy compatibility columns. Do not add new runtime behavior that reads these directly.
+    // They stay for one rollout so the startup backfill can copy existing assignments into
+    // type-specific spec tables before a later cleanup migration removes the old payload columns.
     public string? AllowedLanguagesCsv { get; set; }
     public string? Tags { get; set; }
     public int Rating { get; set; } = 1;

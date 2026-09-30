@@ -10,6 +10,8 @@ using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
 using TaskForge.Tasks.Api.Services.Import;
 using TaskForge.Tasks.Api.Services.Sql;
+using TaskForge.Tasks.Api.Services.Testing;
+using TaskForge.Tasks.Api.Services.Specs;
 using TaskForge.Tasks.Api.Domain.Sql;
 
 using TaskForge.Tasks.Api.Contracts;
@@ -118,6 +120,7 @@ internal static partial class AssignmentApiEndpoints
                     .OrderBy(x => x.Sort)
                     .ThenBy(x => x.CreatedAt)
                     .ToListAsync(ct);
+                await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
                 return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
             }
 
@@ -129,6 +132,7 @@ internal static partial class AssignmentApiEndpoints
             var editorSolvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, editorRows, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
         });
 
@@ -357,6 +361,7 @@ internal static partial class AssignmentApiEndpoints
                     .ThenBy(x => x.Sort)
                     .ThenBy(x => x.CreatedAt)
                     .ToListAsync(ct);
+                await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
                 return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
             }
 
@@ -379,6 +384,7 @@ internal static partial class AssignmentApiEndpoints
             var editorSolvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, editorRows, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
         });
 
@@ -526,19 +532,12 @@ internal static partial class AssignmentApiEndpoints
                 includeLayout ?? true,
                 includeGuide ?? false);
             var sql = await SqlTaskGraphService.Export(db, rows, exportOptions, ct);
-            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql), JsonOptions());
+            var testSpecs = exportOptions.IncludeChecks
+                ? await TestAssignmentSpecService.LoadAsync(db, rows, ct)
+                : new Dictionary<Guid, TaskSpec>();
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
+            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql, testSpecs), JsonOptions());
         }).AddEndpointFilter<SqlEndpointFilter>();
-
-        app.MapPost("/api/courses/{courseId:guid}/assignments", async (Guid courseId, AssignmentRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            if (!await CanUserEditCourseAsync(courseId, http, cfg, clients, ct))
-                return CourseEditForbidden();
-            var maxSort = await db.Assignments.Where(x => x.CourseId == courseId).Select(x => (int?)x.Sort).MaxAsync(ct) ?? -1;
-            var assignment = await BuildAssignmentEntityAsync(courseId, request, maxSort + 1, clients, cfg, ct);
-            db.Assignments.Add(assignment);
-            await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
-        });
 
         app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
@@ -684,11 +683,11 @@ internal static partial class AssignmentApiEndpoints
                 var itemIssues = ValidateImportedAssignment(validationRequest, i + 1).ToList();
                 if (isExisting
                     && !string.IsNullOrWhiteSpace(validationRequest.Type)
-                    && AssignmentImportPolicy.IsImmutableSqlTypeChange(
+                    && AssignmentImportPolicy.IsImmutableTypeChange(
                         existingRowById[req.Id!.Value].Type,
                         NormalizeAssignmentType(validationRequest.Type)))
                 {
-                    itemIssues.Add(AssignmentImportPolicy.SqlTypeImmutableMessage);
+                    itemIssues.Add(AssignmentImportPolicy.TypeImmutableMessage);
                 }
                 if (taskGraph != null && !isExisting && !taskGraph.Scopes.Contains("content"))
                     itemIssues.Add("Для создания нового задания JSON должен содержать scope content и полноценное описание задания.");
@@ -904,16 +903,16 @@ internal static partial class AssignmentApiEndpoints
                     var oldVisible = existing.IsVisible;
                     var filteredRequest = FilterExistingImportRequest(request, importOptions);
                     if (!string.IsNullOrWhiteSpace(filteredRequest.Type)
-                        && AssignmentImportPolicy.IsImmutableSqlTypeChange(existing.Type, NormalizeAssignmentType(filteredRequest.Type)))
+                        && AssignmentImportPolicy.IsImmutableTypeChange(existing.Type, NormalizeAssignmentType(filteredRequest.Type)))
                     {
                         return Microsoft.AspNetCore.Http.Results.Conflict(new
                         {
-                            code = "SQL_TYPE_IMMUTABLE",
-                            message = AssignmentImportPolicy.SqlTypeImmutableMessage,
+                            code = "ASSIGNMENT_TYPE_IMMUTABLE",
+                            message = AssignmentImportPolicy.TypeImmutableMessage,
                             assignmentId = existing.Id
                         });
                     }
-                    await ApplyAssignmentRequestAsync(existing, filteredRequest, clients, cfg, ct);
+                    await ApplyAssignmentRequestAsync(existing, filteredRequest, db, clients, cfg, ct);
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
                     processed.Add((key, taskCourseRef, existing, "updated"));
@@ -928,7 +927,7 @@ internal static partial class AssignmentApiEndpoints
 
                 var nextSort = nextSortByCourse.GetValueOrDefault(targetCourseId, 0);
                 nextSortByCourse[targetCourseId] = nextSort + 1;
-                var assignment = await BuildAssignmentEntityAsync(targetCourseId, createRequest, nextSort, clients, cfg, ct);
+                var assignment = await BuildAssignmentEntityAsync(targetCourseId, createRequest, nextSort, db, clients, cfg, ct);
                 if (assignment.Type == SqlTaskTypes.SqlTest && importOptions.UpdateVisibility)
                     assignment.IsVisible = createRequest.IsVisible ?? !(createRequest.IsHidden ?? false);
                 created.Add(assignment);
@@ -1044,6 +1043,7 @@ internal static partial class AssignmentApiEndpoints
                 };
             }
 
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, processed.Select(x => x.Assignment).ToList(), ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 createdCount = created.Count,
@@ -1071,6 +1071,7 @@ internal static partial class AssignmentApiEndpoints
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, new[] { assignment.Id }, db, clients, cfg, ct)
                 : new HashSet<Guid>();
 
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToSolveShellDto(assignment, includeSensitive, solved.Contains(assignment.Id)));
         });
 
@@ -1081,6 +1082,7 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
             if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToSolveStatementDto(assignment, includeSensitive));
         });
 
@@ -1091,6 +1093,7 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
             if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToSolveTestsDto(assignment, includeSensitive));
         });
 
@@ -1101,43 +1104,8 @@ internal static partial class AssignmentApiEndpoints
             if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
             if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive));
-        });
-
-        app.MapGet("/api/assignments/{assignmentId:guid}/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для редактирования нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
-        });
-
-        app.MapPut("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, AssignmentRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            if (!string.IsNullOrWhiteSpace(request.Type)
-                && AssignmentImportPolicy.IsImmutableSqlTypeChange(assignment.Type, NormalizeAssignmentType(request.Type)))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_TYPE_IMMUTABLE", message = AssignmentImportPolicy.SqlTypeImmutableMessage });
-            if (assignment.Type == SqlTaskTypes.SqlTest && (request.IsHidden.HasValue ? !request.IsHidden.Value : request.IsVisible == true) && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0443\u0436\u043d\u043e \u0441\u043d\u0430\u0447\u0430\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c." });
-            var oldRating = assignment.Rating;
-            var oldVisible = assignment.IsVisible;
-            await ApplyAssignmentRequestAsync(assignment, request, clients, cfg, ct);
-            var affectsRating = oldRating != assignment.Rating || oldVisible != assignment.IsVisible;
-            await db.SaveChangesAsync(ct);
-            if (affectsRating)
-            {
-                var users = await db.Attempts.AsNoTracking()
-                    .Where(x => x.TaskAssignmentId == assignmentId)
-                    .Select(x => x.UserId)
-                    .Distinct()
-                    .ToListAsync(ct);
-                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-updated", ct);
-            }
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
         app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -1164,6 +1132,7 @@ internal static partial class AssignmentApiEndpoints
             assignment.Sort = request.Sort;
             assignment.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
@@ -1177,6 +1146,7 @@ internal static partial class AssignmentApiEndpoints
             siblings.Insert(pos, assignment);
             for (var i = 0; i < siblings.Count; i++) siblings[i].Sort = i;
             await db.SaveChangesAsync();
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 
@@ -1199,6 +1169,7 @@ internal static partial class AssignmentApiEndpoints
                     .ToListAsync(ct);
                 await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
             }
+            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
         });
 

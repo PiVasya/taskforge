@@ -30,7 +30,7 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapGet("/", () => Microsoft.AspNetCore.Http.Results.Ok(new { service = "taskforge-tasks-api", database = "taskforge_tasks", status = "tasks microservice active" }));
 
-        app.MapGet("/api/tasks/assignment-api/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_tasks", ownedEntities = new[] { "Assignment", "TaskAttempt" } }));
+        app.MapGet("/api/tasks/assignment-api/schema-owner", () => Microsoft.AspNetCore.Http.Results.Ok(new { database = "taskforge_tasks", ownedEntities = new[] { "Assignment", "TestAssignmentSpec", "TaskAttempt" } }));
 
         return app;
     }

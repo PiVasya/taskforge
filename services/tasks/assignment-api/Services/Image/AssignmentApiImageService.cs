@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Specs;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -25,10 +26,20 @@ internal static partial class AssignmentApiImageService
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, CancellationToken.None)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
+        if (!string.Equals(NormalizeAssignmentType(assignment.Type), "image-test", StringComparison.Ordinal))
+            return Problem(409, "IMAGE_ASSIGNMENT_TYPE_REQUIRED", "image-test.type", "Этот endpoint доступен только для image-test заданий.");
+        var imageSpec = await AssignmentTypeSpecService.ReadImageAsync(db, assignment);
+        var lang = NormalizeImageLanguage(request.Language ?? imageSpec.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
-        var policy = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, "image-test.run-code");
+        var policy = await AnalyzeCodePolicy(
+            lang,
+            request.Code ?? string.Empty,
+            ParseStringArrayJson(imageSpec.CodeForbiddenCallsJson),
+            ParseStringArrayJson(imageSpec.CodeRequiredCallsJson),
+            clients,
+            cfg,
+            "image-test.run-code");
         if (policy.Problem != null) return policy.Problem;
         if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", "image-test.run-code", "Анализатор не выдал обязательную подпись безопасности.");
         var userId = RequireUser(http, cfg);
@@ -53,18 +64,28 @@ internal static partial class AssignmentApiImageService
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
         if (assignment == null || (context is not null && !await CanUserAccessAssignmentAsync(assignment, context, cfg, db, clients, CancellationToken.None))) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+        if (!string.Equals(NormalizeAssignmentType(assignment.Type), "image-test", StringComparison.Ordinal))
+            return Problem(409, "IMAGE_ASSIGNMENT_TYPE_REQUIRED", "image-test.type", "Этот endpoint доступен только для image-test заданий.");
         var currentUserId = context is not null ? RequireUser(context, cfg) : null;
         if (context is not null && currentUserId == null) return Unauthorized();
 
-        var root = JsonNode.Parse(assignment.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
-        var lang = NormalizeImageLanguage(request.Language ?? assignment.Language);
+        var imageSpec = await AssignmentTypeSpecService.ReadImageAsync(db, assignment);
+        var root = JsonNode.Parse(imageSpec.TestsJson ?? "{}") as JsonObject ?? new JsonObject();
+        var lang = NormalizeImageLanguage(request.Language ?? imageSpec.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", submit ? "image-test.submit-code" : "image-test.compare-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
 
         var cases = ReadImageTestCases(root, request.Input);
         if (cases.Count == 0) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания не настроены image-тесты: добавьте Input, Expected output и Expected image хотя бы для одного теста.");
 
-        var policy = await AnalyzeCodePolicyForAssignment(assignment, lang, request.Code ?? string.Empty, clients, cfg, submit ? "image-test.submit-code" : "image-test.compare-code");
+        var policy = await AnalyzeCodePolicy(
+            lang,
+            request.Code ?? string.Empty,
+            ParseStringArrayJson(imageSpec.CodeForbiddenCallsJson),
+            ParseStringArrayJson(imageSpec.CodeRequiredCallsJson),
+            clients,
+            cfg,
+            submit ? "image-test.submit-code" : "image-test.compare-code");
         if (policy.Problem != null) return policy.Problem;
         if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", submit ? "image-test.submit-code" : "image-test.compare-code", "Анализатор не выдал обязательную подпись безопасности.");
         if (context is not null && currentUserId.HasValue && await ConsumeTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code" : "image-compare-code", context.RequestAborted) is { } quotaProblem) return quotaProblem;

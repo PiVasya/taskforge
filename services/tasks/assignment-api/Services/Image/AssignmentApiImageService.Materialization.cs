@@ -21,9 +21,19 @@ namespace TaskForge.Tasks.Api.Services.Image;
 
 internal static partial class AssignmentApiImageService
 {
-    internal static async Task<JsonObject> MergeAndMaterializeImageTestPayloadAsync(string? existingJson, AssignmentRequest request, Guid assignmentId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    internal static Task<JsonObject> MergeAndMaterializeImageTestPayloadAsync(string? existingJson, AssignmentRequest request, Guid assignmentId, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+        => MergeAndMaterializeImageTestPayloadAsync(existingJson, request.ImageTestReferenceKey, request.ImageTestSimilarityThreshold, assignmentId, clients, cfg, ct);
+
+    internal static async Task<JsonObject> MergeAndMaterializeImageTestPayloadAsync(
+        string? existingJson,
+        string? imageTestReferenceKey,
+        int? imageTestSimilarityThreshold,
+        Guid assignmentId,
+        IHttpClientFactory clients,
+        IConfiguration cfg,
+        CancellationToken ct)
     {
-        var node = MergeImageTestPayload(existingJson, request);
+        var node = MergeImageTestPayload(existingJson, imageTestReferenceKey, imageTestSimilarityThreshold);
         if (assignmentId != Guid.Empty)
         {
             await MaterializeImageTestImagesAsync(node, assignmentId, clients, cfg, ct);
@@ -121,6 +131,9 @@ internal static partial class AssignmentApiImageService
     };
 
     internal static JsonObject MergeImageTestPayload(string? existingJson, AssignmentRequest request)
+        => MergeImageTestPayload(existingJson, request.ImageTestReferenceKey, request.ImageTestSimilarityThreshold);
+
+    internal static JsonObject MergeImageTestPayload(string? existingJson, string? imageTestReferenceKey, int? imageTestSimilarityThreshold)
     {
         JsonObject node;
         try
@@ -143,8 +156,8 @@ internal static partial class AssignmentApiImageService
         {
             node = new JsonObject();
         }
-        if (!string.IsNullOrWhiteSpace(request.ImageTestReferenceKey)) node["imageTestReferenceKey"] = request.ImageTestReferenceKey;
-        if (request.ImageTestSimilarityThreshold.HasValue) node["imageTestSimilarityThreshold"] = System.Math.Clamp(request.ImageTestSimilarityThreshold.Value, 0, 100);
+        if (!string.IsNullOrWhiteSpace(imageTestReferenceKey)) node["imageTestReferenceKey"] = imageTestReferenceKey;
+        if (imageTestSimilarityThreshold.HasValue) node["imageTestSimilarityThreshold"] = System.Math.Clamp(imageTestSimilarityThreshold.Value, 0, 100);
         return node;
     }
 

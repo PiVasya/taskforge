@@ -83,7 +83,7 @@ internal static class AssignmentApiCommonService
         return string.Equals(Norm(actual), Norm(expected), StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static async Task<CodePolicyAnalysis> AnalyzeCodePolicyForAssignment(Assignment assignment, string language, string code, IHttpClientFactory clients, IConfiguration cfg, string stage)
+    internal static async Task<CodePolicyAnalysis> AnalyzeCodePolicy(string language, string code, string[] forbidden, string[] required, IHttpClientFactory clients, IConfiguration cfg, string stage)
     {
         if (!cfg.GetValue("CodeAnalyzer:Enabled", true))
         {
@@ -92,8 +92,6 @@ internal static class AssignmentApiCommonService
                 null);
         }
         var baseUrl = (cfg["CodeAnalyzer:Url"] ?? "http://code-analyzer:8080").TrimEnd('/');
-        var forbidden = ParseStringArrayJson(assignment.CodeForbiddenCallsJson);
-        var required = ParseStringArrayJson(assignment.CodeRequiredCallsJson);
         var client = clients.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(cfg.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60));
 

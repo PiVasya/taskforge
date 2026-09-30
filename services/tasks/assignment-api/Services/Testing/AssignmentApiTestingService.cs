@@ -28,7 +28,8 @@ internal static class AssignmentApiTestingService
         if (userId == null) return Unauthorized();
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var spec = ReadTaskSpec(assignment);
+        if (!string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является обычным тестом.", code = "TEST_ASSIGNMENT_TYPE_REQUIRED" });
+        var spec = await TestAssignmentSpecService.ReadAsync(db, assignment, ct);
         if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
         var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
@@ -64,7 +65,8 @@ internal static class AssignmentApiTestingService
         if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.test.submit", "Эта попытка уже была отправлена.");
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var spec = ReadTaskSpec(assignment);
+        if (!string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является обычным тестом.", code = "TEST_ASSIGNMENT_TYPE_REQUIRED" });
+        var spec = await TestAssignmentSpecService.ReadAsync(db, assignment, ct);
         var answers = AnswersArray(payload, "answers");
         var byAnswer = answers.GroupBy(x => x.QuestionId).ToDictionary(x => x.Key, x => x.First());
         var order = ParseGuidList(attempt.OrderJson);

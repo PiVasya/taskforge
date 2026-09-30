@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Specs;
 using TaskForge.Realtime;
 
 using TaskForge.Tasks.Api.Contracts;
@@ -28,7 +29,9 @@ internal static class AssignmentApiMathService
         if (userId == null) return Unauthorized();
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var spec = ReadMathSpec(assignment);
+        if (!string.Equals(NormalizeAssignmentType(assignment.Type), "math", StringComparison.Ordinal))
+            return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является математическим заданием.", code = "MATH_ASSIGNMENT_TYPE_REQUIRED" });
+        var spec = await AssignmentTypeSpecService.ReadMathAsync(db, assignment, ct);
         if (spec.Blocks.Count == 0) return Problem(400, "MATH_HAS_NO_BLOCKS", "tasks.math.start", "В math-задании пока нет блоков.");
         var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
@@ -64,7 +67,9 @@ internal static class AssignmentApiMathService
         if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.math.submit", "Эта попытка уже была отправлена.");
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-        var spec = ReadMathSpec(assignment);
+        if (!string.Equals(NormalizeAssignmentType(assignment.Type), "math", StringComparison.Ordinal))
+            return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является математическим заданием.", code = "MATH_ASSIGNMENT_TYPE_REQUIRED" });
+        var spec = await AssignmentTypeSpecService.ReadMathAsync(db, assignment, ct);
         var answers = MathAnswersArray(payload, "answers");
         var byAnswer = answers.GroupBy(x => x.BlockId).ToDictionary(x => x.Key, x => x.First());
         var order = ParseGuidList(attempt.OrderJson);

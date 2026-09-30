@@ -400,7 +400,7 @@ internal static class AssignmentTaskGraphJsonService
             }
         }
 
-        if (deleteTaskIds.Count > 0 && schemaVersion != SchemaVersion)
+        if (deleteTaskIds.Count > 0 && schemaValue != SchemaVersion)
             issues.Add(new ValidationIssue("$.schemaVersion", $"deleteTasks поддерживается только в schemaVersion {SchemaVersion}."));
         if (deleteTaskIds.Count > 0 && !scopes.Contains("ids"))
             issues.Add(new ValidationIssue("$.scopes", "Добавьте scope ids, если JSON содержит deleteTasks."));
@@ -521,7 +521,8 @@ internal static class AssignmentTaskGraphJsonService
         CourseTreeResponse tree,
         CourseMapInternalResponse map,
         GraphExportOptions options,
-        SqlGraphExport? sql = null)
+        SqlGraphExport? sql = null,
+        IReadOnlyDictionary<Guid, TaskSpec>? testSpecs = null)
     {
         var subtreeCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).ToHashSet();
         subtreeCourseIds.Add(courseId);
@@ -658,7 +659,7 @@ internal static class AssignmentTaskGraphJsonService
                 ["key"] = keyByAssignmentId[assignment.Id],
                 ["course"] = CourseRef(assignment.CourseId)
             };
-            var dto = AssignmentApiSerializationService.ToImportDto(assignment);
+            var dto = AssignmentApiSerializationService.ToImportDto(assignment, testSpecs?.GetValueOrDefault(assignment.Id));
             foreach (var property in dto)
             {
                 if (property.Key == "id")
