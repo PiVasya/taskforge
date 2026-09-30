@@ -13,8 +13,7 @@ public sealed class AssignmentSpecSeparationTests
     [Fact]
     public void Model_UsesDedicatedTablesForEveryNonSqlAssignmentKind()
     {
-        var options = new DbContextOptionsBuilder<TasksDbContext>().Options;
-        using var db = new TasksDbContext(options);
+        using var db = new TasksDbContextFactory().CreateDbContext([]);
 
         Assert.Equal("CodeAssignmentSpecs", db.Model.FindEntityType(typeof(CodeAssignmentSpec))?.GetTableName());
         Assert.Equal("ImageAssignmentSpecs", db.Model.FindEntityType(typeof(ImageAssignmentSpec))?.GetTableName());

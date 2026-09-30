@@ -22,6 +22,26 @@ namespace TaskForge.Tasks.Api.Services.Image;
 
 internal static partial class AssignmentApiImageService
 {
+    private static async Task<CodePolicyAnalysis> AnalyzeCodePolicyForAssignment(
+        string language,
+        string code,
+        string[] forbidden,
+        string[] required,
+        IHttpClientFactory clients,
+        IConfiguration cfg,
+        string stage)
+    {
+        var policy = await AnalyzeCodePolicy(language, code, forbidden, required, clients, cfg, stage);
+        if (policy.Problem is not null) return policy;
+        if (!policy.Attestation.HasValue)
+        {
+            return new CodePolicyAnalysis(
+                Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", stage, "Анализатор не выдал обязательную подпись безопасности."),
+                null);
+        }
+        return policy;
+    }
+
     internal static async Task<IResult> RenderImageCode(Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg)
     {
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
@@ -32,7 +52,7 @@ internal static partial class AssignmentApiImageService
         var lang = NormalizeImageLanguage(request.Language ?? imageSpec.Language);
         var runner = ImageRunnerService(lang);
         if (runner == null) return Problem(400, "IMAGE_LANGUAGE_UNSUPPORTED", "image-test.run-code", "Image-runner доступен для C++/GLUT, C++ Turtle, Pascal GraphABC, Python Turtle и Python matplotlib/Pillow.", lang);
-        var policy = await AnalyzeCodePolicy(
+        var policy = await AnalyzeCodePolicyForAssignment(
             lang,
             request.Code ?? string.Empty,
             ParseStringArrayJson(imageSpec.CodeForbiddenCallsJson),
@@ -41,7 +61,6 @@ internal static partial class AssignmentApiImageService
             cfg,
             "image-test.run-code");
         if (policy.Problem != null) return policy.Problem;
-        if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", "image-test.run-code", "Анализатор не выдал обязательную подпись безопасности.");
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-run-code", http.RequestAborted) is { } quotaProblem) return quotaProblem;
@@ -78,7 +97,7 @@ internal static partial class AssignmentApiImageService
         var cases = ReadImageTestCases(root, request.Input);
         if (cases.Count == 0) return Problem(400, "IMAGE_REFERENCE_MISSING", "image-test.reference", "Для задания не настроены image-тесты: добавьте Input, Expected output и Expected image хотя бы для одного теста.");
 
-        var policy = await AnalyzeCodePolicy(
+        var policy = await AnalyzeCodePolicyForAssignment(
             lang,
             request.Code ?? string.Empty,
             ParseStringArrayJson(imageSpec.CodeForbiddenCallsJson),
@@ -87,7 +106,6 @@ internal static partial class AssignmentApiImageService
             cfg,
             submit ? "image-test.submit-code" : "image-test.compare-code");
         if (policy.Problem != null) return policy.Problem;
-        if (!policy.Attestation.HasValue) return Problem(503, "CODE_ANALYZER_ATTESTATION_MISSING", submit ? "image-test.submit-code" : "image-test.compare-code", "Анализатор не выдал обязательную подпись безопасности.");
         if (context is not null && currentUserId.HasValue && await ConsumeTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code" : "image-compare-code", context.RequestAborted) is { } quotaProblem) return quotaProblem;
 
         try
