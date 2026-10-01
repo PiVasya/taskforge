@@ -5,8 +5,8 @@ import { useAuth } from '../../auth/AuthContext';
 import CodeEditor from '../../components/CodeEditor';
 import { Button, Card, Select } from '../../components/ui';
 import { getApiErrorMessage } from '../../api/http';
-import { getMySolutionDetails } from '../../api/solutions';
-import { checkSql, runSql, sqlAssignment, sqlPreview } from '../../api/sqlTasks';
+import { getSqlAssignment } from '../../api/sqlAssignments';
+import { getSqlPreview, getSqlSubmission, runSqlSolution, submitSqlSolution } from '../../api/sqlSolutions';
 import { datasetOverview, isPending, ownSnapshot, resultLabel, ruCountLabel, sqlErrorPresentation } from './sqlModel';
 import { SolveActionDock } from '../assignment-solve/components/AssignmentSolvePresentation';
 import SqlSnapshot from './SqlSnapshot';
@@ -61,7 +61,7 @@ export default function SqlTaskSolve({
     mounted.current = true;
     (async () => {
       try {
-        const data = await sqlAssignment(assignment.id);
+        const data = await getSqlAssignment(assignment.id);
         if (!live) return;
         setSpec(data);
         const savedEngine = read(`${key}:engine`);
@@ -111,7 +111,7 @@ export default function SqlTaskSolve({
     let timer;
     const poll = async () => {
       try {
-        const data = receipt.kind === 'check' ? await getMySolutionDetails(receipt.id) : await sqlPreview(receipt.id);
+        const data = receipt.kind === 'check' ? await getSqlSubmission(assignment.id, receipt.id) : await getSqlPreview(assignment.id, receipt.id);
         if (stopped) return;
         setStatus(data.status || data.verdict);
         if (!isPending(data.status || data.verdict)) {
@@ -158,7 +158,7 @@ export default function SqlTaskSolve({
     setRetry(request);
     write(`${key}:request`, request);
     try {
-      const data = request.kind === 'check' ? await checkSql(request.input) : await runSql(request.input);
+      const data = request.kind === 'check' ? await submitSqlSolution(assignment.id, request.input) : await runSqlSolution(assignment.id, request.input);
       if (!mounted.current) return;
       setRetry(null);
       write(`${key}:request`, null);

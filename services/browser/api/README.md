@@ -252,24 +252,36 @@ Browser API is the preferred way to **discover and navigate** the real site. For
 GET  /api/courses
 GET  /api/courses/{courseId}/assignments
 GET  /api/courses/{courseId}/learning-map
-GET  /api/assignments/{assignmentId}
-GET  /api/assignments/{assignmentId}/solve-shell
-GET  /api/assignments/{assignmentId}/statement
-GET  /api/assignments/{assignmentId}/tests
+GET  /api/assignments/{assignmentId}/runtime-meta
+GET  /api/{typedRoute}/{assignmentId}/solve-shell
+GET  /api/{typedRoute}/{assignmentId}/statement
+GET  /api/{typedRoute}/{assignmentId}/tests
 
-`assignment`, `solve-shell` and `statement` expose `taskConstraints.required` / `taskConstraints.forbidden`. These are author-defined learning rules for the specific assignment; they are intentionally separate from the platform's hidden sandbox/security policy.
+`runtime-meta.route` is the exact `typedRoute` value (`code-assignments`, `image-assignments`, `test-assignments`, `math-assignments`, or `sql-assignments`). After that discovery call, stay inside that namespace. Typed `solve-shell` and `statement` expose `taskConstraints.required` / `taskConstraints.forbidden` where applicable.
 
-POST /api/assignments/{assignmentId}/submit
-GET  /api/me/solutions?assignmentId={assignmentId}
-GET  /api/me/solutions/{solutionId}
+POST /api/code-solutions                         # body includes assignmentId
+GET  /api/code-solutions?assignmentId={assignmentId}
+GET  /api/code-solutions/{solutionId}
 
-POST /api/task-tests/{assignmentId}/start
-POST /api/task-tests/{assignmentId}/submit
-GET  /api/me/test-attempts/{attemptId}
+POST /api/test-assignments/{assignmentId}/attempts
+POST /api/test-assignments/{assignmentId}/attempts/{attemptId}/submit
+GET  /api/test-assignments/{assignmentId}/attempts/{attemptId}
 
-POST /api/math-tasks/{assignmentId}/start
-POST /api/math-tasks/{assignmentId}/submit
-GET  /api/me/math-attempts/{attemptId}
+POST /api/math-assignments/{assignmentId}/attempts
+POST /api/math-assignments/{assignmentId}/attempts/{attemptId}/submit
+GET  /api/math-assignments/{assignmentId}/attempts/{attemptId}
+
+POST /api/image-assignments/{assignmentId}/run-code
+POST /api/image-assignments/{assignmentId}/compare-code
+POST /api/image-solutions                        # body includes assignmentId
+GET  /api/me/image-solutions?assignmentId={assignmentId}
+GET  /api/me/image-solutions/{solutionId}
+
+GET  /api/sql-assignments/{assignmentId}
+POST /api/sql-solutions/run                      # body includes assignmentId
+POST /api/sql-solutions/check                    # body includes assignmentId
+GET  /api/sql-solutions/previews/{jobId}
+GET  /api/sql-solutions/{solutionId}
 ```
 
 A UI click can succeed on the server even when the browser loses the response. If a submit reports a network/5xx error, query the matching solution/attempt GET **before retrying the mutation**. The frontend now performs this reconciliation for code, test and math submits as well. This avoids false “Нет связи с сервером” failures and duplicate attempts after an already-accepted request.

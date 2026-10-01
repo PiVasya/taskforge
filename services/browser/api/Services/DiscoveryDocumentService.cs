@@ -108,17 +108,18 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                     courses = $"{root}/api/courses",
                     courseAssignments = $"{root}/api/courses/{{courseId}}/assignments",
                     learningMap = $"{root}/api/courses/{{courseId}}/learning-map",
-                    assignment = $"{root}/api/assignments/{{assignmentId}}",
-                    solveShell = $"{root}/api/assignments/{{assignmentId}}/solve-shell",
-                    statement = $"{root}/api/assignments/{{assignmentId}}/statement",
-                    tests = $"{root}/api/assignments/{{assignmentId}}/tests",
-                    taskConstraints = "Read taskConstraints.required/forbidden from assignment/solve-shell/statement. These are author-defined learning rules and are distinct from hidden platform security policy."
+                    runtimeMeta = $"{root}/api/assignments/{{assignmentId}}/runtime-meta",
+                    solveShell = $"{root}/api/{{typedRoute}}/{{assignmentId}}/solve-shell",
+                    statement = $"{root}/api/{{typedRoute}}/{{assignmentId}}/statement",
+                    tests = $"{root}/api/{{typedRoute}}/{{assignmentId}}/tests",
+                    typedRoute = "Use runtimeMeta.route as typedRoute for all assignment read/runtime URLs.",
+                    taskConstraints = "Read taskConstraints.required/forbidden from the typed assignment/solve-shell/statement payloads. These are author-defined learning rules and are distinct from hidden platform security policy."
                 },
                 code = new
                 {
-                    submit = $"{root}/api/assignments/{{assignmentId}}/submit",
-                    listMine = $"{root}/api/me/solutions?assignmentId={{assignmentId}}",
-                    getMine = $"{root}/api/me/solutions/{{solutionId}}",
+                    submit = $"{root}/api/code-solutions",
+                    listMine = $"{root}/api/code-solutions?assignmentId={{assignmentId}}",
+                    getMine = $"{root}/api/code-solutions/{{solutionId}}",
                     verdictHandling = new
                     {
                         pending = new[] { "Preparing", "Queued", "Running" },
@@ -128,16 +129,32 @@ public sealed class DiscoveryDocumentService(BrowserUrlPolicy urlPolicy, Browser
                 },
                 test = new
                 {
-                    start = $"{root}/api/task-tests/{{assignmentId}}/start",
-                    submit = $"{root}/api/task-tests/{{assignmentId}}/submit",
-                    getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}",
+                    start = $"{root}/api/test-assignments/{{assignmentId}}/attempts",
+                    submit = $"{root}/api/test-assignments/{{assignmentId}}/attempts/{{attemptId}}/submit",
+                    getAttempt = $"{root}/api/test-assignments/{{assignmentId}}/attempts/{{attemptId}}",
                     answerContract = "single-choice accepts selectedOptionKey or a non-empty selectedOptionKeys list; multi-choice uses selectedOptionKeys"
                 },
                 math = new
                 {
-                    start = $"{root}/api/math-tasks/{{assignmentId}}/start",
-                    submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
-                    getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
+                    start = $"{root}/api/math-assignments/{{assignmentId}}/attempts",
+                    submit = $"{root}/api/math-assignments/{{assignmentId}}/attempts/{{attemptId}}/submit",
+                    getAttempt = $"{root}/api/math-assignments/{{assignmentId}}/attempts/{{attemptId}}"
+                },
+                image = new
+                {
+                    run = $"{root}/api/image-assignments/{{assignmentId}}/run-code",
+                    compare = $"{root}/api/image-assignments/{{assignmentId}}/compare-code",
+                    submit = $"{root}/api/image-solutions",
+                    listMine = $"{root}/api/me/image-solutions?assignmentId={{assignmentId}}",
+                    getMine = $"{root}/api/me/image-solutions/{{solutionId}}"
+                },
+                sql = new
+                {
+                    assignment = $"{root}/api/sql-assignments/{{assignmentId}}",
+                    run = $"{root}/api/sql-solutions/run",
+                    submit = $"{root}/api/sql-solutions/check",
+                    preview = $"{root}/api/sql-solutions/previews/{{jobId}}",
+                    submission = $"{root}/api/sql-solutions/{{solutionId}}"
                 },
                 adminInvestigation = new
                 {
@@ -319,16 +336,18 @@ The PNG is the pixel-authoritative visual render. The PDF endpoint is only a com
 ## Authoritative study, submit and recovery APIs
 Browser sessions are best for discovery, navigation, visual inspection and UI-only interactions. When the client can send normal authenticated HTTP requests, use the ordinary TaskForge APIs for reliable serial solving:
 - Study catalog: `GET {{root}}/api/courses`, `GET {{root}}/api/courses/{courseId}/assignments`, and `GET {{root}}/api/courses/{courseId}/learning-map` for progression/access state.
-- Assignment reads: `GET {{root}}/api/assignments/{assignmentId}`, `/solve-shell`, `/statement`, and `/tests` as allowed by the current user's access. Read `taskConstraints.required` / `taskConstraints.forbidden` before solving code tasks; these are explicit author-defined learning rules, not the hidden platform sandbox policy.
-- Code submit: `POST {{root}}/api/assignments/{assignmentId}/submit`; reconcile with `GET {{root}}/api/me/solutions?assignmentId={assignmentId}` and `GET {{root}}/api/me/solutions/{solutionId}`.
-- Test: `POST {{root}}/api/task-tests/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/test-attempts/{attemptId}`.
-- Math: `POST {{root}}/api/math-tasks/{assignmentId}/start`, then `/submit`; reconcile with `GET {{root}}/api/me/math-attempts/{attemptId}`.
+- Assignment discovery: `GET {{root}}/api/assignments/{assignmentId}/runtime-meta`, then use only that kind's namespace: `/api/code-assignments`, `/api/image-assignments`, `/api/test-assignments`, `/api/math-assignments`, or `/api/sql-assignments`. Read `/solve-shell`, `/statement`, and `/tests` under that typed namespace. Read `taskConstraints.required` / `taskConstraints.forbidden` before solving code tasks; these are explicit author-defined learning rules, not the hidden platform sandbox policy.
+- Code submit: `POST {{root}}/api/code-solutions` with `assignmentId` in the body; reconcile with `GET {{root}}/api/code-solutions?assignmentId={assignmentId}` and `GET {{root}}/api/code-solutions/{solutionId}`.
+- Test: `POST {{root}}/api/test-assignments/{assignmentId}/attempts`, then `POST {{root}}/api/test-assignments/{assignmentId}/attempts/{attemptId}/submit`; reconcile with the matching typed attempt GET.
+- Math: `POST {{root}}/api/math-assignments/{assignmentId}/attempts`, then `POST {{root}}/api/math-assignments/{assignmentId}/attempts/{attemptId}/submit`; reconcile with the matching typed attempt GET.
+- Image: use `POST {{root}}/api/image-assignments/{assignmentId}/run-code` for a preview run and `compare-code` for comparison. Submit the graded solution with `POST {{root}}/api/image-solutions` and `assignmentId` in the body; reconcile through `/api/me/image-solutions`.
+- SQL: read `GET {{root}}/api/sql-assignments/{assignmentId}` for the assignment, then use `POST {{root}}/api/sql-solutions/run` for preview and `POST {{root}}/api/sql-solutions/check` for grading with `assignmentId` in the body; reconcile via `/api/sql-solutions/previews/{jobId}` or `/api/sql-solutions/{solutionId}`.
 
 A nested course may already be present in `/api/courses` while still closed by the root course progression graph. In that state learner assignment/learning-map calls return `COURSE_NOT_AVAILABLE`. Solve the currently visible upstream assignment, refresh the root learning map, then retry the child course; do not diagnose this as a missing course or failed publication.
 
 If a submit click or HTTP response reports a transport/server failure, **query the authoritative GET first**. Retry the mutation only when TaskForge has not recorded the attempt/solution. This avoids duplicate submissions when the UI loses a response after the server has already accepted it.
 
-For code submissions, `Preparing`, `Queued` and `Running` are pending verdicts: poll the returned solution through `GET /api/me/solutions/{solutionId}` with bounded backoff. `JudgeUnavailable` is a terminal infrastructure result for that submission, not a wrong answer; reconcile state and wait/back off instead of immediately flooding resubmits.
+For code submissions, `Preparing`, `Queued` and `Running` are pending verdicts: poll the returned solution through `GET /api/code-solutions/{solutionId}` with bounded backoff. `JudgeUnavailable` is a terminal infrastructure result for that submission, not a wrong answer; reconcile state and wait/back off instead of immediately flooding resubmits.
 
 ## Administrator support investigation (Admin role only)
 When an authenticated administrator or administrator-owned AI run investigates a support report, do not scrape solution cards through Chromium. Use the read-only investigation APIs first:

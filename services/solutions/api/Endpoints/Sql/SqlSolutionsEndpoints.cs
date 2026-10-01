@@ -20,25 +20,61 @@ internal static partial class SolutionsApiEndpoints
 
     private static WebApplication MapSqlSolutionsEndpoints(WebApplication app)
     {
-        var group = app.MapGroup("/api/solutions/sql").AddEndpointFilter<SqlSolutionsFilter>();
+        MapSqlSolutionGroup(app.MapGroup("/api/sql-solutions").AddEndpointFilter<SqlSolutionsFilter>());
+        app.MapGet("/api/sql-solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory factory, CancellationToken ct) =>
+        {
+            var userId = CurrentUserId(http, cfg);
+            if (!userId.HasValue) return Unauthorized();
+            var row = await db.Submissions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.SqlSpecVersionId != null, ct);
+            if (row is null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
+            if (row.UserId != userId.Value) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому решению.", code = "SOLUTION_FORBIDDEN" }, statusCode: 403);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(row, IsEditor(http, cfg)));
+        });
+
+        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/sql-verdict", async
+            (Guid submissionId, SqlVerdictInput input, SolutionsDbContext db, IConfiguration cfg, AdminSolutionEventPublisher live, CancellationToken ct) =>
+        {
+            if (input.Verdict is not ("Accepted" or "WrongAnswer" or "RuntimeError" or "TimeLimitExceeded" or "OutputLimitExceeded" or "JudgeUnavailable")
+                || input.Passed != (input.Verdict == "Accepted") || input.Score != (input.Passed ? 100 : 0)
+                || input.Result.ValueKind != JsonValueKind.Object || input.Result.GetRawText().Length > 3_000_000)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SQL_VERDICT" });
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var sub = await db.Submissions.FromSqlInterpolated($"SELECT * FROM \"SolutionSubmissions\" WHERE \"Id\" = {submissionId} FOR UPDATE").SingleOrDefaultAsync(ct);
+            if (sub is null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (sub.SqlSpecVersionId != input.SpecVersionId || sub.SqlEngineProfileId != input.EngineProfileId || input.JobId == Guid.Empty)
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_BINDING_MISMATCH" });
+            await SqlSubmissionService.Finish(db, sub, cfg, input.Verdict, input.Result, ct);
+            await tx.CommitAsync(ct);
+            if (sub.UserId.HasValue)
+                await live.PublishAsync("sql", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, submissionId, status = sub.Status });
+        });
+        return app;
+    }
+
+    private static void MapSqlSolutionGroup(RouteGroupBuilder group)
+    {
         group.MapPost("/run", async (SqlAttemptInput request, HttpContext http, IConfiguration cfg,
             SolutionsDbContext db, IHttpClientFactory factory, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
             if (!userId.HasValue) return Unauthorized();
-            Console.WriteLine($"[SQL] CHECK RECEIVED user={userId} assignment={request.AssignmentId} request={request.RequestId}");
+            Console.WriteLine($"[SQL] RUN RECEIVED user={userId} assignment={request.AssignmentId} request={request.RequestId}");
             ValidateSqlAttempt(request);
-            if (!await CanAccessSql(request.AssignmentId, userId.Value, http, cfg, factory, ct)) return Microsoft.AspNetCore.Http.Results.NotFound();
-            var payload = await SqlSubmissionService.Published(factory, cfg, request.AssignmentId, request.EngineProfileId, ct);
+            var contract = await SqlSubmissionService.Contract(factory, cfg, request.AssignmentId, userId.Value, request.EngineProfileId, ct);
+            if (!IsEditor(http, cfg) && !contract.CanSubmit) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var payload = contract.Spec.Sql!;
             payload.Source = request.Sql;
-            // Preview never contains private reference SQL, expected answers or a graded submission.
-            payload.Expected = null; payload.ExpectedContentHash = null; payload.ReferenceSql = null;
+            payload.Expected = null;
+            payload.ExpectedContentHash = null;
+            payload.ReferenceSql = null;
             var job = await SqlHttp.Send<SqlJobView>(factory, cfg, HttpMethod.Post,
                 $"{SqlSubmissionService.ExecutionUrl(cfg)}/api/internal/execution/sql-jobs",
                 new SqlCreateJob("sql-preview", $"sql:preview:{userId.Value:N}:{request.RequestId:N}", null, userId, payload), ct);
             return Microsoft.AspNetCore.Http.Results.Accepted(value: new { jobId = job!.Id, status = job.Status });
         });
+
         group.MapGet("/previews/{jobId:guid}", async (Guid jobId, HttpContext http, IConfiguration cfg,
             IHttpClientFactory factory, CancellationToken ct) =>
         {
@@ -49,6 +85,7 @@ internal static partial class SolutionsApiEndpoints
             if (job is null || job.Kind != "sql-preview" || job.UserId != userId) return Microsoft.AspNetCore.Http.Results.NotFound();
             return Microsoft.AspNetCore.Http.Results.Ok(new { jobId, status = job.Status, pending = !SqlWire.IsTerminal(job.Status), result = job.Result });
         });
+
         group.MapPost("/check", async (SqlAttemptInput request, HttpContext http, IConfiguration cfg,
             SolutionsDbContext db, IHttpClientFactory factory, AdminSolutionEventPublisher live, CancellationToken ct) =>
         {
@@ -57,13 +94,13 @@ internal static partial class SolutionsApiEndpoints
             if (!userId.HasValue) return Unauthorized();
             Console.WriteLine($"[SQL] CHECK RECEIVED user={userId} assignment={request.AssignmentId} request={request.RequestId}");
             ValidateSqlAttempt(request);
-            if (!await CanAccessSql(request.AssignmentId, userId.Value, http, cfg, factory, ct)) return Microsoft.AspNetCore.Http.Results.NotFound();
+            var contract = await SqlSubmissionService.Contract(factory, cfg, request.AssignmentId, userId.Value, request.EngineProfileId, ct);
+            if (!IsEditor(http, cfg) && !contract.CanSubmit) return Microsoft.AspNetCore.Http.Results.NotFound();
             var id = SqlSubmissionService.RequestSubmissionId(userId.Value, request.RequestId);
             Console.WriteLine($"[SQL] CHECK SUBMISSION id={id}");
             var existing = await db.Submissions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
             if (existing is not null) return ExistingSqlSubmission(existing, request, userId.Value);
-            // Pin the version before consuming energy or saving a submission.
-            var payload = await SqlSubmissionService.Published(factory, cfg, request.AssignmentId, request.EngineProfileId, ct);
+            var payload = contract.Spec.Sql!;
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var key = BitConverter.ToInt64(userId.Value.ToByteArray(), 0);
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({key})", ct);
@@ -79,9 +116,15 @@ internal static partial class SolutionsApiEndpoints
             }
             var sub = new SolutionSubmission
             {
-                Id = id, AssignmentId = request.AssignmentId, UserId = userId,
-                Language = "sql", Code = request.Sql, Status = "Preparing", Score = 0,
-                ExecutionTarget = payload.Profile.Fingerprint, SqlSpecVersionId = payload.SpecVersionId,
+                Id = id,
+                AssignmentId = request.AssignmentId,
+                UserId = userId,
+                Language = "sql",
+                Code = request.Sql,
+                Status = "Preparing",
+                Score = 0,
+                ExecutionTarget = payload.Profile.Fingerprint,
+                SqlSpecVersionId = payload.SpecVersionId,
                 SqlEngineProfileId = payload.Profile.Id,
                 ResultJson = SqlWire.Serialize(new { verdict = "Preparing", kind = "sql", pending = true, energyCharged = charged })
             };
@@ -89,38 +132,13 @@ internal static partial class SolutionsApiEndpoints
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             await live.PublishAsync("sql", sub.Id, userId.Value, request.AssignmentId, sub.Status, null);
-            // The outbox above makes the remaining network operation recoverable.
             try { await SqlSubmissionService.Dispatch(db, sub, factory, cfg, ct); }
             catch (HttpRequestException) { }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
             var response = await db.Submissions.AsNoTracking().SingleAsync(x => x.Id == id, ct);
             return Microsoft.AspNetCore.Http.Results.Accepted(value: ToDto(response));
         });
-        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/sql-verdict", async
-            (Guid submissionId, SqlVerdictInput input, SolutionsDbContext db, IConfiguration cfg, AdminSolutionEventPublisher live, CancellationToken ct) =>
-        {
-            if (input.Verdict is not ("Accepted" or "WrongAnswer" or "RuntimeError" or "TimeLimitExceeded" or "OutputLimitExceeded" or "JudgeUnavailable")
-                || input.Passed != (input.Verdict == "Accepted") || input.Score != (input.Passed ? 100 : 0)
-                || input.Result.ValueKind != JsonValueKind.Object || input.Result.GetRawText().Length > 3_000_000)
-                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SQL_VERDICT" });
-            await using var tx = await db.Database.BeginTransactionAsync(ct);
-            var sub = await db.Submissions.FromSqlInterpolated($"SELECT * FROM \"SolutionSubmissions\" WHERE \"Id\" = {submissionId} FOR UPDATE").SingleOrDefaultAsync(ct);
-            if (sub is null) return Microsoft.AspNetCore.Http.Results.NotFound();
-            if (sub.SqlSpecVersionId != input.SpecVersionId || sub.SqlEngineProfileId != input.EngineProfileId || input.JobId == Guid.Empty)
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_BINDING_MISMATCH" });
-            // SQL queue owns durable terminal delivery; legacy /verdict cannot mutate this submission.
-            await SqlSubmissionService.Finish(db, sub, cfg, input.Verdict, input.Result, ct);
-            await tx.CommitAsync(ct);
-            if (sub.UserId.HasValue)
-                await live.PublishAsync("sql", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, submissionId, status = sub.Status });
-        });
-        return app;
     }
-
-    private static async Task<bool> CanAccessSql(Guid assignmentId, Guid userId, HttpContext http,
-        IConfiguration cfg, IHttpClientFactory factory, CancellationToken ct)
-        => IsEditor(http, cfg) || (await LoadAssignmentAccessAsync(assignmentId, userId, cfg, factory, ct))?.CanSubmit == true;
 
     private static void ValidateSqlAttempt(SqlAttemptInput request)
     {
@@ -128,6 +146,7 @@ internal static partial class SolutionsApiEndpoints
             || string.IsNullOrWhiteSpace(request.Sql) || request.Sql.Length > SqlWire.MaxSourceLength)
             throw new ArgumentException("Assignment, engine profile, request id and bounded non-empty SQL are required.");
     }
+
     private static IResult ExistingSqlSubmission(SolutionSubmission sub, SqlAttemptInput request, Guid userId)
         => sub.UserId != userId || sub.AssignmentId != request.AssignmentId || sub.SqlEngineProfileId != request.EngineProfileId || sub.Code != request.Sql
             ? Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_REQUEST_ID_REUSED" })

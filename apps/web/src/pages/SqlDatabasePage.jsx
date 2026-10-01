@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { sqlAssignment } from '../api/sqlTasks';
+import { getSqlAssignment } from '../api/sqlAssignments';
 import { getApiErrorMessage } from '../api/http';
 import { Button, Card } from '../components/ui';
 import SqlDatabaseViewer from '../features/sql-task/SqlDatabaseViewer';
@@ -16,7 +16,7 @@ export default function SqlDatabasePage() {
     let live = true;
     (async () => {
       try {
-        const data = await sqlAssignment(assignmentId);
+        const data = await getSqlAssignment(assignmentId);
         if (live) setSpec(data);
       } catch (e) {
         if (live) setError(getApiErrorMessage(e));

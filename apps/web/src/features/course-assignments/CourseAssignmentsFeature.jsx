@@ -10,11 +10,11 @@ import { getLearningCourseMap } from "../../api/courseMaps";
 import {
   getAssignmentsByCourse,
   getCourseProgressByCourses,
-  createAssignment,
   importAssignmentsFromJson,
   exportAssignmentsToJson,
   updateAssignmentSort,
 } from "../../api/assignments";
+import { apiForAssignmentType } from '../../api/assignmentKindApi';
 import { Plus, Layers, FileJson, Download, ExternalLink, Pencil, FilePlus2, FolderPlus } from "lucide-react";
 import IfEditor from "../../components/IfEditor";
 import { useNotify } from "../../components/notify/NotifyProvider";
@@ -799,7 +799,7 @@ export default function CourseAssignmentsPage() {
     setCreateBusyType(type);
     try {
       const payload = buildDefaultAssignmentPayload(type, orderedAll.length);
-      const res = await createAssignment(courseId, payload);
+      const res = await apiForAssignmentType(type).create(courseId, payload);
       const id = res && res.id;
       setJsonImportDialogOpen(false);
       notify.success("Задание создано");

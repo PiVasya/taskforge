@@ -430,17 +430,18 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
                 courses = $"{root}/api/courses",
                 courseAssignments = $"{root}/api/courses/{{courseId}}/assignments",
                 learningMap = $"{root}/api/courses/{{courseId}}/learning-map",
-                assignment = $"{root}/api/assignments/{{assignmentId}}",
-                solveShell = $"{root}/api/assignments/{{assignmentId}}/solve-shell",
-                statement = $"{root}/api/assignments/{{assignmentId}}/statement",
-                tests = $"{root}/api/assignments/{{assignmentId}}/tests",
+                runtimeMeta = $"{root}/api/assignments/{{assignmentId}}/runtime-meta",
+                solveShell = $"{root}/api/{{typedRoute}}/{{assignmentId}}/solve-shell",
+                statement = $"{root}/api/{{typedRoute}}/{{assignmentId}}/statement",
+                tests = $"{root}/api/{{typedRoute}}/{{assignmentId}}/tests",
+                typedRoute = "Use runtimeMeta.route as typedRoute for all assignment read/runtime URLs.",
                 taskConstraints = "Read taskConstraints.required/forbidden before solving code tasks; they are explicit assignment rules, not hidden platform security policy."
             },
             code = new
             {
-                submit = $"{root}/api/assignments/{{assignmentId}}/submit",
-                listMine = $"{root}/api/me/solutions?assignmentId={{assignmentId}}",
-                getMine = $"{root}/api/me/solutions/{{solutionId}}",
+                submit = $"{root}/api/code-solutions",
+                listMine = $"{root}/api/code-solutions?assignmentId={{assignmentId}}",
+                getMine = $"{root}/api/code-solutions/{{solutionId}}",
                 verdictHandling = new
                 {
                     pending = new[] { "Preparing", "Queued", "Running" },
@@ -450,16 +451,32 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             },
             test = new
             {
-                start = $"{root}/api/task-tests/{{assignmentId}}/start",
-                submit = $"{root}/api/task-tests/{{assignmentId}}/submit",
-                getAttempt = $"{root}/api/me/test-attempts/{{attemptId}}",
+                start = $"{root}/api/test-assignments/{{assignmentId}}/attempts",
+                submit = $"{root}/api/test-assignments/{{assignmentId}}/attempts/{{attemptId}}/submit",
+                getAttempt = $"{root}/api/test-assignments/{{assignmentId}}/attempts/{{attemptId}}",
                 answerContract = "single-choice accepts selectedOptionKey or a non-empty selectedOptionKeys list; multi-choice uses selectedOptionKeys"
             },
             math = new
             {
-                start = $"{root}/api/math-tasks/{{assignmentId}}/start",
-                submit = $"{root}/api/math-tasks/{{assignmentId}}/submit",
-                getAttempt = $"{root}/api/me/math-attempts/{{attemptId}}"
+                start = $"{root}/api/math-assignments/{{assignmentId}}/attempts",
+                submit = $"{root}/api/math-assignments/{{assignmentId}}/attempts/{{attemptId}}/submit",
+                getAttempt = $"{root}/api/math-assignments/{{assignmentId}}/attempts/{{attemptId}}"
+            },
+            image = new
+            {
+                run = $"{root}/api/image-assignments/{{assignmentId}}/run-code",
+                compare = $"{root}/api/image-assignments/{{assignmentId}}/compare-code",
+                submit = $"{root}/api/image-solutions",
+                listMine = $"{root}/api/me/image-solutions?assignmentId={{assignmentId}}",
+                getMine = $"{root}/api/me/image-solutions/{{solutionId}}"
+            },
+            sql = new
+            {
+                assignment = $"{root}/api/sql-assignments/{{assignmentId}}",
+                run = $"{root}/api/sql-solutions/run",
+                submit = $"{root}/api/sql-solutions/check",
+                preview = $"{root}/api/sql-solutions/previews/{{jobId}}",
+                submission = $"{root}/api/sql-solutions/{{solutionId}}"
             },
             adminInvestigation = new
             {
@@ -480,9 +497,9 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
             new { step = 2, action = "create-session", note = "Create readOnly=false session with Authorization: Bearer <access-token>, site=main, path=/courses. GET-only clients can use /.well-known/taskforge-ai-browser.json and /api/ai/browser/start instead." },
             new { step = 3, action = "choose-course", targetRole = "course-card", preferredState = "incomplete" },
             new { step = 4, action = "choose-assignment", targetRoles = new[] { "course-map-node", "assignment-card" }, targetAction = "open-assignment", preferredState = "unsolved", note = "Flow-map and card modes expose the same stable assignment-{id} automationId. In Browser Automation, one click on a flow assignment node performs open-assignment; normal human map behavior remains unchanged." },
-            new { step = 5, action = "inspect-assignment", note = "Read the semantic snapshot and assignment kind. If ordinary HTTP is available, GET the assignment/solve-shell/statement/tests directly. For code tasks obey taskConstraints.required/forbidden. For test/math choices bind answers to questionId + answerOptionKey whenever available." },
+            new { step = 5, action = "inspect-assignment", note = "Read the semantic snapshot and assignment kind. If ordinary HTTP is available, GET runtime-meta once, then use runtimeMeta.route for typed assignment/solve-shell/statement/tests URLs. For code tasks obey taskConstraints.required/forbidden. For test/math choices bind answers to questionId + answerOptionKey whenever available." },
             new { step = 6, action = "submit", note = "Prefer the authoritative ordinary API for reliable serial solving. If using the UI, submit with waitMs=2500..5000 and includeSnapshot=true." },
-            new { step = 7, action = "verify-reconcile", note = "For code query /api/me/solutions; for tests/math query the attempt by id. Treat those APIs as authoritative even if the UI lost the submit response." },
+            new { step = 7, action = "verify-reconcile", note = "Reconcile through the owning result API: code/image/sql use their solution namespaces, while test/math use typed attempt detail. Treat that result API as authoritative even if the UI lost the submit response." },
             new { step = 8, action = "continue", targetAction = "next-assignment" }
         }
     });

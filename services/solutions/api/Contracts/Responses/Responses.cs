@@ -14,6 +14,8 @@ public sealed record AssignmentMetadata(Guid AssignmentId, Guid CourseId, string
 
 public sealed record AssignmentAccessDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit);
 
+public sealed record CodeSolutionContractDto(Guid AssignmentId, Guid CourseId, Guid UserId, bool CanView, bool CanSubmit, bool IsVisible, bool CanEdit, JudgeSpec Spec);
+
 public sealed record CourseAccessDto(Guid CourseId, Guid UserId, bool CanView, bool CanEdit, bool IsPublic);
 
 public sealed class AssignmentSummaryDto

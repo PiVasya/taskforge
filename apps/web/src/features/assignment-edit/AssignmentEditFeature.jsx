@@ -6,7 +6,8 @@ import { extractApiErrorMessages, handleApiError } from "../../utils/handleApiEr
 import { notifyOnce } from "../../utils/notifyOnce";
 import { getApiErrorMessage } from "../../api/http";
 
-import { getAssignmentForEdit, updateAssignment, deleteAssignment } from "../../api/assignments";
+import { getAssignmentEditMeta, deleteAssignment } from "../../api/assignments";
+import { apiForAssignmentType } from "../../api/assignmentKindApi";
 
 import { Button, Field, Input, Textarea, Select, Badge } from "../../components/ui";
 import { Save, Trash2, ArrowLeft, PlusCircle, ClipboardList, FileText, Code2, Image as ImageIcon, Calculator, ShieldCheck, ListChecks, Settings2 } from "lucide-react";
@@ -14,7 +15,7 @@ import { TaskTestEditor } from "../task-test";
 import SqlTaskEditor from '../sql-task/SqlTaskEditor';
 import { MathTaskEditor } from "../math-task";
 import StatementEditor from "../../components/tiptap/StatementEditor";
-import { uploadImageTestReference, uploadImageTestExpectedImage } from "../../api/imageTests";
+import { uploadImageReference, uploadImageExpectedImage } from "../../api/imageAssignments";
 import { EditorSection, SmallCheck } from './components/EditorSection';
 import { normalizeCodeTestCases, LANGS_BY_TYPE, DEFAULT_ANALYTICS_SETTINGS, ANALYTICS_MODE_LABELS } from './assignmentEditModel';
 import useQuery from '../../hooks/useQuery';
@@ -32,8 +33,9 @@ export default function AssignmentEditPage() {
   const editQuery = useQuery({
     queryKey: editQueryKey,
     queryFn: async () => {
-      const assignment = await getAssignmentForEdit(assignmentId);
-      const normalizedType = String(assignment?.type || '').trim();
+      const meta = await getAssignmentEditMeta(assignmentId);
+      const normalizedType = String(meta?.type || '').trim();
+      const assignment = await apiForAssignmentType(normalizedType).edit(assignmentId);
       return {
         assignment,
         testEdit: normalizedType === 'test'
@@ -551,7 +553,7 @@ export default function AssignmentEditPage() {
         analyticsSettings,
       };
 
-      await updateAssignment(assignmentId, payload);
+      await apiForAssignmentType(normalizedType).update(assignmentId, payload);
       if (type === 'sql-test') await sqlEditorRef.current?.save();
 
       
@@ -1129,7 +1131,7 @@ export default function AssignmentEditPage() {
                               const file = input.files?.[0];
                               if (!file) return;
                               try {
-                                const r = await uploadImageTestExpectedImage(assignmentId, file);
+                                const r = await uploadImageExpectedImage(assignmentId, file);
                                 changeTest(idx, "expectedImageKey", r.key || "");
                                 changeTest(idx, "expectedImageUrl", r.privateUrl || r.url || (r.key ? `/api/private-files/${encodeURIComponent(r.key)}` : ""));
                                 changeTest(idx, "expectedImageContentType", r.contentType || file.type || "image/png");
@@ -1190,7 +1192,7 @@ export default function AssignmentEditPage() {
                         const file = input.files?.[0];
                         if (!file) return;
                         try {
-                          const r = await uploadImageTestReference(
+                          const r = await uploadImageReference(
                             assignmentId,
                             file,
                             Number(imageTestThreshold) || 90

@@ -2,6 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import CodeEditor from '../../components/CodeEditor';
 import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
+import { getSqlSpecEdit, saveSqlSpecEdit, validateSqlSpecEdit, publishSqlSpecEdit } from '../../api/sqlAssignments';
 import { clone, datasetIssues, editorInput, freshDataset, freshSpec, list, logicalEngineProfiles, mergeSqlEditorPoll, refreshDatasetCatalogBestEffort, replaceEngineTargetProfile, toggleEngineTargets, validationReadyForTargets } from './sqlModel';
 import SqlDatasetEditor, { Check, F, NameInput } from './SqlDatasetEditor';
 
@@ -56,7 +57,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     let alive = true;
     (async () => {
       try {
-        const [edit, ds, engines] = await Promise.all([api.sqlEdit(assignmentId), api.sqlDatasets(), api.sqlEngines()]);
+        const [edit, ds, engines] = await Promise.all([getSqlSpecEdit(assignmentId), api.sqlDatasets(), api.sqlEngines()]);
         if (!alive) return;
         applyView(edit); setDatasets(ds); setProfiles(engines);
         if (edit.datasetId) await loadDataset(edit.datasetId, edit.spec.datasetVersionId);
@@ -73,7 +74,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
       try {
         const status = await api.sqlRuntime(); if (!stopped) setRuntime(status);
         const engines = await api.sqlEngines(); if (!stopped) setProfiles(engines);
-        if (view?.draftVersionId && !operation.current) { const latest = await api.sqlEdit(assignmentId); if (!stopped) setView(old => mergeSqlEditorPoll(old, latest)); }
+        if (view?.draftVersionId && !operation.current) { const latest = await getSqlSpecEdit(assignmentId); if (!stopped) setView(old => mergeSqlEditorPoll(old, latest)); }
       } catch { /* Read-only polling does not discard the author's unsaved state. */ }
     };
     void refresh(); const timer = setInterval(refresh, 3000);
@@ -112,7 +113,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     try {
       const version = datasetDirty || !versionId ? await saveDataset() : versionId;
       if (!specDirty && view?.spec?.datasetVersionId === version) return view;
-      const saved = await api.saveSqlEdit(assignmentId, editorInput(spec,version,view?.concurrencyStamp));
+      const saved = await saveSqlSpecEdit(assignmentId, editorInput(spec,version,view?.concurrencyStamp));
       applyView(saved); setMessage('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d. \u0412\u0430\u043b\u0438\u0434\u0430\u0446\u0438\u044f \u044d\u0442\u0430\u043b\u043e\u043d\u0430 \u0438\u0434\u0451\u0442 \u0432 \u0444\u043e\u043d\u0435.');
       return saved;
     } catch (e) { setError(getApiErrorMessage(e) || e.message); throw e; }
@@ -124,13 +125,13 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     try {
       // Publication is a server-state operation. Re-read the saved draft so a delayed
       // validation/poll response can never publish a stale subset of engine targets.
-      const latest = await api.sqlEdit(assignmentId);
+      const latest = await getSqlSpecEdit(assignmentId);
       setView(latest);
       if (!validationReadyForTargets(latest?.spec?.targets, latest?.validation)) {
         setError('Все включённые движки должны успешно пройти проверку перед публикацией.');
         return;
       }
-      const saved = await api.publishSqlEdit(assignmentId, { versionId: latest.draftVersionId, concurrencyStamp: latest.concurrencyStamp });
+      const saved = await publishSqlSpecEdit(assignmentId, { versionId: latest.draftVersionId, concurrencyStamp: latest.concurrencyStamp });
       setView(saved); setMessage('\u0412\u0435\u0440\u0441\u0438\u044f \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u0430. \u0422\u0435\u043f\u0435\u0440\u044c \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043c\u043e\u0436\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c \u0432\u0438\u0434\u0438\u043c\u044b\u043c.'); onPublished?.();
     } catch(e) { setError(getApiErrorMessage(e)); }
     finally { setBusy(false); operation.current = false; }
@@ -189,7 +190,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
       {dirty && <p className="sql-muted">{'\u0415\u0441\u0442\u044c \u043d\u0435\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f. \u0421\u0442\u0430\u0442\u0443\u0441\u044b \u043d\u0438\u0436\u0435 \u043e\u0442\u043d\u043e\u0441\u044f\u0442\u0441\u044f \u043a \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u043e\u043c\u0443 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a\u0443.'}</p>}
       <div className="sql-status-list">{(view?.validation || []).map(v => <div key={v.engineProfileId} className={v.status === 'invalid' ? 'sql-error' : v.status === 'valid' ? 'sql-ok' : 'sql-muted'}><strong>{profileFor(v.engineProfileId)?.displayName || v.engineProfileId}</strong> {' / данные: '}{v.datasetStatus}{' / эталон: '}{v.status}{v.error && <div>{v.error}: {v.diagnostic?.message || v.diagnostic?.error?.message || ''}</div>}</div>)}</div>
       <div className="sql-toolbar"><button type="button" className="sql-primary" disabled={busy} onClick={() => void save().catch(() => {})}>{busy ? '\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435\u2026' : '\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c SQL-\u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a'}</button>
-        <button type="button" disabled={busy || dirty || !view?.draftVersionId} onClick={async () => { setBusy(true); try { setView(await api.validateSqlEdit(assignmentId)); } catch(e) { setError(getApiErrorMessage(e)); } finally { setBusy(false); } }}>{'\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c \u0432\u0430\u043b\u0438\u0434\u0430\u0446\u0438\u044e'}</button>
+        <button type="button" disabled={busy || dirty || !view?.draftVersionId} onClick={async () => { setBusy(true); try { setView(await validateSqlSpecEdit(assignmentId)); } catch(e) { setError(getApiErrorMessage(e)); } finally { setBusy(false); } }}>{'\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c \u0432\u0430\u043b\u0438\u0434\u0430\u0446\u0438\u044e'}</button>
         <button type="button" disabled={busy || dirty || !ready || view?.publishedVersionId === view?.draftVersionId} onClick={() => void publish()}>{'\u041e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0432\u0435\u0440\u0441\u0438\u044e'}</button></div>
     </div>
   </div>;

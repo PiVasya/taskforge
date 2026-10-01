@@ -35,7 +35,6 @@ public sealed record AnalyzerRequest(
     [property: System.Text.Json.Serialization.JsonPropertyName("forbidden_calls")] string[]? ForbiddenCalls,
     [property: System.Text.Json.Serialization.JsonPropertyName("required_calls")] string[]? RequiredCalls);
 
-public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
 
 public sealed record SortRequest(int Sort);
 
@@ -65,3 +64,7 @@ public sealed record AssignmentActivityEventRequest(
     long? ActiveDurationMs,
     long? HiddenDurationMs,
     long? BlurDurationMs);
+
+public sealed record CodeSubmissionRequest(string? Language, string? Code, string? Input);
+
+public sealed record SqlAssignmentRunRequest(Guid EngineProfileId, string Sql, Guid RequestId);

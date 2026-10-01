@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button } from '../../components/ui';
-import { getMyMathAttempt, startMathTask, submitMathTask } from '../../api/mathTasks';
+import { getMathAttempt, startMathAttempt, submitMathAttempt } from '../../api/mathAssignments';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import StatementViewer from '../../components/tiptap/StatementViewer';
 import AttemptCountdown from '../attempts/AttemptCountdown';
@@ -77,7 +77,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       setStartData(null);
       setResult(null);
       onActivity?.('math_started', { payload: { kind: 'math' } });
-      const data = await startMathTask(assignmentId);
+      const data = await startMathAttempt(assignmentId);
       resetAttemptAnswers(`math:${data.attemptId}`);
       lastAnswerActivityRef.current = { signature: '', at: 0 };
       setStartData(data);
@@ -145,11 +145,11 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
           matchPairs: value?.matchPairs ?? null,
         })),
       };
-      const response = await submitMathTask(assignmentId, payload);
+      const response = await submitMathAttempt(assignmentId, startData.attemptId, payload);
       applySubmittedResult(response, false);
     } catch (error) {
       if (shouldRecoverSubmittedAttempt(error) && startData?.attemptId) {
-        const recovered = await recoverSubmittedAttempt(() => getMyMathAttempt(startData.attemptId));
+        const recovered = await recoverSubmittedAttempt(() => getMathAttempt(assignmentId, startData.attemptId));
         if (recovered) {
           applySubmittedResult(recovered, true);
           return;

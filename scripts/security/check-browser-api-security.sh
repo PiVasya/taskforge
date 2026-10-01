@@ -316,11 +316,11 @@ if 'data-taskforge-option-key' not in text('apps/web/src/features/task-test/Task
     die('task-test choices no longer expose stable answer option keys')
 
 code_solve = text('apps/web/src/features/assignment-solve/AssignmentSolveFeature.jsx')
-for marker in ('recoverRecentCodeSubmission', 'listMySolutions', 'submitStartedAt', 'Результат восстановлен'):
+for marker in ('recoverRecentCodeSubmission', 'listCodeSubmissions', 'submitStartedAt', 'Результат восстановлен'):
     if marker not in code_solve:
         die(f'code submit flow lost lost-response reconciliation marker: {marker}')
 
-for marker in ('authoritativeApi', '/api/courses', '/learning-map', '/solve-shell', '/api/me/solutions', '/api/me/test-attempts', '/api/me/math-attempts', 'recoveryRule', 'verdictHandling', 'JudgeUnavailable', 'elementReferences', 'preferred = "automationId"'):
+for marker in ('authoritativeApi', '/api/courses', '/learning-map', '/solve-shell', '/api/code-solutions', '/api/image-solutions', '/api/sql-solutions', '/api/test-assignments', '/api/math-assignments', 'recoveryRule', 'verdictHandling', 'JudgeUnavailable', 'elementReferences', 'preferred = "automationId"'):
     if marker not in discovery or marker not in program:
         die(f'agent discovery/playbook lost authoritative submit recovery marker: {marker}')
 if 'X-TaskForge-AI-Rate-Multiplier' not in discovery or 'X-TaskForge-AI-Rate-Multiplier' not in program or 'X-TaskForge-AI-Rate-Multiplier' not in openapi_enhancer:

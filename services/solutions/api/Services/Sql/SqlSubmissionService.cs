@@ -19,19 +19,30 @@ internal static class SqlSubmissionService
     internal static string TasksUrl(IConfiguration cfg) => SqlHttp.Url(cfg, "TasksApi", "http://tasks-api:8080");
     internal sealed record SqlCapacity(bool Available);
     internal sealed record JudgeSpecResponse(Guid Id, string Type, SqlJobPayload? Sql);
+    internal sealed record SqlSolutionContractResponse(
+        Guid AssignmentId,
+        Guid CourseId,
+        Guid UserId,
+        bool CanView,
+        bool CanSubmit,
+        bool IsVisible,
+        bool CanEdit,
+        JudgeSpecResponse Spec);
 
-    internal static async Task<SqlJobPayload> Published(IHttpClientFactory factory, IConfiguration cfg,
-        Guid assignmentId, Guid engineId, CancellationToken ct)
+    internal static async Task<SqlSolutionContractResponse> Contract(IHttpClientFactory factory, IConfiguration cfg,
+        Guid assignmentId, Guid userId, Guid engineId, CancellationToken ct)
     {
-        var spec = await SqlHttp.Send<JudgeSpecResponse>(factory, cfg, HttpMethod.Get,
-            $"{TasksUrl(cfg)}/api/internal/assignments/{assignmentId}/judge-spec?engineProfileId={engineId}", null, ct);
-        if (spec?.Type != "sql-test" || spec.Sql is null) throw new ArgumentException("A published SQL assignment and selected engine are required.");
-        if (spec.Sql.Profile.Id != engineId || spec.Sql.AssignmentId != assignmentId || spec.Sql.ReferenceSql is not null)
+        var contract = await SqlHttp.Send<SqlSolutionContractResponse>(factory, cfg, HttpMethod.Get,
+            $"{TasksUrl(cfg)}/api/internal/sql-assignments/{assignmentId:D}/solution-contract/{userId:D}?engineProfileId={engineId:D}", null, ct)
+            ?? throw new HttpRequestException("Tasks SQL solution contract is unavailable.", null, System.Net.HttpStatusCode.ServiceUnavailable);
+        if (contract.AssignmentId != assignmentId || contract.UserId != userId || contract.Spec.Type != "sql-test" || contract.Spec.Sql is null)
+            throw new InvalidOperationException("Invalid SQL solution contract.");
+        if (contract.Spec.Sql.Profile.Id != engineId || contract.Spec.Sql.AssignmentId != assignmentId || contract.Spec.Sql.ReferenceSql is not null)
             throw new InvalidOperationException("Invalid private judge binding.");
         var capacity = await SqlHttp.Send<SqlCapacity>(factory, cfg, HttpMethod.Get,
-            $"{ExecutionUrl(cfg)}/api/internal/execution/sql-capabilities?target={spec.Sql.Profile.Fingerprint}", null, ct);
+            $"{ExecutionUrl(cfg)}/api/internal/execution/sql-capabilities?target={contract.Spec.Sql.Profile.Fingerprint}", null, ct);
         if (capacity?.Available != true) throw new HttpRequestException("No healthy SQL worker supports the pinned runtime.", null, System.Net.HttpStatusCode.ServiceUnavailable);
-        return spec.Sql;
+        return contract;
     }
 
     internal static async Task Dispatch(SolutionsDbContext db, SolutionSubmission sub, IHttpClientFactory factory,

@@ -52,49 +52,6 @@ internal static class AssignmentTypeSpecService
         return ReadMathSpec(assignment);
     }
 
-    internal static async Task HydrateForReadAsync(TasksDbContext db, Assignment assignment, CancellationToken ct = default)
-        => await HydrateForReadAsync(db, new[] { assignment }, ct);
-
-    internal static async Task HydrateForReadAsync(TasksDbContext db, IReadOnlyCollection<Assignment> assignments, CancellationToken ct = default)
-    {
-        if (assignments.Count == 0) return;
-
-        var codeIds = assignments.Where(x => NormalizeAssignmentType(x.Type) == "code-test").Select(x => x.Id).Distinct().ToArray();
-        var imageIds = assignments.Where(x => NormalizeAssignmentType(x.Type) == "image-test").Select(x => x.Id).Distinct().ToArray();
-        var mathIds = assignments.Where(x => NormalizeAssignmentType(x.Type) == "math").Select(x => x.Id).Distinct().ToArray();
-
-        var codeRows = codeIds.Length == 0
-            ? new Dictionary<Guid, CodeAssignmentSpec>()
-            : (await db.CodeAssignmentSpecs.AsNoTracking().Where(x => codeIds.Contains(x.AssignmentId)).ToListAsync(ct)).ToDictionary(x => x.AssignmentId);
-        var imageRows = imageIds.Length == 0
-            ? new Dictionary<Guid, ImageAssignmentSpec>()
-            : (await db.ImageAssignmentSpecs.AsNoTracking().Where(x => imageIds.Contains(x.AssignmentId)).ToListAsync(ct)).ToDictionary(x => x.AssignmentId);
-        var mathRows = mathIds.Length == 0
-            ? new Dictionary<Guid, MathAssignmentSpec>()
-            : (await db.MathAssignmentSpecs.AsNoTracking().Where(x => mathIds.Contains(x.AssignmentId)).ToListAsync(ct)).ToDictionary(x => x.AssignmentId);
-
-        foreach (var assignment in assignments)
-        {
-            switch (NormalizeAssignmentType(assignment.Type))
-            {
-                case "code-test" when codeRows.TryGetValue(assignment.Id, out var code):
-                    HydrateExecutable(assignment, From(code));
-                    break;
-                case "image-test" when imageRows.TryGetValue(assignment.Id, out var image):
-                    HydrateExecutable(assignment, From(image));
-                    break;
-                case "math" when mathRows.TryGetValue(assignment.Id, out var math):
-                    assignment.Language = string.Empty;
-                    assignment.AllowedLanguagesCsv = null;
-                    assignment.StarterCode = null;
-                    assignment.CodeForbiddenCallsJson = null;
-                    assignment.CodeRequiredCallsJson = null;
-                    assignment.TestsJson = ToMathNode(math).ToJsonString(JsonOptions());
-                    break;
-            }
-        }
-    }
-
     internal static async Task SaveCodeFromRequestAsync(TasksDbContext db, Assignment assignment, AssignmentRequest request, CancellationToken ct = default)
     {
         var current = await ReadCodeAsync(db, assignment, ct);
@@ -280,16 +237,6 @@ internal static class AssignmentTypeSpecService
             string.IsNullOrWhiteSpace(assignment.TestsJson) ? fallbackTests : assignment.TestsJson!,
             assignment.CodeForbiddenCallsJson,
             assignment.CodeRequiredCallsJson);
-
-    private static void HydrateExecutable(Assignment assignment, ExecutableAssignmentSpecData spec)
-    {
-        assignment.Language = spec.Language;
-        assignment.AllowedLanguagesCsv = spec.AllowedLanguagesCsv;
-        assignment.StarterCode = spec.StarterCode;
-        assignment.TestsJson = spec.TestsJson;
-        assignment.CodeForbiddenCallsJson = spec.CodeForbiddenCallsJson;
-        assignment.CodeRequiredCallsJson = spec.CodeRequiredCallsJson;
-    }
 
     private static void ClearLegacyPayload(Assignment assignment, bool keepLanguage)
     {

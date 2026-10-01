@@ -6,9 +6,11 @@ import SqlTaskSolve from '../sql-task/SqlTaskSolve';
 import { MathTaskSolve } from '../math-task';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import StatementViewer from '../../components/tiptap/StatementViewer';
-import { getAssignment, getAssignmentSolveShell, getAssignmentStatement, getAssignmentTests } from '../../api/assignments';
-import { listMySolutions, submitSolution } from '../../api/solutions';
-import { runImageTestCode, submitImageTestCode } from '../../api/imageTests';
+import { getAssignmentRuntimeMeta } from '../../api/assignments';
+import { apiForAssignmentType } from '../../api/assignmentKindApi';
+import { listCodeSubmissions, submitCodeSolution as submitCodeSolutionRequest } from '../../api/codeSolutions';
+import { runImageCode } from '../../api/imageAssignments';
+import { submitImageSolution } from '../../api/imageSolutions';
 import { recordAssignmentActivityBatch, sendAssignmentActivityBeacon } from '../../api/assignmentActivity';
 import { getApiErrorMessage } from '../../api/http';
 import { Play, CheckCircle2, XCircle } from 'lucide-react';
@@ -70,7 +72,7 @@ async function recoverRecentCodeSubmission(assignmentId, language, code, submitS
   for (const delayMs of attempts) {
     if (delayMs > 0) await wait(delayMs);
     try {
-      const rows = await listMySolutions(assignmentId);
+      const rows = await listCodeSubmissions(assignmentId);
       const match = (Array.isArray(rows) ? rows : []).find((row) => {
         const rowCode = String(row?.code ?? row?.submittedCode ?? '');
         const rowLanguage = normalizeLang(row?.language);
@@ -435,11 +437,13 @@ export default function AssignmentSolvePage() {
       setImageInput('');
 
       try {
+        const runtimeMeta = await getAssignmentRuntimeMeta(assignmentId);
+        const runtimeApi = apiForAssignmentType(runtimeMeta?.type);
         let shell = null;
         try {
-          shell = await getAssignmentSolveShell(assignmentId);
+          shell = await runtimeApi.shell(assignmentId);
         } catch {
-          shell = await getAssignment(assignmentId);
+          shell = await runtimeApi.get(assignmentId);
         }
         if (!alive) return;
 
@@ -474,7 +478,7 @@ export default function AssignmentSolvePage() {
         });
         setPartLoading((prev) => ({ ...prev, shell: false }));
 
-        const statementPromise = getAssignmentStatement(assignmentId)
+        const statementPromise = runtimeApi.statement(assignmentId)
           .then((part) => {
             if (!alive) return;
             mergeAssignmentPart(part);
@@ -482,7 +486,7 @@ export default function AssignmentSolvePage() {
           .catch(async () => {
             if (!alive) return;
             try {
-              const full = await getAssignment(assignmentId);
+              const full = await runtimeApi.get(assignmentId);
               mergeAssignmentPart({
                 id: full?.id || assignmentId,
                 title: full?.title,
@@ -497,7 +501,7 @@ export default function AssignmentSolvePage() {
             if (alive) setPartLoading((prev) => ({ ...prev, statement: false }));
           });
 
-        const testsPromise = getAssignmentTests(assignmentId)
+        const testsPromise = runtimeApi.tests(assignmentId)
           .then((part) => {
             if (!alive) return;
             mergeAssignmentPart(part);
@@ -505,7 +509,7 @@ export default function AssignmentSolvePage() {
           .catch(async () => {
             if (!alive) return;
             try {
-              const full = await getAssignment(assignmentId);
+              const full = await runtimeApi.get(assignmentId);
               mergeAssignmentPart({
                 id: full?.id || assignmentId,
                 tests: full?.tests,
@@ -592,7 +596,7 @@ export default function AssignmentSolvePage() {
       const submitStartedAt = Date.now();
       let r;
       try {
-        r = await submitSolution(assignmentId, { language, code });
+        r = await submitCodeSolutionRequest(assignmentId, { language, code });
       } catch (submitError) {
         const status = Number(submitError?.response?.status || 0);
         if (submitError?.response && status < 500) throw submitError;
@@ -607,7 +611,7 @@ export default function AssignmentSolvePage() {
         setSubmitPhase('queued');
         notify.info('Решение поставлено в очередь проверки. Страница результата будет обновляться автоматически.');
 
-        const pollResult = await waitForSolutionVerdict(solutionId, {
+        const pollResult = await waitForSolutionVerdict(assignmentId, solutionId, {
           maxAttempts: 18,
           onUpdate: (latest) => {
             const status = String(latest?.status || latest?.verdict || '').trim().toLowerCase();
@@ -1042,7 +1046,7 @@ export default function AssignmentSolvePage() {
       queueActivity('image_trial_started', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, language });
 
       try {
-        const resp = await runImageTestCode(assignmentId, language, code, imageInput);
+        const resp = await runImageCode(assignmentId, language, code, imageInput);
         const normalized = normalizeImageTaskResult(resp, expectedUrl, {
           isTrial: true,
           code,
@@ -1093,7 +1097,7 @@ export default function AssignmentSolvePage() {
       queueActivity('image_submit_started', { codeLength: code.length, codeHash: hashActivityText(code), codeSample: clampActivityText(code), fullCode: code, textLength: code.length, language });
 
       try {
-        const resp = await submitImageTestCode(assignmentId, language, code, imageInput);
+        const resp = await submitImageSolution(assignmentId, language, code, imageInput);
         const normalized = normalizeImageTaskResult(resp, expectedUrl, {
           isTrial: false,
           code,

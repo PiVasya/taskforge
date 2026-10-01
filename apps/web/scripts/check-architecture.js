@@ -228,6 +228,47 @@ if (!/AssignmentTaskConstraints/.test(assignmentFeature) || !/taskConstraints/.t
   fail('assignment solve feature lost the task-constraint panel');
 }
 
+const assignmentRuntimeTransport = [
+  read('features/assignment-solve/AssignmentSolveFeature.jsx'),
+  read('features/task-test/TaskTestSolve.jsx'),
+  read('features/math-task/MathTaskSolve.jsx'),
+  read('features/sql-task/SqlTaskSolve.jsx'),
+  read('pages/AssignmentResultsPage.jsx'),
+].join('\n');
+for (const forbidden of [
+  "api/solutions",
+  "api/taskTests",
+  "api/mathTasks",
+  "api/imageTests",
+  "/api/assignments/${assignmentId}/submit",
+  "/api/solutions/sql",
+  "/api/task-tests/",
+  "/api/math-tasks/",
+]) {
+  if (assignmentRuntimeTransport.includes(forbidden)) {
+    fail(`assignment runtime returned to legacy shared transport: ${forbidden}`);
+  }
+}
+for (const required of ['api/codeAssignments', 'api/imageAssignments', 'api/testAssignments', 'api/mathAssignments', 'api/sqlAssignments']) {
+  if (!source.some(([, text]) => text.includes(required))) {
+    fail(`typed assignment transport is missing: ${required}`);
+  }
+}
+for (const required of ['api/codeSolutions', 'api/imageSolutions', 'api/sqlSolutions']) {
+  if (!assignmentRuntimeTransport.includes(required) && !source.some(([, text]) => text.includes(required))) {
+    fail(`typed solution transport is missing: ${required}`);
+  }
+}
+for (const [assignmentModule, forbiddenToken] of [
+  ['api/codeAssignments.js', 'submitCodeSolution'],
+  ['api/imageAssignments.js', 'submitImageSolution'],
+  ['api/sqlAssignments.js', 'submitSqlSolution'],
+]) {
+  if (read(assignmentModule).includes(forbiddenToken)) {
+    fail(`solution ownership leaked back into assignment transport: ${assignmentModule} -> ${forbiddenToken}`);
+  }
+}
+
 const taskTest = read('features/task-test/TaskTestSolve.jsx');
 const mathTask = read('features/math-task/MathTaskSolve.jsx');
 if (/const \[answers, setAnswers\] = useState/.test(taskTest) || /const \[answers, setAnswers\] = useState/.test(mathTask)) {

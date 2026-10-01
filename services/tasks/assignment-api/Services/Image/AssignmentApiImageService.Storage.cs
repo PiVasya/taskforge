@@ -22,31 +22,6 @@ namespace TaskForge.Tasks.Api.Services.Image;
 
 internal static partial class AssignmentApiImageService
 {
-    internal static async Task<Guid?> SaveImageSolutionAsync(Guid assignmentId, Guid userId, string language, string code, int similarityPercent, bool passed, JsonElement result, IConfiguration cfg, IHttpClientFactory clients)
-    {
-        var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
-        var client = clients.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(15);
-        using var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/image-solutions")
-        {
-            Content = JsonContent.Create(new InternalImageSolutionRequest(userId, assignmentId, language, code, similarityPercent, passed, result), options: JsonOptions())
-        };
-        AddInternalKey(msg, cfg);
-
-        try
-        {
-            using var response = await client.SendAsync(msg);
-            var raw = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(raw)) return null;
-            using var doc = JsonDocument.Parse(raw);
-            return doc.RootElement.TryGetProperty("id", out var idProp) && Guid.TryParse(idProp.ToString(), out var savedId) ? savedId : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     internal static async Task<LoadedImageBytes> LoadExpectedImageAsync(ImageTestCaseSpec test, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(test.ExpectedImageKey))

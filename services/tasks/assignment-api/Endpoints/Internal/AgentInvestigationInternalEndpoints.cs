@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Testing;
+using TaskForge.Tasks.Api.Services.Runtime;
 using TaskForge.Tasks.Api.Services.Specs;
 
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
@@ -167,10 +168,10 @@ internal static partial class AssignmentApiEndpoints
             var testSpec = string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)
                 ? await TestAssignmentSpecService.ReadAsync(db, assignment, ct)
                 : null;
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
+            var assignmentDto = await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                assignment = ToDto(assignment, includeSensitive: true),
+                assignment = assignmentDto,
                 test = testSpec is null ? null : TaskSpecToJsonObject(testSpec),
                 assignmentUrl = $"/assignment/{assignment.Id:D}",
                 editUrl = $"/assignment/{assignment.Id:D}/edit"

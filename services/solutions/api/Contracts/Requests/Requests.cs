@@ -24,9 +24,11 @@ public sealed record SolvedAssignmentsRequest(Guid[]? AssignmentIds);
 
 public sealed record SubmitRequest(string? Language, string? Code, string? Input, JsonElement? Tests);
 
+public sealed record CodeSolutionSubmitRequest(Guid AssignmentId, string? Language, string? Code, string? Input);
+
 public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result);
 
-public sealed record InternalImageSolutionRequest(Guid UserId, Guid AssignmentId, string? Language, string? Code, int SimilarityPercent, bool Passed, JsonElement? Result);
+public sealed record ImageSolutionSubmitRequest(Guid AssignmentId, string? Language, string? Code, string? Input, int? TimeoutSeconds);
 
 public sealed record CreateExecutionJobRequest(Guid SubmissionId, Guid? AssignmentId, Guid? UserId, string? Language, string? Code, string? Input, JsonElement[]? Tests, int? TimeLimitMs, int? MemoryLimitMb, string? TestsJson, string[]? CodeForbiddenCalls, string[]? CodeRequiredCalls);
 

@@ -137,16 +137,20 @@ public static class TaskForgeRequestSecurity
             || path.StartsWith("/api/test-assignments")
             || path.StartsWith("/api/math-assignments")
             || path.StartsWith("/api/sql-assignments"))
-            return Requirement.Editor;
+        {
+            if (path.EndsWith("/edit", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("/spec", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("/reference", StringComparison.OrdinalIgnoreCase)
+                || HttpMethods.IsPut(method)
+                || HttpMethods.IsPatch(method)
+                || HttpMethods.IsDelete(method))
+                return Requirement.Editor;
+            return Requirement.Authenticated;
+        }
         if (path == "/api/assignments/course-progress") return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && path.EndsWith("/activity/batch")) return Requirement.Authenticated;
-        if (path.StartsWith("/api/assignments/") && path.EndsWith("/submit")) return Requirement.Authenticated;
-        if (path.StartsWith("/api/assignments/") && path.EndsWith("/top-solutions")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments/") && (path.EndsWith("/edit") || path.EndsWith("/edit-meta"))) return Requirement.Editor;
-        if (path.StartsWith("/api/assignments/") && path.Contains("/image-test/reference")) return Requirement.Editor;
-        if (path.StartsWith("/api/assignments/") && path.Contains("/image-test")) return Requirement.Authenticated;
         if (path.StartsWith("/api/assignments")) return writeMethod ? Requirement.Editor : Requirement.Authenticated;
-        if (path.StartsWith("/api/task-tests") || path.StartsWith("/api/math-tasks")) return Requirement.Authenticated;
         if (path.StartsWith("/api/tests")) return Requirement.Editor;
 
         if (path.StartsWith("/api/compiler") || path.StartsWith("/api/execution") || path.StartsWith("/api/image-runners")) return Requirement.Editor;

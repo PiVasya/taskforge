@@ -26,14 +26,6 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapMathTasksEndpoints(WebApplication app)
     {
-        app.MapPost("/api/math-tasks/{assignmentId:guid}/start", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) => await StartMath(assignmentId, http, cfg, db, clients, ct));
-
-        app.MapPost("/api/math-tasks/{assignmentId:guid}/submit", async (Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct) =>
-        {
-            if (CheckUserRateLimit(http, cfg, "task-submit") is { } limited) return limited;
-            return await SubmitMath(assignmentId, payload, http, cfg, db, clients, live, ct);
-        });
-
         app.MapGet("/api/me/math-attempts", async (HttpContext http, IConfiguration cfg, TasksDbContext db, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
             Microsoft.AspNetCore.Http.Results.Ok(await ListAttempts("math", TaskForgeRequestSecurity.UserId(http, cfg), courseId, assignmentId, days, skip, take, db)));
 

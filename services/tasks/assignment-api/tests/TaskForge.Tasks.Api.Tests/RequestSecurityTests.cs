@@ -26,5 +26,11 @@ public sealed class RequestSecurityTests
             TaskForgeRequestSecurity.GetRequirement("tasks", "PUT", $"/api/test-assignments/{id:D}"));
         Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
             TaskForgeRequestSecurity.GetRequirement("tasks", "GET", $"/api/sql-assignments/{id:D}/edit"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Editor,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "POST", $"/api/sql-assignments/{id:D}/spec/publish"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Internal,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "POST", $"/api/internal/image-assignments/{id:D}/evaluate-solution"));
+        Assert.Equal(TaskForgeRequestSecurity.Requirement.Authenticated,
+            TaskForgeRequestSecurity.GetRequirement("tasks", "POST", $"/api/test-assignments/{id:D}/attempts"));
     }
 }

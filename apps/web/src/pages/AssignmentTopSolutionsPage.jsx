@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button, Card } from '../components/ui';
-import { getAssignment, getTopSolutions } from '../api/assignments';
+import { getAssignmentRuntimeMeta } from '../api/assignments';
+import { getCodeAssignment } from '../api/codeAssignments';
+import { getCodeTopSolutions } from '../api/codeSolutions';
 import { getApiErrorMessage } from '../api/http';
 import { formatDateTime, getSolutionCode, getSolutionCounts, getSolutionSubmittedAt } from '../utils/solutionsView';
 
@@ -19,9 +21,11 @@ export default function AssignmentTopSolutionsPage() {
       try {
         setLoading(true);
         
+        const meta = await getAssignmentRuntimeMeta(assignmentId);
+        if (meta?.type !== 'code-test') throw new Error('Топ решений доступен только для code-test.');
         const [aData, sData] = await Promise.all([
-          getAssignment(assignmentId),
-          getTopSolutions(assignmentId),
+          getCodeAssignment(assignmentId),
+          getCodeTopSolutions(assignmentId),
         ]);
         setAssignment(aData);
         setSolutions(sData);

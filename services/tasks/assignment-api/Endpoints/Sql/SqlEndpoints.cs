@@ -81,7 +81,7 @@ internal static partial class AssignmentApiEndpoints
             return Results.Ok(new { version.Id, version.DatasetId, version.Version, version.ContentHash, dataset.ConcurrencyStamp });
         });
 
-        var specs = app.MapGroup("/api/assignments/{assignmentId:guid}/sql").AddEndpointFilter<SqlEndpointFilter>();
+        var specs = app.MapGroup("/api/sql-assignments/{assignmentId:guid}/spec").AddEndpointFilter<SqlEndpointFilter>();
         specs.MapGet("/edit", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             SqlTaskService.Editor(http, cfg);

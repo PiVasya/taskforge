@@ -1,5 +1,5 @@
 import React from 'react';
-import { getMySolutionDetails } from '../../api/solutions';
+import { getCodeSubmission } from '../../api/codeSolutions';
 
 export const ALL_LANGS = [
   { value: 'cpp',        label: 'C++' },
@@ -72,12 +72,12 @@ export function isPendingSolution(value) {
   return value?.isPending === true || value?.result?.pending === true || PENDING_SOLUTION_STATUSES.has(status);
 }
 
-export async function waitForSolutionVerdict(solutionId, options = {}) {
+export async function waitForSolutionVerdict(assignmentId, solutionId, options = {}) {
   const { maxAttempts = 30, onUpdate } = options || {};
   let latest = null;
   for (let i = 0; i < maxAttempts; i += 1) {
     await new Promise(resolve => setTimeout(resolve, i < 4 ? 700 : 1200));
-    latest = await getMySolutionDetails(solutionId);
+    latest = await getCodeSubmission(assignmentId, solutionId);
     onUpdate?.(latest, i + 1);
     if (!isPendingSolution(latest)) return { solution: latest, timedOut: false };
   }

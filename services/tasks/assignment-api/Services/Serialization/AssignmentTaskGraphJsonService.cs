@@ -522,7 +522,7 @@ internal static class AssignmentTaskGraphJsonService
         CourseMapInternalResponse map,
         GraphExportOptions options,
         SqlGraphExport? sql = null,
-        IReadOnlyDictionary<Guid, TaskSpec>? testSpecs = null)
+        IReadOnlyDictionary<Guid, JsonObject>? assignmentDtos = null)
     {
         var subtreeCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).ToHashSet();
         subtreeCourseIds.Add(courseId);
@@ -659,7 +659,8 @@ internal static class AssignmentTaskGraphJsonService
                 ["key"] = keyByAssignmentId[assignment.Id],
                 ["course"] = CourseRef(assignment.CourseId)
             };
-            var dto = AssignmentApiSerializationService.ToImportDto(assignment, testSpecs?.GetValueOrDefault(assignment.Id));
+            if (assignmentDtos is null || !assignmentDtos.TryGetValue(assignment.Id, out var dto))
+                throw new InvalidOperationException($"DATA_INTEGRITY_ERROR: export DTO missing for assignment {assignment.Id:D}.");
             foreach (var property in dto)
             {
                 if (property.Key == "id")

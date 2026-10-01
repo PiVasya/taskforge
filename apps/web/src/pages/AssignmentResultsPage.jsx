@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../components/ui';
-import { getAssignment } from '../api/assignments';
-import { getMySolutionDetails } from '../api/solutions';
+import { getAssignmentRuntimeMeta } from '../api/assignments';
+import { apiForAssignmentType } from '../api/assignmentKindApi';
+import { getCodeSubmission } from '../api/codeSolutions';
+import { getSqlSubmission } from '../api/sqlSolutions';
 import { sanitizeRunnerText } from '../utils/runnerText';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 
@@ -239,7 +241,8 @@ export default function AssignmentResultsPage() {
     (async () => {
       setLoading(true);
       try {
-        const data = await getAssignment(assignmentId);
+        const meta = await getAssignmentRuntimeMeta(assignmentId);
+        const data = await apiForAssignmentType(meta?.type).get(assignmentId);
         if (!alive) return;
         setA(data);
       } catch {
@@ -257,7 +260,10 @@ export default function AssignmentResultsPage() {
     async function loadResult() {
       if (solutionId) {
         try {
-          const dto = await getMySolutionDetails(solutionId);
+          const meta = await getAssignmentRuntimeMeta(assignmentId);
+          const dto = meta?.type === 'sql-test'
+            ? await getSqlSubmission(assignmentId, solutionId)
+            : await getCodeSubmission(assignmentId, solutionId);
           if (!alive) return;
           setRes(dto || null);
           try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: dto })); } catch {}
@@ -296,7 +302,7 @@ export default function AssignmentResultsPage() {
 
     const poll = async () => {
       try {
-        const dto = await getMySolutionDetails(id);
+        const dto = a?.type === 'sql-test' ? await getSqlSubmission(assignmentId, id) : await getCodeSubmission(assignmentId, id);
         if (!alive) return;
         setRes(dto || null);
         try { localStorage.setItem(`results:${assignmentId}`, JSON.stringify({ result: dto })); } catch {}
@@ -313,7 +319,7 @@ export default function AssignmentResultsPage() {
       alive = false;
       if (timer) clearTimeout(timer);
     };
-  }, [assignmentId, solutionId, res?.id, res?.Id, res?.status, res?.verdict, res?.isPending, res?.result?.pending]);
+  }, [assignmentId, solutionId, res?.id, res?.Id, res?.status, res?.verdict, res?.isPending, res?.result?.pending, a?.type]);
 
   const handleBack = (e) => {
     e.preventDefault();

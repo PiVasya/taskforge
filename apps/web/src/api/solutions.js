@@ -6,22 +6,6 @@ function emitQuotaChanged() {
 
 
 
-export async function submitSolution(assignmentId, payload) {
-  const res = await api.post(`/api/assignments/${assignmentId}/submit`, payload);
-  emitQuotaChanged();
-  return res.data;
-}
-
-
-
-export async function listMySolutions(assignmentId) {
-  const res = await api.get(`/api/me/solutions`, { params: { assignmentId } });
-  return res.data;
-}
-
-
-
-
 export async function getMySolutions(opts = {}) {
   
   const params = {};

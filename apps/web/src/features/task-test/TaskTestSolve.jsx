@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button } from '../../components/ui';
-import { getMyTaskTestAttempt, startTaskTest, submitTaskTest } from '../../api/taskTests';
+import { getTestAttempt, startTestAttempt, submitTestAttempt } from '../../api/testAssignments';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import StatementViewer from '../../components/tiptap/StatementViewer';
 import AttemptCountdown from '../attempts/AttemptCountdown';
@@ -72,7 +72,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       setStartData(null);
       setResult(null);
       onActivity?.('test_started', { payload: { kind: 'test' } });
-      const data = await startTaskTest(assignmentId);
+      const data = await startTestAttempt(assignmentId);
       resetAttemptAnswers(`test:${data.attemptId}`);
       lastAnswerActivityRef.current = { signature: '', at: 0 };
       setStartData(data);
@@ -133,11 +133,11 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
           text: value?.text ?? null,
         })),
       };
-      const response = await submitTaskTest(assignmentId, payload);
+      const response = await submitTestAttempt(assignmentId, startData.attemptId, payload);
       applySubmittedResult(response, false);
     } catch (error) {
       if (shouldRecoverSubmittedAttempt(error) && startData?.attemptId) {
-        const recovered = await recoverSubmittedAttempt(() => getMyTaskTestAttempt(startData.attemptId));
+        const recovered = await recoverSubmittedAttempt(() => getTestAttempt(assignmentId, startData.attemptId));
         if (recovered) {
           applySubmittedResult(recovered, true);
           return;

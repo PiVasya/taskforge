@@ -9,6 +9,8 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
 using TaskForge.Tasks.Api.Services.Import;
+using TaskForge.Tasks.Api.Services.Runtime;
+using TaskForge.Tasks.Api.Services.Serialization;
 using TaskForge.Tasks.Api.Services.Sql;
 using TaskForge.Tasks.Api.Services.Testing;
 using TaskForge.Tasks.Api.Services.Specs;
@@ -120,8 +122,8 @@ internal static partial class AssignmentApiEndpoints
                     .OrderBy(x => x.Sort)
                     .ThenBy(x => x.CreatedAt)
                     .ToListAsync(ct);
-                await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
-                return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
+                var dtoRows = await AssignmentTypedReadService.BuildDtosAsync(db, rows, includeSensitive: false, evaluation.SolvedAssignmentIds, ct);
+                return Microsoft.AspNetCore.Http.Results.Ok(dtoRows);
             }
 
             var editorRows = await db.Assignments.AsNoTracking()
@@ -132,8 +134,8 @@ internal static partial class AssignmentApiEndpoints
             var editorSolvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, editorRows, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
+            var editorDtos = await AssignmentTypedReadService.BuildDtosAsync(db, editorRows, includeSensitive: true, editorSolvedIds, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(editorDtos);
         });
 
 
@@ -361,8 +363,8 @@ internal static partial class AssignmentApiEndpoints
                     .ThenBy(x => x.Sort)
                     .ThenBy(x => x.CreatedAt)
                     .ToListAsync(ct);
-                await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
-                return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, false, evaluation.SolvedAssignmentIds.Contains(x.Id))).ToList());
+                var dtoRows = await AssignmentTypedReadService.BuildDtosAsync(db, rows, includeSensitive: false, evaluation.SolvedAssignmentIds, ct);
+                return Microsoft.AspNetCore.Http.Results.Ok(dtoRows);
             }
 
             var tree = await GetInternalAsync<CourseTreeResponse>(
@@ -384,8 +386,8 @@ internal static partial class AssignmentApiEndpoints
             var editorSolvedIds = userId.HasValue
                 ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
                 : new HashSet<Guid>();
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, editorRows, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(editorRows.Select(x => ToDto(x, true, editorSolvedIds.Contains(x.Id))).ToList());
+            var editorDtos = await AssignmentTypedReadService.BuildDtosAsync(db, editorRows, includeSensitive: true, editorSolvedIds, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(editorDtos);
         });
 
 
@@ -532,11 +534,8 @@ internal static partial class AssignmentApiEndpoints
                 includeLayout ?? true,
                 includeGuide ?? false);
             var sql = await SqlTaskGraphService.Export(db, rows, exportOptions, ct);
-            var testSpecs = exportOptions.IncludeChecks
-                ? await TestAssignmentSpecService.LoadAsync(db, rows, ct)
-                : new Dictionary<Guid, TaskSpec>();
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, rows, ct);
-            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql, testSpecs), JsonOptions());
+            var exportDtos = await AssignmentTypedExportService.LoadImportDtosAsync(db, rows, ct);
+            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql, exportDtos), JsonOptions());
         }).AddEndpointFilter<SqlEndpointFilter>();
 
         app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
@@ -1043,7 +1042,8 @@ internal static partial class AssignmentApiEndpoints
                 };
             }
 
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, processed.Select(x => x.Assignment).ToList(), ct);
+            var processedAssignments = processed.Select(x => x.Assignment).ToList();
+            var processedDtos = await AssignmentTypedReadService.BuildDtosAsync(db, processedAssignments, includeSensitive: true, ct: ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 createdCount = created.Count,
@@ -1053,60 +1053,10 @@ internal static partial class AssignmentApiEndpoints
                 deletedAssignmentIds = deleted.Select(x => x.Id).ToArray(),
                 createdCourseCount,
                 totalCount = processed.Count + (taskGraph?.DeleteTaskIds.Count ?? 0),
-                assignments = processed.Select(x => ToDto(x.Assignment, includeSensitive: true)).ToList(),
+                assignments = processedDtos,
                 taskGraph = importedTaskGraph
             });
         }).AddEndpointFilter<SqlEndpointFilter>();
-
-        app.MapGet("/api/assignments/{assignmentId:guid}/solve-shell", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            http.Response.Headers.CacheControl = "no-store";
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-
-            var userId = TaskForgeRequestSecurity.UserId(http, cfg);
-            var solved = userId.HasValue
-                ? await LoadSolvedAssignmentIdsAsync(userId.Value, new[] { assignment.Id }, db, clients, cfg, ct)
-                : new HashSet<Guid>();
-
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveShellDto(assignment, includeSensitive, solved.Contains(assignment.Id)));
-        });
-
-        app.MapGet("/api/assignments/{assignmentId:guid}/statement", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            http.Response.Headers.CacheControl = "no-store";
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveStatementDto(assignment, includeSensitive));
-        });
-
-        app.MapGet("/api/assignments/{assignmentId:guid}/tests", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            http.Response.Headers.CacheControl = "no-store";
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToSolveTestsDto(assignment, includeSensitive));
-        });
-
-        app.MapGet("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            http.Response.Headers.CacheControl = "no-store";
-            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            var includeSensitive = await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct);
-            if (!includeSensitive && !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive));
-        });
 
         app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
@@ -1132,8 +1082,9 @@ internal static partial class AssignmentApiEndpoints
             assignment.Sort = request.Sort;
             assignment.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
         });
 
         app.MapPatch("/api/assignments/{assignmentId:guid}/position", async (Guid assignmentId, PositionRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -1146,8 +1097,9 @@ internal static partial class AssignmentApiEndpoints
             siblings.Insert(pos, assignment);
             for (var i = 0; i < siblings.Count; i++) siblings[i].Sort = i;
             await db.SaveChangesAsync();
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
         });
 
         app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
@@ -1169,8 +1121,9 @@ internal static partial class AssignmentApiEndpoints
                     .ToListAsync(ct);
                 await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
             }
-            await AssignmentTypeSpecService.HydrateForReadAsync(db, assignment, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(assignment, includeSensitive: true));
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
         });
 
         return app;

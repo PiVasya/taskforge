@@ -22,7 +22,8 @@ import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } 
 import { Button } from '../../../components/ui';
 import { useNotify } from '../../../components/notify/NotifyProvider';
 import { useAuth } from '../../../auth/AuthContext';
-import { createAssignment, deleteAssignment, getAssignmentsByCourseTree } from '../../../api/assignments';
+import { deleteAssignment, getAssignmentsByCourseTree } from '../../../api/assignments';
+import { apiForAssignmentType } from '../../../api/assignmentKindApi';
 import { createCourse, deleteCourse } from '../../../api/courses';
 import { getCourseMap, getLearningCourseMapDelta, saveCourseMap, streamLearningCourseMap } from '../../../api/courseMaps';
 import { createCourseMapPresenceConnection, disposeCourseMapPresenceConnection } from '../../../realtime/courseMapHub';
@@ -2444,7 +2445,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
       const assignmentType = kind === 'image-code' ? 'image-test' : kind;
       const payload = buildDefaultAssignmentPayload(assignmentType, assignments.length);
-      const created = await createAssignment(rootId, payload);
+      const created = await apiForAssignmentType(assignmentType).create(rootId, payload);
       const node = { id: assignmentNodeId(created.id), type: assignmentNodeType(created.type), entityId: String(created.id), position: position || { x: 0, y: 0 } };
       setAssignments((current) => [...current, created]);
       appendNode({ ...node, data: { entityId: node.entityId, entity: created, editorMode, onOpen: () => openAssignment(created.id), onEdit: () => editAssignment(created.id) } });

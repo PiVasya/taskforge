@@ -8,7 +8,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
-using TaskForge.Tasks.Api.Services.Specs;
+using TaskForge.Tasks.Api.Services.Runtime;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -26,6 +26,106 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapInternalEndpoints(WebApplication app)
     {
+        app.MapGet("/api/internal/code-assignments/{assignmentId:guid}/solution-contract/{userId:guid}", async (Guid assignmentId, Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null)
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+            var normalizedType = AssignmentTypedReadService.NormalizeStoredType(assignment);
+            if (!string.Equals(normalizedType, "code-test", StringComparison.Ordinal))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является code-test.", code = "ASSIGNMENT_TYPE_MISMATCH", actualType = normalizedType, expectedType = "code-test" });
+
+            var codeSpec = await db.CodeAssignmentSpecs.AsNoTracking().SingleOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
+            if (codeSpec is null)
+                throw new InvalidOperationException($"DATA_INTEGRITY_ERROR: assignment {assignment.Id:D} (code-test) is missing its typed spec.");
+
+            var courseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId, clients, cfg, ct);
+            var evaluation = assignment.IsVisible && courseAccess?.CanView == true
+                ? await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId, db, clients, cfg, ct)
+                : null;
+            var canView = assignment.IsVisible && evaluation?.VisibleAssignmentIds.Contains(assignment.Id) == true;
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                assignmentId = assignment.Id,
+                assignment.CourseId,
+                userId,
+                canView,
+                canSubmit = canView,
+                assignment.IsVisible,
+                canEdit = courseAccess?.CanEdit == true,
+                spec = new
+                {
+                    id = assignment.Id,
+                    type = normalizedType,
+                    language = codeSpec.Language,
+                    allowedLanguages = ParseCsv(codeSpec.AllowedLanguagesCsv, codeSpec.Language),
+                    codeForbiddenCalls = ParseStringArrayJson(codeSpec.CodeForbiddenCallsJson),
+                    codeRequiredCalls = ParseStringArrayJson(codeSpec.CodeRequiredCallsJson),
+                    tests = ParseJson(codeSpec.TestsJson),
+                    testCases = ParseJson(codeSpec.TestsJson),
+                    testsJson = codeSpec.TestsJson
+                }
+            });
+        });
+
+        app.MapGet("/api/internal/sql-assignments/{assignmentId:guid}/solution-contract/{userId:guid}", async (Guid assignmentId, Guid userId, Guid engineProfileId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
+            if (assignment == null)
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+
+            var normalizedType = AssignmentTypedReadService.NormalizeStoredType(assignment);
+            if (!string.Equals(normalizedType, "sql-test", StringComparison.Ordinal))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является sql-test.", code = "ASSIGNMENT_TYPE_MISMATCH", actualType = normalizedType, expectedType = "sql-test" });
+
+            var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
+            if (root?.PublishedVersionId is null)
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-задание не опубликовано." });
+
+            object payload;
+            try
+            {
+                payload = await TaskForge.Tasks.Api.Services.Sql.SqlTaskService.Payload(db, root.PublishedVersionId.Value, engineProfileId, true, ct);
+            }
+            catch (TaskForge.Tasks.Api.Services.Sql.SqlNotFoundException)
+            {
+                return Microsoft.AspNetCore.Http.Results.NotFound(new { code = "SQL_ENGINE_NOT_FOUND" });
+            }
+            catch (TaskForge.Tasks.Api.Services.Sql.SqlNotReadyException)
+            {
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED" });
+            }
+
+            var courseAccess = await LoadCourseAccessAsync(assignment.CourseId, userId, clients, cfg, ct);
+            var evaluation = assignment.IsVisible && courseAccess?.CanView == true
+                ? await CourseMapProgressionService.LoadEvaluationAsync(assignment.CourseId, userId, db, clients, cfg, ct)
+                : null;
+            var canView = assignment.IsVisible && evaluation?.VisibleAssignmentIds.Contains(assignment.Id) == true;
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new
+            {
+                assignmentId = assignment.Id,
+                assignment.CourseId,
+                userId,
+                canView,
+                canSubmit = canView,
+                assignment.IsVisible,
+                canEdit = courseAccess?.CanEdit == true,
+                spec = new { id = assignment.Id, type = normalizedType, sql = payload }
+            });
+        });
+
+        app.MapPost("/api/internal/image-assignments/{assignmentId:guid}/evaluate-solution", async (
+            Guid assignmentId, ImageCodeRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) =>
+        {
+            // Internal grading contract for Solutions.Api. The caller forwards the end-user
+            // authentication headers, so access checks and task-energy semantics stay identical
+            // to the normal image runtime path. This endpoint never persists a solution.
+            return await CompareImageCode(assignmentId, request, db, clients, cfg, submit: true, context: http);
+        });
+
         app.MapGet("/api/internal/assignments/{assignmentId:guid}/judge-spec", async (Guid assignmentId, Guid? engineProfileId, TasksDbContext db, CancellationToken ct) =>
         {
             var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId);
@@ -34,7 +134,8 @@ internal static partial class AssignmentApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
             }
 
-            if (assignment.Type == "sql-test")
+            var normalizedType = AssignmentTypedReadService.NormalizeStoredType(assignment);
+            if (normalizedType == "sql-test")
             {
                 var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
                 if (root?.PublishedVersionId is null || !engineProfileId.HasValue)
@@ -42,27 +143,28 @@ internal static partial class AssignmentApiEndpoints
                 try
                 {
                     var payload = await TaskForge.Tasks.Api.Services.Sql.SqlTaskService.Payload(db, root.PublishedVersionId.Value, engineProfileId.Value, true, ct);
-                    return Microsoft.AspNetCore.Http.Results.Ok(new { assignment.Id, assignment.Type, sql = payload });
+                    return Microsoft.AspNetCore.Http.Results.Ok(new { assignment.Id, type = normalizedType, sql = payload });
                 }
                 catch (TaskForge.Tasks.Api.Services.Sql.SqlNotFoundException) { return Microsoft.AspNetCore.Http.Results.NotFound(); }
                 catch (TaskForge.Tasks.Api.Services.Sql.SqlNotReadyException) { return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_VALIDATED" }); }
             }
 
-            var normalizedType = NormalizeAssignmentType(assignment.Type);
             if (normalizedType is "test" or "math" or "image-test")
             {
                 return Microsoft.AspNetCore.Http.Results.Ok(new
                 {
                     assignment.Id,
-                    assignment.Type
+                    type = normalizedType
                 });
             }
 
-            var codeSpec = await AssignmentTypeSpecService.ReadCodeAsync(db, assignment, ct);
+            var codeSpec = await db.CodeAssignmentSpecs.AsNoTracking().SingleOrDefaultAsync(x => x.AssignmentId == assignmentId, ct);
+            if (codeSpec is null)
+                throw new InvalidOperationException($"DATA_INTEGRITY_ERROR: assignment {assignment.Id:D} (code-test) is missing its typed spec.");
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 assignment.Id,
-                assignment.Type,
+                type = normalizedType,
                 language = codeSpec.Language,
                 allowedLanguages = ParseCsv(codeSpec.AllowedLanguagesCsv, codeSpec.Language),
                 codeForbiddenCalls = ParseStringArrayJson(codeSpec.CodeForbiddenCallsJson),

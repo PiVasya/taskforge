@@ -61,6 +61,7 @@ internal static partial class AssignmentApiImageService
             cfg,
             "image-test.run-code");
         if (policy.Problem != null) return policy.Problem;
+        var attestation = policy.Attestation ?? throw new InvalidOperationException("CODE_ANALYZER_ATTESTATION_MISSING after successful assignment policy analysis.");
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "image-run-code", http.RequestAborted) is { } quotaProblem) return quotaProblem;
@@ -68,7 +69,7 @@ internal static partial class AssignmentApiImageService
         {
             var client = clients.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(90);
-            var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true, attestation = policy.Attestation.Value });
+            var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true, attestation });
             var raw = await response.Content.ReadAsStringAsync();
             return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
         }
@@ -106,6 +107,7 @@ internal static partial class AssignmentApiImageService
             cfg,
             submit ? "image-test.submit-code" : "image-test.compare-code");
         if (policy.Problem != null) return policy.Problem;
+        var attestation = policy.Attestation ?? throw new InvalidOperationException("CODE_ANALYZER_ATTESTATION_MISSING after successful assignment policy analysis.");
         if (context is not null && currentUserId.HasValue && await ConsumeTaskEnergyAsync(context, cfg, clients, currentUserId.Value, submit ? "image-submit-code" : "image-compare-code", context.RequestAborted) is { } quotaProblem) return quotaProblem;
 
         try
@@ -119,7 +121,7 @@ internal static partial class AssignmentApiImageService
             for (var i = 0; i < cases.Count; i++)
             {
                 var test = cases[i];
-                var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true, attestation = policy.Attestation.Value });
+                var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true, attestation });
                 var renderRaw = await render.Content.ReadAsStringAsync();
                 if (!render.IsSuccessStatusCode)
                 {
@@ -210,44 +212,9 @@ internal static partial class AssignmentApiImageService
             var submittedUrl = results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.SubmittedUrl))?.SubmittedUrl;
             var stdoutJoined = string.Join("\n---\n", results.Select(x => x.ActualOutput).Where(x => !string.IsNullOrWhiteSpace(x)));
             var stderrJoined = string.Join("\n---\n", results.Select(x => x.Stderr).Where(x => !string.IsNullOrWhiteSpace(x)));
-            var savedSolutionId = (Guid?)null;
-
-            var resultPayload = new
-            {
-                assignmentId,
-                submitted = submit,
-                passed,
-                passedCount,
-                total = results.Count,
-                similarity = similarityPercentInt,
-                similarityPercent = similarityPercentInt,
-                threshold = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
-                thresholdPercent = results.Count == 0 ? 90 : results.Min(x => x.ThresholdPercent),
-                stdout = stdoutJoined,
-                stderr = stderrJoined,
-                referenceUrl,
-                submittedUrl,
-                cases = results
-            };
-
-            if (submit && currentUserId.HasValue)
-            {
-                savedSolutionId = await SaveImageSolutionAsync(
-                    assignmentId,
-                    currentUserId.Value,
-                    lang,
-                    request.Code ?? string.Empty,
-                    similarityPercentInt,
-                    passed,
-                    JsonSerializer.SerializeToElement(resultPayload, JsonOptions()),
-                    cfg,
-                    clients);
-            }
 
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                id = savedSolutionId,
-                solutionId = savedSolutionId,
                 assignmentId,
                 submitted = submit,
                 passed,

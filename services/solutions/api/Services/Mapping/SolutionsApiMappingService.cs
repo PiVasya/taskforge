@@ -19,6 +19,16 @@ namespace TaskForge.Solutions.Api.Services.Mapping;
 
 internal static class SolutionsApiMappingService
 {
+    internal static async Task<CodeSolutionContractDto?> LoadCodeSolutionContractAsync(Guid assignmentId, Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    {
+        return await GetInternalAsync<CodeSolutionContractDto>(
+            httpFactory,
+            cfg,
+            ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"),
+            $"/api/internal/code-assignments/{assignmentId:D}/solution-contract/{userId:D}",
+            ct);
+    }
+
     internal static async Task<JudgeSpec?> LoadJudgeSpecAsync(Guid assignmentId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
     {
         var baseUrl = ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080");
