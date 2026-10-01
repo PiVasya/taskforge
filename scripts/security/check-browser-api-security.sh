@@ -11,7 +11,7 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
-import yaml
+from scripts.ci.yaml_compat import safe_load
 
 root = pathlib.Path('.')
 
@@ -515,7 +515,7 @@ if 'BROWSER_EDGE_RATE_RPS:-25' not in gateway_select or "${BROWSER_EDGE_RATE_RPS
 
 for environment in ('dev', 'prod'):
     compose_path = root / f'deploy/{environment}/compose/50-integrations.yaml'
-    document = yaml.safe_load(compose_path.read_text(encoding='utf-8'))
+    document = safe_load(compose_path.read_text(encoding='utf-8'))
     service = (document.get('services') or {}).get('browser-api')
     if not service:
         die(f'{environment}: browser-api service is missing')
@@ -548,7 +548,7 @@ for environment in ('dev', 'prod'):
         if not str(environment_values.get('Browser__Sites__main', '')).startswith('${BROWSER_MAIN_ORIGIN:-https://'):
             die('prod: main browser origin does not default to HTTPS')
 
-prod_gateway = yaml.safe_load(text('deploy/prod/compose/10-apps-gateway.yaml'))
+prod_gateway = safe_load(text('deploy/prod/compose/10-apps-gateway.yaml'))
 gateway_aliases = (((prod_gateway.get('services') or {}).get('gateway') or {}).get('networks') or {}).get('default', {}).get('aliases') or []
 if '${DOMAIN:?set DOMAIN}' not in gateway_aliases or '${CT_DOMAIN:?set CT_DOMAIN}' not in gateway_aliases:
     die('prod gateway must own DOMAIN and CT_DOMAIN network aliases for Chromium TLS routing')
@@ -560,7 +560,7 @@ for environment in ('dev', 'prod'):
     for marker in ('BROWSER_EDGE_RATE_RPS=25', 'BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=', 'AI_REMOTE_BROWSER_START_LIMIT=60', 'AI_REMOTE_BROWSER_ACTION_LIMIT=300', 'AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60'):
         if marker not in env_example:
             die(f'{environment}: current AI Browser throughput setting missing from .env.example: {marker}')
-    gateway_compose = yaml.safe_load(text(f'deploy/{environment}/compose/10-apps-gateway.yaml'))
+    gateway_compose = safe_load(text(f'deploy/{environment}/compose/10-apps-gateway.yaml'))
     gateway_environment = (((gateway_compose.get('services') or {}).get('gateway') or {}).get('environment') or {})
     if 'BROWSER_EDGE_RATE_RPS' not in gateway_environment:
         die(f'{environment}: gateway does not receive BROWSER_EDGE_RATE_RPS')

@@ -17,7 +17,7 @@ import hashlib
 import pathlib
 import re
 import sys
-import yaml
+from scripts.ci.yaml_compat import safe_load
 
 root = pathlib.Path('.')
 runners = [
@@ -173,12 +173,12 @@ compose_paths = [
     root / 'deploy/prod/compose/40-ai-and-analyzers.yaml',
 ]
 for path in compose_paths:
-    yaml.safe_load(path.read_text())
+    safe_load(path.read_text())
 
 for environment in ('dev', 'prod'):
-    execution = yaml.safe_load((root / f'deploy/{environment}/compose/30-execution.yaml').read_text())
-    analyzers = yaml.safe_load((root / f'deploy/{environment}/compose/40-ai-and-analyzers.yaml').read_text())
-    core = yaml.safe_load((root / f'deploy/{environment}/compose/20-core-services.yaml').read_text())
+    execution = safe_load((root / f'deploy/{environment}/compose/30-execution.yaml').read_text())
+    analyzers = safe_load((root / f'deploy/{environment}/compose/40-ai-and-analyzers.yaml').read_text())
+    core = safe_load((root / f'deploy/{environment}/compose/20-core-services.yaml').read_text())
     services = {}
     for document in (execution, analyzers, core):
         services.update(document.get('services') or {})

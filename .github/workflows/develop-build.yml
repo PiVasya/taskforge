@@ -358,8 +358,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install cluster check dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check cluster control and HA behavior
         run: |
           python3 scripts/ci/check-cluster-diagnostics-control.py
@@ -418,8 +416,6 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Install security check dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check OJ security invariants
         run: bash scripts/security/check-oj-security.sh
       - name: Check C# runner policy regressions
@@ -434,8 +430,6 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Install Browser API security check dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
       - name: Check Browser API security invariants
         run: bash scripts/security/check-browser-api-security.sh
       - name: Compile Browser API before Docker build
@@ -450,7 +444,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - run: python3 -m pip install PyYAML==6.0.2
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
@@ -468,7 +461,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - run: python3 -m pip install PyYAML==6.0.2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.8'

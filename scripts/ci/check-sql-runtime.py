@@ -23,7 +23,7 @@ import re
 import sys
 from typing import Any, Iterable
 
-import yaml
+from yaml_compat import YamlLoadError, safe_load
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKER_ROOT = ROOT / "services/execution/sql-worker"
@@ -66,8 +66,8 @@ def load_yaml(path: Path, guard: Guard) -> dict[str, Any] | None:
     if text is None:
         return None
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as error:
+        data = safe_load(text)
+    except YamlLoadError as error:
         guard.errors.append(f"invalid YAML in {path.relative_to(ROOT)}: {error}")
         return None
     if not isinstance(data, dict):

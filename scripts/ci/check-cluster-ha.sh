@@ -23,9 +23,10 @@ python3 deploy/cluster/manager.py --inventory deploy/cluster/inventory.example.j
 
 python3 - <<'PY'
 from pathlib import Path
-import ast, json, yaml
+import ast, json
+from scripts.ci.yaml_compat import safe_load
 
-yaml.safe_load(Path('deploy/cluster/compose.cluster.yaml').read_text())
+safe_load(Path('deploy/cluster/compose.cluster.yaml').read_text())
 for path in Path('deploy/cluster').rglob('*.py'):
     tree=ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
     for node in ast.walk(tree):
