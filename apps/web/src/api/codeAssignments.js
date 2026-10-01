@@ -1,9 +1,5 @@
 import api from './http';
 
-function emitQuotaChanged() {
-  try { window.dispatchEvent(new Event('quota:changed')); } catch {}
-}
-
 export const getCodeAssignment = async (id) => (await api.get(`/api/code-assignments/${id}`)).data;
 export const getCodeSolveShell = async (id) => (await api.get(`/api/code-assignments/${id}/solve-shell`)).data;
 export const getCodeStatement = async (id) => (await api.get(`/api/code-assignments/${id}/statement`)).data;

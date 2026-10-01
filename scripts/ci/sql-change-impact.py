@@ -31,7 +31,6 @@ CONTRACT_FILES = {
     "scripts/check-sql-domain.sh",
     "scripts/ci/check-sql-runtime.py",
     "scripts/ci/check-sql-ef-dependencies.py",
-    "docs/sql/user-212-files.json",
 }
 
 ENGINE_PREFIXES = (

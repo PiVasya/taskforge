@@ -8,7 +8,7 @@ Existing migration history remains user-owned and must not be rewritten. Active 
 longer freezes Domain/Data/migration files by checksum: `scripts/ci/check-ef-migrations.py`
 asks EF Core whether each DbContext has pending model changes and fails when a model
 change is not represented by a committed migration. `scripts/ci/check-sql-runtime.py`
-keeps the SQL runtime structural/source-retention checks. The authoritative limitations
+keeps SQL-specific runtime, isolation, worker and CI invariants. The authoritative limitations
 and test results are in QA_RUNTIME.md.
 
 ## End-to-end paths implemented
