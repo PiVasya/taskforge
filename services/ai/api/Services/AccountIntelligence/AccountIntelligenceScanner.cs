@@ -365,7 +365,7 @@ internal sealed class AccountIntelligenceScanner(
             verified = account.Verified,
             blocked = account.Blocked,
             blockReason = account.Identity.BlockReason,
-            groups = account.Groups.Select(x => new { x.GroupId, x.Name, x.Code }).ToArray(),
+            groups = account.Groups.Select(x => new { x.GroupId, x.Name, x.OwnerUserIds }).ToArray(),
             minecraft = account.Minecraft?.Links.Select(x => new { x.PlayerName, x.PlayerUuid, x.LinkedAtUtc }).ToArray() ?? [],
             lastActivityAt = last,
             activityScore = AccountSimilarityEngine.ActivityScore(account, now),

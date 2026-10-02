@@ -14,6 +14,24 @@ namespace TaskForge.Education.Api.Endpoints;
 
 internal static partial class EducationApiEndpoints
 {
+    private static async Task<bool> CanSelectVisibleGroupsAsync(EducationAccessContext access, IEnumerable<Guid>? requestedIds, EducationDbContext db, CancellationToken ct)
+    {
+        var ids = (requestedIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToArray();
+        if (ids.Length == 0) return true;
+        if (access.IsSuperAdmin) return true;
+        if (!access.UserId.HasValue || access.RoleRank < 800) return false;
+        var ownedCount = await db.GroupOwners.AsNoTracking()
+            .Where(x => x.UserId == access.UserId.Value && ids.Contains(x.GroupId))
+            .Select(x => x.GroupId)
+            .Distinct()
+            .CountAsync(ct);
+        return ownedCount == ids.Length;
+    }
+
+    private static IResult CourseGroupForbidden() => Microsoft.AspNetCore.Http.Results.Json(
+        new { message = "Можно назначать только свои группы.", code = "COURSE_GROUP_FORBIDDEN" },
+        statusCode: StatusCodes.Status403Forbidden);
+
     private static WebApplication MapCoursesEndpoints(WebApplication app)
     {
         app.MapGet("/api/courses", async (HttpContext http, EducationDbContext db, IConfiguration cfg, int? page, int? pageSize, string? q, bool? tree, CancellationToken ct) =>
@@ -57,6 +75,8 @@ internal static partial class EducationApiEndpoints
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
             if (!access.IsEditorOrAdmin) return CourseEditForbidden();
+
+            if (!await CanSelectVisibleGroupsAsync(access, request.VisibleGroupIds, db, ct)) return CourseGroupForbidden();
 
             var currentUserId = access.UserId;
             var ownerIds = request.OwnerIds?.Where(x => x != Guid.Empty).Distinct().ToArray();
@@ -130,7 +150,13 @@ internal static partial class EducationApiEndpoints
             if (request.IsHiddenFromStudents.HasValue) course.IsHiddenFromStudents = request.IsHiddenFromStudents.Value;
             if (request.Sort.HasValue) course.Sort = System.Math.Max(0, request.Sort.Value);
             if (request.OwnerIds != null) course.OwnerIdsJson = Serialize(request.OwnerIds);
-            if (request.VisibleGroupIds != null) course.VisibleGroupIdsJson = Serialize(request.VisibleGroupIds);
+            if (request.VisibleGroupIds != null)
+            {
+                var currentGroupIds = DeserializeIds(course.VisibleGroupIdsJson).OrderBy(x => x).ToArray();
+                var requestedGroupIds = request.VisibleGroupIds.Where(x => x != Guid.Empty).Distinct().OrderBy(x => x).ToArray();
+                if (!currentGroupIds.SequenceEqual(requestedGroupIds) && !await CanSelectVisibleGroupsAsync(access, requestedGroupIds, db, ct)) return CourseGroupForbidden();
+                course.VisibleGroupIdsJson = Serialize(requestedGroupIds);
+            }
             NormalizeCourseAudience(course);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -230,6 +256,7 @@ internal static partial class EducationApiEndpoints
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!CanEditCourse(access, course)) return CourseEditForbidden();
+            if (!await CanSelectVisibleGroupsAsync(access, request.GroupIds, db, ct)) return CourseGroupForbidden();
             course.VisibleGroupIdsJson = Serialize(request.GroupIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);

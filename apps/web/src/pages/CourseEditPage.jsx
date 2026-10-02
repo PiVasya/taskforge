@@ -340,9 +340,8 @@ export default function CourseEditPage({ overlay = false }) {
                           />
                           <div className="min-w-0">
                             <div className="text-sm font-medium truncate">{g.name}</div>
-                            <div className="text-xs text-neutral-500 truncate">{g.code}</div>
+                            {g.description ? <div className="text-xs text-neutral-500 truncate">{g.description}</div> : null}
                           </div>
-                          {g.isActive === false ? <Badge intent="secondary">Неактивна</Badge> : null}
                         </label>
                       ))}
                     </div>

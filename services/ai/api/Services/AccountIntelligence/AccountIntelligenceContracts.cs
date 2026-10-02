@@ -52,8 +52,7 @@ internal sealed class EducationGroupItem
 {
     public Guid GroupId { get; set; }
     public string? Name { get; set; }
-    public string? Code { get; set; }
-    public bool IsActive { get; set; }
+    public Guid[] OwnerUserIds { get; set; } = [];
     public DateTimeOffset CreatedAt { get; set; }
 }
 

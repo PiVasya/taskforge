@@ -9,6 +9,7 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<CourseMap> CourseMaps => Set<CourseMap>();
     public DbSet<Group> Groups => Set<Group>();
+    public DbSet<GroupOwner> GroupOwners => Set<GroupOwner>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -49,7 +50,19 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
             entity.ToTable("Groups");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(240).IsRequired();
-            entity.Property(x => x.Code).HasMaxLength(80);
+            entity.Property(x => x.Description).HasMaxLength(2000);
+        });
+
+        modelBuilder.Entity<GroupOwner>(entity =>
+        {
+            entity.ToTable("GroupOwners");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.GroupId, x.UserId }).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.HasOne<Group>()
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<GroupMember>(entity =>
@@ -57,6 +70,10 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
             entity.ToTable("GroupMembers");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.GroupId, x.UserId }).IsUnique();
+            entity.HasOne<Group>()
+                .WithMany()
+                .HasForeignKey(x => x.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

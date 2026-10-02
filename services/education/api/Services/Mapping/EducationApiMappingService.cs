@@ -33,6 +33,6 @@ internal static class EducationApiMappingService
             c.Sort);
     }
 
-    internal static object ToGroupDto(Group g, bool showCode) => new { g.Id, g.Name, code = showCode ? g.Code ?? string.Empty : string.Empty, g.IsActive, g.CreatedAt };
+    internal static object ToGroupDto(Group g, int membersCount = 0, IReadOnlyCollection<Guid>? ownerUserIds = null) => new { g.Id, g.Name, g.Description, ownerUserIds = ownerUserIds ?? Array.Empty<Guid>(), membersCount, g.CreatedAt };
 
 }

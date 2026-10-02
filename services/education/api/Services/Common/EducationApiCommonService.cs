@@ -65,6 +65,12 @@ internal static class EducationApiCommonService
         return true;
     }
 
+    internal static bool CanManageGroup(EducationAccessContext access, bool isOwner)
+        => access.UserId.HasValue && (access.IsSuperAdmin || (access.RoleRank >= 800 && isOwner));
+
+    internal static bool CanChangeGroupOwners(EducationAccessContext access)
+        => access.UserId.HasValue && access.IsSuperAdmin;
+
     internal static bool IsCourseOwner(EducationAccessContext access, Course course)
         => access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value);
 

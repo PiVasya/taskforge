@@ -214,7 +214,7 @@ internal static partial class AccountSimilarityEngine
 
         var commonGroups = a.Groups.Select(x => x.GroupId).Intersect(b.Groups.Select(x => x.GroupId)).ToArray();
         if (commonGroups.Length > 0)
-            Add("context.group.same", "Состоят в одной группе", string.Join(", ", a.Groups.Where(x => commonGroups.Contains(x.GroupId)).Select(x => x.Name ?? x.Code ?? x.GroupId.ToString())), Math.Min(11, 6 + commonGroups.Length * 2), "strong");
+            Add("context.group.same", "Состоят в одной группе", string.Join(", ", a.Groups.Where(x => commonGroups.Contains(x.GroupId)).Select(x => x.Name ?? x.GroupId.ToString())), Math.Min(11, 6 + commonGroups.Length * 2), "strong");
 
         var commonAssignments = AccountAssignmentIds(a).Intersect(AccountAssignmentIds(b)).Count();
         if (commonAssignments >= 12)

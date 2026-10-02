@@ -189,7 +189,7 @@ function AccountBadges({ account, data, blocked }) {
 function AccountPanel({ account, data, verified, blocked, onVerify, onUnverify, onBlock, onUnblock, onDelete, busy }) {
   const navigate = useNavigate();
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0 });
-  const groupText = (account.groups || []).map((x) => x.name || x.code).filter(Boolean).join(', ');
+  const groupText = (account.groups || []).map((x) => x.name).filter(Boolean).join(', ');
   const minecraftText = (account.minecraft || []).map((x) => x.playerName).filter(Boolean).join(', ');
   const view = { ...account, verified: account.verified || verified, blocked: account.blocked || blocked };
   return (

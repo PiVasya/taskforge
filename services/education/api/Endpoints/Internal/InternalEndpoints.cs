@@ -16,7 +16,25 @@ internal static partial class EducationApiEndpoints
 {
     private static WebApplication MapInternalEndpoints(WebApplication app)
     {
-        app.MapGet("/api/admin/users/{userId:guid}/groups", async (Guid userId, EducationDbContext db) => Microsoft.AspNetCore.Http.Results.Ok(await db.GroupMembers.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.GroupId).ToListAsync()));
+        app.MapGet("/api/admin/users/{userId:guid}/groups", async (Guid userId, HttpContext http, EducationDbContext db, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var access = await ResolveAccessContext(http, cfg, db, ct);
+            if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
+            var groupQuery = db.Groups.AsNoTracking();
+            if (!access.IsSuperAdmin)
+            {
+                if (access.RoleRank < 800) return GroupAdminForbidden();
+                var actorId = access.UserId.Value;
+                groupQuery = groupQuery.Where(x => db.GroupOwners.Any(owner => owner.GroupId == x.Id && owner.UserId == actorId));
+            }
+            var manageableGroupIds = await groupQuery.Select(x => x.Id).ToArrayAsync(ct);
+            var memberships = await db.GroupMembers.AsNoTracking()
+                .Where(x => x.UserId == userId && manageableGroupIds.Contains(x.GroupId))
+                .Select(x => x.GroupId)
+                .ToListAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(memberships);
+        });
 
         app.MapPost("/api/internal/courses/metadata", async (CourseIdsRequest request, EducationDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
         {

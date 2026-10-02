@@ -473,7 +473,7 @@ export default function AdminSolutionsPage() {
                 <option value="">— все группы —</option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.id}>
-                    {group.name || group.title || group.code || group.id}
+                    {group.name || group.title || group.id}
                   </option>
                 ))}
               </Select>
@@ -910,7 +910,7 @@ export default function AdminSolutionsPage() {
                     .filter((g) => !userGroupSet.has(g.id))
                     .map((g) => (
                       <option key={g.id} value={g.id}>
-                        {g.name} ({g.code})
+                        {g.name}
                       </option>
                     ))}
                 </Select>
@@ -938,7 +938,6 @@ export default function AdminSolutionsPage() {
                         className="inline-flex items-center gap-2 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-sm"
                       >
                         <span className="font-medium">{g.name}</span>
-                        <span className="text-xs opacity-70">({g.code})</span>
                         <button
                           className="opacity-70 hover:opacity-100"
                           title="Убрать из группы"
