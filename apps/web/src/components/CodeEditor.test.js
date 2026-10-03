@@ -61,7 +61,11 @@ describe('CodeEditor plain text mode', () => {
     expect(textarea.getAttribute('autocapitalize')).toBe('none');
 
     act(() => {
-      textarea.value = "print('new')";
+      const nativeValueSetter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )?.set;
+      nativeValueSetter.call(textarea, "print('new')");
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
