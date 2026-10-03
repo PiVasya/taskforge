@@ -376,6 +376,31 @@
   background: rgba(255 255 255 / 0.04);
 }
 
+.code-editor-plain-textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-text-size-adjust: 100%;
+}
+
+.code-editor-plain-textarea:focus,
+.code-editor-plain-textarea:focus-visible {
+  outline: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 768px) {
+  .code-editor-plain-textarea {
+    font-size: 16px !important;
+    line-height: 22px !important;
+  }
+}
+
 .side-nav-link.is-rail {
   @apply justify-center px-2 py-1;
 }

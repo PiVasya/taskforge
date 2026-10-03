@@ -5,7 +5,6 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import Editor, { loader } from "@monaco-editor/react";
 import { useEditorUiSettings, useUiTheme } from "../contexts/UiSettingsContext";
 import { logFrontendEvent } from "../devtools/frontendDiagnostics";
 
@@ -14,7 +13,25 @@ function getMonacoVsPath() {
   return `${base}/monaco/vs`;
 }
 
-loader.config({ paths: { vs: getMonacoVsPath() } });
+let monacoReactModulePromise = null;
+
+function loadMonacoReactModule() {
+  if (!monacoReactModulePromise) {
+    monacoReactModulePromise = import("@monaco-editor/react")
+      .then((module) => {
+        if (!module?.default || !module?.loader) {
+          throw new Error("Monaco React module is incomplete");
+        }
+        module.loader.config({ paths: { vs: getMonacoVsPath() } });
+        return module;
+      })
+      .catch((error) => {
+        monacoReactModulePromise = null;
+        throw error;
+      });
+  }
+  return monacoReactModulePromise;
+}
 
 function isUsableMonaco(monaco) {
   return Boolean(
@@ -55,8 +72,8 @@ class MonacoCrashBoundary extends React.Component {
   }
 }
 
-function normalizeEditorStyle(value) {
-  return value === "mono" ? "mono" : "color";
+export function isPlainTextEditorStyle(value) {
+  return value === "mono";
 }
 
 function cssRgbToHex(value, fallback) {
@@ -89,10 +106,9 @@ function withAlpha(hex, alpha) {
   return `${clean}${a}`.toUpperCase();
 }
 
-function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
+function defineDynamicMonacoThemes(monaco) {
   if (!monaco?.editor?.defineTheme || typeof document === "undefined") return;
 
-  const style = normalizeEditorStyle(editorStyle);
   const accent = readThemeHex("--accent", "2563EB");
   const accent2 = readThemeHex("--accent2", accent);
   const accent3 = readThemeHex("--accent3", accent2);
@@ -103,52 +119,28 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
   const border = readThemeHex("--border", "CBD5E1");
   const mutedSurface = readThemeHex("--muted", page);
 
-  const darkRules =
-    style === "mono"
-      ? [
-          { token: "", foreground: text },
-          { token: "comment", foreground: muted },
-          { token: "string", foreground: text },
-          { token: "number", foreground: text },
-          { token: "keyword", foreground: text, fontStyle: "bold" },
-          { token: "type", foreground: text },
-          { token: "function", foreground: text },
-          { token: "identifier", foreground: text },
-        ]
-      : [
-          { token: "", foreground: text },
-          { token: "comment", foreground: muted },
-          { token: "string", foreground: accent3 },
-          { token: "number", foreground: accent2 },
-          { token: "keyword", foreground: accent, fontStyle: "bold" },
-          { token: "type", foreground: accent2 },
-          { token: "function", foreground: text },
-          { token: "identifier", foreground: text },
-        ];
+  const darkRules = [
+    { token: "", foreground: text },
+    { token: "comment", foreground: muted },
+    { token: "string", foreground: accent3 },
+    { token: "number", foreground: accent2 },
+    { token: "keyword", foreground: accent, fontStyle: "bold" },
+    { token: "type", foreground: accent2 },
+    { token: "function", foreground: text },
+    { token: "identifier", foreground: text },
+  ];
 
-  const lightRules =
-    style === "mono"
-      ? [
-          { token: "", foreground: text },
-          { token: "comment", foreground: muted },
-          { token: "string", foreground: text },
-          { token: "number", foreground: text },
-          { token: "keyword", foreground: text, fontStyle: "bold" },
-          { token: "type", foreground: text },
-          { token: "function", foreground: text },
-          { token: "identifier", foreground: text },
-        ]
-      : [
-          { token: "comment", foreground: muted },
-          { token: "string", foreground: accent2 },
-          { token: "number", foreground: accent },
-          { token: "keyword", foreground: accent, fontStyle: "bold" },
-          { token: "type", foreground: accent2 },
-          { token: "function", foreground: text },
-          { token: "identifier", foreground: text },
-        ];
+  const lightRules = [
+    { token: "comment", foreground: muted },
+    { token: "string", foreground: accent2 },
+    { token: "number", foreground: accent },
+    { token: "keyword", foreground: accent, fontStyle: "bold" },
+    { token: "type", foreground: accent2 },
+    { token: "function", foreground: text },
+    { token: "identifier", foreground: text },
+  ];
 
-  monaco.editor.defineTheme(`taskforge-dynamic-dark-${style}`, {
+  monaco.editor.defineTheme("taskforge-dynamic-dark-color", {
     base: "vs-dark",
     inherit: true,
     rules: darkRules,
@@ -157,27 +149,27 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
       "editorGutter.background": `#${card}`,
       "editor.foreground": `#${text}`,
       "editorLineNumber.foreground": `#${withAlpha(muted, 0.72)}`,
-      "editorLineNumber.activeForeground": `#${style === "mono" ? text : accent2}`,
-      "editor.selectionBackground": `#${style === "mono" ? withAlpha(border, 0.62) : withAlpha(accent, 0.3)}`,
-      "editor.inactiveSelectionBackground": `#${style === "mono" ? withAlpha(border, 0.38) : withAlpha(accent, 0.18)}`,
-      "editor.lineHighlightBackground": `#${style === "mono" ? withAlpha(mutedSurface, 0.55) : withAlpha(accent, 0.1)}`,
-      "editorCursor.foreground": `#${style === "mono" ? text : accent2}`,
+      "editorLineNumber.activeForeground": `#${accent2}`,
+      "editor.selectionBackground": `#${withAlpha(accent, 0.3)}`,
+      "editor.inactiveSelectionBackground": `#${withAlpha(accent, 0.18)}`,
+      "editor.lineHighlightBackground": `#${withAlpha(accent, 0.1)}`,
+      "editorCursor.foreground": `#${accent2}`,
       "scrollbarSlider.background": `#${withAlpha(border, 0.4)}`,
-      "scrollbarSlider.hoverBackground": `#${style === "mono" ? withAlpha(muted, 0.38) : withAlpha(accent, 0.38)}`,
-      "scrollbarSlider.activeBackground": `#${style === "mono" ? withAlpha(muted, 0.55) : withAlpha(accent, 0.55)}`,
+      "scrollbarSlider.hoverBackground": `#${withAlpha(accent, 0.38)}`,
+      "scrollbarSlider.activeBackground": `#${withAlpha(accent, 0.55)}`,
       "editorIndentGuide.background": `#${withAlpha(border, 0.38)}`,
-      "editorIndentGuide.activeBackground": `#${style === "mono" ? withAlpha(text, 0.42) : withAlpha(accent, 0.55)}`,
+      "editorIndentGuide.activeBackground": `#${withAlpha(accent, 0.55)}`,
       "editorWidget.background": `#${mutedSurface}`,
       "editorWidget.border": `#${withAlpha(border, 0.65)}`,
       "editorSuggestWidget.background": `#${mutedSurface}`,
       "editorSuggestWidget.border": `#${withAlpha(border, 0.65)}`,
-      "editorSuggestWidget.selectedBackground": `#${style === "mono" ? withAlpha(border, 0.45) : withAlpha(accent, 0.25)}`,
-      "list.hoverBackground": `#${style === "mono" ? withAlpha(border, 0.28) : withAlpha(accent, 0.14)}`,
-      focusBorder: `#${style === "mono" ? text : accent}`,
+      "editorSuggestWidget.selectedBackground": `#${withAlpha(accent, 0.25)}`,
+      "list.hoverBackground": `#${withAlpha(accent, 0.14)}`,
+      focusBorder: `#${accent}`,
     },
   });
 
-  monaco.editor.defineTheme(`taskforge-dynamic-light-${style}`, {
+  monaco.editor.defineTheme("taskforge-dynamic-light-color", {
     base: "vs",
     inherit: true,
     rules: lightRules,
@@ -186,18 +178,75 @@ function defineDynamicMonacoThemes(monaco, editorStyle = "color") {
       "editorGutter.background": `#${card}`,
       "editor.foreground": `#${text}`,
       "editorLineNumber.foreground": `#${muted}`,
-      "editorLineNumber.activeForeground": `#${style === "mono" ? text : accent}`,
-      "editor.selectionBackground": `#${style === "mono" ? withAlpha(border, 0.75) : withAlpha(accent, 0.24)}`,
-      "editor.inactiveSelectionBackground": `#${style === "mono" ? withAlpha(border, 0.45) : withAlpha(accent, 0.14)}`,
+      "editorLineNumber.activeForeground": `#${accent}`,
+      "editor.selectionBackground": `#${withAlpha(accent, 0.24)}`,
+      "editor.inactiveSelectionBackground": `#${withAlpha(accent, 0.14)}`,
       "editor.lineHighlightBackground": `#${withAlpha(page, 0.92)}`,
       "editorIndentGuide.background": `#${withAlpha(border, 0.6)}`,
-      "editorIndentGuide.activeBackground": `#${style === "mono" ? withAlpha(text, 0.32) : withAlpha(accent, 0.45)}`,
-      focusBorder: `#${style === "mono" ? text : accent}`,
+      "editorIndentGuide.activeBackground": `#${withAlpha(accent, 0.45)}`,
+      focusBorder: `#${accent}`,
     },
   });
 }
 
-function CodeEditor({
+function PlainTextCodeEditor({
+  value,
+  onChange,
+  height,
+  readOnly,
+  isDark,
+  automationId,
+  automationRole,
+  automationAction,
+  automationState,
+  onRetry = null,
+}) {
+  return (
+    <div
+      className="code-editor-shell rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
+      style={{ width: "100%", position: "relative" }}
+      data-taskforge-editor-kind="plain-text"
+    >
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="absolute right-2 top-2 z-10 rounded-lg border border-neutral-200 bg-white/80 px-2 py-1 text-xs text-neutral-700 shadow-sm backdrop-blur hover:bg-white dark:border-neutral-700 dark:bg-neutral-950/80 dark:text-neutral-200 dark:hover:bg-neutral-900"
+        >
+          Повторить Monaco
+        </button>
+      ) : null}
+      <textarea
+        className="code-editor-plain-textarea w-full resize-none outline-none"
+        value={value ?? ""}
+        onChange={(event) => onChange?.(event.target.value)}
+        readOnly={readOnly}
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="none"
+        autoComplete="off"
+        data-taskforge-automation-id={automationId || undefined}
+        data-taskforge-agent-role={automationRole || undefined}
+        data-taskforge-agent-action={automationAction || undefined}
+        data-taskforge-agent-state={automationState || undefined}
+        aria-label={automationRole === "code-editor" ? "Код решения" : "Текстовый редактор кода"}
+        style={{
+          height,
+          padding: 8,
+          fontSize: 14,
+          lineHeight: "20px",
+          letterSpacing: 0.2,
+          color: isDark ? "#D8DEE9" : "rgb(var(--text))",
+          background: isDark ? "#0f1115" : "rgb(var(--card))",
+          fontFamily:
+            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        }}
+      />
+    </div>
+  );
+}
+
+function MonacoCodeEditor({
   language = "cpp",
   value,
   onChange,
@@ -209,14 +258,11 @@ function CodeEditor({
   automationRole = null,
   automationAction = null,
   automationState = null,
+  isDark,
 }) {
-  const { mode } = useUiTheme();
-  const { codeEditorStyle } = useEditorUiSettings();
-  const isDark = mode === "dark";
-  const editorStyle = normalizeEditorStyle(codeEditorStyle);
-  const browserAutomation = typeof window !== "undefined" && window.__TASKFORGE_BROWSER_AUTOMATION__ === true;
   const [loadFailed, setLoadFailed] = useState(false);
   const [monacoReady, setMonacoReady] = useState(false);
+  const [MonacoEditorComponent, setMonacoEditorComponent] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
 
   const wrapperRef = useRef(null);
@@ -255,22 +301,17 @@ function CodeEditor({
     }
   }, [language]);
 
-  const pickThemeName = useCallback(() => {
-    return isDark
-      ? `taskforge-dynamic-dark-${editorStyle}`
-      : `taskforge-dynamic-light-${editorStyle}`;
-  }, [editorStyle, isDark]);
+  const pickThemeName = useCallback(() => (
+    isDark ? "taskforge-dynamic-dark-color" : "taskforge-dynamic-light-color"
+  ), [isDark]);
 
-  const applyTheme = useCallback(
-    (monaco) => {
-      if (!monaco?.editor) return;
-      try {
-        defineDynamicMonacoThemes(monaco, editorStyle);
-        monaco.editor.setTheme(pickThemeName());
-      } catch {}
-    },
-    [editorStyle, pickThemeName],
-  );
+  const applyTheme = useCallback((monaco) => {
+    if (!monaco?.editor) return;
+    try {
+      defineDynamicMonacoThemes(monaco);
+      monaco.editor.setTheme(pickThemeName());
+    } catch {}
+  }, [pickThemeName]);
 
   const handleValueChange = useCallback(
     (nextValue) => onChange?.(nextValue ?? ""),
@@ -307,12 +348,9 @@ function CodeEditor({
     [lineNumbers, readOnly],
   );
 
-  const handleBeforeMount = useCallback(
-    (monaco) => {
-      applyTheme(monaco);
-    },
-    [applyTheme],
-  );
+  const handleBeforeMount = useCallback((monaco) => {
+    applyTheme(monaco);
+  }, [applyTheme]);
 
   const relayout = useCallback(() => {
     const ed = editorRef.current;
@@ -327,39 +365,36 @@ function CodeEditor({
     });
   }, [height]);
 
-  const handleMount = useCallback(
-    (editor, monaco) => {
-      cleanupRef.current?.();
-      editorRef.current = editor;
-      monacoRef.current = monaco;
-      setLoadFailed(false);
+  const handleMount = useCallback((editor, monaco) => {
+    cleanupRef.current?.();
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    setLoadFailed(false);
 
-      applyTheme(monaco);
+    applyTheme(monaco);
 
-      if (
-        wrapperRef.current &&
-        !roRef.current &&
-        typeof ResizeObserver !== "undefined"
-      ) {
-        roRef.current = new ResizeObserver(() => relayout());
-        roRef.current.observe(wrapperRef.current);
-      }
+    if (
+      wrapperRef.current &&
+      !roRef.current &&
+      typeof ResizeObserver !== "undefined"
+    ) {
+      roRef.current = new ResizeObserver(() => relayout());
+      roRef.current.observe(wrapperRef.current);
+    }
 
-      const onWinResize = () => relayout();
-      window.addEventListener("resize", onWinResize);
-      window.addEventListener("orientationchange", onWinResize);
+    const onWinResize = () => relayout();
+    window.addEventListener("resize", onWinResize);
+    window.addEventListener("orientationchange", onWinResize);
 
-      cleanupRef.current = () => {
-        window.removeEventListener("resize", onWinResize);
-        window.removeEventListener("orientationchange", onWinResize);
-        roRef.current?.disconnect();
-        roRef.current = null;
-      };
+    cleanupRef.current = () => {
+      window.removeEventListener("resize", onWinResize);
+      window.removeEventListener("orientationchange", onWinResize);
+      roRef.current?.disconnect();
+      roRef.current = null;
+    };
 
-      relayout();
-    },
-    [applyTheme, relayout],
-  );
+    relayout();
+  }, [applyTheme, relayout]);
 
   useEffect(() => {
     applyThemeRef.current = applyTheme;
@@ -381,31 +416,34 @@ function CodeEditor({
     monacoRef.current = null;
     setLoadFailed(false);
     setMonacoReady(false);
+    setMonacoEditorComponent(null);
 
     const timer = window.setTimeout(() => {
       if (alive && !editorRef.current) setLoadFailed(true);
     }, 7000);
 
-    try {
-      cancelable = loader.init();
-      cancelable
-        .then((monaco) => {
-          if (!alive) return;
-          if (!isUsableMonaco(monaco)) {
-            setLoadFailed(true);
-            return;
-          }
-          monacoRef.current = monaco;
-          applyThemeRef.current?.(monaco);
-          setMonacoReady(true);
-          setLoadFailed(false);
-        })
-        .catch(() => {
-          if (alive) setLoadFailed(true);
-        });
-    } catch {
-      setLoadFailed(true);
-    }
+    loadMonacoReactModule()
+      .then((module) => {
+        if (!alive) return null;
+        setMonacoEditorComponent(() => module.default);
+        cancelable = module.loader.init();
+        return cancelable;
+      })
+      .then((monaco) => {
+        if (!alive || !monaco) return;
+        if (!isUsableMonaco(monaco)) {
+          setLoadFailed(true);
+          return;
+        }
+        monacoRef.current = monaco;
+        applyThemeRef.current?.(monaco);
+        setMonacoReady(true);
+        setLoadFailed(false);
+      })
+      .catch((error) => {
+        logFrontendEvent('react', 'monaco-load-failed', { error }, 'warn');
+        if (alive) setLoadFailed(true);
+      });
 
     return () => {
       alive = false;
@@ -417,50 +455,23 @@ function CodeEditor({
   }, [retryNonce]);
 
   const fallbackEditor = (
-    <div
-      className="code-editor-shell rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
-      style={{ width: "100%", position: "relative" }}
-    >
-      {loadFailed ? (
-        <button
-          type="button"
-          onClick={() => setRetryNonce((v) => v + 1)}
-          className="absolute right-2 top-2 z-10 rounded-lg border border-neutral-200 bg-white/80 px-2 py-1 text-xs text-neutral-700 shadow-sm backdrop-blur hover:bg-white dark:border-neutral-700 dark:bg-neutral-950/80 dark:text-neutral-200 dark:hover:bg-neutral-900"
-        >
-          Повторить
-        </button>
-      ) : null}
-      <textarea
-        className="w-full resize-none outline-none"
-        value={value ?? ""}
-        onChange={(event) => handleValueChange(event.target.value)}
-        readOnly={readOnly}
-        spellCheck={false}
-        data-taskforge-automation-id={automationId || undefined}
-        data-taskforge-agent-role={automationRole || undefined}
-        data-taskforge-agent-action={automationAction || undefined}
-        data-taskforge-agent-state={automationState || undefined}
-        aria-label={automationRole === "code-editor" ? "Код решения" : undefined}
-        style={{
-          height,
-          padding: 8,
-          fontSize: 14,
-          lineHeight: "20px",
-          letterSpacing: 0.2,
-          color: isDark ? "#D8DEE9" : "rgb(var(--text))",
-          background: isDark ? "#0f1115" : "rgb(var(--card))",
-          fontFamily:
-            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-        }}
-      />
-    </div>
+    <PlainTextCodeEditor
+      value={value}
+      onChange={handleValueChange}
+      height={height}
+      readOnly={readOnly}
+      isDark={isDark}
+      automationId={automationId}
+      automationRole={automationRole}
+      automationAction={automationAction}
+      automationState={automationState}
+      onRetry={() => setRetryNonce((current) => current + 1)}
+    />
   );
 
-  if (browserAutomation || loadFailed) {
-    return fallbackEditor;
-  }
+  if (loadFailed) return fallbackEditor;
 
-  if (!monacoReady) {
+  if (!monacoReady || !MonacoEditorComponent) {
     return (
       <div
         className="code-editor-shell rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
@@ -484,13 +495,14 @@ function CodeEditor({
       ref={wrapperRef}
       className="code-editor-shell rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 min-w-0"
       style={{ width: "100%" }}
+      data-taskforge-editor-kind="monaco"
     >
       <MonacoCrashBoundary
-        resetKey={`${retryNonce}-${monacoLang}-${editorStyle}-${isDark ? "dark" : "light"}`}
+        resetKey={`${retryNonce}-${monacoLang}-${isDark ? "dark" : "light"}`}
         fallback={fallbackEditor}
         onCrash={handleEditorCrash}
       >
-        <Editor
+        <MonacoEditorComponent
           height={height}
           language={monacoLang}
           path={modelPath}
@@ -515,6 +527,33 @@ function CodeEditor({
       </MonacoCrashBoundary>
     </div>
   );
+}
+
+function CodeEditor(props) {
+  const { mode } = useUiTheme();
+  const { codeEditorStyle } = useEditorUiSettings();
+  const isDark = mode === "dark";
+  const browserAutomation = typeof window !== "undefined"
+    && window.__TASKFORGE_BROWSER_AUTOMATION__ === true;
+  const usePlainText = browserAutomation || isPlainTextEditorStyle(codeEditorStyle);
+
+  if (usePlainText) {
+    return (
+      <PlainTextCodeEditor
+        value={props.value}
+        onChange={props.onChange}
+        height={props.height ?? 320}
+        readOnly={props.readOnly ?? false}
+        isDark={isDark}
+        automationId={props.automationId}
+        automationRole={props.automationRole}
+        automationAction={props.automationAction}
+        automationState={props.automationState}
+      />
+    );
+  }
+
+  return <MonacoCodeEditor {...props} isDark={isDark} />;
 }
 
 export default React.memo(CodeEditor);

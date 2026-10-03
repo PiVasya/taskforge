@@ -13,10 +13,23 @@ function SolveSettingsSection({ form, setField }) {
         </div>
       </Card>
       <Card className="p-4 space-y-4">
-        <div className="font-semibold">Цвет редактора</div>
+        <div>
+          <div className="font-semibold">Редактор кода</div>
+          <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Можно полностью отключить Monaco и использовать обычное текстовое поле.</div>
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <ChoiceButton active={form.codeEditorStyle !== 'mono'} title="Крутой цветной редактор" onClick={() => setField('codeEditorStyle', 'color')} />
-          <ChoiceButton active={form.codeEditorStyle === 'mono'} title="Простой чёрно-белый" onClick={() => setField('codeEditorStyle', 'mono')} />
+          <ChoiceButton
+            active={form.codeEditorStyle !== 'mono'}
+            title="Умный редактор"
+            desc="Monaco: подсветка синтаксиса и расширенные возможности редактора."
+            onClick={() => setField('codeEditorStyle', 'color')}
+          />
+          <ChoiceButton
+            active={form.codeEditorStyle === 'mono'}
+            title="Простой TXT"
+            desc="Обычное текстовое поле без Monaco, подсветки и editor-библиотеки."
+            onClick={() => setField('codeEditorStyle', 'mono')}
+          />
         </div>
       </Card>
       <Card className="p-4 space-y-4">
