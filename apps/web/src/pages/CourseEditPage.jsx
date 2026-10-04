@@ -56,7 +56,6 @@ export default function CourseEditPage({ overlay = false }) {
   const [ownerSearchBusy, setOwnerSearchBusy] = useState(false);
   const [ownerCandidates, setOwnerCandidates] = useState([]);
   const [ownerProfiles, setOwnerProfiles] = useState({});
-  const [manualOwnerId, setManualOwnerId] = useState('');
 
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -108,10 +107,10 @@ export default function CourseEditPage({ overlay = false }) {
 
         const [c, g] = await Promise.all([
           getCourse(courseId),
-          getGroups().catch(() => []),
+          isAdmin ? getGroups().catch(() => []) : Promise.resolve([]),
         ]);
 
-        if (c?.canEdit === false) {
+        if (c?.canEdit !== true) {
           notify.warn('Редактирование курса недоступно');
           nav(`/course/${courseId}`, { replace: true });
           return;
@@ -205,8 +204,7 @@ export default function CourseEditPage({ overlay = false }) {
         description,
         isPublic: visibilityMode === 'public',
         isHiddenFromStudents: visibilityMode === 'hidden',
-        visibleGroupIds: visibleGroupIds || [],
-        ownerIds: ownerIds || [],
+        ...(isAdmin ? { visibleGroupIds: visibleGroupIds || [], ownerIds: ownerIds || [] } : {}),
       };
 
       await updateCourse(courseId, payload);
@@ -301,11 +299,14 @@ export default function CourseEditPage({ overlay = false }) {
               <div className="sm:col-span-2">
                 <div className="text-sm font-medium mb-2">Доступ ученикам</div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {[
+                  {(isAdmin ? [
                     { value: 'public', label: 'Всем' },
                     { value: 'groups', label: 'По группам' },
                     { value: 'hidden', label: 'Скрыт' },
-                  ].map((option) => (
+                  ] : [
+                    { value: 'public', label: 'Всем' },
+                    { value: 'hidden', label: 'Скрыт' },
+                  ]).map((option) => (
                     <button
                       key={option.value}
                       type="button"
@@ -323,7 +324,11 @@ export default function CourseEditPage({ overlay = false }) {
                 <div className="sm:col-span-2 text-xs text-neutral-500">Вложенные курсы тоже скрываются от учеников.</div>
               ) : null}
 
-              {visibilityMode === 'groups' && (
+              {!isAdmin && visibilityMode === 'groups' ? (
+                <div className="sm:col-span-2 text-xs text-neutral-500">Доступ по группам настроен администратором. Редактор не управляет списком групп.</div>
+              ) : null}
+
+              {isAdmin && visibilityMode === 'groups' && (
                 <div className="sm:col-span-2">
                   <div className="text-sm font-medium mb-2">Группы</div>
                   {groups.length === 0 ? (
@@ -351,28 +356,33 @@ export default function CourseEditPage({ overlay = false }) {
             </div>
           </Card>
 
-          <Card>
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <div className="text-sm font-medium">Владельцы курса</div>
-            </div>
+          {isAdmin ? (
+            <Card>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="text-sm font-medium">Владельцы курса</div>
+              </div>
 
-            <div className="flex flex-wrap gap-2 mb-3">
-              {(ownerIds || []).length === 0 ? (
-                <span className="text-sm text-neutral-500">Нет владельцев</span>
-              ) : (
-                ownerIds.map((id) => (
-                  <span key={id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-sm">
-                    <span className="font-medium">{ownerLabel(id)}</span>
-                    {ownerEmail(id) ? <span className="text-xs text-neutral-500">{ownerEmail(id)}</span> : null}
-                    <button className="opacity-70 hover:opacity-100" onClick={() => removeOwner(id)} title="Убрать владельца">
-                      <X size={14} />
-                    </button>
-                  </span>
-                ))
-              )}
-            </div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {(ownerIds || []).length === 0 ? (
+                  <span className="text-sm text-neutral-500">Нет владельцев</span>
+                ) : (
+                  ownerIds.map((id) => (
+                    <span key={id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-sm">
+                      <span className="font-medium">{ownerLabel(id)}</span>
+                      {ownerEmail(id) ? <span className="text-xs text-neutral-500">{ownerEmail(id)}</span> : null}
+                      <button
+                        className="opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+                        onClick={() => removeOwner(id)}
+                        disabled={(ownerIds || []).length <= 1}
+                        title={(ownerIds || []).length <= 1 ? 'У курса должен остаться хотя бы один владелец' : 'Убрать владельца'}
+                      >
+                        <X size={14} />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
 
-            {isAdmin ? (
               <div className="space-y-3">
                 <div className="flex gap-2">
                   <Input
@@ -405,28 +415,8 @@ export default function CourseEditPage({ overlay = false }) {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <Input
-                    value={manualOwnerId}
-                    onChange={(e) => setManualOwnerId(e.target.value)}
-                    placeholder="ID пользователя"
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      addOwnerId(manualOwnerId);
-                      setManualOwnerId('');
-                    }}
-                  >
-                    <UserPlus size={16} />
-                    <span className="ml-1">Добавить</span>
-                  </Button>
-                </div>
-              </div>
-            )}
-          </Card>
+            </Card>
+          ) : null}
         </div>
 
         <div className="space-y-4">

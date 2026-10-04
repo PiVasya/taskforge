@@ -69,7 +69,7 @@ const EMPTY_COURSE_BUNDLE = Object.freeze({
   course: null,
   allCourses: EMPTY_LIST,
   childCourses: EMPTY_LIST,
-  courseCanEdit: true,
+  courseCanEdit: false,
   learnerVisibleCourseIds: EMPTY_LIST,
   learnerVisibleAssignmentIds: EMPTY_LIST,
   learnerLocks: EMPTY_LIST,
@@ -173,7 +173,7 @@ export default function CourseAssignmentsPage() {
       course: loadedCourse || null,
       allCourses: all,
       childCourses: children,
-      courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : true,
+      courseCanEdit: typeof loadedCourse?.canEdit === 'boolean' ? Boolean(loadedCourse.canEdit) : false,
       learnerVisibleCourseIds: learnerCards ? Array.from(learnerVisibility.courseIds) : EMPTY_LIST,
       learnerVisibleAssignmentIds: learnerCards ? Array.from(learnerVisibility.assignmentIds) : EMPTY_LIST,
       learnerLocks: learnerCards ? collectLearnerCardLocks(learnerMap, targetCourseId) : EMPTY_LIST,
@@ -210,7 +210,7 @@ export default function CourseAssignmentsPage() {
   const course = courseBundle.course || null;
   const childCourses = courseBundle.childCourses || EMPTY_LIST;
   const allCourses = courseBundle.allCourses || EMPTY_LIST;
-  const courseCanEdit = courseBundle.courseCanEdit !== false;
+  const courseCanEdit = courseBundle.courseCanEdit === true;
   const loading = courseBundleQuery.isLoading || ((isEditorMode || learnerCards) && assignmentsQuery.isLoading);
   const err = courseBundleQuery.error
     ? getApiErrorMessage(courseBundleQuery.error, 'Не удалось загрузить доступное содержимое курса')

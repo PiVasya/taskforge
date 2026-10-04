@@ -95,6 +95,47 @@ public sealed class CourseAccessPolicyTests
     }
 
     [Fact]
+    public void Editor_CannotManageCourseOwners()
+    {
+        var editor = Guid.NewGuid();
+        var access = new EducationAccessContext(editor, true, false, new HashSet<Guid>(), 400, false, new Dictionary<Guid, int> { [editor] = 400 });
+
+        Assert.False(EducationApiCommonService.CanManageCourseOwners(access));
+    }
+
+    [Fact]
+    public void Admin_CanManageCourseOwners()
+    {
+        var admin = Guid.NewGuid();
+        var access = new EducationAccessContext(admin, true, false, new HashSet<Guid>(), 800, false, new Dictionary<Guid, int> { [admin] = 800 });
+
+        Assert.True(EducationApiCommonService.CanManageCourseOwners(access));
+    }
+
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(800)]
+    public void OwnerlessCourse_CannotBeEditedWithoutSuperAdmin(int roleRank)
+    {
+        var actor = Guid.NewGuid();
+        var course = CourseOwnedBy();
+        var access = new EducationAccessContext(actor, true, false, new HashSet<Guid>(), roleRank, false, new Dictionary<Guid, int> { [actor] = roleRank });
+
+        Assert.False(EducationApiCommonService.CanEditCourse(access, course));
+    }
+
+    [Fact]
+    public void SuperAdmin_CanReclaimOwnerlessCourse()
+    {
+        var actor = Guid.NewGuid();
+        var course = CourseOwnedBy();
+        var access = new EducationAccessContext(actor, true, false, new HashSet<Guid>(), 1000, true, new Dictionary<Guid, int> { [actor] = 1000 });
+
+        Assert.True(EducationApiCommonService.CanEditCourse(access, course));
+    }
+
+    [Fact]
     public void StudentVisibilityBypass_DoesNotGrantCourseEditPermission()
     {
         var course = CourseOwnedBy();

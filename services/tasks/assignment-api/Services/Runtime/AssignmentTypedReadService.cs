@@ -17,12 +17,28 @@ internal static class AssignmentTypedReadService
         TestAssignmentSpec? Test = null,
         MathAssignmentSpec? Math = null);
 
-    internal static async Task<IReadOnlyList<JsonObject>> BuildDtosAsync(
+    internal static Task<IReadOnlyList<JsonObject>> BuildDtosAsync(
         TasksDbContext db,
         IReadOnlyCollection<Assignment> assignments,
         bool includeSensitive,
         IReadOnlySet<Guid>? solvedIds = null,
         CancellationToken ct = default)
+        => BuildDtosAsync(db, assignments, _ => includeSensitive, solvedIds, ct);
+
+    internal static Task<IReadOnlyList<JsonObject>> BuildDtosForEditableCoursesAsync(
+        TasksDbContext db,
+        IReadOnlyCollection<Assignment> assignments,
+        IReadOnlySet<Guid> editableCourseIds,
+        IReadOnlySet<Guid>? solvedIds = null,
+        CancellationToken ct = default)
+        => BuildDtosAsync(db, assignments, assignment => editableCourseIds.Contains(assignment.CourseId), solvedIds, ct);
+
+    private static async Task<IReadOnlyList<JsonObject>> BuildDtosAsync(
+        TasksDbContext db,
+        IReadOnlyCollection<Assignment> assignments,
+        Func<Assignment, bool> includeSensitive,
+        IReadOnlySet<Guid>? solvedIds,
+        CancellationToken ct)
     {
         if (assignments.Count == 0) return Array.Empty<JsonObject>();
         var ids = assignments.Select(x => x.Id).Distinct().ToArray();
@@ -40,7 +56,7 @@ internal static class AssignmentTypedReadService
                 test.GetValueOrDefault(assignment.Id),
                 math.GetValueOrDefault(assignment.Id));
             EnsureSpecPresent(assignment, type, bundle);
-            return BuildDto(assignment, type, bundle, includeSensitive, solvedIds?.Contains(assignment.Id) == true);
+            return BuildDto(assignment, type, bundle, includeSensitive(assignment), solvedIds?.Contains(assignment.Id) == true);
         }).ToArray();
     }
 

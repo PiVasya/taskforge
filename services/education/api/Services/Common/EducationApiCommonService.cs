@@ -53,7 +53,9 @@ internal static class EducationApiCommonService
 
         var owners = DeserializeIds(course.OwnerIdsJson);
         if (owners.Contains(access.UserId.Value)) return true;
-        if (owners.Length == 0) return true;
+        // Fail closed for legacy/orphaned courses. Without an owner there is no
+        // hierarchy anchor, so only SuperAdmin (handled above) may reclaim it.
+        if (owners.Length == 0) return false;
 
         var ranks = access.UserRanks;
         if (ranks is null) return false;
@@ -70,6 +72,9 @@ internal static class EducationApiCommonService
 
     internal static bool CanChangeGroupOwners(EducationAccessContext access)
         => access.UserId.HasValue && access.IsSuperAdmin;
+
+    internal static bool CanManageCourseOwners(EducationAccessContext access)
+        => access.UserId.HasValue && (access.IsSuperAdmin || access.RoleRank >= 800);
 
     internal static bool IsCourseOwner(EducationAccessContext access, Course course)
         => access.UserId.HasValue && DeserializeIds(course.OwnerIdsJson).Contains(access.UserId.Value);

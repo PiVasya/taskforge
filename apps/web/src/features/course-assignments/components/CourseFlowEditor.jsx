@@ -787,6 +787,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     navigateToCourseEditor(nav, location, rootId, courseId);
   }, [location, nav, rememberBeforeNavigate, rootId]);
 
+  const nodeEntityCanEdit = React.useCallback((node) => (
+    Boolean(editorMode && courseCanEdit && node?.data?.entity?.canEdit === true)
+  ), [courseCanEdit, editorMode]);
+
   const focusNode = React.useCallback((nodeId) => {
     const node = flow.getNode(nodeId);
     if (!node) return;
@@ -3086,7 +3090,11 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onNodeDoubleClick={(event, node) => {
             event.preventDefault();
             if (node.type === 'locked') return;
-            if (node.type === 'course') focusBranch(node.id);
+            if (node.type === 'course') {
+              focusBranch(node.id);
+              return;
+            }
+            if (nodeEntityCanEdit(node)) editAssignment(node.entityId);
             else openAssignment(node.entityId);
           }}
           onMoveEnd={(_, viewport) => { viewportRef.current = viewport; if (!editorMode) persistSession(false); }}
@@ -3134,10 +3142,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             <ContextMenuItem icon={Eye} onClick={() => { const node = context.node; closeContext(); if (node.type === 'course') focusBranch(node.id); else openAssignment(node.entityId); }}>Открыть</ContextMenuItem>
             {editorMode && courseCanEdit ? (
               <>
-                <ContextMenuItem icon={Pencil} onClick={() => { const node = context.node; closeContext(); if (node.type === 'course') editCourse(node.entityId); else editAssignment(node.entityId); }}>Редактировать</ContextMenuItem>
+                {nodeEntityCanEdit(context.node) ? (
+                  <ContextMenuItem icon={Pencil} onClick={() => { const node = context.node; closeContext(); if (node.type === 'course') editCourse(node.entityId); else editAssignment(node.entityId); }}>Редактировать</ContextMenuItem>
+                ) : null}
                 <ContextMenuSeparator />
                 <ContextMenuItem icon={X} disabled={context.node.type === 'course' && String(context.node.entityId) === rootId} onClick={() => { const node = context.node; closeContext(); removeNodeFromMap(node); }}>Убрать с карты</ContextMenuItem>
-                <ContextMenuItem icon={Trash2} disabled={context.node.type === 'course' && String(context.node.entityId) === rootId} danger onClick={() => { const node = context.node; closeContext(); void deleteEntity(node); }}>Удалить полностью</ContextMenuItem>
+                {nodeEntityCanEdit(context.node) ? (
+                  <ContextMenuItem icon={Trash2} disabled={context.node.type === 'course' && String(context.node.entityId) === rootId} danger onClick={() => { const node = context.node; closeContext(); void deleteEntity(node); }}>Удалить полностью</ContextMenuItem>
+                ) : null}
               </>
             ) : null}
           </>

@@ -80,19 +80,19 @@ internal static partial class EducationApiEndpoints
 
             var currentUserId = access.UserId;
             var ownerIds = request.OwnerIds?.Where(x => x != Guid.Empty).Distinct().ToArray();
-            if ((ownerIds == null || ownerIds.Length == 0) && currentUserId.HasValue)
+            if (ownerIds == null || ownerIds.Length == 0)
             {
                 ownerIds = new[] { currentUserId.Value };
             }
-            if (ownerIds is { Length: > 0 })
-            {
-                var requestedLevels = await LoadUserAccessLevelsAsync(ownerIds.Append(currentUserId!.Value), clients, cfg, ct);
-                var mergedRanks = new Dictionary<Guid, int>(access.UserRanks ?? new Dictionary<Guid, int>());
-                foreach (var level in requestedLevels) mergedRanks[level.UserId] = level.EffectiveRank;
-                access = access with { UserRanks = mergedRanks };
-                if (ownerIds.Any(ownerId => !CanAssignCourseOwner(access, ownerId)))
-                    return CourseOwnerForbidden();
-            }
+            if (!CanManageCourseOwners(access) && ownerIds.Any(ownerId => ownerId != currentUserId.Value))
+                return CourseOwnerManagementForbidden();
+
+            var requestedLevels = await LoadUserAccessLevelsAsync(ownerIds.Append(currentUserId.Value), clients, cfg, ct);
+            var mergedRanks = new Dictionary<Guid, int>(access.UserRanks ?? new Dictionary<Guid, int>());
+            foreach (var level in requestedLevels) mergedRanks[level.UserId] = level.EffectiveRank;
+            access = access with { UserRanks = mergedRanks };
+            if (ownerIds.Any(ownerId => !CanAssignCourseOwner(access, ownerId)))
+                return CourseOwnerForbidden();
 
             var parentId = request.ParentCourseId == Guid.Empty ? null : request.ParentCourseId;
             if (parentId.HasValue)
@@ -136,7 +136,7 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
+        app.MapPut("/api/courses/{id:guid}", async (Guid id, CourseRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
@@ -149,13 +149,37 @@ internal static partial class EducationApiEndpoints
             if (request.IsPublic.HasValue) course.IsPublic = request.IsPublic.Value;
             if (request.IsHiddenFromStudents.HasValue) course.IsHiddenFromStudents = request.IsHiddenFromStudents.Value;
             if (request.Sort.HasValue) course.Sort = System.Math.Max(0, request.Sort.Value);
-            if (request.OwnerIds != null) course.OwnerIdsJson = Serialize(request.OwnerIds);
+            if (request.OwnerIds != null)
+            {
+                var currentOwnerIds = DeserializeIds(course.OwnerIdsJson).OrderBy(x => x).ToArray();
+                var requestedOwnerIds = request.OwnerIds.Where(x => x != Guid.Empty).Distinct().OrderBy(x => x).ToArray();
+                if (!currentOwnerIds.SequenceEqual(requestedOwnerIds))
+                {
+                    if (!CanManageCourseOwners(access)) return CourseOwnerManagementForbidden();
+                    if (requestedOwnerIds.Length == 0) return CourseOwnersRequired();
+
+                    var ownerIdsToValidate = currentOwnerIds.Concat(requestedOwnerIds).Append(access.UserId.Value).Distinct().ToArray();
+                    var requestedLevels = await LoadUserAccessLevelsAsync(ownerIdsToValidate, clients, cfg, ct);
+                    var mergedRanks = new Dictionary<Guid, int>(access.UserRanks ?? new Dictionary<Guid, int>());
+                    foreach (var level in requestedLevels) mergedRanks[level.UserId] = level.EffectiveRank;
+                    access = access with { UserRanks = mergedRanks };
+                    if (!access.IsSuperAdmin && currentOwnerIds.Where(ownerId => ownerId != access.UserId.Value).Any(ownerId => !CanAssignCourseOwner(access, ownerId)))
+                        return CourseOwnerForbidden();
+                    if (requestedOwnerIds.Any(ownerId => !CanAssignCourseOwner(access, ownerId)))
+                        return CourseOwnerForbidden();
+                    course.OwnerIdsJson = Serialize(requestedOwnerIds);
+                }
+            }
             if (request.VisibleGroupIds != null)
             {
                 var currentGroupIds = DeserializeIds(course.VisibleGroupIdsJson).OrderBy(x => x).ToArray();
                 var requestedGroupIds = request.VisibleGroupIds.Where(x => x != Guid.Empty).Distinct().OrderBy(x => x).ToArray();
-                if (!currentGroupIds.SequenceEqual(requestedGroupIds) && !await CanSelectVisibleGroupsAsync(access, requestedGroupIds, db, ct)) return CourseGroupForbidden();
-                course.VisibleGroupIdsJson = Serialize(requestedGroupIds);
+                if (!currentGroupIds.SequenceEqual(requestedGroupIds))
+                {
+                    if (!access.IsSuperAdmin && access.RoleRank < 800) return CourseGroupForbidden();
+                    if (!await CanSelectVisibleGroupsAsync(access, requestedGroupIds, db, ct)) return CourseGroupForbidden();
+                    course.VisibleGroupIdsJson = Serialize(requestedGroupIds);
+                }
             }
             NormalizeCourseAudience(course);
             course.UpdatedAt = DateTimeOffset.UtcNow;
@@ -256,6 +280,7 @@ internal static partial class EducationApiEndpoints
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!CanEditCourse(access, course)) return CourseEditForbidden();
+            if (!access.IsSuperAdmin && access.RoleRank < 800) return CourseGroupForbidden();
             if (!await CanSelectVisibleGroupsAsync(access, request.GroupIds, db, ct)) return CourseGroupForbidden();
             course.VisibleGroupIdsJson = Serialize(request.GroupIds);
             course.UpdatedAt = DateTimeOffset.UtcNow;
@@ -271,7 +296,9 @@ internal static partial class EducationApiEndpoints
             var course = await db.Courses.FindAsync(new object[] { courseId }, ct);
             if (course == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (!CanEditCourse(access, course)) return CourseEditForbidden();
+            if (!CanManageCourseOwners(access)) return CourseOwnerManagementForbidden();
             var requestedOwnerIds = (request.OwnerIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToArray();
+            if (requestedOwnerIds.Length == 0) return CourseOwnersRequired();
             var currentOwnerIds = DeserializeIds(course.OwnerIdsJson);
             var ownerIdsToValidate = currentOwnerIds.Concat(requestedOwnerIds).Append(access.UserId!.Value).Distinct().ToArray();
             var requestedLevels = await LoadUserAccessLevelsAsync(ownerIdsToValidate, clients, cfg, ct);
@@ -299,6 +326,15 @@ internal static partial class EducationApiEndpoints
         => Microsoft.AspNetCore.Http.Results.Json(
             new { message = "Нельзя назначить владельца курса с равной или более высокой ролью.", code = "COURSE_OWNER_FORBIDDEN" },
             statusCode: StatusCodes.Status403Forbidden);
+
+    private static IResult CourseOwnerManagementForbidden()
+        => Microsoft.AspNetCore.Http.Results.Json(
+            new { message = "Управлять владельцами курса могут только администраторы.", code = "COURSE_OWNER_MANAGEMENT_FORBIDDEN" },
+            statusCode: StatusCodes.Status403Forbidden);
+
+    private static IResult CourseOwnersRequired()
+        => Microsoft.AspNetCore.Http.Results.BadRequest(
+            new { message = "У курса должен быть хотя бы один владелец.", code = "COURSE_OWNER_REQUIRED" });
 
     private static HashSet<Guid> CollectCourseSubtreeIds(Guid rootCourseId, IEnumerable<(Guid Id, Guid? ParentCourseId)> rows)
     {

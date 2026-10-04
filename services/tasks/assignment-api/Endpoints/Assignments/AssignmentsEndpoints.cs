@@ -376,17 +376,29 @@ internal static partial class AssignmentApiEndpoints
             if (tree == null || tree.CourseIds.Length == 0 || tree.Courses.All(x => x.Id != courseId))
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Не удалось получить дерево курса.", code = "COURSE_TREE_UNAVAILABLE" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 
+            if (!userId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
+
             var requestedIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().Take(5000).ToArray();
+            var subtreeAccess = new List<CourseAccessDto>();
+            foreach (var batch in requestedIds.Chunk(2000))
+                subtreeAccess.AddRange(await LoadCourseAccessRowsAsync(batch, userId.Value, clients, cfg, ct));
+
+            var editableCourseIds = subtreeAccess.Where(x => x.CanEdit).Select(x => x.CourseId).ToHashSet();
+            var viewableCourseIds = subtreeAccess.Where(x => x.CanView || x.CanEdit).Select(x => x.CourseId).ToHashSet();
+
             var editorRows = await db.Assignments.AsNoTracking()
                 .Where(x => requestedIds.Contains(x.CourseId))
+                .Where(x => editableCourseIds.Contains(x.CourseId)
+                    || (viewableCourseIds.Contains(x.CourseId)
+                        && x.IsVisible
+                        && (x.Type != SqlTaskTypes.SqlTest
+                            || db.SqlAssignmentSpecs.Any(spec => spec.AssignmentId == x.Id && spec.PublishedVersionId != null))))
                 .OrderBy(x => x.CourseId)
                 .ThenBy(x => x.Sort)
                 .ThenBy(x => x.CreatedAt)
                 .ToListAsync(ct);
-            var editorSolvedIds = userId.HasValue
-                ? await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct)
-                : new HashSet<Guid>();
-            var editorDtos = await AssignmentTypedReadService.BuildDtosAsync(db, editorRows, includeSensitive: true, editorSolvedIds, ct);
+            var editorSolvedIds = await LoadSolvedAssignmentIdsAsync(userId.Value, editorRows.Select(x => x.Id), db, clients, cfg, ct);
+            var editorDtos = await AssignmentTypedReadService.BuildDtosForEditableCoursesAsync(db, editorRows, editableCourseIds, editorSolvedIds, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(editorDtos);
         });
 
