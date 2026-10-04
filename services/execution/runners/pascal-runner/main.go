@@ -39,6 +39,7 @@ const (
 
 type runRequest struct {
 	Code          string             `json:"code"`
+	Runtime       *string            `json:"runtime,omitempty"`
 	Input         *string            `json:"input"`
 	TimeLimitMs   *int               `json:"timeLimitMs"`
 	MemoryLimitMb *int               `json:"memoryLimitMb"`
@@ -53,6 +54,7 @@ type testCase struct {
 
 type testsRequest struct {
 	Code          string             `json:"code"`
+	Runtime       *string            `json:"runtime,omitempty"`
 	Tests         []testCase         `json:"tests"`
 	TimeLimitMs   *int               `json:"timeLimitMs"`
 	MemoryLimitMb *int               `json:"memoryLimitMb"`
@@ -235,7 +237,7 @@ func pascalSandboxAssets() error {
 	return fmt.Errorf("sandbox unit is missing")
 }
 
-func sandboxRuntimeEnvironment(timeMs int) ([]string, error) {
+func sandboxRuntimeEnvironment(kind string, timeMs int) ([]string, error) {
 	if err := pascalSandboxAssets(); err != nil {
 		return nil, err
 	}
@@ -243,13 +245,42 @@ func sandboxRuntimeEnvironment(timeMs int) ([]string, error) {
 	if cpuSeconds < 2 {
 		cpuSeconds = 2
 	}
-	return []string{
+	profile := "managed"
+	if kind == "pascalabc" {
+		profile = "image"
+	}
+	env := []string{
 		"TASKFORGE_SUBMISSION=1",
-		"TASKFORGE_SANDBOX_PROFILE=managed",
+		"TASKFORGE_SANDBOX_PROFILE=" + profile,
 		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(cpuSeconds),
 		"TASKFORGE_LIMIT_FSIZE_MB=16",
 		"TASKFORGE_LIMIT_NOFILE=128",
-	}, nil
+	}
+	if kind == "pascalabc" {
+		preload, err := imageMode_sandboxPreloadPath()
+		if err != nil {
+			return nil, err
+		}
+		env = append(env,
+			"LD_PRELOAD="+preload,
+			"MONO_REGISTRY_PATH=/tmp/mono-registry",
+			"DOTNET_EnableDiagnostics=0",
+			"COMPlus_EnableDiagnostics=0",
+		)
+	}
+	return env, nil
+}
+
+func normalizePascalRuntime(value *string) string {
+	if value == nil {
+		return "pascal"
+	}
+	switch strings.ToLower(strings.TrimSpace(*value)) {
+	case "pascalabc", "pascalabcnet", "pascalabc.net", "pabc":
+		return "pascalabc"
+	default:
+		return "pascal"
+	}
 }
 
 func hardenRunnerProcess() error {
@@ -781,6 +812,35 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stdout: "", Stderr: "Не удалось подготовить программу к запуску.", CompileStderr: nil}
 		}
 		return &preparedProgram{Cwd: cwd, Cmd: "./main"}, nil
+
+	case "pascalabc":
+		src := filepath.Join(cwd, "main.pas")
+		if err := os.WriteFile(src, []byte(code), 0o600); err != nil {
+			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
+		}
+		compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
+		res := runCommandContext(parent, "mono", []string{compiler, src}, cwd, "", timeoutDuration(timeMs))
+		if res.ExitCode != 0 {
+			msg := strings.TrimSpace(res.Stdout + res.Stderr)
+			if msg == "" {
+				msg = "PascalABC.NET compiler produced no output"
+			}
+			msg = sanitizeRunnerText(msg)
+			return nil, &processResult{Status: "compile_error", ExitCode: 2, Stdout: "", Stderr: "Compilation error:\n" + msg + "\n", CompileStderr: ptr(msg + "\n")}
+		}
+		exe := filepath.Join(cwd, "main.exe")
+		if _, err := os.Stat(exe); err != nil {
+			matches, _ := filepath.Glob(filepath.Join(cwd, "*.exe"))
+			if len(matches) == 0 {
+				msg := sanitizeRunnerText(strings.TrimSpace(res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced"))
+				return nil, &processResult{Status: "compile_error", ExitCode: 2, Stderr: "Compilation error:\n" + msg + "\n", CompileStderr: ptr(msg + "\n")}
+			}
+			exe = matches[0]
+		}
+		if err := os.Chmod(exe, 0o500); err != nil {
+			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: "Не удалось подготовить программу к запуску."}
+		}
+		return &preparedProgram{Cwd: cwd, Cmd: "mono", Args: []string{exe}}, nil
 	default:
 		return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: "Unsupported runner kind: " + kind}
 	}
@@ -791,7 +851,7 @@ func executeProgram(kind string, p *preparedProgram, input string, timeMs int) p
 }
 
 func executeProgramContext(parent context.Context, kind string, p *preparedProgram, input string, timeMs int) processResult {
-	extraEnv, err := sandboxRuntimeEnvironment(timeMs)
+	extraEnv, err := sandboxRuntimeEnvironment(kind, timeMs)
 	if err != nil {
 		log.Printf("%s-runner sandbox assets are unavailable: %v", kind, err)
 		return processResult{Status: "policy_error", ExitCode: 126, Stdout: "", Stderr: "Решение отклонено системой безопасности.", CompileStderr: nil}
@@ -919,6 +979,10 @@ func main() {
 			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
 			return
 		}
+		if err := imageModeReady(); err != nil {
+			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+			return
+		}
 		sendJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
@@ -941,6 +1005,10 @@ func main() {
 			return
 		}
 		withJobSlot(w, r, func() {
+			executionKind := kind
+			if kind == "pascal" {
+				executionKind = normalizePascalRuntime(req.Runtime)
+			}
 			timeMs := boundedIntValue(req.TimeLimitMs, defaultTimeMs(kind), minTimeLimitMs, maxTimeLimitMs)
 			memMb := boundedIntValue(req.MemoryLimitMb, defaultMemoryMb(kind), minMemoryLimitMb, maxMemoryLimitMb)
 			dir, err := os.MkdirTemp("", "taskforge-"+kind+"-")
@@ -949,12 +1017,12 @@ func main() {
 				return
 			}
 			defer os.RemoveAll(dir)
-			program, compileErr := compileProgramContext(r.Context(), kind, req.Code, dir, timeMs, memMb)
+			program, compileErr := compileProgramContext(r.Context(), executionKind, req.Code, dir, timeMs, memMb)
 			if compileErr != nil {
 				sendJSON(w, http.StatusOK, sanitizeProcessResult(compileErr))
 				return
 			}
-			sendJSON(w, http.StatusOK, executeProgramContext(r.Context(), kind, program, strValue(req.Input), timeMs))
+			sendJSON(w, http.StatusOK, executeProgramContext(r.Context(), executionKind, program, strValue(req.Input), timeMs))
 		})
 	})
 
@@ -978,6 +1046,10 @@ func main() {
 			return
 		}
 		withJobSlot(w, r, func() {
+			executionKind := kind
+			if kind == "pascal" {
+				executionKind = normalizePascalRuntime(req.Runtime)
+			}
 			timeMs := boundedIntValue(req.TimeLimitMs, defaultTimeMs(kind), minTimeLimitMs, maxTimeLimitMs)
 			memMb := boundedIntValue(req.MemoryLimitMb, defaultMemoryMb(kind), minMemoryLimitMb, maxMemoryLimitMb)
 			dir, err := os.MkdirTemp("", "taskforge-"+kind+"-tests-")
@@ -986,7 +1058,7 @@ func main() {
 				return
 			}
 			defer os.RemoveAll(dir)
-			program, compileErr := compileProgramContext(r.Context(), kind, req.Code, dir, timeMs, memMb)
+			program, compileErr := compileProgramContext(r.Context(), executionKind, req.Code, dir, timeMs, memMb)
 			results := make([]testResult, 0, len(req.Tests))
 			if compileErr != nil {
 				compileErr = sanitizeProcessResult(compileErr)
@@ -1009,7 +1081,7 @@ func main() {
 					results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: "", Passed: false, Status: "time_limit", ExitCode: 124, Stderr: "Batch time limit exceeded", CompileStderr: nil, Hidden: t.IsHidden}))
 					break
 				}
-				run := executeProgramContext(batchContext, kind, program, given, timeMs)
+				run := executeProgramContext(batchContext, executionKind, program, given, timeMs)
 				passed := run.ExitCode == 0 && normalizeOutputForComparison(run.Stdout) == normalizeOutputForComparison(expected)
 				results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: run.Stdout, Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: run.Stderr, CompileStderr: run.CompileStderr, Hidden: t.IsHidden}))
 				if batchContext.Err() != nil {
@@ -1021,6 +1093,7 @@ func main() {
 	}
 	mux.HandleFunc("/run/tests", testHandler)
 	mux.HandleFunc("/run-tests", testHandler)
+	registerImageRoutes(mux, kind)
 
 	handler := http.Handler(mux)
 	if taskforgeDebugLogsEnabled() {

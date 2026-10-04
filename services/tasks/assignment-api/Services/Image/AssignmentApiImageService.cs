@@ -69,7 +69,7 @@ internal static partial class AssignmentApiImageService
         {
             var client = clients.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(90);
-            var response = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true, attestation });
+            var response = await client.PostAsJsonAsync($"http://{runner}:8080/render/debug", new { source = request.Code ?? string.Empty, stdin = request.Input, timeoutSeconds = request.TimeoutSeconds ?? 20, debug = true, attestation });
             var raw = await response.Content.ReadAsStringAsync();
             return Microsoft.AspNetCore.Http.Results.Content(raw, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
         }
@@ -121,7 +121,7 @@ internal static partial class AssignmentApiImageService
             for (var i = 0; i < cases.Count; i++)
             {
                 var test = cases[i];
-                var render = await client.PostAsJsonAsync($"http://{runner}:8000/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true, attestation });
+                var render = await client.PostAsJsonAsync($"http://{runner}:8080/render/debug", new { source = request.Code ?? string.Empty, stdin = test.Input, timeoutSeconds = runnerTimeout, debug = true, attestation });
                 var renderRaw = await render.Content.ReadAsStringAsync();
                 if (!render.IsSuccessStatusCode)
                 {

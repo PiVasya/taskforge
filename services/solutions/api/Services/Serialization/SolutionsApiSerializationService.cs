@@ -28,7 +28,8 @@ internal static class SolutionsApiSerializationService
             "c++" or "cpp" or "g++" or "gcc" or "cxx" => "cpp",
             "py" or "python" or "python3" => "python",
             "js" or "node" or "nodejs" or "node.js" or "javascript" => "javascript",
-            "pas" or "pascal" or "pascalabc" or "pascalabcnet" or "pabc" => "pascal",
+            "pas" or "pascal" => "pascal",
+            "pascalabc" or "pascalabcnet" or "pascalabc.net" or "pabc" => "pascalabc",
             "java" => "java",
             _ => null
         };

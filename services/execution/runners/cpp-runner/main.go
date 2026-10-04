@@ -994,6 +994,10 @@ func main() {
 			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
 			return
 		}
+		if err := imageModeReady(); err != nil {
+			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
+			return
+		}
 		sendJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
@@ -1096,6 +1100,7 @@ func main() {
 	}
 	mux.HandleFunc("/run/tests", testHandler)
 	mux.HandleFunc("/run-tests", testHandler)
+	registerImageRoutes(mux, kind)
 
 	handler := http.Handler(mux)
 	if taskforgeDebugLogsEnabled() {

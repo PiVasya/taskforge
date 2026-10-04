@@ -1,8 +1,8 @@
 # Compiler and runner compatibility
 
-This microservice cut keeps the legacy runner HTTP contract for regular programming tasks.
+TaskForge keeps one long-lived runner service per language family and exposes the legacy regular-code HTTP contract together with image/render endpoints where that language supports graphics.
 
-`execution-worker` calls runners through:
+`execution-worker` calls regular programming runners through:
 
 ```text
 POST /run-tests
@@ -21,25 +21,37 @@ cpp         -> cpp-runner
 csharp      -> csharp-runner
 java        -> java-runner
 javascript  -> javascript-runner
-pascal      -> pascal-runner
+pascal      -> pascal-runner -> Free Pascal
+pascalabc   -> pascal-runner -> PascalABC.NET + Mono
 python      -> python-runner
 ```
 
-The old monolith configured regular compiler services as runner base URLs such as `http://cpp-runner:8080`, `http://csharp-runner:8080`, `http://python-runner:8080` and then called `/run/tests`. The new execution path preserves this contract but puts it behind a durable queue:
+The execution path is:
 
 ```text
 solutions-api -> execution-api -> execution-worker -> code-analyzer -> runner
 ```
 
-Image tasks are separate from regular code-test tasks. The active microservice runtime supports:
+Image/render execution is served by the same language-family containers instead of separate image-runner services:
 
 ```text
-image-cpp-runner
-image-pascal-runner
+cpp-runner     -> /render
+python-runner  -> /render
+pascal-runner  -> /render (PascalABC.NET + GraphABC/X11)
 ```
 
-The legacy `image-python-runner` is not part of the active runtime, so the web solve page limits image-test language selection to C++ and Pascal.
+For Pascal, one `pascal-runner` Docker image directly contains both complete toolchains and all graphics dependencies:
+
+```text
+Free Pascal
+PascalABC.NET
+Mono
+GraphABC dependencies
+Xvfb / Openbox / ImageMagick / xdotool
+```
+
+No separate `image-pascal-runner` image or running service is required by the active build/deployment path.
 
 ## Python submissions without Python backend service
 
-Python remains a supported language for student submissions. The active `python-runner` service is written in Go and only invokes `python3` as the language toolchain for submitted code. Python application runtime is intentionally limited to `services/analyzers/image-analyzer`.
+Python remains a supported language for student submissions. The active `python-runner` service is written in Go and invokes `python3` as the student language toolchain. Python application runtime is intentionally limited to components that actually need it, such as `services/analyzers/image-analyzer`.

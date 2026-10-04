@@ -10,7 +10,6 @@ scripts/prod/check-prod-config.sh
 services=(
   code-analyzer
   csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
-  image-cpp-runner image-pascal-runner image-python-runner
   execution-worker execution-api
 )
 

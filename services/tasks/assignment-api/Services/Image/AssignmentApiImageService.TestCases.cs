@@ -93,6 +93,6 @@ internal static partial class AssignmentApiImageService
         var x => x
     };
 
-    internal static string? ImageRunnerService(string lang) => lang switch { "cpp" => "image-cpp-runner", "pascal" => "image-pascal-runner", "python" => "image-python-runner", _ => null };
+    internal static string? ImageRunnerService(string lang) => lang switch { "cpp" => "cpp-runner", "pascal" => "pascal-runner", "python" => "python-runner", _ => null };
 
 }

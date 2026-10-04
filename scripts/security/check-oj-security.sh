@@ -22,8 +22,7 @@ from scripts.ci.yaml_compat import safe_load
 root = pathlib.Path('.')
 runners = [
     'cpp-runner', 'java-runner', 'javascript-runner', 'python-runner',
-    'pascal-runner', 'image-cpp-runner', 'image-pascal-runner',
-    'image-python-runner',
+    'pascal-runner',
 ]
 runner_services = runners + ['csharp-runner']
 
@@ -116,9 +115,8 @@ for marker in ('find_identifier_sequence_pos', 'task_rule_needs_strings', 'forma
         die(f'code-analyzer task-rule matcher regression: {marker}')
 
 python_a = root / 'services/execution/runners/python-runner/security/python_policy.py'
-python_b = root / 'services/execution/runners/image-python-runner/security/python_policy.py'
-if python_a.read_bytes() != python_b.read_bytes():
-    die('Python execution policies drifted')
+if not python_a.is_file():
+    die('Python execution policy is missing')
 if (root / 'services/execution/runners/python-runner/server.py').exists():
     die('obsolete unprotected Python server returned')
 
@@ -144,7 +142,7 @@ for value in required_analyzer_files:
 
 for header in ('CTurtle.hpp', 'taskforge_turtle.h'):
     analyzer_header = root / 'services/analyzers/code-analyzer/include' / header
-    runner_header = root / 'services/execution/runners/image-cpp-runner/include' / header
+    runner_header = root / 'services/execution/runners/cpp-runner/include' / header
     if not analyzer_header.is_file() or analyzer_header.read_bytes() != runner_header.read_bytes():
         die(f'image C++ analyzer header drift: {header}')
 
@@ -333,8 +331,7 @@ fi
 printf '[oj-security] Go runner tests and vet\n'
 if command -v go >/dev/null 2>&1; then
   for runner in \
-    cpp-runner java-runner javascript-runner python-runner pascal-runner \
-    image-cpp-runner image-pascal-runner image-python-runner; do
+    cpp-runner java-runner javascript-runner python-runner pascal-runner; do
     (
       cd "services/execution/runners/$runner"
       go test ./...

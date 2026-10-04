@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+
 	"sort"
 	"strconv"
 	"strings"
@@ -24,16 +24,16 @@ import (
 )
 
 const (
-	maxTextLen               = 1_000_000
-	maxRequestBytes          = 16 << 20
-	maxSourceBytes           = 1 << 20
-	maxStdinBytes            = 1 << 20
-	maxImageBytes            = 16 << 20
-	maxRenderRequestDuration = 34 * time.Second
-	prSetDumpable            = 4
+	imageMode_maxTextLen               = 1_000_000
+	imageMode_maxRequestBytes          = 16 << 20
+	imageMode_maxSourceBytes           = 1 << 20
+	imageMode_maxStdinBytes            = 1 << 20
+	imageMode_maxImageBytes            = 16 << 20
+	imageMode_maxRenderRequestDuration = 34 * time.Second
+	imageMode_prSetDumpable            = 4
 )
 
-type renderRequest struct {
+type imageMode_renderRequest struct {
 	Source          string             `json:"source"`
 	Stdin           *string            `json:"stdin"`
 	TimeoutSeconds  *int               `json:"timeoutSeconds"`
@@ -42,33 +42,33 @@ type renderRequest struct {
 	Attestation     *policyAttestation `json:"attestation"`
 }
 
-type renderDebugResponse struct {
+type imageMode_renderDebugResponse struct {
 	PngBase64 string `json:"pngBase64,omitempty"`
 	Stdout    string `json:"stdout"`
 	Stderr    string `json:"stderr"`
 }
 
-type execOutput struct {
+type imageMode_execOutput struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
 	TimedOut bool
 }
 
-type captureOutput struct {
+type imageMode_captureOutput struct {
 	PNG    []byte
 	Stdout string
 	Stderr string
 	Err    string
 }
 
-type limitedBuffer struct {
+type imageMode_limitedBuffer struct {
 	buf       bytes.Buffer
 	max       int
 	truncated bool
 }
 
-func (b *limitedBuffer) Write(p []byte) (int, error) {
+func (b *imageMode_limitedBuffer) Write(p []byte) (int, error) {
 	left := b.max - b.buf.Len()
 	if left > 0 {
 		if len(p) > left {
@@ -83,37 +83,37 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (b *limitedBuffer) String() string {
+func (b *imageMode_limitedBuffer) String() string {
 	return strings.ReplaceAll(b.buf.String(), "\r\n", "\n")
 }
 
-func (b *limitedBuffer) Bytes() []byte {
+func (b *imageMode_limitedBuffer) Bytes() []byte {
 	return append([]byte(nil), b.buf.Bytes()...)
 }
 
-var tmpTaskforgePathPattern = regexp.MustCompile(`/tmp/taskforge-[^\s:]+`)
-var tmpGoBuildPathPattern = regexp.MustCompile(`/tmp/go-build[^\s:]+`)
-var appPathPattern = regexp.MustCompile(`/app/[^\s:]+`)
+var imageMode_tmpTaskforgePathPattern = regexp.MustCompile(`/tmp/taskforge-[^\s:]+`)
+var imageMode_tmpGoBuildPathPattern = regexp.MustCompile(`/tmp/go-build[^\s:]+`)
+var imageMode_appPathPattern = regexp.MustCompile(`/app/[^\s:]+`)
 
-func sanitizeRunnerText(value string) string {
+func imageMode_sanitizeRunnerText(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return value
 	}
-	s := tmpTaskforgePathPattern.ReplaceAllString(value, "[временный файл]")
-	s = tmpGoBuildPathPattern.ReplaceAllString(s, "[временный файл]")
-	s = appPathPattern.ReplaceAllString(s, "[внутренний файл]")
+	s := imageMode_tmpTaskforgePathPattern.ReplaceAllString(value, "[временный файл]")
+	s = imageMode_tmpGoBuildPathPattern.ReplaceAllString(s, "[временный файл]")
+	s = imageMode_appPathPattern.ReplaceAllString(s, "[внутренний файл]")
 	return s
 }
 
-func friendlyRunnerError(value string) string {
+func imageMode_friendlyRunnerError(value string) string {
 	lower := strings.ToLower(value)
 	if strings.Contains(lower, "fork/exec") && strings.Contains(lower, "permission denied") {
 		return "Не удалось запустить программу: нет прав на выполнение файла проверки."
 	}
-	return sanitizeRunnerText(value)
+	return imageMode_sanitizeRunnerText(value)
 }
 
-func env(name, fallback string) string {
+func imageMode_env(name, fallback string) string {
 	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
 		return fallback
@@ -121,7 +121,7 @@ func env(name, fallback string) string {
 	return v
 }
 
-func runnerChildEnvironment() []string {
+func imageMode_runnerChildEnvironment() []string {
 	result := []string{
 		"HOME=/tmp",
 		"TMPDIR=/tmp",
@@ -138,7 +138,7 @@ func runnerChildEnvironment() []string {
 	return result
 }
 
-func sandboxPreloadPath() (string, error) {
+func imageMode_sandboxPreloadPath() (string, error) {
 	path := strings.TrimSpace(os.Getenv("TASKFORGE_SANDBOX_PRELOAD"))
 	if path == "" {
 		path = "/app/libtaskforge_sandbox.so"
@@ -153,12 +153,12 @@ func sandboxPreloadPath() (string, error) {
 	return path, nil
 }
 
-func sandboxRuntimeEnvironment(seconds int) ([]string, error) {
-	preload, err := sandboxPreloadPath()
+func imageMode_sandboxRuntimeEnvironment(seconds int) ([]string, error) {
+	preload, err := imageMode_sandboxPreloadPath()
 	if err != nil {
 		return nil, err
 	}
-	cpuSeconds := clamp(seconds+2, 2, 40)
+	cpuSeconds := imageMode_clamp(seconds+2, 2, 40)
 	return []string{
 		"LD_PRELOAD=" + preload,
 		"TASKFORGE_SUBMISSION=1",
@@ -172,12 +172,12 @@ func sandboxRuntimeEnvironment(seconds int) ([]string, error) {
 	}, nil
 }
 
-func helperSandboxEnvironment(seconds int) ([]string, error) {
-	return sandboxRuntimeEnvironment(seconds)
+func imageMode_helperSandboxEnvironment(seconds int) ([]string, error) {
+	return imageMode_sandboxRuntimeEnvironment(seconds)
 }
 
-func xserverSandboxEnvironment(seconds int) ([]string, error) {
-	preload, err := sandboxPreloadPath()
+func imageMode_xserverSandboxEnvironment(seconds int) ([]string, error) {
+	preload, err := imageMode_sandboxPreloadPath()
 	if err != nil {
 		return nil, err
 	}
@@ -185,31 +185,31 @@ func xserverSandboxEnvironment(seconds int) ([]string, error) {
 		"LD_PRELOAD=" + preload,
 		"TASKFORGE_SUBMISSION=1",
 		"TASKFORGE_SANDBOX_PROFILE=xserver",
-		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(clamp(seconds+4, 4, 45)),
+		"TASKFORGE_LIMIT_CPU_SECONDS=" + strconv.Itoa(imageMode_clamp(seconds+4, 4, 45)),
 		"TASKFORGE_LIMIT_FSIZE_MB=32",
 		"TASKFORGE_LIMIT_NOFILE=128",
 	}, nil
 }
 
-func hardenRunnerProcess() error {
-	_, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, uintptr(prSetDumpable), 0, 0, 0, 0, 0)
+func imageMode_hardenRunnerProcess() error {
+	_, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, uintptr(imageMode_prSetDumpable), 0, 0, 0, 0, 0)
 	if errno != 0 {
 		return errno
 	}
 	return nil
 }
 
-func timeout(req renderRequest) int {
+func imageMode_timeout(req imageMode_renderRequest) int {
 	if req.TimeoutSeconds2 != nil && *req.TimeoutSeconds2 > 0 {
-		return clamp(*req.TimeoutSeconds2, 1, 30)
+		return imageMode_clamp(*req.TimeoutSeconds2, 1, 30)
 	}
 	if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
-		return clamp(*req.TimeoutSeconds, 1, 30)
+		return imageMode_clamp(*req.TimeoutSeconds, 1, 30)
 	}
 	return 20
 }
 
-func clamp(v, lo, hi int) int {
+func imageMode_clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
 	}
@@ -219,7 +219,7 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func secondsRemaining(deadline time.Time) int {
+func imageMode_secondsRemaining(deadline time.Time) int {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return 0
@@ -227,27 +227,27 @@ func secondsRemaining(deadline time.Time) int {
 	return int((remaining + time.Second - 1) / time.Second)
 }
 
-func tail(s string, n int) string {
+func imageMode_tail(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
 	return "..." + s[len(s)-n:]
 }
 
-func runCommand(name string, args []string, cwd string, input string, seconds int, extraEnv []string) execOutput {
+func imageMode_runCommand(name string, args []string, cwd string, input string, seconds int, extraEnv []string) imageMode_execOutput {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
-	cmd.Env = append(runnerChildEnvironment(), extraEnv...)
+	cmd.Env = append(imageMode_runnerChildEnvironment(), extraEnv...)
 	cmd.Stdin = strings.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-	stdout := &limitedBuffer{max: maxTextLen}
-	stderr := &limitedBuffer{max: maxTextLen}
+	stdout := &imageMode_limitedBuffer{max: imageMode_maxTextLen}
+	stderr := &imageMode_limitedBuffer{max: imageMode_maxTextLen}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
-		return execOutput{ExitCode: 127, Stderr: friendlyRunnerError(err.Error())}
+		return imageMode_execOutput{ExitCode: 127, Stderr: imageMode_friendlyRunnerError(err.Error())}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -260,7 +260,7 @@ func runCommand(name string, args []string, cwd string, input string, seconds in
 			_ = cmd.Process.Kill()
 		}
 		_ = <-done
-		return execOutput{ExitCode: 124, Stdout: stdout.String(), Stderr: "Time limit exceeded", TimedOut: true}
+		return imageMode_execOutput{ExitCode: 124, Stdout: stdout.String(), Stderr: "Time limit exceeded", TimedOut: true}
 	}
 	code := 0
 	if err != nil {
@@ -270,30 +270,30 @@ func runCommand(name string, args []string, cwd string, input string, seconds in
 		} else {
 			code = 1
 			if stderr.buf.Len() == 0 {
-				_, _ = io.WriteString(stderr, friendlyRunnerError(err.Error()))
+				_, _ = io.WriteString(stderr, imageMode_friendlyRunnerError(err.Error()))
 			}
 		}
 	}
-	return execOutput{ExitCode: code, Stdout: stdout.String(), Stderr: sanitizeRunnerText(stderr.String())}
+	return imageMode_execOutput{ExitCode: code, Stdout: stdout.String(), Stderr: imageMode_sanitizeRunnerText(stderr.String())}
 }
 
-func sendJSON(w http.ResponseWriter, code int, value any) {
+func imageMode_sendJSON(w http.ResponseWriter, code int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func sendError(w http.ResponseWriter, code int, message string, stdout string, stderr string) {
-	sendJSON(w, code, map[string]any{"detail": map[string]string{"message": friendlyRunnerError(message), "stdout": tail(stdout, 8000), "stderr": tail(friendlyRunnerError(stderr), 8000)}})
+func imageMode_sendError(w http.ResponseWriter, code int, message string, stdout string, stderr string) {
+	imageMode_sendJSON(w, code, map[string]any{"detail": map[string]string{"message": imageMode_friendlyRunnerError(message), "stdout": imageMode_tail(stdout, 8000), "stderr": imageMode_tail(imageMode_friendlyRunnerError(stderr), 8000)}})
 }
 
-func decodeJSON(r *http.Request, out any) error {
+func imageMode_decodeJSON(r *http.Request, out any) error {
 	defer r.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(r.Body, imageMode_maxRequestBytes+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > maxRequestBytes {
+	if len(data) > imageMode_maxRequestBytes {
 		return fmt.Errorf("request body is too large")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -310,20 +310,20 @@ func decodeJSON(r *http.Request, out any) error {
 	return nil
 }
 
-func validateRenderRequest(req renderRequest) error {
+func imageMode_validateRenderRequest(req imageMode_renderRequest) error {
 	if strings.TrimSpace(req.Source) == "" {
 		return fmt.Errorf("source is required")
 	}
-	if len(req.Source) > maxSourceBytes {
+	if len(req.Source) > imageMode_maxSourceBytes {
 		return fmt.Errorf("source is too large")
 	}
-	if req.Stdin != nil && len(*req.Stdin) > maxStdinBytes {
+	if req.Stdin != nil && len(*req.Stdin) > imageMode_maxStdinBytes {
 		return fmt.Errorf("stdin is too large")
 	}
 	return nil
 }
 
-func readFileLimited(path string, maximum int64) ([]byte, error) {
+func imageMode_readFileLimited(path string, maximum int64) ([]byte, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
@@ -349,52 +349,52 @@ func readFileLimited(path string, maximum int64) ([]byte, error) {
 	return data, nil
 }
 
-func compileCpp(source string, dir string, timeoutSec int) (string, string, int) {
+func imageMode_compileCpp(source string, dir string, timeoutSec int) (string, string, int) {
 	src := filepath.Join(dir, "main.cpp")
 	exe := filepath.Join(dir, "main")
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
-		return sanitizeRunnerText(err.Error()), "", 1
+		return imageMode_sanitizeRunnerText(err.Error()), "", 1
 	}
-	res := runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	res := imageMode_runCommand("g++", []string{"main.cpp", "-O2", "-std=c++17", "-lglut", "-lGL", "-lGLU", "-o", exe}, dir, "", imageMode_clamp(timeoutSec, 1, 30), nil)
 	if res.ExitCode == 0 {
 		if err := os.Chmod(exe, 0o700); err != nil {
 			return "Не удалось подготовить программу к запуску.", "", 1
 		}
 	}
-	return sanitizeRunnerText(res.Stdout + res.Stderr), exe, res.ExitCode
+	return imageMode_sanitizeRunnerText(res.Stdout + res.Stderr), exe, res.ExitCode
 }
 
-func compilePascal(source string, dir string, timeoutSec int) (string, string, int) {
+func imageMode_compilePascal(source string, dir string, timeoutSec int) (string, string, int) {
 	if strings.Contains(strings.ToLower(source), "drawman") {
 		return "DrawMan is not supported in pascal image runner. Use GraphABC.", "", 2
 	}
 	src := filepath.Join(dir, "main.pas")
 	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
-		return sanitizeRunnerText(err.Error()), "", 1
+		return imageMode_sanitizeRunnerText(err.Error()), "", 1
 	}
-	compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
-	res := runCommand("mono", []string{compiler, src}, dir, "", clamp(timeoutSec, 1, 30), nil)
+	compiler := imageMode_env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
+	res := imageMode_runCommand("mono", []string{compiler, src}, dir, "", imageMode_clamp(timeoutSec, 1, 30), nil)
 	if res.ExitCode != 0 {
-		return sanitizeRunnerText(res.Stdout + res.Stderr), "", res.ExitCode
+		return imageMode_sanitizeRunnerText(res.Stdout + res.Stderr), "", res.ExitCode
 	}
 	candidate := filepath.Join(dir, "main.exe")
 	if _, err := os.Stat(candidate); err == nil {
 		if err := os.Chmod(candidate, 0o700); err != nil {
 			return "Не удалось подготовить программу к запуску.", "", 1
 		}
-		return sanitizeRunnerText(res.Stdout + res.Stderr), candidate, 0
+		return imageMode_sanitizeRunnerText(res.Stdout + res.Stderr), candidate, 0
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*.exe"))
 	if len(matches) == 0 {
-		return sanitizeRunnerText(res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced"), "", 1
+		return imageMode_sanitizeRunnerText(res.Stdout + res.Stderr + "\ncompile succeeded but no .exe produced"), "", 1
 	}
 	if err := os.Chmod(matches[0], 0o700); err != nil {
 		return "Не удалось подготовить программу к запуску.", "", 1
 	}
-	return sanitizeRunnerText(res.Stdout + res.Stderr), matches[0], 0
+	return imageMode_sanitizeRunnerText(res.Stdout + res.Stderr), matches[0], 0
 }
 
-func fileMTime(path string) time.Time {
+func imageMode_fileMTime(path string) time.Time {
 	st, err := os.Lstat(path)
 	if err != nil {
 		return time.Time{}
@@ -402,7 +402,7 @@ func fileMTime(path string) time.Time {
 	return st.ModTime()
 }
 
-func findOutputFile(dir string) string {
+func imageMode_findOutputFile(dir string) string {
 	for _, n := range []string{"out.png", "out.ppm", "out.bmp", "out.jpg", "out.jpeg"} {
 		p := filepath.Join(dir, n)
 		if st, err := os.Lstat(p); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
@@ -423,22 +423,22 @@ func findOutputFile(dir string) string {
 			}
 		}
 	}
-	sort.Slice(files, func(i, j int) bool { return fileMTime(files[i]).After(fileMTime(files[j])) })
+	sort.Slice(files, func(i, j int) bool { return imageMode_fileMTime(files[i]).After(imageMode_fileMTime(files[j])) })
 	if len(files) == 0 {
 		return ""
 	}
 	return files[0]
 }
 
-func runBinaryCommand(name string, args []string, cwd string, seconds int, extraEnv []string) ([]byte, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(clamp(seconds, 1, 10))*time.Second)
+func imageMode_runBinaryCommand(name string, args []string, cwd string, seconds int, extraEnv []string) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(imageMode_clamp(seconds, 1, 10))*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
-	cmd.Env = append(runnerChildEnvironment(), extraEnv...)
+	cmd.Env = append(imageMode_runnerChildEnvironment(), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-	stdout := &limitedBuffer{max: maxImageBytes + 1}
-	stderr := &limitedBuffer{max: 64 * 1024}
+	stdout := &imageMode_limitedBuffer{max: imageMode_maxImageBytes + 1}
+	stderr := &imageMode_limitedBuffer{max: 64 * 1024}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
@@ -448,7 +448,7 @@ func runBinaryCommand(name string, args []string, cwd string, seconds int, extra
 	if err != nil {
 		return nil, stderr.String(), err
 	}
-	if stdout.truncated || len(stdout.Bytes()) > maxImageBytes {
+	if stdout.truncated || len(stdout.Bytes()) > imageMode_maxImageBytes {
 		return nil, stderr.String(), fmt.Errorf("rendered image is too large")
 	}
 	if len(stdout.Bytes()) == 0 {
@@ -457,19 +457,19 @@ func runBinaryCommand(name string, args []string, cwd string, seconds int, extra
 	return stdout.Bytes(), stderr.String(), nil
 }
 
-func convertToPNG(path string, dir string, seconds int, helperEnv []string) ([]byte, error) {
+func imageMode_convertToPNG(path string, dir string, seconds int, helperEnv []string) ([]byte, error) {
 	if strings.EqualFold(filepath.Ext(path), ".png") {
-		return readFileLimited(path, maxImageBytes)
+		return imageMode_readFileLimited(path, imageMode_maxImageBytes)
 	}
-	png, stderr, err := runBinaryCommand("convert", []string{path, "png:-"}, dir, seconds, helperEnv)
+	png, stderr, err := imageMode_runBinaryCommand("convert", []string{path, "png:-"}, dir, seconds, helperEnv)
 	if err != nil {
-		return nil, fmt.Errorf("image conversion failed: %s", tail(stderr, 4000))
+		return nil, fmt.Errorf("image conversion failed: %s", imageMode_tail(stderr, 4000))
 	}
 	return png, nil
 }
 
-func captureWindowPNG(display string, windowID string, seconds int, helperEnv []string) ([]byte, error) {
-	png, stderr, err := runBinaryCommand(
+func imageMode_captureWindowPNG(display string, windowID string, seconds int, helperEnv []string) ([]byte, error) {
+	png, stderr, err := imageMode_runBinaryCommand(
 		"import",
 		[]string{"-display", display, "-window", windowID, "png:-"},
 		"/tmp",
@@ -477,23 +477,23 @@ func captureWindowPNG(display string, windowID string, seconds int, helperEnv []
 		append([]string{"DISPLAY=" + display}, helperEnv...),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("window capture failed: %s", tail(stderr, 4000))
+		return nil, fmt.Errorf("window capture failed: %s", imageMode_tail(stderr, 4000))
 	}
 	return png, nil
 }
 
-type longProcess struct {
+type imageMode_longProcess struct {
 	cmd  *exec.Cmd
 	done chan error
 }
 
-func startLongProcess(name string, args []string, cwd string, input string, envs []string) (*longProcess, *limitedBuffer, *limitedBuffer, error) {
+func imageMode_startLongProcess(name string, args []string, cwd string, input string, envs []string) (*imageMode_longProcess, *imageMode_limitedBuffer, *imageMode_limitedBuffer, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = cwd
-	cmd.Env = append(runnerChildEnvironment(), envs...)
+	cmd.Env = append(imageMode_runnerChildEnvironment(), envs...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-	stdout := &limitedBuffer{max: maxTextLen}
-	stderr := &limitedBuffer{max: maxTextLen}
+	stdout := &imageMode_limitedBuffer{max: imageMode_maxTextLen}
+	stderr := &imageMode_limitedBuffer{max: imageMode_maxTextLen}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	var inputPipe io.WriteCloser
@@ -510,7 +510,7 @@ func startLongProcess(name string, args []string, cwd string, input string, envs
 		}
 		return nil, stdout, stderr, err
 	}
-	process := &longProcess{cmd: cmd, done: make(chan error, 1)}
+	process := &imageMode_longProcess{cmd: cmd, done: make(chan error, 1)}
 	go func() {
 		process.done <- cmd.Wait()
 		close(process.done)
@@ -527,7 +527,7 @@ func startLongProcess(name string, args []string, cwd string, input string, envs
 	return process, stdout, stderr, nil
 }
 
-func processExited(process *longProcess) bool {
+func imageMode_processExited(process *imageMode_longProcess) bool {
 	if process == nil {
 		return true
 	}
@@ -539,11 +539,11 @@ func processExited(process *longProcess) bool {
 	}
 }
 
-func stopProc(process *longProcess) {
+func imageMode_stopProc(process *imageMode_longProcess) {
 	if process == nil || process.cmd == nil || process.cmd.Process == nil {
 		return
 	}
-	if processExited(process) {
+	if imageMode_processExited(process) {
 		return
 	}
 	_ = syscall.Kill(-process.cmd.Process.Pid, syscall.SIGTERM)
@@ -560,11 +560,11 @@ func stopProc(process *longProcess) {
 	}
 }
 
-func firstWindowID(pid int, display string, helperEnv []string) string {
+func imageMode_firstWindowID(pid int, display string, helperEnv []string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "xdotool", "search", "--onlyvisible", "--pid", strconv.Itoa(pid))
-	cmd.Env = append(runnerChildEnvironment(), append([]string{"DISPLAY=" + display}, helperEnv...)...)
+	cmd.Env = append(imageMode_runnerChildEnvironment(), append([]string{"DISPLAY=" + display}, helperEnv...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -576,141 +576,141 @@ func firstWindowID(pid int, display string, helperEnv []string) string {
 	return ids[len(ids)-1]
 }
 
-func captureExecutable(exe string, dir string, stdin string, timeoutSec int) captureOutput {
-	helperEnv, helperErr := helperSandboxEnvironment(timeoutSec)
+func imageMode_captureExecutable(exe string, dir string, stdin string, timeoutSec int) imageMode_captureOutput {
+	helperEnv, helperErr := imageMode_helperSandboxEnvironment(timeoutSec)
 	if helperErr != nil {
 		log.Printf("image runner helper sandbox is unavailable: %v", helperErr)
-		return captureOutput{Err: "Решение отклонено системой безопасности."}
+		return imageMode_captureOutput{Err: "Решение отклонено системой безопасности."}
 	}
-	xserverEnv, xserverErr := xserverSandboxEnvironment(timeoutSec)
+	xserverEnv, xserverErr := imageMode_xserverSandboxEnvironment(timeoutSec)
 	if xserverErr != nil {
 		log.Printf("image runner X server sandbox is unavailable: %v", xserverErr)
-		return captureOutput{Err: "Решение отклонено системой безопасности."}
+		return imageMode_captureOutput{Err: "Решение отклонено системой безопасности."}
 	}
 
 	display := fmt.Sprintf(":%d", 90+rand.Intn(1000))
-	xvfbArgs := []string{display, "-nolisten", "tcp", "-extension", "XTEST", "-screen", "0", env("TF_XVFB_SCREEN", "1280x1024x24")}
-	xvfb, _, xvfbErr, err := startLongProcess("Xvfb", xvfbArgs, dir, "", xserverEnv)
+	xvfbArgs := []string{display, "-nolisten", "tcp", "-extension", "XTEST", "-screen", "0", imageMode_env("TF_XVFB_SCREEN", "1280x1024x24")}
+	xvfb, _, xvfbErr, err := imageMode_startLongProcess("Xvfb", xvfbArgs, dir, "", xserverEnv)
 	if err != nil {
-		return captureOutput{Err: "failed to start Xvfb: " + err.Error() + " " + xvfbErr.String()}
+		return imageMode_captureOutput{Err: "failed to start Xvfb: " + err.Error() + " " + xvfbErr.String()}
 	}
-	defer stopProc(xvfb)
+	defer imageMode_stopProc(xvfb)
 	time.Sleep(500 * time.Millisecond)
 
 	openboxEnv := append([]string{"DISPLAY=" + display}, helperEnv...)
-	wm, _, _, _ := startLongProcess("openbox", []string{"--config-file", "/etc/xdg/openbox/rc.xml"}, dir, "", openboxEnv)
-	defer stopProc(wm)
+	wm, _, _, _ := imageMode_startLongProcess("openbox", []string{"--config-file", "/etc/xdg/openbox/rc.xml"}, dir, "", openboxEnv)
+	defer imageMode_stopProc(wm)
 	time.Sleep(350 * time.Millisecond)
 
-	sandboxEnv, sandboxErr := sandboxRuntimeEnvironment(timeoutSec)
+	sandboxEnv, sandboxErr := imageMode_sandboxRuntimeEnvironment(timeoutSec)
 	if sandboxErr != nil {
 		log.Printf("image runner sandbox preload is unavailable: %v", sandboxErr)
-		return captureOutput{Err: "Решение отклонено системой безопасности."}
+		return imageMode_captureOutput{Err: "Решение отклонено системой безопасности."}
 	}
 	programEnv := append([]string{"DISPLAY=" + display}, sandboxEnv...)
 
-	proc, stdout, stderr, err := startLongProcess(exe, nil, dir, stdin, programEnv)
+	proc, stdout, stderr, err := imageMode_startLongProcess(exe, nil, dir, stdin, programEnv)
 	if err != nil {
-		return captureOutput{Err: "failed to start program: " + err.Error()}
+		return imageMode_captureOutput{Err: "failed to start program: " + err.Error()}
 	}
-	defer func() { stopProc(proc) }()
+	defer func() { imageMode_stopProc(proc) }()
 
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	var windowID string
 	for time.Now().Before(deadline) {
-		if out := findOutputFile(dir); out != "" {
+		if out := imageMode_findOutputFile(dir); out != "" {
 			// Stop untrusted writers before opening or converting their output.
-			stopProc(proc)
+			imageMode_stopProc(proc)
 			proc = nil
-			remaining := secondsRemaining(deadline)
+			remaining := imageMode_secondsRemaining(deadline)
 			if remaining <= 0 {
 				break
 			}
-			png, convErr := convertToPNG(out, dir, clamp(remaining, 1, 10), helperEnv)
+			png, convErr := imageMode_convertToPNG(out, dir, imageMode_clamp(remaining, 1, 10), helperEnv)
 			if convErr == nil {
-				return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
+				return imageMode_captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
 			}
-			return captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: convErr.Error()}
+			return imageMode_captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: convErr.Error()}
 		}
-		if processExited(proc) {
+		if imageMode_processExited(proc) {
 			break
 		}
 		if windowID == "" {
-			windowID = firstWindowID(proc.cmd.Process.Pid, display, helperEnv)
+			windowID = imageMode_firstWindowID(proc.cmd.Process.Pid, display, helperEnv)
 		}
 		if windowID != "" {
-			remaining := secondsRemaining(deadline)
+			remaining := imageMode_secondsRemaining(deadline)
 			if remaining <= 0 {
 				break
 			}
-			if png, captureErr := captureWindowPNG(display, windowID, clamp(remaining, 1, 4), helperEnv); captureErr == nil {
-				return captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
+			if png, captureErr := imageMode_captureWindowPNG(display, windowID, imageMode_clamp(remaining, 1, 4), helperEnv); captureErr == nil {
+				return imageMode_captureOutput{PNG: png, Stdout: stdout.String(), Stderr: stderr.String()}
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	return captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: "Rendering failed or timed out"}
+	return imageMode_captureOutput{Stdout: stdout.String(), Stderr: stderr.String(), Err: "Rendering failed or timed out"}
 }
 
-func handleRender(kind string, debug bool) http.HandlerFunc {
+func imageMode_handleRender(kind string, debug bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		var req renderRequest
-		if err := decodeJSON(r, &req); err != nil {
-			sendError(w, http.StatusBadRequest, err.Error(), "", "")
+		var req imageMode_renderRequest
+		if err := imageMode_decodeJSON(r, &req); err != nil {
+			imageMode_sendError(w, http.StatusBadRequest, err.Error(), "", "")
 			return
 		}
-		if err := validateRenderRequest(req); err != nil {
-			sendError(w, http.StatusBadRequest, err.Error(), "", "")
+		if err := imageMode_validateRenderRequest(req); err != nil {
+			imageMode_sendError(w, http.StatusBadRequest, err.Error(), "", "")
 			return
 		}
 		if err := verifyPolicyAttestation(kind, "image", req.Source, req.Attestation); err != nil {
 			log.Printf("image-%s-runner rejected unattested source: %v", kind, err)
-			sendError(w, http.StatusForbidden, "Решение не прошло обязательную проверку безопасности.", "", "")
+			imageMode_sendError(w, http.StatusForbidden, "Решение не прошло обязательную проверку безопасности.", "", "")
 			return
 		}
-		timeoutSec := timeout(req)
-		requestDeadline := time.Now().Add(maxRenderRequestDuration)
+		timeoutSec := imageMode_timeout(req)
+		requestDeadline := time.Now().Add(imageMode_maxRenderRequestDuration)
 		dir, err := os.MkdirTemp("", "taskforge-image-"+kind+"-")
 		if err != nil {
-			sendError(w, http.StatusInternalServerError, err.Error(), "", "")
+			imageMode_sendError(w, http.StatusInternalServerError, err.Error(), "", "")
 			return
 		}
 		defer os.RemoveAll(dir)
 
-		remaining := secondsRemaining(requestDeadline)
+		remaining := imageMode_secondsRemaining(requestDeadline)
 		if remaining <= 0 {
-			sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
+			imageMode_sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
 			return
 		}
-		compileBudget := clamp(remaining, 1, 20)
+		compileBudget := imageMode_clamp(remaining, 1, 20)
 		var compileOut, exe string
 		var code int
 		if kind == "pascal" {
-			compileOut, exe, code = compilePascal(req.Source, dir, compileBudget)
+			compileOut, exe, code = imageMode_compilePascal(req.Source, dir, compileBudget)
 		} else {
-			compileOut, exe, code = compileCpp(req.Source, dir, clamp(compileBudget, 1, 15))
+			compileOut, exe, code = imageMode_compileCpp(req.Source, dir, imageMode_clamp(compileBudget, 1, 15))
 		}
 		if code != 0 {
-			sendError(w, http.StatusBadRequest, "Compilation failed", "", compileOut)
+			imageMode_sendError(w, http.StatusBadRequest, "Compilation failed", "", compileOut)
 			return
 		}
-		remaining = secondsRemaining(requestDeadline)
+		remaining = imageMode_secondsRemaining(requestDeadline)
 		if remaining <= 5 {
-			sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
+			imageMode_sendError(w, http.StatusRequestTimeout, "Rendering timed out", "", "")
 			return
 		}
-		renderBudget := clamp(timeoutSec, 1, remaining-5)
-		cap := captureExecutable(exe, dir, value(req.Stdin), renderBudget)
+		renderBudget := imageMode_clamp(timeoutSec, 1, remaining-5)
+		cap := imageMode_captureExecutable(exe, dir, imageMode_value(req.Stdin), renderBudget)
 		if len(cap.PNG) == 0 {
-			sendError(w, http.StatusBadRequest, cap.Err, cap.Stdout, cap.Stderr)
+			imageMode_sendError(w, http.StatusBadRequest, cap.Err, cap.Stdout, cap.Stderr)
 			return
 		}
 		if debug {
-			sendJSON(w, http.StatusOK, renderDebugResponse{PngBase64: base64.StdEncoding.EncodeToString(cap.PNG), Stdout: cap.Stdout, Stderr: cap.Stderr})
+			imageMode_sendJSON(w, http.StatusOK, imageMode_renderDebugResponse{PngBase64: base64.StdEncoding.EncodeToString(cap.PNG), Stdout: cap.Stdout, Stderr: cap.Stderr})
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
@@ -719,25 +719,25 @@ func handleRender(kind string, debug bool) http.HandlerFunc {
 	}
 }
 
-func value(v *string) string {
+func imageMode_value(v *string) string {
 	if v == nil {
 		return ""
 	}
 	return *v
 }
 
-func taskforgeDebugLogsEnabled() bool {
+func imageMode_taskforgeDebugLogsEnabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("TASKFORGE_DEBUG_LOGS")))
 	return v == "1" || v == "true" || v == "yes" || v == "on" || v == "debug"
 }
 
-type taskforgeStatusWriter struct {
+type imageMode_taskforgeStatusWriter struct {
 	http.ResponseWriter
 	status int
 	bytes  int
 }
 
-func (w *taskforgeStatusWriter) WriteHeader(code int) {
+func (w *imageMode_taskforgeStatusWriter) WriteHeader(code int) {
 	if w.status != 0 {
 		return
 	}
@@ -745,7 +745,7 @@ func (w *taskforgeStatusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *taskforgeStatusWriter) Write(p []byte) (int, error) {
+func (w *imageMode_taskforgeStatusWriter) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
@@ -754,7 +754,7 @@ func (w *taskforgeStatusWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
+func imageMode_taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		traceID := r.Header.Get("X-TaskForge-Trace-Id")
@@ -762,7 +762,7 @@ func taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
 			traceID = fmt.Sprintf("%s-%d", service, time.Now().UnixNano())
 		}
 		log.Printf("[TFDBG RUNNER IN START] trace=%s service=%s method=%s path=%s query=%s remote=%s content_length=%d content_type=%q", traceID, service, r.Method, r.URL.Path, r.URL.RawQuery, r.RemoteAddr, r.ContentLength, r.Header.Get("Content-Type"))
-		writer := &taskforgeStatusWriter{ResponseWriter: w}
+		writer := &imageMode_taskforgeStatusWriter{ResponseWriter: w}
 		next.ServeHTTP(writer, r)
 		if writer.status == 0 {
 			writer.status = http.StatusOK
@@ -771,65 +771,35 @@ func taskforgeDebugMiddleware(service string, next http.Handler) http.Handler {
 	})
 }
 
-func jobLimitMiddleware(slots chan struct{}, next http.Handler) http.Handler {
+func imageMode_jobLimitMiddleware(slots chan struct{}, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 			next.ServeHTTP(w, r)
 		case <-r.Context().Done():
-			sendError(w, http.StatusRequestTimeout, "request cancelled", "", "")
+			imageMode_sendError(w, http.StatusRequestTimeout, "request cancelled", "", "")
 		}
 	})
 }
 
-func main() {
-	kind := env("IMAGE_RUNNER_KIND", "cpp")
-	port := env("PORT", "8000")
-	if err := hardenRunnerProcess(); err != nil {
-		log.Fatalf("image-%s-runner failed to protect its service process: %v", kind, err)
+// One active submission per container prevents cross-submission /proc and /tmp interference.
+
+func imageModeReady() error {
+	if _, err := imageMode_sandboxPreloadPath(); err != nil {
+		return err
 	}
-	if err := policyAttestationReady(); err != nil {
-		log.Fatalf("image-%s-runner code analyzer verification key is unavailable: %v", kind, err)
-	}
-	if _, err := sandboxPreloadPath(); err != nil {
-		log.Fatalf("image-%s-runner sandbox preload is unavailable: %v", kind, err)
-	}
-	rand.Seed(time.Now().UnixNano())
-	// One active submission per container prevents cross-submission /proc and /tmp interference.
-	jobSlots := make(chan struct{}, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		sendJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "image-" + kind + "-runner", "runtime": "go", "go": runtime.Version()})
-	})
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		if err := policyAttestationReady(); err != nil {
-			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
-			return
+	compiler := env("PABCNETC", "/opt/pabcnetc/pabcnetc.exe")
+	if st, err := os.Stat(compiler); err != nil || !st.Mode().IsRegular() {
+		if err != nil {
+			return fmt.Errorf("PascalABC.NET compiler is unavailable: %w", err)
 		}
-		if _, err := sandboxPreloadPath(); err != nil {
-			sendJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false})
-			return
-		}
-		sendJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
-	mux.Handle("/render", jobLimitMiddleware(jobSlots, handleRender(kind, false)))
-	mux.Handle("/render/debug", jobLimitMiddleware(jobSlots, handleRender(kind, true)))
-	log.Printf("image-%s-runner listening on :%s", kind, port)
-	handler := http.Handler(mux)
-	if taskforgeDebugLogsEnabled() {
-		handler = taskforgeDebugMiddleware("image-"+kind+"-runner", handler)
+		return fmt.Errorf("PascalABC.NET compiler is unavailable")
 	}
-	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       35 * time.Second,
-		WriteTimeout:      40 * time.Second,
-		IdleTimeout:       30 * time.Second,
-		MaxHeaderBytes:    32 << 10,
-	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
+	return nil
+}
+
+func registerImageRoutes(mux *http.ServeMux, kind string) {
+	mux.Handle("/render", imageMode_jobLimitMiddleware(runnerJobSlots, imageMode_handleRender(kind, false)))
+	mux.Handle("/render/debug", imageMode_jobLimitMiddleware(runnerJobSlots, imageMode_handleRender(kind, true)))
 }

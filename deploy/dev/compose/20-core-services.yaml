@@ -280,9 +280,9 @@ services:
     networks:
     - default
     - code-analyzer-net
-    - image-cpp-runner-net
-    - image-pascal-runner-net
-    - image-python-runner-net
+    - cpp-runner-net
+    - pascal-runner-net
+    - python-runner-net
   solutions-api:
     build:
       context: ../../..

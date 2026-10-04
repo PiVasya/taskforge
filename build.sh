@@ -27,7 +27,7 @@ COMPOSE_FILES=(
 ALL_SERVICES=(
   gateway front front-ct
   identity-api education-api content-api quiz-api tasks-api solutions-api rating-worker
-  execution-api execution-worker csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner image-cpp-runner image-pascal-runner
+  execution-api execution-worker csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
   ai-api ai-worker code-analyzer image-analyzer
   support-api support-bot minecraft-api files-api notifications-api observability-api browser-api telegram-quiz-bot
 )
@@ -46,7 +46,7 @@ JUDGE_SERVICES=(
   csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
 )
 
-RUNNER_SERVICES=(csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner image-cpp-runner image-pascal-runner)
+RUNNER_SERVICES=(csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
 AI_SERVICES=(ai-api ai-worker code-analyzer image-analyzer)
 MAIN_LOG_SERVICES=(gateway front front-ct identity-api tasks-api solutions-api execution-api execution-worker browser-api code-analyzer csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
 

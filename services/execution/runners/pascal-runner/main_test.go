@@ -9,6 +9,25 @@ import (
 	"testing"
 )
 
+func TestNormalizePascalRuntimeKeepsPascalAbcSeparate(t *testing.T) {
+	pascalAbc := "pascalabc"
+	pascalAbcNet := "PascalABC.NET"
+	fpc := "pascal"
+
+	if got := normalizePascalRuntime(&pascalAbc); got != "pascalabc" {
+		t.Fatalf("pascalabc normalized to %q", got)
+	}
+	if got := normalizePascalRuntime(&pascalAbcNet); got != "pascalabc" {
+		t.Fatalf("PascalABC.NET normalized to %q", got)
+	}
+	if got := normalizePascalRuntime(&fpc); got != "pascal" {
+		t.Fatalf("Free Pascal normalized to %q", got)
+	}
+	if got := normalizePascalRuntime(nil); got != "pascal" {
+		t.Fatalf("default Pascal runtime = %q", got)
+	}
+}
+
 func TestPreparePascalSourceAddsGuardToUses(t *testing.T) {
 	source := "program Demo;\nuses SysUtils;\nbegin\n  Writeln('ok');\nend."
 	prepared, err := preparePascalSource(source)

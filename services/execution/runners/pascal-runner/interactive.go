@@ -314,7 +314,7 @@ func interactiveCommand(kind string, program *preparedProgram, columns, rows, ru
 	if kind == "cpp" {
 		sandbox = append(sandbox, "TASKFORGE_LIMIT_CPU_SECONDS="+strconv.Itoa((runtimeMs+999)/1000+2))
 	} else {
-		extra, err := sandboxRuntimeEnvironment(runtimeMs)
+		extra, err := sandboxRuntimeEnvironment(kind, runtimeMs)
 		if err != nil {
 			return "", nil, nil, err
 		}

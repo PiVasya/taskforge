@@ -196,7 +196,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         // send the broader internal RunnerRequest shape here. Sending fields such as
         // language, input or testCases to /run-tests makes cpp/java/js/pascal/python
         // runners reject the request with 400 before the code is executed.
-        var payload = new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb, attestation);
+        object payload = language == "pascalabc"
+            ? new PascalAbcRunnerTestsRequest(job.Code ?? string.Empty, "pascalabc", tests, job.TimeLimitMs, job.MemoryLimitMb, attestation)
+            : new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb, attestation);
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
         var attempts = System.Math.Clamp(configuration.GetValue("Judge:RunnerAttempts", 3), 1, 5);
@@ -387,6 +389,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         "java" => configuration["Runners:Java"] ?? "http://java-runner:8080",
         "javascript" => configuration["Runners:Javascript"] ?? "http://javascript-runner:8080",
         "pascal" => configuration["Runners:Pascal"] ?? "http://pascal-runner:8080",
+        "pascalabc" => configuration["Runners:Pascal"] ?? "http://pascal-runner:8080",
         _ => null
     };
 
@@ -403,7 +406,8 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         "py" or "python" or "python3" => "python",
         "js" or "javascript" or "node" or "nodejs" or "node.js" => "javascript",
         "java" => "java",
-        "pas" or "pascal" or "pascalabc" or "pascalabcnet" or "pabc" => "pascal",
+        "pas" or "pascal" => "pascal",
+        "pascalabc" or "pascalabcnet" or "pascalabc.net" or "pabc" => "pascalabc",
         var x => x
     };
 }

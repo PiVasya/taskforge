@@ -6,7 +6,8 @@ export const ALL_LANGS = [
   { value: 'python',     label: 'Python' },
   { value: 'csharp',     label: 'C#' },
   { value: 'javascript', label: 'JavaScript' },
-  { value: 'pascal',     label: 'Pascal' },
+  { value: 'pascal',     label: 'Pascal (Free Pascal)' },
+  { value: 'pascalabc',  label: 'PascalABC.NET' },
   { value: 'java',       label: 'Java' },
 ];
 
@@ -21,7 +22,8 @@ export function normalizeLang(x) {
   if (s === 'js' || s === 'node' || s === 'nodejs' || s === 'node.js' || s === 'javascript' || s === 'java-script') return 'javascript';
 
   
-  if (s === 'pas' || s === 'pascal' || s === 'pascalabc' || s === 'pascalabcnet') return 'pascal';
+  if (s === 'pas' || s === 'pascal') return 'pascal';
+  if (s === 'pascalabc' || s === 'pascalabcnet' || s === 'pascalabc.net' || s === 'pabc') return 'pascalabc';
 
   
   if (s === 'java' || s === 'джава') return 'java';

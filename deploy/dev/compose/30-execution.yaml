@@ -73,9 +73,6 @@ services:
     - javascript-runner-net
     - pascal-runner-net
     - python-runner-net
-    - image-cpp-runner-net
-    - image-pascal-runner-net
-    - image-python-runner-net
   execution-worker:
     build:
       context: ../../..
@@ -97,13 +94,10 @@ services:
       Runners__Javascript: http://javascript-runner:8080
       Runners__Pascal: http://pascal-runner:8080
       Runners__Python: http://python-runner:8080
-      Runners__ImageCpp: http://image-cpp-runner:8000
       CodeAnalyzer__Enabled: ${CODE_ANALYZER_ENABLED:-true}
       CodeAnalyzer__Url: http://code-analyzer:8080
       CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
-      Runners__ImagePascal: http://image-pascal-runner:8000
-      Runners__ImagePython: http://image-python-runner:8000
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Redis__ConnectionString: redis:6379,abortConnect=false
       Cache__Enabled: ${CACHE_ENABLED:-true}
@@ -120,9 +114,6 @@ services:
     - javascript-runner-net
     - pascal-runner-net
     - python-runner-net
-    - image-cpp-runner-net
-    - image-pascal-runner-net
-    - image-python-runner-net
     - code-analyzer-net
     depends_on:
       rabbitmq:
@@ -144,12 +135,6 @@ services:
       python-runner:
         condition: service_healthy
       code-analyzer:
-        condition: service_healthy
-      image-cpp-runner:
-        condition: service_healthy
-      image-pascal-runner:
-        condition: service_healthy
-      image-python-runner:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -402,123 +387,6 @@ services:
     secrets:
     - source: code_analyzer_public_key
       target: code-analyzer-public.pem
-  image-cpp-runner:
-    security_opt: *id001
-    init: true
-    user: "65534:65534"
-    stop_grace_period: 3s
-    ulimits:
-      core: 0
-      nofile:
-        soft: 256
-        hard: 256
-    cap_drop: *id002
-    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
-    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
-    memswap_limit: ${RUNNER_MEM_LIMIT:-512m}
-    cpus: ${RUNNER_CPUS:-1.0}
-    read_only: true
-    tmpfs: *id003
-    networks:
-    - image-cpp-runner-net
-    build:
-      context: ../../../services/execution/runners/image-cpp-runner
-      dockerfile: Dockerfile
-    expose:
-    - '8000'
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
-      CODE_ANALYZER_PUBLIC_KEY_PATH: /run/secrets/code-analyzer-public.pem
-      CODE_ANALYZER_POLICY_VERSION: 2026-07-28.4
-    secrets:
-    - source: code_analyzer_public_key
-      target: code-analyzer-public.pem
-  image-pascal-runner:
-    security_opt: *id001
-    init: true
-    user: "65534:65534"
-    stop_grace_period: 3s
-    ulimits:
-      core: 0
-      nofile:
-        soft: 256
-        hard: 256
-    cap_drop: *id002
-    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
-    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
-    memswap_limit: ${RUNNER_MEM_LIMIT:-512m}
-    cpus: ${RUNNER_CPUS:-1.0}
-    read_only: true
-    tmpfs: *id003
-    networks:
-    - image-pascal-runner-net
-    build:
-      context: ../../../services/execution/runners/image-pascal-runner
-      dockerfile: Dockerfile
-    expose:
-    - '8000'
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
-      CODE_ANALYZER_PUBLIC_KEY_PATH: /run/secrets/code-analyzer-public.pem
-      CODE_ANALYZER_POLICY_VERSION: 2026-07-28.4
-    secrets:
-    - source: code_analyzer_public_key
-      target: code-analyzer-public.pem
-  image-python-runner:
-    security_opt: *id001
-    init: true
-    user: "65534:65534"
-    stop_grace_period: 3s
-    ulimits:
-      core: 0
-      nofile:
-        soft: 256
-        hard: 256
-    cap_drop: *id002
-    pids_limit: ${RUNNER_PIDS_LIMIT:-128}
-    mem_limit: ${RUNNER_MEM_LIMIT:-512m}
-    memswap_limit: ${RUNNER_MEM_LIMIT:-512m}
-    cpus: ${RUNNER_CPUS:-1.0}
-    read_only: true
-    tmpfs: *id003
-    networks:
-    - image-python-runner-net
-    build:
-      context: ../../../services/execution/runners/image-python-runner
-      dockerfile: Dockerfile
-    expose:
-    - '8000'
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    environment:
-      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
-      CODE_ANALYZER_PUBLIC_KEY_PATH: /run/secrets/code-analyzer-public.pem
-      CODE_ANALYZER_POLICY_VERSION: 2026-07-28.4
-    secrets:
-    - source: code_analyzer_public_key
-      target: code-analyzer-public.pem
 networks:
   default: {}
   csharp-runner-net:
@@ -532,12 +400,6 @@ networks:
   pascal-runner-net:
     internal: true
   python-runner-net:
-    internal: true
-  image-cpp-runner-net:
-    internal: true
-  image-pascal-runner-net:
-    internal: true
-  image-python-runner-net:
     internal: true
   code-analyzer-net:
     internal: true

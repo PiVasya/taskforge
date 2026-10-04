@@ -28,7 +28,6 @@ done
 
 runners=(
   csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
-  image-cpp-runner image-pascal-runner image-python-runner
 )
 
 service_block() {

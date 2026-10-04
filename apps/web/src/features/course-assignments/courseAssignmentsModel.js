@@ -331,7 +331,7 @@ function buildDefaultAssignmentPayload(type, sort) {
     return {
       ...base,
       language: "cpp",
-      allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "java"],
+      allowedLanguages: ["cpp", "python", "csharp", "javascript", "pascal", "pascalabc", "java"],
       starterCode: "",
       testCases: [{ input: "2 4", expectedOutput: "6", isHidden: false }],
     };

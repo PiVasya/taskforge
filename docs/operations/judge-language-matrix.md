@@ -16,21 +16,25 @@ frontend submit
 
 Поддерживаемые языки обычных задач:
 
-| Language | Frontend value | Runner service | Runner endpoint |
-|---|---|---|---|
-| C# | `csharp` | `csharp-runner` | `/run-tests` |
-| C++ | `cpp` | `cpp-runner` | `/run-tests` |
-| Java | `java` | `java-runner` | `/run-tests` |
-| JavaScript | `javascript` | `javascript-runner` | `/run-tests` |
-| Pascal | `pascal` | `pascal-runner` | `/run-tests` |
-| Python | `python` | `python-runner` (Go service, runs `python3` toolchain) | `/run-tests` |
+| Language | Frontend value | Runtime/toolchain | Runner service | Runner endpoint |
+|---|---|---|---|---|
+| C# | `csharp` | .NET/C# | `csharp-runner` | `/run-tests` |
+| C++ | `cpp` | GCC | `cpp-runner` | `/run-tests` |
+| Java | `java` | Java | `java-runner` | `/run-tests` |
+| JavaScript | `javascript` | JavaScript runtime | `javascript-runner` | `/run-tests` |
+| Pascal | `pascal` | Free Pascal (`fpc`) | `pascal-runner` | `/run-tests` |
+| PascalABC.NET | `pascalabc` | `pabcnetc.exe` + Mono | `pascal-runner` | `/run-tests` |
+| Python | `python` | `python3` | `python-runner` | `/run-tests` |
 
-Image tasks intentionally use only image runners:
+Image tasks use the same language-family runners through `/render` rather than separate long-lived image-runner containers:
 
 ```text
-image-cpp-runner
-image-pascal-runner
+cpp-runner     -> /render
+python-runner  -> /render
+pascal-runner  -> /render
 ```
+
+For Pascal graphics, `pascal-runner` uses the PascalABC.NET toolchain and GraphABC/X11 helpers. The same Docker image also contains Free Pascal for `pascal` code tasks and PascalABC.NET for ordinary `pascalabc` code tasks.
 
 ## Analyzer policy
 
@@ -42,8 +46,6 @@ The analyzer checks:
 - language-specific forbidden calls;
 - assignment-specific `codeForbiddenCalls`;
 - assignment-specific `codeRequiredCalls`;
-- Cyrillic characters in executable code.
-
-Cyrillic is allowed in strings and comments, but forbidden in executable code/identifiers for all regular languages. This prevents visually confusing identifiers such as Cyrillic `а`, `с`, `о`, `р`, `е`, `х` mixed with Latin code.
+- Cyrillic characters in executable code where that language policy forbids them.
 
 If analyzer is unavailable and `CODE_ANALYZER_FAIL_CLOSED=true`, the verdict is `JudgeUnavailable` instead of running unvalidated code.

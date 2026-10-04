@@ -291,6 +291,9 @@ function MonacoCodeEditor({
         return "javascript";
       case "pas":
       case "pascal":
+      case "pascalabc":
+      case "pascalabcnet":
+      case "pascalabc.net":
         return "pascal";
       case "java":
         return "java";

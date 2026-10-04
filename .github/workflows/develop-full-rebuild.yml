@@ -210,15 +210,6 @@ jobs:
           - name: python-runner
             context: ./services/execution/runners/python-runner
             dockerfile: Dockerfile
-          - name: image-cpp-runner
-            context: ./services/execution/runners/image-cpp-runner
-            dockerfile: Dockerfile
-          - name: image-pascal-runner
-            context: ./services/execution/runners/image-pascal-runner
-            dockerfile: Dockerfile
-          - name: image-python-runner
-            context: ./services/execution/runners/image-python-runner
-            dockerfile: Dockerfile
 
           - name: ai-api
             context: .

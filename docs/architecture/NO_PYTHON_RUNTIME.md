@@ -15,7 +15,7 @@ services/execution/runners/python-runner
 taskforge-ai-worker-external
 legacy python AI worker
 python backend монолита
-image-python-runner
+отдельный image-python-runner (удалён; image mode встроен в python-runner)
 ```
 
 Миграционные снапшоты старого монолита не хранятся в активном дереве сервисов, поэтому Python-runtime исключения проверяются только по реальным сервисам и runners.

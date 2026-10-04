@@ -4,6 +4,7 @@ const LANGUAGE_LABELS = Object.freeze({
   python: 'Python',
   javascript: 'JS',
   pascal: 'Pascal',
+  pascalabc: 'PascalABC.NET',
   java: 'Java',
 });
 
@@ -29,8 +30,8 @@ const LANGUAGE_ALIASES = Object.freeze({
   'node.js': 'javascript',
   'java-script': 'javascript',
   pas: 'pascal',
-  pascalabc: 'pascal',
-  pascalabcnet: 'pascal',
+  pascalabc: 'pascalabc',
+  pascalabcnet: 'pascalabc',
   'джава': 'java',
 });
 

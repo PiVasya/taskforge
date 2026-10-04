@@ -498,7 +498,7 @@ internal static class AssignmentApiCommonService
         return null;
     }
 
-    internal static string[] SupportedCodeLanguages() => ["cpp", "python", "csharp", "javascript", "pascal", "java"];
+    internal static string[] SupportedCodeLanguages() => ["cpp", "python", "csharp", "javascript", "pascal", "pascalabc", "java"];
 
     internal static Guid GuidProp(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && Guid.TryParse(p.ToString(), out var id) ? id : Guid.Empty;
 

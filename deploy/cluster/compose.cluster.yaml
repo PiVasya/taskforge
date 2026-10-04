@@ -95,9 +95,6 @@ services:
   javascript-runner: { restart: "on-failure:5" }
   pascal-runner: { restart: "on-failure:5" }
   python-runner: { restart: "on-failure:5" }
-  image-cpp-runner: { restart: "on-failure:5" }
-  image-pascal-runner: { restart: "on-failure:5" }
-  image-python-runner: { restart: "on-failure:5" }
   ai-api: { restart: "on-failure:5" }
   ai-worker: { restart: "on-failure:5" }
   code-analyzer: { restart: "on-failure:5" }

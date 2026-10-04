@@ -16,7 +16,7 @@ internal static class ExecutionApiResultsService
     {
         var language = NormalizeLanguage(request.Language);
         var service = RunnerService(language, image);
-        var port = image ? 8000 : 8080;
+        var port = 8080;
         if (service == null) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = $"Unsupported language: {request.Language}" });
 
         var client = factory.CreateClient();
@@ -26,9 +26,19 @@ internal static class ExecutionApiResultsService
         var attestation = analysis.Attestation!.Value;
 
         var url = $"http://{service}:{port}" + (tests ? "/run-tests" : "/run");
-        object payload = tests
-            ? new { code = request.Code ?? string.Empty, tests = request.TestCases ?? request.Tests ?? Array.Empty<JsonElement>(), timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation }
-            : new { code = request.Code ?? string.Empty, input = request.Input, timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation };
+        object payload;
+        if (language == "pascalabc")
+        {
+            payload = tests
+                ? new { code = request.Code ?? string.Empty, runtime = "pascalabc", tests = request.TestCases ?? request.Tests ?? Array.Empty<JsonElement>(), timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation }
+                : new { code = request.Code ?? string.Empty, runtime = "pascalabc", input = request.Input, timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation };
+        }
+        else
+        {
+            payload = tests
+                ? new { code = request.Code ?? string.Empty, tests = request.TestCases ?? request.Tests ?? Array.Empty<JsonElement>(), timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation }
+                : new { code = request.Code ?? string.Empty, input = request.Input, timeLimitMs = request.TimeLimitMs, memoryLimitMb = request.MemoryLimitMb, attestation };
+        }
 
         try
         {
@@ -114,9 +124,11 @@ internal static class ExecutionApiResultsService
         ("java", false) => "java-runner",
         ("javascript", false) => "javascript-runner",
         ("pascal", false) => "pascal-runner",
-        ("cpp", true) => "image-cpp-runner",
-        ("pascal", true) => "image-pascal-runner",
-        ("python", true) => "image-python-runner",
+        ("pascalabc", false) => "pascal-runner",
+        ("cpp", true) => "cpp-runner",
+        ("pascal", true) => "pascal-runner",
+        ("pascalabc", true) => "pascal-runner",
+        ("python", true) => "python-runner",
         _ => null
     };
 

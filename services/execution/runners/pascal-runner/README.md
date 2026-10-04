@@ -1,12 +1,21 @@
 # pascal-runner
 
-Lightweight Go HTTP wrapper for the pascal-runner execution environment.
+Unified TaskForge Pascal execution service.
 
-The service intentionally does not use Python or Node.js as the web server runtime.
-It keeps the legacy TaskForge HTTP contract:
+One Docker image and one long-lived Go process contain every Pascal toolchain used by TaskForge:
 
-- GET /health
-- GET /ready
-- POST /run
-- POST /run/tests
-- POST /run-tests
+- Free Pascal (`fpc`) for regular `pascal` code tasks;
+- PascalABC.NET (`pabcnetc.exe` + Mono) for regular `pascalabc` code tasks;
+- PascalABC.NET + GraphABC/X11 helpers for image/render tasks.
+
+HTTP contract:
+
+- `GET /health`
+- `GET /ready`
+- `POST /run`
+- `POST /run/tests`
+- `POST /run-tests`
+- `POST /render`
+- `POST /render/debug`
+
+The image installs FPC, PascalABC.NET, Mono, Xvfb, Openbox, ImageMagick and the remaining render helpers directly. It does not inherit from, start, or require an `image-pascal-runner` image/service.

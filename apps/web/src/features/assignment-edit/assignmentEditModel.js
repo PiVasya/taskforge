@@ -15,7 +15,8 @@ export const LANGS_BY_TYPE = {
     { value: 'python', label: 'Python' },
     { value: 'csharp', label: 'C#' },
     { value: 'javascript', label: 'JavaScript' },
-    { value: 'pascal', label: 'Pascal' },
+    { value: 'pascal', label: 'Pascal (Free Pascal)' },
+    { value: 'pascalabc', label: 'PascalABC.NET' },
     { value: 'java', label: 'Java' },
   ],
   'image-test': [
