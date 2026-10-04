@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart2,
+  Bell,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -20,6 +21,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 import { useUiNavigationSettings } from '../../contexts/UiSettingsContext';
 import QuotaStatusBar from '../QuotaStatusBar';
+import { useNotificationCenter } from '../notify/NotifyProvider';
 import AdminNavigation from './AdminNavigation';
 import { useShellNavigation } from './navigation';
 
@@ -80,6 +82,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
     isActive,
   } = useShellNavigation();
   const navigate = useNavigate();
+  const { openCenter: openNotifications, unreadCount } = useNotificationCenter();
   const [quickOpen, setQuickOpen] = useState(false);
   const quickMenuRef = useRef(null);
 
@@ -238,6 +241,18 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                     <User size={18} />
                     <span className="ml-2">Профиль</span>
                   </Link>
+                  <button
+                    type="button"
+                    className="btn-ghost w-full justify-start"
+                    onClick={() => {
+                      setQuickOpen(false);
+                      openNotifications();
+                    }}
+                  >
+                    <Bell size={18} />
+                    <span className="ml-2">Уведомления</span>
+                    {unreadCount > 0 ? <span className="tf-notification-menu-count">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
+                  </button>
                   {canEdit && (
                     <button
                       type="button"

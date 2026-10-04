@@ -111,7 +111,7 @@ export default function CourseEditPage({ overlay = false }) {
         ]);
 
         if (c?.canEdit !== true) {
-          notify.warn('Редактирование курса недоступно');
+          notify.warn('Вы не можете редактировать данный курс — открыт режим просмотра');
           nav(`/course/${courseId}`, { replace: true });
           return;
         }

@@ -1,5 +1,6 @@
 import { clearPrivateBrowserState } from './privateBrowserState';
 import { getSolveDraftStore } from '../features/assignment-solve/solveDraftStore';
+import { NOTIFICATION_HISTORY_STORAGE_KEY } from '../components/notify/notificationHistory';
 
 describe('private browser state', () => {
   beforeEach(() => {
@@ -22,6 +23,7 @@ describe('private browser state', () => {
     window.localStorage.setItem('image-results:assignment-a', '{"secret":true}');
     window.localStorage.setItem('taskforge-sql:user-a:assignment-a:profile-a', 'SELECT secret');
     window.localStorage.setItem('taskforge.compiler.draft.v1.cpp', 'secret compiler draft');
+    window.localStorage.setItem(NOTIFICATION_HISTORY_STORAGE_KEY, '[{"message":"private notice"}]');
     window.localStorage.setItem('taskforge.theme', 'neo-brutal');
     window.localStorage.setItem('taskforge.colorTheme', 'purple');
 
@@ -32,6 +34,7 @@ describe('private browser state', () => {
     expect(window.localStorage.getItem('image-results:assignment-a')).toBeNull();
     expect(window.localStorage.getItem('taskforge-sql:user-a:assignment-a:profile-a')).toBeNull();
     expect(window.localStorage.getItem('taskforge.compiler.draft.v1.cpp')).toBeNull();
+    expect(window.localStorage.getItem(NOTIFICATION_HISTORY_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem('taskforge.theme')).toBe('neo-brutal');
     expect(window.localStorage.getItem('taskforge.colorTheme')).toBe('purple');
   });

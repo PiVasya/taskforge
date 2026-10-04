@@ -14,6 +14,7 @@ import './features/assignment-solve/assignment-solve.css';
 import './features/sql-task/sql-task.css';
 import './features/news/news.css';
 import './components/shell/mobile-shell.css';
+import './components/notify/notify.css';
 import './styles/neobrutal.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(

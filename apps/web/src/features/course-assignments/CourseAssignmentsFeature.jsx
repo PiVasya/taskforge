@@ -29,6 +29,7 @@ import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, c
 
 import {
   isAssignmentSolved,
+  resolveCourseContentPresentation,
   reuseProgressMapIfEqual,
   normalizeProgressRows,
   buildChildrenByParent,
@@ -241,15 +242,9 @@ export default function CourseAssignmentsPage() {
   const [courseProgressByCourseId, setCourseProgressByCourseId] = useState({});
   const [learnerFlowProgress, setLearnerFlowProgress] = useState(null);
   const [q, setQ] = useState('');
-  const [contentLayout, setContentLayout] = useState(() => {
-    if (typeof window === 'undefined') return 'flow';
-    try {
-      const saved = window.localStorage.getItem('taskforge-course-editor-layout');
-      return saved === 'grid' ? 'grid' : 'flow';
-    } catch {
-      return 'flow';
-    }
-  });
+  const [contentLayout, setContentLayout] = useState(() => (
+    courseContentLayout === 'cards' ? 'grid' : 'flow'
+  ));
 
   const [jsonImportDialogOpen, setJsonImportDialogOpen] = useState(false);
   const [jsonExportDialogOpen, setJsonExportDialogOpen] = useState(false);
@@ -277,7 +272,10 @@ export default function CourseAssignmentsPage() {
   const dragStartedRef = useRef(false);
 
   const sortMode = params.get('sort') || 'default';
-  const showFlowLayout = isEditorMode ? (courseCanEdit && contentLayout === 'flow') : !learnerCards;
+  const preferredPresentation = resolveCourseContentPresentation(courseContentLayout, isEditorMode, courseCanEdit);
+  const presentation = resolveCourseContentPresentation(courseContentLayout, isEditorMode, courseCanEdit, contentLayout);
+  const showFlowLayout = presentation.showFlowLayout;
+  const mapEditorMode = presentation.mapEditorMode;
 
   const prefetchLearnerCourse = React.useCallback((targetCourseId) => {
     if (!learnerCards || !targetCourseId) return Promise.resolve();
@@ -299,11 +297,13 @@ export default function CourseAssignmentsPage() {
   }, [courseBundleMode, learnerCards, loadAssignmentsForCourse, loadCourseBundleFor, queryClient]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem('taskforge-course-editor-layout', contentLayout);
-    } catch {}
-  }, [contentLayout]);
+    setContentLayout(preferredPresentation.contentLayout);
+  }, [courseId, preferredPresentation.contentLayout]);
+
+  useEffect(() => {
+    if (!isEditorMode || !course?.id || courseCanEdit) return;
+    notify.warn('Вы не можете редактировать данный курс — открыт режим просмотра');
+  }, [course?.id, courseCanEdit, isEditorMode, notify]);
 
   useEffect(() => {
     if (!showFlowLayout || !course?.id || !course?.parentCourseId) return;
@@ -1210,7 +1210,7 @@ export default function CourseAssignmentsPage() {
           course={course}
           allCourses={allCourses}
           courseCanEdit={courseCanEdit}
-          editorMode={Boolean(isEditorMode && courseCanEdit)}
+          editorMode={mapEditorMode}
           query={q}
           onQueryChange={setQ}
           onShowGrid={isEditorMode && courseCanEdit ? () => setContentLayout('grid') : null}
@@ -1219,7 +1219,7 @@ export default function CourseAssignmentsPage() {
           exportBusy={jsonExportBusy}
           focusCourseId={params.get('focusCourse') || ''}
           dataRevision={assignmentsQuery.updatedAt || 0}
-          onLearnerProgress={isEditorMode ? null : setLearnerFlowProgress}
+          onLearnerProgress={mapEditorMode ? null : setLearnerFlowProgress}
           graphImportRequest={graphImportRequest}
           onGraphImportComplete={(key) => setGraphImportRequest((current) => current?.key === key ? null : current)}
           onRefreshCourseData={async () => {

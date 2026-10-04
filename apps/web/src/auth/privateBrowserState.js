@@ -1,4 +1,5 @@
 import { discardAllSolveDraftStores } from '../features/assignment-solve/solveDraftStore';
+import { clearNotificationHistory } from '../components/notify/notificationHistory';
 
 const PRIVATE_STORAGE_PREFIXES = Object.freeze([
   'solve-draft:v',
@@ -14,6 +15,7 @@ function isPrivateLearnerStorageKey(key) {
 
 export function clearPrivateBrowserState() {
   discardAllSolveDraftStores();
+  clearNotificationHistory();
 
   if (typeof window === 'undefined') return;
 

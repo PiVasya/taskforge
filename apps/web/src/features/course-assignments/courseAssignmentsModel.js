@@ -34,6 +34,20 @@ function isAssignmentSolved(item) {
   return Boolean(item?.solvedByCurrentUser || item?.isSolved || item?.progressStatus === "solved");
 }
 
+function resolveCourseContentPresentation(courseContentLayout, isEditorMode, courseCanEdit, selectedLayout = null) {
+  const preferredLayout = courseContentLayout === 'cards' ? 'grid' : 'flow';
+  const editorLayout = selectedLayout === 'grid' || selectedLayout === 'flow'
+    ? selectedLayout
+    : preferredLayout;
+  const mapEditorMode = Boolean(isEditorMode && courseCanEdit);
+  const contentLayout = mapEditorMode ? editorLayout : preferredLayout;
+  return {
+    contentLayout,
+    showFlowLayout: contentLayout === 'flow',
+    mapEditorMode,
+  };
+}
+
 
 function progressSnapshotEqual(left, right) {
   if (left === right) return true;
@@ -356,6 +370,7 @@ export {
   previewAssignmentTitle,
   previewAssignmentDescription,
   isAssignmentSolved,
+  resolveCourseContentPresentation,
   progressSnapshotEqual,
   reuseProgressMapIfEqual,
   normalizeProgressRows,

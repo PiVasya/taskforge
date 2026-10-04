@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Bell,
   Eye,
   LogIn,
   LogOut,
@@ -13,6 +14,7 @@ import {
 import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 import QuotaStatusBar from '../QuotaStatusBar';
+import { useNotificationCenter } from '../notify/NotifyProvider';
 import { useShellNavigation } from './navigation';
 
 const FOCUSABLE_SELECTOR = [
@@ -38,6 +40,7 @@ function MobileNavigation({ open, onClose }) {
   const { access, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const { currentViewTitle, primaryNav, adminNav } = useShellNavigation();
+  const { openCenter: openNotifications, unreadCount } = useNotificationCenter();
 
   const previousPathRef = useRef(pathname);
   const currentPathRef = useRef(pathname);
@@ -228,6 +231,20 @@ function MobileNavigation({ open, onClose }) {
                   <Settings size={19} />
                   <span>Настройки</span>
                 </Link>
+                <button
+                  type="button"
+                  className="mobile-nav-card"
+                  onClick={() => {
+                    onClose();
+                    openNotifications();
+                  }}
+                >
+                  <span className="tf-notification-menu-icon">
+                    <Bell size={19} />
+                    {unreadCount > 0 ? <span className="tf-notification-menu-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
+                  </span>
+                  <span>Уведомления</span>
+                </button>
                 {canEdit ? (
                   <button
                     type="button"

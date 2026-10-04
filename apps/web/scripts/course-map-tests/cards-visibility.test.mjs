@@ -5,6 +5,29 @@ import fs from 'node:fs/promises';
 const source = await fs.readFile(new URL('../../src/features/course-assignments/courseAssignmentsModel.js', import.meta.url), 'utf8');
 const model = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
+test('course layout preference is preserved when editor mode is read-only', () => {
+  assert.deepEqual(
+    model.resolveCourseContentPresentation('flow', true, false),
+    { contentLayout: 'flow', showFlowLayout: true, mapEditorMode: false },
+  );
+  assert.deepEqual(
+    model.resolveCourseContentPresentation('cards', true, false),
+    { contentLayout: 'grid', showFlowLayout: false, mapEditorMode: false },
+  );
+  assert.deepEqual(
+    model.resolveCourseContentPresentation('flow', true, true),
+    { contentLayout: 'flow', showFlowLayout: true, mapEditorMode: true },
+  );
+  assert.deepEqual(
+    model.resolveCourseContentPresentation('flow', true, false, 'grid'),
+    { contentLayout: 'flow', showFlowLayout: true, mapEditorMode: false },
+  );
+  assert.deepEqual(
+    model.resolveCourseContentPresentation('flow', true, true, 'grid'),
+    { contentLayout: 'grid', showFlowLayout: false, mapEditorMode: true },
+  );
+});
+
 test('learner cards expose only entities present in the learner map projection', () => {
   const learningMap = {
     document: {
