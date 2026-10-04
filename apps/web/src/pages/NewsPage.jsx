@@ -4,6 +4,7 @@ import { Badge, Button } from '../components/ui';
 import {
   ArrowRight,
   BookOpen,
+  Database,
   Flame,
   Gamepad2,
   Newspaper,
@@ -17,8 +18,10 @@ import { useAuth } from '../auth/AuthContext';
 import useQuery from '../hooks/useQuery';
 
 const UpdateCard = React.memo(function UpdateCard({ item, index }) {
-  const isMinecraft = String(item.id || '').startsWith('minecraft-');
-  const Icon = isMinecraft ? Gamepad2 : Wrench;
+  const id = String(item.id || '');
+  const isMinecraft = id.startsWith('minecraft-');
+  const isSql = id === 'sql-tasks';
+  const Icon = isMinecraft ? Gamepad2 : isSql ? Database : Wrench;
 
   return (
     <article className="changelog-card group">

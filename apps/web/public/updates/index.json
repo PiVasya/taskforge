@@ -39,5 +39,26 @@
       "13 изменённых мобов и переработанный Эндер-дракон"
     ],
     "file": "minecraft-server.json"
+  },
+  {
+    "id": "sql-tasks",
+    "order": 3,
+    "title": "SQL-задания появились в TaskForge",
+    "eyebrow": "Большое обновление SQL",
+    "featuredLabel": "PostgreSQL, MySQL и SQLite — прямо в заданиях",
+    "tags": [
+      "SQL",
+      "PostgreSQL",
+      "MySQL",
+      "SQLite"
+    ],
+    "summary": "В TaskForge появились полноценные SQL-задания: запросы можно запускать на PostgreSQL, MySQL и SQLite, смотреть результат и состояние базы, а затем отправлять решение на проверку.",
+    "highlights": [
+      "PostgreSQL, MySQL и SQLite",
+      "Отдельные действия «Запустить» и «Проверить»",
+      "Чистая исходная база перед каждым запуском",
+      "Проверка результата запроса или состояния базы"
+    ],
+    "file": "sql-tasks.json"
   }
 ]

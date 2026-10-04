@@ -146,7 +146,7 @@
 
 .mobile-nav-sheet__quota {
   flex: 0 0 auto;
-  margin: 0.7rem 0.75rem 0;
+  margin: 0.7rem 0.75rem 0.35rem;
 }
 
 .mobile-nav-sheet__content {
