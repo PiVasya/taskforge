@@ -569,9 +569,15 @@ export default function MySolutionsPage() {
 
                 {(type === 'text' || type === 'fill') && !split && (
                   <div className="mt-3 space-y-2 text-sm">
-                    <div><span className="text-neutral-500 dark:text-neutral-400">Ваш ответ:</span> {userText || <i>—</i>}</div>
+                    <div>
+                      <span className="text-neutral-500 dark:text-neutral-400">Ваш ответ:</span>{' '}
+                      {userText ? <span style={{ whiteSpace: 'pre-wrap' }}>{userText}</span> : <i>—</i>}
+                    </div>
                     {Array.isArray(q.acceptedAnswers) && q.acceptedAnswers.length > 0 ? (
-                      <div><span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span> {q.acceptedAnswers.join(', ')}</div>
+                      <div>
+                        <span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span>{' '}
+                        <span style={{ whiteSpace: 'pre-wrap' }}>{q.acceptedAnswers.join(', ')}</span>
+                      </div>
                     ) : null}
                   </div>
                 )}

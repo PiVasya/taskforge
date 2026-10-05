@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
-import { RunnerOutput } from './AdminSolutionViews';
+import { RunnerOutput, TestAttemptReview } from './AdminSolutionViews';
 
 describe('admin RunnerOutput', () => {
   let container;
@@ -102,6 +102,37 @@ describe('admin RunnerOutput', () => {
     expect(container.textContent).toContain('Символ: 3');
     expect(container.textContent).toContain('goto finish;');
     expect(container.textContent).not.toContain('Пройдено: 0 / Провалено: 0');
+  });
+
+
+  test('preserves consecutive spaces in text answers and accepted answers', async () => {
+    await act(async () => {
+      root.render(
+        <TestAttemptReview
+          dto={{
+            passed: false,
+            scorePercent: 0,
+            correctQuestions: 0,
+            totalQuestions: 1,
+            questions: [{
+              id: 'spaces-question',
+              type: 'text',
+              prompt: 'Напишите команду вывода строки A и B с тремя пробелами между ними.',
+              isCorrect: false,
+              userAnswer: { text: 'print("A   B")' },
+              acceptedAnswers: ['print("A   B")', "print('A   B')"],
+            }],
+          }}
+        />
+      );
+    });
+
+    const preserved = Array.from(container.querySelectorAll('span'))
+      .filter((node) => window.getComputedStyle(node).whiteSpace === 'pre-wrap');
+
+    expect(preserved).toHaveLength(2);
+    expect(preserved[0].textContent).toBe('print("A   B")');
+    expect(preserved[1].textContent).toBe('print("A   B"), print(\'A   B\')');
   });
 
 });

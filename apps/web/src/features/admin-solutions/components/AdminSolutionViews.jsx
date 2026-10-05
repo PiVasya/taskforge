@@ -276,12 +276,12 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
                 <div className="mt-3 space-y-2 text-sm">
                   <div>
                     <span className="text-neutral-500 dark:text-neutral-400">Ответ:</span>{' '}
-                    {userText || <i>—</i>}
+                    {userText ? <span style={{ whiteSpace: 'pre-wrap' }}>{userText}</span> : <i>—</i>}
                   </div>
                   {Array.isArray(question.acceptedAnswers) && question.acceptedAnswers.length > 0 ? (
                     <div>
                       <span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span>{' '}
-                      {question.acceptedAnswers.join(', ')}
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{question.acceptedAnswers.join(', ')}</span>
                     </div>
                   ) : null}
                 </div>

@@ -5,42 +5,36 @@ images. The image contains the HTTP boundary, trusted driver, bootstrap utility,
 1C Linux runtime dependencies and trusted Judge source skeleton. It does **not**
 contain the proprietary 1C distribution or licenses.
 
-## Server bootstrap
+## Server bootstrap and cluster distribution
 
-When `ONEC_ENABLED=true`, the server migration runs `/opt/taskforge/onec/bootstrap`
-from the freshly pulled `onec-runner` image before it starts the long-lived
-service. The bootstrap mounts three persistent volumes read-write:
+`onec-runner` itself still receives the platform through persistent volumes. In
+the matching server bundle v41.4.0+, however, the official installer is no longer configured separately on every node. The current Patroni Primary seeds it once
+into its private MinIO as a SHA-256-verified chunk manifest.
+
+Every node then discovers the cluster desired version during normal `migrate`,
+selects up to four already-complete peer MinIO seeds over WireGuard, downloads
+different chunks in parallel, verifies each chunk and the full reconstructed
+installer, mirrors that cache into its own MinIO, and only then invokes
+`/opt/taskforge/onec/bootstrap` from this image.
+
+The bootstrap still owns the platform-specific work:
 
 - `onec-platform` -> `/opt/1cv8`;
 - `onec-runtime` -> `/opt/taskforge/onec/runtime`;
 - `onec-installer-cache` -> `/installer-cache`.
 
-It obtains the official Linux `.run` installer using either:
+First installation requires an exact numeric `A.B.C.D` platform version and a
+verified installer SHA-256. Platform versions are installed side-by-side in the
+versioned `/opt/1cv8` tree; bootstrap never wipes an existing working version.
+After unattended installation it selects the exact requested binary, creates the
+stable `/opt/1cv8/taskforge/1cv8` symlink and creates an empty file-infobase
+template with `CREATEINFOBASE`. The version/SHA marker keeps repeated migrations
+idempotent.
 
-```env
-ONEC_INSTALL_SOURCE=file
-ONEC_INSTALL_FILE=/secure/path/setup-full.run
-```
-
-or:
-
-```env
-ONEC_INSTALL_SOURCE=url
-ONEC_INSTALL_URL=https://private-or-official-source/setup-full.run
-```
-
-`auto` prefers the configured local file and otherwise the URL. First install
-requires `ONEC_PLATFORM_VERSION` in exact numeric `A.B.C.D` form (for example `8.3.27.1508`) and `ONEC_INSTALL_SHA256`. The cached installer
-is reused and checked before any download.
-
-Platform versions are installed side-by-side in the versioned `/opt/1cv8` tree; bootstrap never wipes an existing platform before installing another version. After unattended installation, the bootstrap requires the exact requested version and creates a stable executable symlink
-`/opt/1cv8/taskforge/1cv8` and creates an empty file-infobase template in the
-runtime volume with `CREATEINFOBASE`. A version/SHA marker makes re-running the
-migration idempotent.
-
-The bootstrap container may use normal outbound networking to fetch the installer.
-The long-lived runner cannot: it remains only on the internal runner network and
-mounts platform/runtime read-only.
+Only the one-time Primary seed needs external download access. Normal peer
+distribution stays inside the WireGuard cluster. The long-lived runner has no
+external network and mounts platform/runtime read-only. See
+`docs/onec/CLUSTER_DISTRIBUTION.md`.
 
 ## Licenses
 

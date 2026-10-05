@@ -57,3 +57,12 @@ become the normal TaskForge `compile_error`; learner runtime exceptions become
 per-test `runtime_error` results.
 
 See `docs/onec/RUNTIME_MVP.md` for bootstrap/deployment details.
+
+## Cluster distribution
+
+Production server bundle v41.4.0+ distributes the proprietary platform outside
+this image. The current Patroni Primary seeds one verified installer into its
+local MinIO; other nodes fetch verified chunks from multiple completed peer
+MinIO caches over WireGuard and mirror the cache locally before invoking this
+image's bootstrap. The runner image therefore remains reproducible in GitHub CI
+and never embeds the 1C distribution or license.
