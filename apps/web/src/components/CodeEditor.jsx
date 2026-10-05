@@ -268,7 +268,7 @@ function ensureOneCMonacoLanguage(monaco) {
           [/"([^"\\]|""|\\.)*"/, "string"],
           [/[0-9]+(?:[.,][0-9]+)?/, "number"],
           [/[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*/, { cases: { "@keywords": "keyword", "@default": "identifier" } }],
-          [/[;,.()=+\-*\/<>]/, "delimiter"],
+          [/[;,.()=+\-*/<>]/, "delimiter"],
         ],
       },
     });
