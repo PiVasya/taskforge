@@ -18,6 +18,7 @@ export const LANGS_BY_TYPE = {
     { value: 'pascal', label: 'Pascal (Free Pascal)' },
     { value: 'pascalabc', label: 'PascalABC.NET' },
     { value: 'java', label: 'Java' },
+    { value: 'onec', label: '1С' },
   ],
   'image-test': [
     { value: 'python', label: 'Python Turtle / matplotlib' },

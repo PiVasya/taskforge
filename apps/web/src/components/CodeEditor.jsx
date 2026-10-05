@@ -246,6 +246,36 @@ function PlainTextCodeEditor({
   );
 }
 
+const ONEC_MONACO_LANGUAGE_ID = "onec";
+let onecMonacoRegistered = false;
+
+function ensureOneCMonacoLanguage(monaco) {
+  if (onecMonacoRegistered || !monaco?.languages) return;
+  try {
+    const existing = monaco.languages.getLanguages?.().some((item) => item?.id === ONEC_MONACO_LANGUAGE_ID);
+    if (!existing) monaco.languages.register({ id: ONEC_MONACO_LANGUAGE_ID, extensions: [".bsl", ".os"], aliases: ["1С", "1C", "BSL"] });
+    monaco.languages.setMonarchTokensProvider(ONEC_MONACO_LANGUAGE_ID, {
+      ignoreCase: true,
+      defaultToken: "",
+      keywords: [
+        "Если", "Тогда", "Иначе", "ИначеЕсли", "КонецЕсли", "Для", "Каждого", "Из", "По", "Цикл", "КонецЦикла",
+        "Пока", "Процедура", "КонецПроцедуры", "Функция", "КонецФункции", "Возврат", "Перем", "Новый", "Экспорт",
+        "Попытка", "Исключение", "КонецПопытки", "ВызватьИсключение", "Истина", "Ложь", "Неопределено", "И", "Или", "Не",
+      ],
+      tokenizer: {
+        root: [
+          [/\/\/.*$/, "comment"],
+          [/"([^"\\]|""|\\.)*"/, "string"],
+          [/[0-9]+(?:[.,][0-9]+)?/, "number"],
+          [/[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*/, { cases: { "@keywords": "keyword", "@default": "identifier" } }],
+          [/[;,.()=+\-*\/<>]/, "delimiter"],
+        ],
+      },
+    });
+    onecMonacoRegistered = true;
+  } catch {}
+}
+
 function MonacoCodeEditor({
   language = "cpp",
   value,
@@ -297,6 +327,10 @@ function MonacoCodeEditor({
         return "pascal";
       case "java":
         return "java";
+      case "onec":
+      case "1c":
+      case "1с":
+        return "onec";
       case "sql":
         return "sql";
       default:
@@ -352,6 +386,7 @@ function MonacoCodeEditor({
   );
 
   const handleBeforeMount = useCallback((monaco) => {
+    ensureOneCMonacoLanguage(monaco);
     applyTheme(monaco);
   }, [applyTheme]);
 

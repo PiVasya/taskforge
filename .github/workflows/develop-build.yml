@@ -110,6 +110,7 @@ jobs:
             "javascript-runner|./services/execution/runners/javascript-runner|Dockerfile|services/execution/runners/javascript-runner/"
             "pascal-runner|./services/execution/runners/pascal-runner|Dockerfile|services/execution/runners/pascal-runner/"
             "python-runner|./services/execution/runners/python-runner|Dockerfile|services/execution/runners/python-runner/"
+            "onec-runner|./services/execution/runners/onec-runner|Dockerfile|services/execution/runners/onec-runner/"
 
             "ai-api|.|services/ai/api/Dockerfile|services/ai/api/ Directory.Build.props global.json .dockerignore"
             "ai-worker|./services/ai/worker|Dockerfile|services/ai/worker/"

@@ -27,7 +27,7 @@ for env in dev prod; do
 done
 
 runners=(
-  csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
+  csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner onec-runner
 )
 
 service_block() {

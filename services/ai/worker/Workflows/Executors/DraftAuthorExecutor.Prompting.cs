@@ -140,7 +140,7 @@ COURSE_SKILL_MAP:
       "assignmentType": "code-test|test|math",
       "title": "...",
       "description": "...",
-      "language": "cpp|csharp|java|javascript|pascal|python",
+      "language": "cpp|csharp|java|javascript|pascal|pascalabc|python|onec",
       "referenceSolution": "...",
       "rating": 10,
       "sourceTaskIndex": 0,

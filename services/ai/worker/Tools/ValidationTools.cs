@@ -173,7 +173,7 @@ public sealed class ValidationTools
 
     [Description("Run code tests through TaskForge backend compiler service. Use it for code-test draft validation, not for theoretical reasoning.")]
     public async Task<JsonObject> RunCodeTestsAsync(
-        [Description("Programming language: cpp, csharp, java, javascript, pascal, python.")] string language,
+        [Description("Programming language: cpp, csharp, java, javascript, pascal, pascalabc, python, onec.")] string language,
         [Description("Code to execute.")] string code,
         [Description("Test cases with input and expected output.")] List<TestCaseSpec> tests)
     {

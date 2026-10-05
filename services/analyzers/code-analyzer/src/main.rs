@@ -986,6 +986,9 @@ fn cyrillic_policy_message() -> &'static str {
 }
 
 fn find_cyrillic_in_code(lang: &str, src: &str) -> Option<(usize, char)> {
+    if lang == "onec" {
+        return None;
+    }
     let has_hash_line_comment = matches!(lang, "python" | "py");
     let has_dash_dash_line_comment = matches!(lang, "sql" | "postgres" | "postgresql");
     let has_pascal_curly_comments = matches!(lang, "pascal");
@@ -1690,6 +1693,12 @@ fn strip_comments_and_strings(lang: &str, src: &str) -> String {
 
         // End normal string
         if let Some(q) = in_string {
+            if lang == "onec" && q == '"' && c == '"' && next == Some('"') {
+                out.push(' ');
+                out.push(' ');
+                i += 2;
+                continue;
+            }
             if c == '\\' {
                 // escape: skip next char too
                 out.push(' ');
@@ -1861,6 +1870,11 @@ fn strip_comments_only(lang: &str, src: &str) -> String {
         // Inside normal string - keep as-is
         if let Some(q) = in_string {
             out.push(c);
+            if lang == "onec" && q == '"' && c == '"' && next == Some('"') {
+                out.push('"');
+                i += 2;
+                continue;
+            }
             if c == '\\' {
                 // escape next
                 if let Some(nc) = next {
@@ -1946,6 +1960,12 @@ fn strip_comments_only(lang: &str, src: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allows_cyrillic_in_onec_executable_code() {
+        let src = "Функция Сумма(А, Б)\n    Возврат А + Б;\nКонецФункции";
+        assert!(find_cyrillic_in_code("onec", src).is_none());
+    }
 
     #[test]
     fn detects_cyrillic_identifier_in_pascal_code() {

@@ -31,6 +31,7 @@ internal static class SolutionsApiSerializationService
             "pas" or "pascal" => "pascal",
             "pascalabc" or "pascalabcnet" or "pascalabc.net" or "pabc" => "pascalabc",
             "java" => "java",
+            "onec" or "1c" or "1с" or "1c:enterprise" or "1с:предприятие" => "onec",
             _ => null
         };
     }

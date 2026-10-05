@@ -176,7 +176,7 @@ selectedTask JSON:
   "assignmentType": "code-test|test|math",
   "title": "короткое понятное название",
   "description": "полное условие на русском",
-  "language": "cpp|csharp|java|javascript|pascal|python",
+  "language": "cpp|csharp|java|javascript|pascal|pascalabc|python|onec",
   "referenceSolution": "код эталонного решения для code-test",
   "rating": 10,
   "publicTests": [{"input":"...","expectedOutput":"...","isHidden":false}],

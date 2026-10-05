@@ -19,6 +19,7 @@ internal static class ExecutionApiSerializationService
         "py" or "python" or "python3" => "python",
         "js" or "javascript" or "node" or "nodejs" or "node.js" => "javascript",
         "java" => "java",
+        "onec" or "1c" or "1с" or "1c:enterprise" or "1с:предприятие" => "onec",
         "pascal" or "pas" => "pascal",
         "pascalabc" or "pascalabcnet" or "pascalabc.net" or "pabc" => "pascalabc",
         var x => x

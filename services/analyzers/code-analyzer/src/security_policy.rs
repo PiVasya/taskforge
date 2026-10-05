@@ -97,7 +97,7 @@ impl PolicyFinding {
 }
 
 pub fn normalize_language(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
+    match value.trim().to_lowercase().as_str() {
         "c" | "gcc" => Some("c"),
         "cpp" | "c++" | "cxx" | "g++" => Some("cpp"),
         "csharp" | "c#" | "cs" | "dotnet" => Some("csharp"),
@@ -105,6 +105,7 @@ pub fn normalize_language(value: &str) -> Option<&'static str> {
         "javascript" | "js" | "node" | "nodejs" => Some("javascript"),
         "python" | "py" | "python3" => Some("python"),
         "pascal" | "pas" | "pascalabc" | "pascalabc.net" => Some("pascal"),
+        "onec" | "1c" | "1с" | "1c:enterprise" | "1с:предприятие" => Some("onec"),
         _ => None,
     }
 }
@@ -151,6 +152,7 @@ pub fn analyze_lexical(
         "java" => analyze_java(cleaned, &mut findings),
         "csharp" => analyze_csharp(cleaned, &mut findings),
         "pascal" => analyze_pascal(profile, raw, cleaned, &mut findings),
+        "onec" => analyze_onec(cleaned, &mut findings),
         _ => {}
     }
 
@@ -683,6 +685,38 @@ fn analyze_csharp(cleaned: &str, findings: &mut Vec<PolicyFinding>) {
     }
 }
 
+fn analyze_onec(cleaned: &str, findings: &mut Vec<PolicyFinding>) {
+    // 1C/BSL is intentionally allowed to use Cyrillic executable identifiers and
+    // keywords. The standard TaskForge profile instead blocks capabilities that
+    // would let learner code escape the ephemeral infobase/runtime boundary.
+    let lower = cleaned.to_lowercase();
+    const RULES: &[(&str, &str, &str)] = &[
+        ("onec.dynamic_execute", "выполнить", "Динамическое выполнение кода 1С запрещено."),
+        ("onec.dynamic_eval", "вычислить", "Динамическое вычисление кода 1С запрещено."),
+        ("onec.process", "запуститьприложение", "Запуск внешних приложений запрещён."),
+        ("onec.process", "командасистемы", "Запуск системных команд запрещён."),
+        ("onec.com", "comобъект", "COM-объекты запрещены в безопасном профиле 1С."),
+        ("onec.network", "httpсоединение", "Произвольные HTTP-соединения запрещены в профиле onec-code."),
+        ("onec.network", "ftpсоединение", "Произвольные FTP-соединения запрещены в профиле onec-code."),
+        ("onec.files", "получитьимявременногофайла", "Произвольная работа с файлами запрещена в профиле onec-code."),
+        ("onec.files", "копироватьфайл", "Произвольная работа с файлами запрещена в профиле onec-code."),
+        ("onec.files", "удалитьфайлы", "Произвольная работа с файлами запрещена в профиле onec-code."),
+        ("onec.files", "найтифайлы", "Обход файловой системы запрещён в профиле onec-code."),
+        ("onec.files", "создатькаталог", "Создание каталогов запрещено в профиле onec-code."),
+        ("onec.files", "чтениетекста", "Прямое чтение файлов запрещено в профиле onec-code."),
+        ("onec.files", "записьтекста", "Прямая запись файлов запрещена в профиле onec-code."),
+        ("onec.external_component", "подключитьвнешнююкомпоненту", "Внешние компоненты запрещены."),
+        ("onec.external_component", "установитьвнешнююкомпоненту", "Внешние компоненты запрещены."),
+        ("onec.dynamic_execute", "execute", "Dynamic Execute is forbidden in the safe 1C profile."),
+        ("onec.dynamic_eval", "eval", "Dynamic Eval is forbidden in the safe 1C profile."),
+    ];
+    for &(id, token, message) in RULES {
+        if let Some(position) = lower.find(token) {
+            findings.push(PolicyFinding::new(id, token, message, position));
+        }
+    }
+}
+
 fn analyze_pascal(profile: &str, raw: &str, cleaned: &str, findings: &mut Vec<PolicyFinding>) {
     let lower = cleaned.to_ascii_lowercase();
     const TOKENS: &[(&str, &str, &str)] = &[
@@ -1019,5 +1053,19 @@ mod tests {
         let source = "function x: integer; external 'libc.so';";
         let findings = analyze_lexical("pascal", "standard", source, source, source);
         assert!(findings.iter().any(|f| f.id == "pas.native"));
+    }
+
+    #[test]
+    fn onec_is_a_distinct_language() {
+        assert_eq!(normalize_language("1С"), Some("onec"));
+        assert_eq!(normalize_language("onec"), Some("onec"));
+    }
+
+    #[test]
+    fn onec_rejects_dynamic_execution_and_network() {
+        let source = "Выполнить(Код);\nСоединение = Новый HTTPСоединение(Хост);";
+        let findings = analyze_lexical("onec", "standard", source, source, source);
+        assert!(findings.iter().any(|f| f.id == "onec.dynamic_execute"));
+        assert!(findings.iter().any(|f| f.id == "onec.network"));
     }
 }

@@ -78,6 +78,7 @@ services:
     - javascript-runner-net
     - pascal-runner-net
     - python-runner-net
+    - onec-runner-net
   execution-worker:
     image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/execution-worker:${IMAGE_TAG:-develop}
     labels:
@@ -104,6 +105,7 @@ services:
       Runners__Javascript: http://javascript-runner:8080
       Runners__Pascal: http://pascal-runner:8080
       Runners__Python: http://python-runner:8080
+      Runners__OneC: http://onec-runner:8080
       CodeAnalyzer__Enabled: ${CODE_ANALYZER_ENABLED:-true}
       CodeAnalyzer__Url: http://code-analyzer:8080
       CodeAnalyzer__FailClosed: ${CODE_ANALYZER_FAIL_CLOSED:-true}
@@ -124,6 +126,7 @@ services:
     - javascript-runner-net
     - pascal-runner-net
     - python-runner-net
+    - onec-runner-net
     - code-analyzer-net
     depends_on:
       rabbitmq:
@@ -367,6 +370,63 @@ services:
     secrets:
     - source: code_analyzer_public_key
       target: code-analyzer-public.pem
+  onec-runner:
+    profiles:
+    - onec
+    security_opt: *id001
+    init: true
+    user: "65534:65534"
+    stop_grace_period: 5s
+    ulimits:
+      core: 0
+      nofile:
+        soft: 256
+        hard: 256
+    cap_drop: *id002
+    pids_limit: ${ONEC_RUNNER_PIDS_LIMIT:-128}
+    mem_limit: ${ONEC_RUNNER_MEM_LIMIT:-1536m}
+    memswap_limit: ${ONEC_RUNNER_MEM_LIMIT:-1536m}
+    cpus: ${ONEC_RUNNER_CPUS:-1.0}
+    read_only: true
+    tmpfs:
+    - /tmp:size=${ONEC_RUNNER_TMPFS_SIZE:-128m},mode=1777,exec,nosuid,nodev
+    volumes:
+    - ${TASKFORGE_ONEC_WORK_DIR:-/var/lib/taskforge/onec-work}:/work
+    - ${ONEC_LICENSE_DIR:-/etc/taskforge/onec/licenses}:/var/1C/licenses:ro
+    - onec-platform:/opt/1cv8:ro
+    - onec-runtime:/opt/taskforge/onec/runtime:ro
+    networks:
+    - onec-runner-net
+    image: ${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY}/onec-runner:${IMAGE_TAG:-develop}
+    labels:
+    - com.centurylinklabs.watchtower.enable=${WATCHTOWER_OJ_ENABLE:-false}
+    - com.centurylinklabs.watchtower.scope=${WATCHTOWER_SCOPE:-taskforge-prod}
+    restart: unless-stopped
+    expose:
+    - '8080'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    environment:
+      TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      ONEC_DRIVER: ${ONEC_DRIVER:-/opt/taskforge/onec/driver}
+      ONEC_EXECUTABLE: ${ONEC_EXECUTABLE:-/opt/1cv8/taskforge/1cv8}
+      ONEC_TEMPLATE_DIR: ${ONEC_TEMPLATE_DIR:-/opt/taskforge/onec/runtime/templates/code}
+      ONEC_JUDGE_SOURCE_DIR: ${ONEC_JUDGE_SOURCE_DIR:-/opt/taskforge/onec/judge-src}
+      ONEC_WORK_ROOT: /work
+      ONEC_USE_XVFB: ${ONEC_USE_XVFB:-true}
+      ONEC_UI_LANGUAGE: ${ONEC_UI_LANGUAGE:-ru}
+      ONEC_RUNNER_SLOTS: ${ONEC_RUNNER_SLOTS:-1}
+      CODE_ANALYZER_PUBLIC_KEY_PATH: /run/secrets/code-analyzer-public.pem
+      CODE_ANALYZER_POLICY_VERSION: 2026-07-28.4
+    secrets:
+    - source: code_analyzer_public_key
+      target: code-analyzer-public.pem
   python-runner:
     security_opt: *id001
     init: true
@@ -423,8 +483,15 @@ networks:
     internal: true
   python-runner-net:
     internal: true
+  onec-runner-net:
+    internal: true
   code-analyzer-net:
     internal: true
 secrets:
   code_analyzer_public_key:
     file: ${CODE_ANALYZER_PUBLIC_KEY_PATH:?set CODE_ANALYZER_PUBLIC_KEY_PATH}
+
+volumes:
+  onec-platform: {}
+  onec-runtime: {}
+  onec-installer-cache: {}

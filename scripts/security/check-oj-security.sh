@@ -22,7 +22,7 @@ from scripts.ci.yaml_compat import safe_load
 root = pathlib.Path('.')
 runners = [
     'cpp-runner', 'java-runner', 'javascript-runner', 'python-runner',
-    'pascal-runner',
+    'pascal-runner', 'onec-runner',
 ]
 runner_services = runners + ['csharp-runner']
 
@@ -331,7 +331,7 @@ fi
 printf '[oj-security] Go runner tests and vet\n'
 if command -v go >/dev/null 2>&1; then
   for runner in \
-    cpp-runner java-runner javascript-runner python-runner pascal-runner; do
+    cpp-runner java-runner javascript-runner python-runner pascal-runner onec-runner; do
     (
       cd "services/execution/runners/$runner"
       go test ./...

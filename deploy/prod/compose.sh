@@ -6,6 +6,16 @@ cd "$ROOT_DIR"
 ENV_FILE="${TASKFORGE_ENV_FILE:-.env}"
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE. Run ./scripts/setup/generate-secrets.sh first." >&2; exit 2; }
 
+append_profile(){
+  local profile="$1"
+  case ",${COMPOSE_PROFILES:-}," in
+    *",$profile,"*) ;;
+    *) export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}$profile" ;;
+  esac
+}
+ONEC_ENABLED_VALUE="${ONEC_ENABLED:-$(sed -n 's/^ONEC_ENABLED=//p' "$ENV_FILE" | tail -n 1)}"
+if [ "$ONEC_ENABLED_VALUE" = true ]; then append_profile onec; fi
+
 # The same wrapper is shipped both as a standalone server bundle and under
 # deploy/prod inside the source repository. Keep runtime/config paths anchored
 # to the real TaskForge root in both layouts.
@@ -20,6 +30,22 @@ else
   exit 2
 fi
 export TASKFORGE_ROOT="${TASKFORGE_ROOT:-$TASKFORGE_LAYOUT_ROOT}"
+TASKFORGE_ONEC_WORK_DIR="${TASKFORGE_ONEC_WORK_DIR:-$TASKFORGE_ROOT/.runtime/onec-work}"
+ONEC_LICENSE_DIR="${ONEC_LICENSE_DIR:-$TASKFORGE_ROOT/.runtime/onec-licenses}"
+mkdir -p "$TASKFORGE_ONEC_WORK_DIR" "$ONEC_LICENSE_DIR"
+if [ "$(id -u)" -eq 0 ]; then
+  chown 65534:65534 "$TASKFORGE_ONEC_WORK_DIR"
+  chmod 0700 "$TASKFORGE_ONEC_WORK_DIR"
+  chown root:65534 "$ONEC_LICENSE_DIR"
+  chmod 0750 "$ONEC_LICENSE_DIR"
+  find "$ONEC_LICENSE_DIR" -maxdepth 1 -type f -exec chown root:65534 {} + -exec chmod 0640 {} + 2>/dev/null || true
+else
+  # Local developer fallback: Docker's uid 65534 must be able to enter the bind mounts.
+  chmod 0777 "$TASKFORGE_ONEC_WORK_DIR" 2>/dev/null || true
+  chmod 0755 "$ONEC_LICENSE_DIR" 2>/dev/null || true
+  find "$ONEC_LICENSE_DIR" -maxdepth 1 -type f -exec chmod a+r {} + 2>/dev/null || true
+fi
+export TASKFORGE_ONEC_WORK_DIR ONEC_LICENSE_DIR
 TASKFORGE_CLUSTER_DIR="${TASKFORGE_CLUSTER_DIR:-$TASKFORGE_CLUSTER_DIR_DEFAULT}"
 export TASKFORGE_CLUSTER_DIR
 
@@ -46,7 +72,7 @@ export TASKFORGE_SQL_INIT_ROOT="$TASKFORGE_ROOT/infrastructure/sql"
 SQL_RUNTIME_ENV="$TASKFORGE_ROOT/.runtime/sql-runtime.env"
 if [ -s "$SQL_RUNTIME_ENV" ]; then
   set -a; source "$SQL_RUNTIME_ENV"; set +a
-  if [ "${SQL_ENABLED:-false}" = true ]; then export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}sql"; fi
+  if [ "${SQL_ENABLED:-false}" = true ]; then append_profile sql; fi
 fi
 
 COMPOSE_FILES=(

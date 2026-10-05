@@ -30,7 +30,7 @@ const codeTask = {
   title: 'Ввод и вывод',
   description: 'Считайте два целых числа и выведите их сумму.',
   language: 'cpp',
-  allowedLanguages: ['cpp', 'python', 'csharp'],
+  allowedLanguages: ['cpp', 'python', 'csharp', 'onec'],
   starterCode: '#include <iostream>\nusing namespace std;\n\nint main()\n{\n    return 0;\n}\n',
   testCases: [
     { input: '2 4', expectedOutput: '6', isHidden: false },
@@ -267,7 +267,7 @@ function simpleCodeTask(key, title, description = 'Решите задание �
     title,
     description,
     language: 'cpp',
-    allowedLanguages: ['cpp', 'python', 'csharp'],
+    allowedLanguages: ['cpp', 'python', 'csharp', 'onec'],
     starterCode: '',
     testCases: [
       { input: '1', expectedOutput: '1', isHidden: false },

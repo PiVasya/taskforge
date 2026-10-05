@@ -125,6 +125,7 @@ internal static class ExecutionApiResultsService
         ("javascript", false) => "javascript-runner",
         ("pascal", false) => "pascal-runner",
         ("pascalabc", false) => "pascal-runner",
+        ("onec", false) => "onec-runner",
         ("cpp", true) => "cpp-runner",
         ("pascal", true) => "pascal-runner",
         ("pascalabc", true) => "pascal-runner",

@@ -390,6 +390,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         "javascript" => configuration["Runners:Javascript"] ?? "http://javascript-runner:8080",
         "pascal" => configuration["Runners:Pascal"] ?? "http://pascal-runner:8080",
         "pascalabc" => configuration["Runners:Pascal"] ?? "http://pascal-runner:8080",
+        "onec" => configuration["Runners:OneC"] ?? "http://onec-runner:8080",
         _ => null
     };
 
@@ -406,6 +407,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         "py" or "python" or "python3" => "python",
         "js" or "javascript" or "node" or "nodejs" or "node.js" => "javascript",
         "java" => "java",
+        "onec" or "1c" or "1с" or "1c:enterprise" or "1с:предприятие" => "onec",
         "pas" or "pascal" => "pascal",
         "pascalabc" or "pascalabcnet" or "pascalabc.net" or "pabc" => "pascalabc",
         var x => x

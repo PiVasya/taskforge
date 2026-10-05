@@ -210,6 +210,9 @@ jobs:
           - name: python-runner
             context: ./services/execution/runners/python-runner
             dockerfile: Dockerfile
+          - name: onec-runner
+            context: ./services/execution/runners/onec-runner
+            dockerfile: Dockerfile
 
           - name: ai-api
             context: .

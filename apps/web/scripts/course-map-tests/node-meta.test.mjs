@@ -15,6 +15,8 @@ test('code cards show human programming language names instead of runtime keys',
   assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { language: 'cpp' }, 'Код'), 'C++');
   assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { language: 'python3' }, 'Код'), 'Python');
   assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { language: 'pascalabc' }, 'Код'), 'PascalABC.NET');
+  assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { language: 'onec' }, 'Код'), '1С');
+  assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { language: '1С' }, 'Код'), '1С');
   assert.equal(model.getCourseMapAssignmentFooterLabel('code-test', { allowedLanguages: ['javascript'] }, 'Код'), 'JS');
 });
 

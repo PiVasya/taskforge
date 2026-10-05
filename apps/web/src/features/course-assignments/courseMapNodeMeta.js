@@ -6,6 +6,7 @@ const LANGUAGE_LABELS = Object.freeze({
   pascal: 'Pascal',
   pascalabc: 'PascalABC.NET',
   java: 'Java',
+  onec: '1С',
 });
 
 const LANGUAGE_ALIASES = Object.freeze({
@@ -33,6 +34,11 @@ const LANGUAGE_ALIASES = Object.freeze({
   pascalabc: 'pascalabc',
   pascalabcnet: 'pascalabc',
   'джава': 'java',
+  '1c': 'onec',
+  '1с': 'onec',
+  onec: 'onec',
+  '1c:enterprise': 'onec',
+  '1с:предприятие': 'onec',
 });
 
 export function normalizeCourseMapLanguage(value) {

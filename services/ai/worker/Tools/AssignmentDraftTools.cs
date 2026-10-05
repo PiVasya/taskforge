@@ -15,7 +15,7 @@ public sealed class AssignmentDraftTools
     public Task<JsonObject> BuildCodeAssignmentDraftAsync(
         [Description("Short assignment title.")] string title,
         [Description("Clear assignment statement in Russian.")] string description,
-        [Description("Programming language: cpp, csharp, java, javascript, pascal, python.")] string language,
+        [Description("Programming language: cpp, csharp, java, javascript, pascal, pascalabc, python, onec.")] string language,
         [Description("Reference solution code that should pass all tests.")] string referenceSolution,
         [Description("Task rating. Must be at least 1.")] int rating = 10)
     {

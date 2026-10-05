@@ -9,6 +9,7 @@ export const ALL_LANGS = [
   { value: 'pascal',     label: 'Pascal (Free Pascal)' },
   { value: 'pascalabc',  label: 'PascalABC.NET' },
   { value: 'java',       label: 'Java' },
+  { value: 'onec',       label: '1С' },
 ];
 
 
@@ -27,6 +28,7 @@ export function normalizeLang(x) {
 
   
   if (s === 'java' || s === 'джава') return 'java';
+  if (s === 'onec' || s === '1c' || s === '1с' || s === '1c:enterprise' || s === '1с:предприятие') return 'onec';
 
   return s;
 }
