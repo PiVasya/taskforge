@@ -9,6 +9,7 @@ export default function LoginPage() {
   const { login, access } = useAuth();      
   const [loginName, setLoginName] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
@@ -22,7 +23,7 @@ export default function LoginPage() {
 
     try {
       
-      await login(loginName.trim(), password);
+      await login(loginName.trim(), password, rememberMe);
       
     } catch (e) {
       setErr(getApiErrorMessage(e, "Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь."));
@@ -71,6 +72,11 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </Field>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
+              Запомнить меня на этом устройстве
+            </label>
 
             <Button disabled={busy} className="w-full">
               {busy ? "Входим…" : (

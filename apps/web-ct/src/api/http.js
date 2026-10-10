@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isRememberedDevice } from '../auth/rememberMe';
 
 let accessToken = null;
 
@@ -163,10 +164,16 @@ export function normalizeApiError(error, fallback = 'Не удалось вып�
 api.interceptors.request.use((config) => {
   config.headers = config.headers || {};
   const token = accessToken;
-  if (token) {
-    if (!config.headers.Authorization && !config.headers.authorization) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+  // Replayed requests must not keep an expired Authorization header.
+  if (typeof config.headers.set === 'function') {
+    if (token) config.headers.set('Authorization', `Bearer ${token}`);
+    else if (typeof config.headers.delete === 'function') config.headers.delete('Authorization');
+  } else if (token) {
+    delete config.headers.authorization;
+    config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    delete config.headers.Authorization;
+    delete config.headers.authorization;
   }
   return config;
 });
@@ -225,9 +232,12 @@ api.interceptors.response.use(
     }
 
     const url = (original.url || '').toLowerCase();
-    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh')) {
+    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh') || original.__authRefreshAttempted || !isRememberedDevice()) {
       return Promise.reject(error);
     }
+
+    // One original request may be retried only once after a refresh.
+    original.__authRefreshAttempted = true;
 
     if (isRefreshing) {
       return new Promise((resolve, reject) => {

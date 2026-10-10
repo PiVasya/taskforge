@@ -1,7 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using TaskForge.Identity.Api.Domain;
+using TaskForge.Identity.Api.Contracts;
+using TaskForge.Identity.Api.Services.Common;
 using TaskForge.Identity.Api.Services.Access;
 using TaskForge.Identity.Api.Services.Image;
 using Xunit;
@@ -20,6 +24,63 @@ public sealed class IdentityAccessTests
             ["Bootstrap:FirstUserIsAdmin"] = "false",
         })
         .Build();
+
+    [Fact]
+    public void LoginRequest_DoesNotEnableRememberMeUnlessExplicitlyRequested()
+    {
+        var ordinary = JsonSerializer.Deserialize<LoginRequest>("""{"login":"test","password":"pass"}""", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var remembered = JsonSerializer.Deserialize<LoginRequest>("""{"login":"test","password":"pass","rememberMe":true}""", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(ordinary);
+        Assert.False(ordinary.RememberMe);
+        Assert.NotNull(remembered);
+        Assert.True(remembered.RememberMe);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LoginSession_RefreshJwtIsOnlyCreatedWhenDeviceOptedIn(bool rememberMe)
+    {
+        var user = new IdentityUser { Id = Guid.NewGuid(), Login = "test", Role = "User", AccountType = "human" };
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        var access = IdentityApiCommonService.IssueLoginSession(context, user, BuildConfig(), ["User"], rememberMe);
+        var cookies = context.Response.Headers["Set-Cookie"].Select(value => value ?? string.Empty).ToArray();
+        var accessCookie = Assert.Single(cookies.Where(value => value.StartsWith("tf_at=", StringComparison.Ordinal)));
+        Assert.Contains(access, accessCookie);
+        Assert.True(accessCookie.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+        Assert.True(accessCookie.Contains("secure", StringComparison.OrdinalIgnoreCase));
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(access);
+        Assert.Equal("access", jwt.Claims.Single(c => c.Type == "token_type").Value);
+
+        var refreshCookie = Assert.Single(cookies.Where(value => value.StartsWith("tf_rt=", StringComparison.Ordinal)));
+        if (rememberMe)
+        {
+            var token = refreshCookie.Split(';')[0]["tf_rt=".Length..];
+            var refresh = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            Assert.Equal("refresh", refresh.Claims.Single(c => c.Type == "token_type").Value);
+            Assert.True(refresh.ValidTo > DateTime.UtcNow.AddDays(6));
+            Assert.True(refreshCookie.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+            Assert.True(refreshCookie.Contains("secure", StringComparison.OrdinalIgnoreCase));
+        }
+        else
+        {
+            // Only an expired deletion cookie is sent, never a signed refresh JWT.
+            Assert.True(refreshCookie.StartsWith("tf_rt=;", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void DisablingRememberMe_ClearsRefreshOnly_NotTheAccessCookie()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        IdentityApiCommonService.SetAuthCookies(context, "access-jwt", "refresh-jwt", TimeSpan.FromHours(2), TimeSpan.FromDays(7));
+        IdentityApiCommonService.ClearRefreshCookie(context);
+        var cookies = context.Response.Headers["Set-Cookie"].ToArray();
+        Assert.Contains(cookies, cookie => cookie!.StartsWith("tf_at=access-jwt", StringComparison.Ordinal));
+        Assert.True(cookies.Last()!.StartsWith("tf_rt=;", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void Jwt_ContainsNormalizedAccountTypeAndFeatureRoles()

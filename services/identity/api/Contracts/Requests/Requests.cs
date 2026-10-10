@@ -16,7 +16,9 @@ namespace TaskForge.Identity.Api.Contracts;
 
 public sealed record RegisterRequest(string? Login, string? Email, string? Password, string? FirstName, string? LastName, string? PhoneNumber, string? AdditionalDataJson, string? AccountType);
 
-public sealed record LoginRequest(string? Login, string? Email, string? Password);
+public sealed record LoginRequest(string? Login, string? Email, string? Password, bool RememberMe = false);
+
+public sealed record RememberMeRequest(bool RememberMe);
 
 public sealed record PasswordRecoveryRequest(string? Identity);
 

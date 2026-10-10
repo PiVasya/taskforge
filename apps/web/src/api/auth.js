@@ -11,6 +11,16 @@ export const AuthApi = {
     return res.data;
   },
 
+  async session() {
+    const res = await api.get('/api/auth/session', { __skipAuthRefresh: true });
+    return res.data;
+  },
+
+  async remember(rememberMe) {
+    const res = await api.post('/api/auth/remember', { rememberMe }, { __skipAuthRefresh: true });
+    return res.data;
+  },
+
   async refresh() {
     const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
     return res.data;

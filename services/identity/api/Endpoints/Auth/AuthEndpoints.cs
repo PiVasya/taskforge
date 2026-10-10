@@ -77,6 +77,7 @@ internal static partial class IdentityApiEndpoints
 
         app.MapPost("/api/auth/login", async (LoginRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg, AiAccessTelemetryClient aiTelemetry) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var identity = (request.Login ?? request.Email ?? string.Empty).Trim();
             var identityIsEmail = identity.Contains('@');
             var email = NormalizeOptionalEmail(request.Email);
@@ -150,12 +151,8 @@ internal static partial class IdentityApiEndpoints
             });
             await db.SaveChangesAsync();
 
-            var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
-            var refreshLifetime = TimeSpan.FromDays(7);
             var roles = await RolesForUser(db, user);
-            var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
-            var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
-            SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
+            var access = IssueLoginSession(http, user, cfg, roles, request.RememberMe);
             if (string.Equals(user.AccountType, "ai", StringComparison.OrdinalIgnoreCase))
             {
                 aiTelemetry.RecordAiAccountEvent(http, user.Id, user.Login, "ai-account-login");
@@ -163,8 +160,67 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
         });
 
+        // Return the original, still-valid access token from its HttpOnly cookie.
+        // This does not extend the session or issue a refresh token.
+        app.MapGet("/api/auth/session", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var access = ReadCookie(http, "tf_at");
+            var principal = ValidateToken(access, cfg, validateLifetime: true);
+            if (principal == null || !string.Equals(principal.FindFirstValue("token_type"), "access", StringComparison.Ordinal))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+
+            var uid = TryGetUserId(principal);
+            var user = uid == null ? null : await db.Users.FindAsync(uid.Value);
+            if (user == null || !string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+            var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id);
+            if (block != null && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > DateTimeOffset.UtcNow))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, await RolesForUser(db, user)) });
+        });
+
+        // This operation requires a real access bearer token, not ambient cookies.
+        // It only changes refresh-cookie state for the browser making the request.
+        app.MapPost("/api/auth/remember", async (RememberMeRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var principal = ValidateToken(ReadBearer(http), cfg, validateLifetime: true);
+            if (principal == null || !string.Equals(principal.FindFirstValue("token_type"), "access", StringComparison.Ordinal))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+
+            var uid = TryGetUserId(principal);
+            // Requiring this device's still-valid access cookie prevents a stolen
+            // bearer token alone from creating a long-lived remembered session.
+            var cookiePrincipal = ValidateToken(ReadCookie(http, "tf_at"), cfg, validateLifetime: true);
+            var cookieUid = cookiePrincipal == null || !string.Equals(cookiePrincipal.FindFirstValue("token_type"), "access", StringComparison.Ordinal)
+                ? null
+                : TryGetUserId(cookiePrincipal);
+            if (uid == null || cookieUid != uid)
+                return Unauthorized("Сессия истекла. Войдите заново.");
+            var user = await db.Users.FindAsync(uid.Value);
+            if (user == null || !string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+            var block = await db.BlockedAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id);
+            if (block != null && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > DateTimeOffset.UtcNow))
+                return Unauthorized("Сессия истекла. Войдите заново.");
+
+            if (request.RememberMe)
+            {
+                var roles = await RolesForUser(db, user);
+                SetRefreshCookie(http, CreateJwt(user, cfg, TimeSpan.FromDays(7), "refresh", roles), TimeSpan.FromDays(7));
+            }
+            else
+            {
+                ClearRefreshCookie(http);
+            }
+            return Microsoft.AspNetCore.Http.Results.Ok(new { rememberMe = request.RememberMe });
+        });
+
         app.MapPost("/api/auth/refresh", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var principal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
             var unlimitedAiRefreshRate = principal != null
                 && string.Equals(principal.FindFirstValue("account_type"), "ai", StringComparison.OrdinalIgnoreCase)

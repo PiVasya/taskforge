@@ -10,6 +10,7 @@ export default function LoginPage() {
   const { login, access } = useAuth();      
   const [loginName, setLoginName] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
@@ -43,7 +44,7 @@ export default function LoginPage() {
     setBusy(true);
 
     try {
-      await login(normalizedLogin, password);
+      await login(normalizedLogin, password, rememberMe);
     } catch (e) {
       setErr(getApiErrorMessage(e, "Неверный логин/email или пароль. Проверьте данные или зарегистрируйтесь."));
     } finally {
@@ -100,7 +101,16 @@ export default function LoginPage() {
               />
             </Field>
 
-            <div className="flex justify-end -mt-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 -mt-1">
+              <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                  data-taskforge-automation-id="login-remember-me"
+                />
+                Запомнить меня на этом устройстве
+              </label>
               <Link to="/forgot-password" className="inline-flex items-center gap-1 text-sm text-brand-600 hover:underline">
                 <KeyRound size={14} /> Забыли пароль?
               </Link>

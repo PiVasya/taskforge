@@ -4,6 +4,7 @@ import { AuthApi } from '../api/auth';
 import { getMyUiSettings } from '../api/uiSettings';
 import { getProfile } from '../api/profile';
 import { persistUiSettingsFromBackend } from '../utils/uiAppearance';
+import { REMEMBER_ME_STORAGE_KEY, accessExpiresAt, canRememberDevice, isRememberedDevice, storeRememberedDevice } from './rememberMe';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
@@ -21,6 +22,7 @@ export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [access, _setAccess] = useState(null);
   const [ready, setReady] = useState(false);
+  const [rememberMe, setRememberMe] = useState(isRememberedDevice);
 
   
   const uiLoadedRef = useRef(false);
@@ -51,8 +53,11 @@ export default function AuthProvider({ children }) {
     }
   }, []);
 
-  const doLogin = useCallback(async (login, password) => {
-    const res = await AuthApi.login({ login, password });
+  const doLogin = useCallback(async (login, password, remember = false) => {
+    if (remember && !canRememberDevice()) throw new Error('Браузер не позволяет запомнить вход на этом устройстве.');
+    const res = await AuthApi.login({ login, password, rememberMe: Boolean(remember) });
+    storeRememberedDevice(Boolean(remember));
+    setRememberMe(Boolean(remember));
     applyAccess(res.accessToken || null);
     await pullProfileOnce();
     
@@ -60,6 +65,8 @@ export default function AuthProvider({ children }) {
   }, [applyAccess, pullProfileOnce, pullUiSettingsOnce]);
 
   const doLogout = useCallback(async () => {
+    storeRememberedDevice(false);
+    setRememberMe(false);
     try { await AuthApi.logout(); } catch { }
     applyAccess(null);
     setUser(null);
@@ -67,7 +74,17 @@ export default function AuthProvider({ children }) {
   }, [applyAccess]);
 
   const doRefresh = useCallback(async () => {
-    const res = await AuthApi.refresh();
+    if (!isRememberedDevice()) return null;
+    let res;
+    try {
+      res = await AuthApi.refresh();
+    } catch (error) {
+      if ([401, 403, 423].includes(Number(error?.response?.status))) {
+        storeRememberedDevice(false);
+        setRememberMe(false);
+      }
+      throw error;
+    }
     applyAccess(res.accessToken || null);
     await pullProfileOnce();
     
@@ -77,6 +94,14 @@ export default function AuthProvider({ children }) {
 
   
   useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === REMEMBER_ME_STORAGE_KEY || event.key === null) setRememberMe(isRememberedDevice());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  useEffect(() => {
     (async () => {
       const injectedAccess = takeBrowserInjectedAccessToken();
       try {
@@ -85,7 +110,16 @@ export default function AuthProvider({ children }) {
           await pullProfileOnce();
           await pullUiSettingsOnce();
         } else {
-          await doRefresh();
+          try {
+            const session = await AuthApi.session();
+            if (!session?.accessToken) throw new Error('Сессия недоступна.');
+            applyAccess(session.accessToken);
+            await pullProfileOnce();
+            await pullUiSettingsOnce();
+          } catch (error) {
+            if (!isRememberedDevice()) throw error;
+            await doRefresh();
+          }
         }
       } catch {
         applyAccess(null);
@@ -97,12 +131,24 @@ export default function AuthProvider({ children }) {
 
   
   useEffect(() => {
-    if (!access) return;
+    if (!access || !rememberMe) return;
     const id = setInterval(() => {
       doRefresh().catch(() => {});
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
-  }, [access, doRefresh]);
+  }, [access, doRefresh, rememberMe]);
+
+  useEffect(() => {
+    if (!access || rememberMe) return;
+    const expiresAt = accessExpiresAt(access);
+    if (!expiresAt) return;
+    const id = window.setTimeout(() => {
+      applyAccess(null);
+      setUser(null);
+      uiLoadedRef.current = false;
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(id);
+  }, [access, applyAccess, rememberMe]);
 
   const value = useMemo(
     () => ({ ready, user, access, login: doLogin, logout: doLogout, refresh: doRefresh }),

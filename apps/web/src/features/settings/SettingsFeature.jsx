@@ -162,6 +162,8 @@ export default function SettingsFeature() {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState(null);
+  const [rememberSaving, setRememberSaving] = useState(false);
+  const [rememberError, setRememberError] = useState(null);
 
   const [tgCode, setTgCode] = useState(null);
   const [tgExpires, setTgExpires] = useState(null);
@@ -232,6 +234,19 @@ export default function SettingsFeature() {
       setRevealingEmail(false);
     }
   }, [emailRevealPassword, notify]);
+
+  const handleRememberChange = useCallback(async (enabled) => {
+    setRememberSaving(true);
+    setRememberError(null);
+    try {
+      await auth.setRememberMe(enabled);
+      notify.success(enabled ? 'Вход на этом устройстве сохранён' : 'Автоматическое продление входа отключено');
+    } catch (error) {
+      setRememberError(handleApiError(error, notify, 'Не удалось изменить настройку входа'));
+    } finally {
+      setRememberSaving(false);
+    }
+  }, [auth, notify]);
 
   const previewProfile = useMemo(() => {
     const skills = String(extra?.skillsText || '').split(',').map((item) => item.trim()).filter(Boolean);
@@ -480,7 +495,7 @@ export default function SettingsFeature() {
         minecraft={{ status: minecraftStatus, nick: mcNick, setNick: setMcNick, inputCode: mcInputCode, setInputCode: setMcInputCode, expires: mcExpires, delivery: mcDelivery, loading: mcLoading || minecraftQuery.isFetching, error: mcError, refresh: refreshMinecraft, request: requestMinecraft, confirm: confirmMinecraft, unlink: unlinkMinecraftAccount }}
       />
     );
-    if (activeSection === 'security') return <SecuritySettingsSection profile={profile} email={{ form: emailForm, setForm: setEmailForm, saving: savingEmail, error: emailError, submit: handleEmailSubmit }} password={{ form: passwordForm, setForm: setPasswordForm, saving: savingPassword, error: passwordError, submit: handlePasswordSubmit }} />;
+    if (activeSection === 'security') return <SecuritySettingsSection profile={profile} email={{ form: emailForm, setForm: setEmailForm, saving: savingEmail, error: emailError, submit: handleEmailSubmit }} password={{ form: passwordForm, setForm: setPasswordForm, saving: savingPassword, error: passwordError, submit: handlePasswordSubmit }} remember={{ enabled: auth.rememberMe, saving: rememberSaving, error: rememberError, change: handleRememberChange }} />;
     if (activeSection === 'developer') return <DeveloperSettingsSection notify={notify} />;
     return null;
   })();

@@ -6,6 +6,7 @@ import { clearAllCourseMapLocalCaches } from '../features/course-assignments/cou
 import { clearAllCourseMapSessionStates } from '../features/course-assignments/courseMapSessionState';
 import { AUTH_REQUIRED_EVENT } from './authEvents';
 import { clearPrivateBrowserState } from './privateBrowserState';
+import { REMEMBER_ME_STORAGE_KEY, accessExpiresAt, canRememberDevice, isRememberedDevice, storeRememberedDevice } from './rememberMe';
 
 function takeBrowserInjectedAccessToken() {
   const token = typeof window !== 'undefined' ? window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ : null;
@@ -42,6 +43,7 @@ export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [access, _setAccess] = useState(null);
   const [ready, setReady] = useState(false);
+  const [rememberMe, setRememberMe] = useState(isRememberedDevice);
 
   const applyAccess = useCallback((token) => {
     _setAccess(token || null);
@@ -60,8 +62,11 @@ export default function AuthProvider({ children }) {
     }
   }, []);
 
-  const doLogin = useCallback(async (login, password) => {
-    const res = await AuthApi.login({ login, password });
+  const doLogin = useCallback(async (login, password, remember = false) => {
+    if (remember && !canRememberDevice()) throw new Error('Браузер не позволяет сохранить настройку на этом устройстве.');
+    const res = await AuthApi.login({ login, password, rememberMe: Boolean(remember) });
+    storeRememberedDevice(Boolean(remember));
+    setRememberMe(Boolean(remember));
     applyAccess(res.accessToken || null);
     try {
       await pullProfileOnce();
@@ -73,6 +78,8 @@ export default function AuthProvider({ children }) {
   }, [applyAccess, pullProfileOnce]);
 
   const doLogout = useCallback(async () => {
+    storeRememberedDevice(false);
+    setRememberMe(false);
     clearPrivateBrowserState();
     try { await AuthApi.logout(); } catch { }
     clearAllCourseMapLocalCaches();
@@ -82,7 +89,17 @@ export default function AuthProvider({ children }) {
   }, [applyAccess]);
 
   const doRefresh = useCallback(async () => {
-    const res = await retryTransient(() => AuthApi.refresh());
+    if (!isRememberedDevice()) return null;
+    let res;
+    try {
+      res = await retryTransient(() => AuthApi.refresh());
+    } catch (error) {
+      if ([401, 403, 423].includes(Number(error?.response?.status))) {
+        storeRememberedDevice(false);
+        setRememberMe(false);
+      }
+      throw error;
+    }
     applyAccess(res.accessToken || null);
     try {
       await pullProfileOnce();
@@ -97,6 +114,22 @@ export default function AuthProvider({ children }) {
     return res;
   }, [applyAccess, pullProfileOnce]);
 
+  const changeRememberMe = useCallback(async (enabled) => {
+    const next = Boolean(enabled);
+    if (next && !canRememberDevice()) throw new Error('Браузер не позволяет запомнить вход на этом устройстве.');
+    await AuthApi.remember(next);
+    storeRememberedDevice(next);
+    setRememberMe(next);
+  }, []);
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === REMEMBER_ME_STORAGE_KEY || event.key === null) setRememberMe(isRememberedDevice());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   useEffect(() => {
     (async () => {
       const injectedAccess = takeBrowserInjectedAccessToken();
@@ -105,7 +138,15 @@ export default function AuthProvider({ children }) {
           applyAccess(injectedAccess);
           await pullProfileOnce();
         } else {
-          await doRefresh();
+          try {
+            const session = await retryTransient(() => AuthApi.session());
+            if (!session?.accessToken) throw new Error('Сессия недоступна.');
+            applyAccess(session.accessToken);
+            await pullProfileOnce();
+          } catch (error) {
+            if (!isRememberedDevice()) throw error;
+            await doRefresh();
+          }
         }
       } catch (error) {
         const status = Number(error?.response?.status || 0);
@@ -117,12 +158,25 @@ export default function AuthProvider({ children }) {
   }, [applyAccess, doRefresh, pullProfileOnce]);
 
   useEffect(() => {
-    if (!access) return;
+    if (!access || !rememberMe) return;
     const id = setInterval(() => {
       doRefresh().catch(() => {});
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
-  }, [access, doRefresh]);
+  }, [access, doRefresh, rememberMe]);
+
+  // Without Remember Me, expiration is final even if no API request is made.
+  useEffect(() => {
+    if (!access || rememberMe) return;
+    const expiresAt = accessExpiresAt(access);
+    if (!expiresAt) return;
+    const id = window.setTimeout(() => {
+      clearPrivateBrowserState();
+      applyAccess(null);
+      setUser(null);
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(id);
+  }, [access, applyAccess, rememberMe]);
 
   useEffect(() => {
     const handleAuthRequired = () => {
@@ -135,8 +189,8 @@ export default function AuthProvider({ children }) {
   }, [applyAccess]);
 
   const value = useMemo(
-    () => ({ ready, user, access, login: doLogin, logout: doLogout, refresh: doRefresh }),
-    [access, doLogin, doLogout, doRefresh, ready, user],
+    () => ({ ready, user, access, rememberMe, setRememberMe: changeRememberMe, login: doLogin, logout: doLogout, refresh: doRefresh }),
+    [access, changeRememberMe, doLogin, doLogout, doRefresh, ready, rememberMe, user],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

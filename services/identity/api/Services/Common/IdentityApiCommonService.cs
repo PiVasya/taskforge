@@ -406,17 +406,40 @@ internal static class IdentityApiCommonService
         return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
     }
 
-    internal static void SetAuthCookies(HttpContext http, string access, string refresh, TimeSpan accessLifetime, TimeSpan refreshLifetime)
+    internal static string IssueLoginSession(HttpContext http, IdentityUser user, IConfiguration cfg, IReadOnlyCollection<string> roles, bool rememberMe)
+    {
+        var accessLifetime = TimeSpan.FromMinutes(cfg.GetValue<int?>("Jwt:ExpireMinutes") ?? 120);
+        var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
+        // An ordinary login must not even generate a refresh JWT.
+        var refresh = rememberMe ? CreateJwt(user, cfg, TimeSpan.FromDays(7), "refresh", roles) : null;
+        SetAuthCookies(http, access, refresh, accessLifetime, TimeSpan.FromDays(7));
+        return access;
+    }
+
+    internal static void SetAuthCookies(HttpContext http, string access, string? refresh, TimeSpan accessLifetime, TimeSpan refreshLifetime)
     {
         var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
         http.Response.Cookies.Append("tf_at", access, new CookieOptions { HttpOnly = true, Secure = secure, SameSite = SameSiteMode.Lax, Expires = DateTimeOffset.UtcNow.Add(accessLifetime), Path = "/" });
+        if (refresh is null) ClearRefreshCookie(http);
+        else SetRefreshCookie(http, refresh, refreshLifetime);
+    }
+
+    internal static void SetRefreshCookie(HttpContext http, string refresh, TimeSpan refreshLifetime)
+    {
+        var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
         http.Response.Cookies.Append("tf_rt", refresh, new CookieOptions { HttpOnly = true, Secure = secure, SameSite = SameSiteMode.Lax, Expires = DateTimeOffset.UtcNow.Add(refreshLifetime), Path = "/" });
+    }
+
+    internal static void ClearRefreshCookie(HttpContext http)
+    {
+        var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
+        http.Response.Cookies.Delete("tf_rt", new CookieOptions { Path = "/", HttpOnly = true, Secure = secure, SameSite = SameSiteMode.Lax });
     }
 
     internal static void ClearAuthCookies(HttpContext http)
     {
         http.Response.Cookies.Delete("tf_at", new CookieOptions { Path = "/" });
-        http.Response.Cookies.Delete("tf_rt", new CookieOptions { Path = "/" });
+        ClearRefreshCookie(http);
     }
 
 }

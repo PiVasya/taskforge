@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isRememberedDevice } from '../auth/rememberMe';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 const API_TELEMETRY_SLOW_MS = 750;
@@ -365,7 +366,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh') || original.__authRefreshAttempted) {
+    if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh') || original.__authRefreshAttempted || !isRememberedDevice()) {
       return Promise.reject(error);
     }
 

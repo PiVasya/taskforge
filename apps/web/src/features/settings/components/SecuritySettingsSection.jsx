@@ -2,9 +2,27 @@ import React from 'react';
 import { Button, Card, Input } from '../../../components/ui';
 import { InlineError, maskEmail } from './SettingsPrimitives';
 
-function SecuritySettingsSection({ profile, email, password }) {
+function SecuritySettingsSection({ profile, email, password, remember }) {
   return (
     <div className="space-y-4">
+      <Card className="p-4 space-y-3">
+        <div className="font-semibold">Вход на этом устройстве</div>
+        <label className="flex items-center gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={remember.enabled}
+            onChange={(event) => remember.change(event.target.checked)}
+            disabled={remember.saving}
+            data-taskforge-automation-id="settings-remember-me"
+          />
+          <span>Запомнить меня</span>
+        </label>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Если включено, вход сохраняется в этом браузере и продлевается автоматически. Если выключено, сеанс завершится по истечении токена (обычно через 2 часа). На других устройствах настройка не изменится.
+        </p>
+        {remember.saving && <div className="text-sm text-neutral-500">Сохранение…</div>}
+        <InlineError value={remember.error} />
+      </Card>
       <Card className="p-4 space-y-4">
         <div><div className="font-semibold">Смена email</div><div className="text-sm text-neutral-500 dark:text-neutral-400">Текущий email скрыт: {profile?.maskedEmail || maskEmail(profile?.email)}</div></div>
         <InlineError value={email.error} />
