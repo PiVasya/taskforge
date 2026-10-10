@@ -21,6 +21,22 @@ public sealed class SolutionHistoryKindTests
         Assert.Equal(5, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, null).Count());
     }
 
+    [Fact]
+    public void KindFilter_AfterUserScoping_CannotDeleteAnotherUsersSubmissions()
+    {
+        var selected = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var selectedCode = new SolutionSubmission { Id = Guid.NewGuid(), UserId = selected, Language = "python" };
+        var selectedSql = new SolutionSubmission { Id = Guid.NewGuid(), UserId = selected, Language = "sql" };
+        var otherCode = new SolutionSubmission { Id = Guid.NewGuid(), UserId = other, Language = "python" };
+        var otherSql = new SolutionSubmission { Id = Guid.NewGuid(), UserId = other, Language = "sql" };
+        var owned = new[] { selectedCode, selectedSql, otherCode, otherSql }
+            .AsQueryable().Where(x => x.UserId == selected);
+
+        Assert.Equal(new[] { selectedCode.Id }, SolutionsApiEndpoints.FilterSolutionHistoryKind(owned, "code").Select(x => x.Id).ToArray());
+        Assert.Equal(new[] { selectedSql.Id }, SolutionsApiEndpoints.FilterSolutionHistoryKind(owned, "sql").Select(x => x.Id).ToArray());
+    }
+
     [Theory]
     [InlineData(null, true)]
     [InlineData("CODE", true)]

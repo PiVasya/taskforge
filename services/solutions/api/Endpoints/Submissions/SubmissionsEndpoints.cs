@@ -124,8 +124,9 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToAdminHistoryDto(x, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
         });
 
-        app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, string? kind) =>
+        app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, string? kind, CancellationToken ct) =>
         {
+            if (userId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
             if (!IsValidSolutionHistoryKind(kind)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SOLUTION_KIND" });
             var q = FilterSolutionHistoryKind(db.Submissions.Where(x => x.UserId == userId), kind);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
@@ -134,10 +135,13 @@ internal static partial class SolutionsApiEndpoints
                 var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
                 q = q.Where(x => x.CreatedAt >= since);
             }
-            var rows = await q.ToListAsync();
-            db.Submissions.RemoveRange(rows);
-            await db.SaveChangesAsync();
-            return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = rows.Count, assignmentId, days });
+
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var deleted = await q.ExecuteDeleteAsync(ct);
+            if (deleted > 0)
+                await MarkRatingDirtyAsync(db, userId, "solutions-bulk-deleted", assignmentId, ct);
+            await transaction.CommitAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { deleted, assignmentId, days, kind, userId });
         });
 
         app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>

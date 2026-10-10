@@ -80,6 +80,21 @@ internal static class AssignmentApiResultsService
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = testSpec?.Settings.PassPercent ?? 60, totalQuestions = attempt.TotalUnits, correctQuestions = attempt.CorrectUnits, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview = testAllowReview, questions = testAllowReview ? JsonPropArray(review, "questions") : Array.Empty<object>() });
     }
 
+    internal static IQueryable<TaskAttempt> SubmittedAttemptsForUser(IQueryable<TaskAttempt> attempts, Guid userId, string kind)
+        => attempts.Where(x => x.UserId == userId && x.Kind == kind && x.SubmittedAt != null);
+
+    internal static async Task<IResult> DeleteUserAttempts(Guid userId, string kind, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    {
+        if (userId == Guid.Empty)
+            return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
+
+        var deleted = await SubmittedAttemptsForUser(db.Attempts, userId, kind).ExecuteDeleteAsync(ct);
+        if (deleted > 0)
+            await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId }, $"{kind}-attempts-bulk-deleted", null, ct);
+
+        return Microsoft.AspNetCore.Http.Results.Ok(new { deleted, userId, kind });
+    }
+
     internal static async Task<IResult> DeleteAttempt(Guid attemptId, string kind, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
     {
         var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == kind, ct);

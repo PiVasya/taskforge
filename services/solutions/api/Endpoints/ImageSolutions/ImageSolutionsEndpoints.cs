@@ -21,6 +21,9 @@ namespace TaskForge.Solutions.Api.Endpoints;
 
 internal static partial class SolutionsApiEndpoints
 {
+    internal static IQueryable<UserImageTaskSolution> UserImageSolutionsForDeletion(IQueryable<UserImageTaskSolution> solutions, Guid userId)
+        => solutions.Where(x => x.UserId == userId);
+
     private static WebApplication MapImageSolutionsEndpoints(WebApplication app)
     {
         app.MapPost("/api/image-solutions", async (ImageSolutionSubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct) =>
@@ -128,6 +131,20 @@ internal static partial class SolutionsApiEndpoints
 
             var rows = await q.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ImageDto(x, includeReference: true)).ToList());
+        });
+
+        app.MapDelete("/api/admin/users/{userId:guid}/image-solutions", async (Guid userId, SolutionsDbContext db, CancellationToken ct) =>
+        {
+            if (userId == Guid.Empty)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
+
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var deleted = await UserImageSolutionsForDeletion(db.ImageSolutions, userId).ExecuteDeleteAsync(ct);
+            if (deleted > 0)
+                await MarkRatingDirtyAsync(db, userId, "image-solutions-bulk-deleted", null, ct);
+            await transaction.CommitAsync(ct);
+
+            return Microsoft.AspNetCore.Http.Results.Ok(new { deleted, userId });
         });
 
         app.MapDelete("/api/admin/image-solutions/{id:guid}", async (Guid id, SolutionsDbContext db, CancellationToken ct) =>

@@ -45,3 +45,8 @@ export async function getAdminTaskTestAttemptReview(attemptId) {
 export async function deleteAdminTaskTestAttempt(attemptId) {
   await api.delete(`/api/admin/test-attempts/${attemptId}`);
 }
+
+export async function deleteUserTaskTestAttempts(userId) {
+  const { data } = await api.delete(`/api/admin/users/${userId}/test-attempts`);
+  return data;
+}

@@ -43,6 +43,9 @@ internal static partial class AssignmentApiEndpoints
 
         app.MapDelete("/api/admin/test-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) => await DeleteAttempt(attemptId, "test", db, clients, cfg, ct));
 
+        app.MapDelete("/api/admin/users/{userId:guid}/test-attempts", async (Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+            await DeleteUserAttempts(userId, "test", db, clients, cfg, ct));
+
         return app;
     }
 }

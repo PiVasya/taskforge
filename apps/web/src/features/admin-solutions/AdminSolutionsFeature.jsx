@@ -4,7 +4,6 @@ import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   getSolutionDetails,
   getSolutionsDetailsBulkOrFallback,
-  deleteUserSolutions,
   deleteSolution,
   getAdminImageSolutionDetails,
   deleteAdminImageSolution,
@@ -12,6 +11,8 @@ import {
 import { getAdminTaskTestAttemptReview, deleteAdminTaskTestAttempt } from '../../api/taskTestAttempts';
 import { addGroupMember, removeGroupMember } from '../../api/groups';
 import { getAdminMathAttemptReview, deleteAdminMathAttempt } from '../../api/mathTaskAttempts';
+import { BULK_DELETE_TABS } from './adminSolutionBulkDeleteModel';
+import useAdminSolutionsBulkDelete from './useAdminSolutionsBulkDelete';
 import MathAttemptReview from '../../components/math/MathAttemptReview';
 import CodeEditor from '../../components/CodeEditor';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -41,8 +42,6 @@ import {
   getSolutionSubmittedAt,
   getSolutionTitle,
 } from '../../utils/solutionDto';
-
-
 
 const FILTER_OPTIONS = [
   { label: 'За всё время', value: null },
@@ -329,20 +328,22 @@ export default function AdminSolutionsPage() {
     setExpandedTestAttemptId(id);
   };
 
-  const handleDeleteAll = async () => {
-    if (!userId || !['code', 'sql'].includes(tab)) return;
-    const kind = tab;
-    const ok = window.confirm(`Удалить все ${kind === 'sql' ? 'SQL-решения' : 'решения по коду'} выбранного пользователя?`);
-    if (!ok) return;
-    try {
-      await deleteUserSolutions(userId, { kind });
-      await Promise.all([refetchSolutions(), refetchSql()]);
-      notify.success('Решения удалены');
-    } catch (e) {
-      const parsed = handleApiError(e, notify, 'Не удалось удалить решения');
-      setPageError(parsed);
-    }
-  };
+  const { bulkDeletingTab, handleDeleteAll } = useAdminSolutionsBulkDelete({
+    userId, tab, users,
+    onSuccess: (target) => {
+      setHistoryPages((current) => ({ ...current, [target.tab]: 1 }));
+      setExpandedCodeIds([]);
+      setExpandedTestAttemptId(null);
+      setExpandedImageId(null);
+      setExpandedMathAttemptId(null);
+      setDetailsMap({});
+      setTestDetailsMap({});
+      setImageDetailsMap({});
+      setMathDetailsMap({});
+      setPageError(null);
+    },
+    onError: setPageError,
+  });
 
   const handleDeleteSolution = async (id) => {
     const ok = window.confirm(`Удалить это ${tab === 'sql' ? 'SQL-решение' : 'решение по коду'}?`);
@@ -409,7 +410,6 @@ export default function AdminSolutionsPage() {
     }
   };
 
-
   const selectedUser = users.find((u) => u.id === userId) || null;
 
   return (
@@ -454,12 +454,13 @@ export default function AdminSolutionsPage() {
                   className="min-w-0"
                   placeholder="email / имя / фамилия"
                   value={q}
+                  disabled={!!bulkDeletingTab}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') loadUsers();
                   }}
                 />
-                <Button onClick={loadUsers} disabled={searchLoading}>
+                <Button onClick={loadUsers} disabled={searchLoading || !!bulkDeletingTab}>
                   Найти
                 </Button>
               </div>
@@ -469,7 +470,7 @@ export default function AdminSolutionsPage() {
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Пользователь
               </div>
-              <Select value={userId} onChange={(e) => {
+              <Select value={userId} disabled={!!bulkDeletingTab} onChange={(e) => {
                 const next = e.target.value;
                 setUserId(next);
                 if (next) setGroupId('');
@@ -487,7 +488,7 @@ export default function AdminSolutionsPage() {
               <div className="text-xs uppercase tracking-wide text-neutral-500">
                 Группа
               </div>
-              <Select value={groupId} onChange={(e) => {
+              <Select value={groupId} disabled={!!bulkDeletingTab} onChange={(e) => {
                 const next = e.target.value;
                 setGroupId(next);
                 if (next) setUserId('');
@@ -506,6 +507,7 @@ export default function AdminSolutionsPage() {
                 Период
               </div>
               <Select
+                disabled={!!bulkDeletingTab}
                 value={filterDays === null ? '' : String(filterDays)}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -544,9 +546,13 @@ export default function AdminSolutionsPage() {
                         ? 'Обновить группы'
                         : 'Загрузить решения'}
               </Button>}
-              {(tab === 'code' || tab === 'sql') && (
-                <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
-                  {tab === 'sql' ? 'Удалить все SQL-решения' : 'Удалить все решения по коду'}
+              {BULK_DELETE_TABS[tab] && (
+                <Button
+                  intent="danger"
+                  onClick={handleDeleteAll}
+                  disabled={!selectedUser || !!bulkDeletingTab || listLoading || sqlListLoading || testListLoading || imageListLoading || mathListLoading}
+                >
+                  {bulkDeletingTab === tab ? 'Удаление…' : `Удалить все ${BULK_DELETE_TABS[tab].label}`}
                 </Button>
               )}
             </div>
@@ -846,7 +852,6 @@ export default function AdminSolutionsPage() {
             Для этого пользователя нет попыток тестов за выбранный период.
           </Card>
         )}
-
 
         {tab === 'math' && !mathListLoading && displayedMathAttempts.length > 0 && (
           <Card className="p-4 space-y-4">

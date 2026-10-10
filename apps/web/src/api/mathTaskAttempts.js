@@ -42,3 +42,8 @@ export async function getAdminMathAttemptReview(attemptId) {
 export async function deleteAdminMathAttempt(attemptId) {
   await api.delete(`/api/admin/math-attempts/${attemptId}`);
 }
+
+export async function deleteUserMathAttempts(userId) {
+  const { data } = await api.delete(`/api/admin/users/${userId}/math-attempts`);
+  return data;
+}

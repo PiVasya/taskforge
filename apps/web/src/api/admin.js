@@ -91,9 +91,10 @@ export async function getSolutionsDetailsBulkOrFallback(ids, { concurrency = 4 }
 
 
 export async function deleteUserSolutions(userId, { courseId, assignmentId, kind } = {}) {
-  await api.delete(`/api/admin/users/${userId}/solutions`, {
+  const { data } = await api.delete(`/api/admin/users/${userId}/solutions`, {
     params: { courseId, assignmentId, kind },
   });
+  return data;
 }
 
 
@@ -125,4 +126,9 @@ export async function getAdminImageSolutionDetails(id) {
 
 export async function deleteAdminImageSolution(id) {
   await api.delete(`/api/admin/image-solutions/${id}`);
+}
+
+export async function deleteUserImageSolutions(userId) {
+  const { data } = await api.delete(`/api/admin/users/${userId}/image-solutions`);
+  return data;
 }
