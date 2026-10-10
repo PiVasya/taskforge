@@ -55,6 +55,7 @@ internal static partial class AccountSimilarityEngine
         AccountIntelligenceAccount a,
         AccountIntelligenceAccount b,
         AccountLearningProfile learning,
+        AccountSimilarityContext context,
         DateTimeOffset now)
     {
         var evidence = new List<AccountEvidence>();
@@ -216,17 +217,82 @@ internal static partial class AccountSimilarityEngine
         if (commonGroups.Length > 0)
             Add("context.group.same", "Состоят в одной группе", string.Join(", ", a.Groups.Where(x => commonGroups.Contains(x.GroupId)).Select(x => x.Name ?? x.GroupId.ToString())), Math.Min(11, 6 + commonGroups.Length * 2), "strong");
 
-        var commonAssignments = AccountAssignmentIds(a).Intersect(AccountAssignmentIds(b)).Count();
-        if (commonAssignments >= 12)
-            Add("activity.assignments.many", "Большое пересечение заданий", $"Совпало заданий: {commonAssignments}.", 8, "medium");
-        else if (commonAssignments >= 4)
-            Add("activity.assignments.some", "Есть пересечение заданий", $"Совпало заданий: {commonAssignments}.", 4, "weak");
+        var sharedAssignments = AccountAssignmentIds(a).Intersect(AccountAssignmentIds(b)).ToArray();
+        if (sharedAssignments.Length > 0)
+        {
+            // A task solved by many distinct pupils is typical curriculum overlap, not a personal identifier.
+            // Frequencies are per account (not per attempt) and common assignments contribute almost nothing.
+            var distinctiveEquivalent = sharedAssignments.Sum(id =>
+            {
+                var users = context.AssignmentUserCount(id);
+                if (users < 2 || context.AccountCount < users) return 0.0;
+                // With a very small snapshot, a task shared by everyone is not "rare".
+                var coverage = (double)users / context.AccountCount;
+                return Math.Pow(2.0 / users, 1.5) * (1.0 - coverage);
+            });
+            var widespreadCount = sharedAssignments.Count(id => context.AssignmentUserCount(id) >= 6);
+            var assignmentDetail = $"Совпало заданий: {sharedAssignments.Length}; " +
+                $"редкостно-взвешенное пересечение: {distinctiveEquivalent:0.#}; " +
+                $"у 6+ аккаунтов встречаются {widespreadCount}.";
+            var assignmentData = new
+            {
+                sharedAssignments = sharedAssignments.Length,
+                distinctiveEquivalent = Math.Round(distinctiveEquivalent, 2),
+                widelySolvedAssignments = widespreadCount,
+            };
+            if (distinctiveEquivalent >= 12)
+                Add("activity.assignments.distinctive.many", "Совпадают преимущественно редкие задания", assignmentDetail, 8, "medium", assignmentData);
+            else if (distinctiveEquivalent >= 5)
+                Add("activity.assignments.distinctive.some", "Есть пересечение редких заданий", assignmentDetail, 4, "weak", assignmentData);
+            else if (sharedAssignments.Length >= 4)
+                Add("activity.assignments.common-curriculum", "Совпадают учебные задания", assignmentDetail + " Общая программа курса — слабая улика.", 1, "weak", assignmentData);
+        }
 
-        var sharedDevices = SharedCount(a.Identity.DeviceHashes, b.Identity.DeviceHashes);
-        if (sharedDevices >= 2)
-            Add("technical.device.repeated", "Несколько общих устройств", $"Совпало устойчивых идентификаторов устройств: {sharedDevices}.", 24, "hard");
-        else if (sharedDevices == 1)
-            Add("technical.device.same", "Одно общее устройство", "Хотя бы один вход выполнен из одного браузерного профиля.", 18, "very-strong");
+        var sharedDevices = a.Identity.DeviceHashes
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim())
+            .Intersect(
+                b.Identity.DeviceHashes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!.Trim()),
+                StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (sharedDevices.Length > 0)
+        {
+            var ownerCounts = sharedDevices.Select(context.DeviceUserCount).OrderBy(x => x).ToArray();
+            // A single shared browser profile is not proof of a shared account owner.
+            // Reuse by >=6 people strongly suggests a classroom/lab device.
+            static int DeviceEvidenceWeight(int users) => users switch
+            {
+                2 => 18,
+                3 => 10,
+                >= 4 and <= 5 => 4,
+                _ => 1,
+            };
+            var weight = DeviceEvidenceWeight(ownerCounts[0]);
+            if (ownerCounts.Length > 1)
+                weight = Math.Min(24, weight + Math.Min(6, DeviceEvidenceWeight(ownerCounts[1]) / 3));
+
+            var sharedEnvironment = ownerCounts[0] >= 6;
+            var code = sharedEnvironment
+                ? "technical.device.shared-environment"
+                : ownerCounts[0] >= 4
+                    ? "technical.device.group-shared"
+                    : ownerCounts.Length >= 2
+                        ? "technical.device.distinctive.repeated"
+                        : "technical.device.distinctive.same";
+            var title = sharedEnvironment ? "Общий компьютер или профиль браузера" :
+                ownerCounts.Length >= 2 ? "Несколько общих профилей браузера" : "Общий профиль браузера";
+            var detail = $"Общих профилей: {sharedDevices.Length}. " +
+                $"Ими пользовались от {ownerCounts[0]} до {ownerCounts[^1]} разных аккаунтов. " +
+                "Один браузер не доказывает, что входил один человек.";
+            Add(code, title, detail, weight, weight >= 10 ? "medium" : "weak", new
+            {
+                sharedProfiles = sharedDevices.Length,
+                leastSharedProfileUsers = ownerCounts[0],
+                mostSharedProfileUsers = ownerCounts[^1],
+                sharedEnvironment,
+            });
+        }
 
         var sharedIdentityIps = SharedCount(a.Identity.IpHashes, b.Identity.IpHashes);
         var sharedTaskIps = SharedCount(a.Tasks?.IpHashes, b.Tasks?.IpHashes);
@@ -254,19 +320,47 @@ internal static partial class AccountSimilarityEngine
         var olderAccount = a.Identity.CreatedAt <= b.Identity.CreatedAt ? a : b;
         var newerAccount = olderAccount.UserId == a.UserId ? b : a;
         var olderLast = LastActivity(olderAccount);
-        if (olderLast.HasValue)
+        var newerLast = LastActivity(newerAccount);
+        // Handoff requires a real chronological sequence: the old account stopped before
+        // the new one was created, and the new one was subsequently used. A continued old
+        // login/solution after registration of the new account is parallel usage, not handoff.
+        var sequentialHandoff = olderLast.HasValue && newerLast.HasValue &&
+            olderLast.Value >= olderAccount.Identity.CreatedAt &&
+            olderLast.Value <= newerAccount.Identity.CreatedAt &&
+            newerLast.Value >= newerAccount.Identity.CreatedAt &&
+            TotalMeaningfulActions(olderAccount) > 0 &&
+            TotalMeaningfulActions(newerAccount) > 0;
+        if (sequentialHandoff)
         {
-            var handoffGap = Math.Abs((newerAccount.Identity.CreatedAt - olderLast.Value).TotalDays);
+            var handoffGap = (newerAccount.Identity.CreatedAt - olderLast!.Value).TotalDays;
+            var olderActiveDays = new[]
+            {
+                olderAccount.Identity.LoginDays,
+                olderAccount.Tasks?.ActiveDays ?? 0,
+                olderAccount.Solutions?.ActiveDays ?? 0,
+                olderAccount.Observability?.ActiveDays ?? 0,
+            }.Max();
+            // Two distinct observed days and an account lifetime of at least a day support
+            // a genuine change of account rather than two quick classroom registrations.
+            var establishedOldAccount = olderActiveDays >= 2 &&
+                (olderLast.Value - olderAccount.Identity.CreatedAt).TotalDays >= 1;
             if (handoffGap <= 14)
-                Add("activity.account-handoff.2w", "Новый аккаунт появился рядом с активностью старого", $"Создание нового профиля и последняя активность старого разделены примерно на {FormatDays(handoffGap)}.", 7, "medium");
+                Add("activity.account-handoff.sequential.2w", "Использование нового аккаунта после завершения старого",
+                    $"Старый аккаунт перестал использоваться за {FormatDays(handoffGap)} до создания нового. " +
+                    $"Дней активности старого: не менее {olderActiveDays}.",
+                    establishedOldAccount ? 7 : 3, establishedOldAccount ? "medium" : "weak");
             else if (handoffGap <= 45)
-                Add("activity.account-handoff.6w", "Возможный переход на новый аккаунт", $"Новый профиль появился в пределах нескольких недель от активности старого: {FormatDays(handoffGap)}.", 4, "weak");
+                Add("activity.account-handoff.sequential.6w", "Возможный переход после завершения старого аккаунта",
+                    $"Новый профиль создан через {FormatDays(handoffGap)} после последней активности старого. " +
+                    $"Дней активности старого: не менее {olderActiveDays}.",
+                    establishedOldAccount ? 4 : 2, "weak");
         }
 
         var olderActivity = ActivityScore(olderAccount, now);
         var newerActivity = ActivityScore(newerAccount, now);
-        if (newerActivity >= 55 && olderActivity <= 25 && newerActivity - olderActivity >= 30)
-            Add("activity.new-account-now-dominant", "Новый аккаунт заметно активнее сейчас", $"Текущая активность: новый {newerActivity}/100, старый {olderActivity}/100.", 6, "medium");
+        if (sequentialHandoff && newerActivity >= 55 && olderActivity <= 25 && newerActivity - olderActivity >= 30)
+            Add("activity.new-account-now-dominant.sequential", "Новый аккаунт заметно активнее после завершения старого",
+                $"Текущая активность: новый {newerActivity}/100, старый {olderActivity}/100.", 6, "medium");
 
         var baseScore = CappedEvidenceScore(evidence);
         var learnedDelta = Math.Clamp(
@@ -489,7 +583,7 @@ internal static partial class AccountSimilarityEngine
         return Score(a) >= Score(b) ? a.UserId : b.UserId;
     }
 
-    private static IEnumerable<Guid> AccountAssignmentIds(AccountIntelligenceAccount account)
+    internal static IEnumerable<Guid> AccountAssignmentIds(AccountIntelligenceAccount account)
         => (account.Tasks?.AssignmentIds ?? []).Concat(account.Solutions?.AssignmentIds ?? []).Distinct();
 
     private static int SharedCount(IEnumerable<string?>? a, IEnumerable<string?>? b)

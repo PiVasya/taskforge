@@ -41,7 +41,7 @@ internal static partial class AiApiEndpoints
                 Status = "queued",
                 Phase = "queued",
                 ProgressPercent = 0,
-                AlgorithmVersion = "account-intelligence-v1.1",
+                AlgorithmVersion = "account-intelligence-v1.2",
             };
             db.AccountAnalysisRuns.Add(run);
             await db.SaveChangesAsync(ct);

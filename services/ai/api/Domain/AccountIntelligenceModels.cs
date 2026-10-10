@@ -11,7 +11,7 @@ public sealed class AccountAnalysisRun
     public int CandidatePairs { get; set; }
     public int DuplicateFindings { get; set; }
     public int SuspiciousFindings { get; set; }
-    public string AlgorithmVersion { get; set; } = "account-intelligence-v1.1";
+    public string AlgorithmVersion { get; set; } = "account-intelligence-v1.2";
     public string? SourcesJson { get; set; }
     public string? ErrorJson { get; set; }
     public DateTimeOffset? StartedAtUtc { get; set; }

@@ -35,10 +35,11 @@ export function AssignmentLinkButton({ assignmentId }) {
 function detailActionLabel(kind, expanded) {
   if (expanded) return 'Скрыть';
   const value = String(kind || '').toLowerCase();
-  return value === 'code' || value === 'sql' ? 'Показать код' : 'Просмотреть';
+  if (value === 'sql') return 'Показать SQL';
+  return value === 'code' ? 'Показать код' : 'Просмотреть';
 }
 
-function CodeLiveDetails({ detail }) {
+function CodeLiveDetails({ detail, kind = 'code' }) {
   const code = getSolutionCode(detail);
   const { passed, failed } = getSolutionPassedFailed(detail);
 
@@ -52,7 +53,7 @@ function CodeLiveDetails({ detail }) {
       {code ? (
         <div className="rounded-xl overflow-hidden border border-neutral-700">
           <CodeEditor
-            language={detail?.language || detail?.Language || 'text'}
+            language={kind === 'sql' ? 'sql' : detail?.language || detail?.Language || 'text'}
             value={code}
             readOnly
             onChange={() => {}}
@@ -60,7 +61,7 @@ function CodeLiveDetails({ detail }) {
           />
         </div>
       ) : (
-        <CompactEmpty>Код не найден для этого решения.</CompactEmpty>
+        <CompactEmpty>{kind === 'sql' ? 'SQL-запрос не найден для этого решения.' : 'Код не найден для этого решения.'}</CompactEmpty>
       )}
       <RunnerOutput item={detail} />
     </div>
@@ -128,7 +129,7 @@ function LiveDetails({ kind, detail }) {
   if (value === 'test') return <TestAttemptReview dto={detail} />;
   if (value === 'math') return <MathAttemptReview dto={detail} admin />;
   if (value === 'image') return <ImageLiveDetails detail={detail} />;
-  return <CodeLiveDetails detail={detail} />;
+  return <CodeLiveDetails kind={value} detail={detail} />;
 }
 
 export default function AdminSolutionLiveCard({ item }) {

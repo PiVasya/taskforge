@@ -11,6 +11,10 @@ const DANGER_STATUSES = new Set([
   'judgeunavailable',
   'languagenotallowed',
   'failed',
+  'wronganswer',
+  'runtimeerror',
+  'timelimitexceeded',
+  'outputlimitexceeded',
 ]);
 
 function isObject(value) {
@@ -85,6 +89,10 @@ export function getSolutionStatusLabel(solutionOrStatus) {
   if (status === 'compileerror' || status === 'compilationerror') return 'Ошибка компиляции';
   if (status === 'policyfailed') return 'Отклонено анализатором';
   if (status === 'notestsconfigured') return 'Нет тестов';
+  if (status === 'wronganswer') return 'Неверный ответ';
+  if (status === 'runtimeerror') return 'Ошибка выполнения';
+  if (status === 'timelimitexceeded') return 'Лимит времени';
+  if (status === 'outputlimitexceeded') return 'Лимит вывода';
   if (status === 'judgeunavailable') return 'Проверка недоступна';
   if (status === 'languagenotallowed') return 'Язык не разрешён';
   if (status === 'queued' || status === 'pending') return 'В очереди';

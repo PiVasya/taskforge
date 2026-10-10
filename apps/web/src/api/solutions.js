@@ -9,6 +9,7 @@ export async function getMySolutions(opts = {}) {
   if (opts && typeof opts === 'object' && !Array.isArray(opts)) {
     if (opts.courseId) params.courseId = opts.courseId;
     if (opts.assignmentId) params.assignmentId = opts.assignmentId;
+    if (opts.kind === 'code' || opts.kind === 'sql') params.kind = opts.kind;
     if (Number.isFinite(opts.skip)) params.skip = opts.skip;
     if (Number.isFinite(opts.take)) params.take = opts.take;
     if (Number.isFinite(opts.days) || opts.days === null) params.days = opts.days;

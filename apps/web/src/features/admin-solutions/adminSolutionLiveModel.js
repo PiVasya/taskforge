@@ -14,7 +14,7 @@ export function filterLiveItems(items, { userId = '', groupId = '', groupUserIds
 export function filterLiveItemsByTab(items, tab) {
   const value = String(tab || 'live').toLowerCase();
   if (value === 'groups') return [];
-  if (value === 'code') return (items || []).filter((item) => ['code', 'sql'].includes(String(item?.kind || '').toLowerCase()));
+  if (value === 'code' || value === 'sql') return (items || []).filter((item) => String(item?.kind || '').toLowerCase() === value);
   if (value === 'tests') return (items || []).filter((item) => String(item?.kind || '').toLowerCase() === 'test');
   if (value === 'images') return (items || []).filter((item) => String(item?.kind || '').toLowerCase() === 'image');
   if (value === 'math') return (items || []).filter((item) => String(item?.kind || '').toLowerCase() === 'math');

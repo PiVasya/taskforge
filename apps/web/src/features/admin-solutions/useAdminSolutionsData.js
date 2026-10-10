@@ -31,6 +31,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
   const normalizedDays = filterDays == null ? null : Number(filterDays);
   const normalizedPageSize = Math.max(10, Math.min(Number(pageSize) || 50, 200));
   const codePage = Math.max(1, Number(pages.code) || 1);
+  const sqlPage = Math.max(1, Number(pages.sql) || 1);
   const testPage = Math.max(1, Number(pages.tests) || 1);
   const imagePage = Math.max(1, Number(pages.images) || 1);
   const mathPage = Math.max(1, Number(pages.math) || 1);
@@ -41,6 +42,10 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
   );
   const codeKey = useMemo(
     () => ['admin-solutions', 'code-history', normalizedUserId, normalizedDays],
+    [normalizedDays, normalizedUserId],
+  );
+  const sqlKey = useMemo(
+    () => ['admin-solutions', 'sql-history', normalizedUserId, normalizedDays],
     [normalizedDays, normalizedUserId],
   );
   const testKey = useMemo(
@@ -75,7 +80,15 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
   const codeQuery = useQuery({
     queryKey: codeKey,
-    queryFn: () => getUserSolutionsHistory(normalizedUserId, { days: normalizedDays }),
+    queryFn: () => getUserSolutionsHistory(normalizedUserId, { days: normalizedDays, kind: 'code' }),
+    enabled: normalizedUserId.length > 0,
+    staleTime: 15_000,
+    keepPreviousData: false,
+  });
+
+  const sqlQuery = useQuery({
+    queryKey: sqlKey,
+    queryFn: () => getUserSolutionsHistory(normalizedUserId, { days: normalizedDays, kind: 'sql' }),
     enabled: normalizedUserId.length > 0,
     staleTime: 15_000,
     keepPreviousData: false,
@@ -142,12 +155,17 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
   const codeHistory = normalizedUserId ? exactUserHistoryPage(codeQuery.data, normalizedUserId) : asAdminHistoryPage(null);
   const codeData = paginateAdminHistoryPage(codeHistory, codePage, normalizedPageSize);
+  const sqlHistory = normalizedUserId ? exactUserHistoryPage(sqlQuery.data, normalizedUserId) : asAdminHistoryPage(null);
+  const sqlData = paginateAdminHistoryPage(sqlHistory, sqlPage, normalizedPageSize);
   const testData = normalizedUserId ? exactUserHistoryPage(testsQuery.data, normalizedUserId) : asAdminHistoryPage(null);
   const imageData = normalizedUserId ? exactUserHistoryPage(imagesQuery.data, normalizedUserId) : asAdminHistoryPage(null);
   const mathData = normalizedUserId ? exactUserHistoryPage(mathQuery.data, normalizedUserId) : asAdminHistoryPage(null);
 
   const removeCodeSolution = (id) => {
     queryClient.setQueryData(codeKey, (current) => removeAdminHistoryItem(current, (item) => item?.id !== id));
+  };
+  const removeSqlSolution = (id) => {
+    queryClient.setQueryData(sqlKey, (current) => removeAdminHistoryItem(current, (item) => item?.id !== id));
   };
   const removeTestAttempt = (attemptId) => {
     queryClient.setQueryData(testKey, (current) => removeAdminHistoryItem(current, (item) => item?.attemptId !== attemptId));
@@ -169,6 +187,8 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     users: asArray(usersQuery.data),
     solutions: codeData.items,
     solutionsTotal: codeData.total,
+    sqlSolutions: sqlData.items,
+    sqlSolutionsTotal: sqlData.total,
     testAttempts: testData.items,
     testAttemptsTotal: testData.total,
     imageSolutions: imageData.items,
@@ -181,6 +201,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
     searchLoading: usersQuery.isFetching,
     listLoading: codeQuery.isFetching,
+    sqlListLoading: sqlQuery.isFetching,
     testListLoading: testsQuery.isFetching,
     imageListLoading: imagesQuery.isFetching,
     mathListLoading: mathQuery.isFetching,
@@ -190,6 +211,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     error:
       usersQuery.error ||
       codeQuery.error ||
+      sqlQuery.error ||
       testsQuery.error ||
       imagesQuery.error ||
       mathQuery.error ||
@@ -200,6 +222,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
     refetchUsers: usersQuery.refetch,
     refetchSolutions: codeQuery.refetch,
+    refetchSql: sqlQuery.refetch,
     refetchTests: testsQuery.refetch,
     refetchImages: imagesQuery.refetch,
     refetchMath: mathQuery.refetch,
@@ -207,6 +230,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
     refetchUserGroups: userGroupsQuery.refetch,
 
     removeCodeSolution,
+    removeSqlSolution,
     removeTestAttempt,
     removeImageSolution,
     removeMathAttempt,

@@ -96,6 +96,7 @@ export default function AdminUserManagementPage() {
   const [groupIds, setGroupIds] = useState(new Set());
   const [featureRoles, setFeatureRoles] = useState([]);
   const [codeSolutions, setCodeSolutions] = useState([]);
+  const [sqlSolutions, setSqlSolutions] = useState([]);
   const [imageSolutions, setImageSolutions] = useState([]);
   const [testAttempts, setTestAttempts] = useState([]);
   const [mathAttempts, setMathAttempts] = useState([]);
@@ -122,13 +123,14 @@ export default function AdminUserManagementPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [userDto, ratingRows, allGroups, userGroups, allFeatureRoles, codeRows, imageRows, testRows, mathRows, mcRatingDto, operationRows] = await Promise.all([
+      const [userDto, ratingRows, allGroups, userGroups, allFeatureRoles, codeRows, sqlRows, imageRows, testRows, mathRows, mcRatingDto, operationRows] = await Promise.all([
         getAdminUser(userId),
         searchUsersOnce(userId, 1).catch(() => []),
         getAdminGroups().catch(() => []),
         getAdminUserGroupIds(userId).catch(() => []),
         getFeatureRoles().catch(() => []),
-        getUserSolutions(userId, { take: 10 }).catch(() => []),
+        getUserSolutions(userId, { take: 10, kind: 'code' }).catch(() => []),
+        getUserSolutions(userId, { take: 10, kind: 'sql' }).catch(() => []),
         getUserImageSolutions(userId, { take: 10 }).catch(() => []),
         getUserTaskTestAttempts(userId, { take: 10 }).catch(() => []),
         getUserMathAttempts(userId, { take: 10 }).catch(() => []),
@@ -148,6 +150,7 @@ export default function AdminUserManagementPage() {
       setGroupIds(new Set((Array.isArray(userGroups) ? userGroups : []).map((x) => String(x).toLowerCase())));
       setFeatureRoles(Array.isArray(allFeatureRoles) ? allFeatureRoles : []);
       setCodeSolutions(Array.isArray(codeRows) ? codeRows : []);
+      setSqlSolutions(Array.isArray(sqlRows) ? sqlRows : []);
       setImageSolutions(Array.isArray(imageRows) ? imageRows : []);
       setTestAttempts(Array.isArray(testRows) ? testRows : []);
       setMathAttempts(Array.isArray(mathRows) ? mathRows : []);
@@ -249,7 +252,7 @@ export default function AdminUserManagementPage() {
 
   const deleteCodeSolutions = async () => {
     const ok = await notify.confirm({ title: 'Удалить code-решения?', message: 'Будут удалены все code-сабмиты пользователя. Действие необратимо.', okText: 'Удалить', cancelText: 'Отмена' });
-    if (ok) await runAction('delete-code', () => deleteUserSolutions(userId, {}), 'Code-решения удалены', 'Не удалось удалить code-решения');
+    if (ok) await runAction('delete-code', () => deleteUserSolutions(userId, { kind: 'code' }), 'Code-решения удалены', 'Не удалось удалить code-решения');
   };
 
   const deleteUserAccount = async () => {
@@ -263,7 +266,7 @@ export default function AdminUserManagementPage() {
   const score = numeric(rating?.score ?? rating?.rating ?? rating?.totalScore);
   const solved = numeric(rating?.solved ?? rating?.solvedCount);
   const attempts = numeric(rating?.totalAttempts);
-  const totalRecent = codeSolutions.length + imageSolutions.length + testAttempts.length + mathAttempts.length;
+  const totalRecent = codeSolutions.length + sqlSolutions.length + imageSolutions.length + testAttempts.length + mathAttempts.length;
   const attemptsShown = attempts > 0 ? attempts : totalRecent;
   const statusLabel = user?.blocked ? 'Заблокирован' : user?.accountStatus === 'merged' ? 'Объединён' : user?.accountStatus === 'deleted' ? 'Удалён' : 'Активен';
   const statusIntent = user?.blocked || user?.accountStatus === 'deleted' ? 'danger' : user?.accountStatus === 'merged' ? 'outline' : 'success';
@@ -371,7 +374,7 @@ export default function AdminUserManagementPage() {
         <div className="space-y-2">{operations.length ? operations.slice(0, 8).map((operation) => <div key={operation.id} className="rounded-2xl border border-[rgb(var(--border))] p-3"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-medium">{operationLabel(operation.type)}</div><div className="mt-1 text-xs text-neutral-500">{formatDate(operation.createdAtUtc)} · {operation.phase || operation.status}</div></div><div className="flex items-center gap-2"><Badge intent={operationIntent(operation.status)}>{operation.status}</Badge><Badge intent="outline">{operation.progressPercent || 0}%</Badge></div></div></div>) : <div className="text-sm text-neutral-500">Операций жизненного цикла пока нет.</div>}</div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 sm:gap-6"><ActivityList title="Последние code-решения" rows={codeSolutions} emptyText="Code-решений нет." /><ActivityList title="Последние image-решения" rows={imageSolutions} emptyText="Image-решений нет." /><ActivityList title="Последние тесты" rows={testAttempts} emptyText="Попыток тестов нет." /><ActivityList title="Последние math-попытки" rows={mathAttempts} emptyText="Math-попыток нет." /></div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 sm:gap-6"><ActivityList title="Последние code-решения" rows={codeSolutions} emptyText="Code-решений нет." /><ActivityList title="Последние SQL-решения" rows={sqlSolutions} emptyText="SQL-решений нет." /><ActivityList title="Последние image-решения" rows={imageSolutions} emptyText="Image-решений нет." /><ActivityList title="Последние тесты" rows={testAttempts} emptyText="Попыток тестов нет." /><ActivityList title="Последние math-попытки" rows={mathAttempts} emptyText="Math-попыток нет." /></div>
     </div>
   );
 }

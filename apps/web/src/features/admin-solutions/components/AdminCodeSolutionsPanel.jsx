@@ -18,6 +18,7 @@ import {
 
 export default function AdminCodeSolutionsPanel({
   solutions,
+  kind = 'code',
   total,
   page,
   pageSize,
@@ -33,17 +34,18 @@ export default function AdminCodeSolutionsPanel({
   onDeleteSolution,
 }) {
   const anyExpanded = solutions.some((item) => expandedCodeIds.includes(item.id));
+  const isSql = kind === 'sql';
 
   return (
     <Card className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <AdminHistoryPager label="code" page={page} total={total} pageSize={pageSize} onPage={onPage} />
+        <AdminHistoryPager label={kind} page={page} total={total} pageSize={pageSize} onPage={onPage} />
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={onExpandPageCodes} disabled={bulkCodeLoading}>
-            {bulkCodeLoading ? 'Загружаю код…' : 'Показать код всей страницы'}
+            {bulkCodeLoading ? 'Загружаю решения…' : isSql ? 'Показать SQL всей страницы' : 'Показать код всей страницы'}
           </Button>
           <Button variant="outline" onClick={onCollapsePageCodes} disabled={!anyExpanded}>
-            Скрыть код страницы
+            {isSql ? 'Скрыть SQL страницы' : 'Скрыть код страницы'}
           </Button>
         </div>
       </div>
@@ -60,6 +62,7 @@ export default function AdminCodeSolutionsPanel({
           return (
             <div
               key={item.id}
+              data-taskforge-agent-kind={kind}
               className="border border-neutral-200 dark:border-neutral-800/40 rounded-xl p-4 bg-[rgb(var(--card))]"
               data-solution-id={item.id}
               data-user-id={item.userId || item.UserId || userId}
@@ -70,7 +73,7 @@ export default function AdminCodeSolutionsPanel({
                 <div className="min-w-0">
                   <div className="font-medium text-neutral-900 dark:text-neutral-50 truncate">{getSolutionTitle(effective)}</div>
                   <div className="text-xs text-neutral-600 dark:text-neutral-400">
-                    {formatDateTime(getSolutionSubmittedAt(effective))} • {effective.language || effective.Language || '—'}
+                    {formatDateTime(getSolutionSubmittedAt(effective))} • {isSql ? 'SQL' : effective.language || effective.Language || '—'}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
@@ -80,7 +83,7 @@ export default function AdminCodeSolutionsPanel({
                   ) : null}
                   <AssignmentLinkButton assignmentId={getAssignmentId(effective)} />
                   <Button variant="outline" className="inline-flex items-center gap-2" onClick={() => onToggleCode(item.id)} disabled={loadingDetails}>
-                    {expanded ? 'Скрыть код' : 'Показать код'}
+                    {expanded ? (isSql ? 'Скрыть SQL' : 'Скрыть код') : (isSql ? 'Показать SQL' : 'Показать код')}
                   </Button>
                   <Button variant="outline" intent="danger" className="inline-flex items-center gap-2" onClick={() => onDeleteSolution(item.id)} title="Удалить это решение">
                     <Trash2 size={16} />
@@ -94,9 +97,9 @@ export default function AdminCodeSolutionsPanel({
                   {!loadingDetails && full ? (
                     code ? (
                       <div className="rounded-xl overflow-hidden border border-neutral-700">
-                        <CodeEditor language={full.language || full.Language || item.language || 'text'} value={code} readOnly onChange={() => {}} height={360} />
+                        <CodeEditor language={isSql ? 'sql' : full.language || full.Language || item.language || 'text'} value={code} readOnly onChange={() => {}} height={360} />
                       </div>
-                    ) : <CompactEmpty>Код не найден для этого решения.</CompactEmpty>
+                    ) : <CompactEmpty>{isSql ? 'SQL-запрос не найден для этого решения.' : 'Код не найден для этого решения.'}</CompactEmpty>
                   ) : null}
                   {!loadingDetails && full ? <RunnerOutput item={full} /> : null}
                 </div>

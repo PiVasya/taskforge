@@ -67,7 +67,7 @@ export default function AdminSolutionsPage() {
   const [detailsLoadingMap, setDetailsLoadingMap] = useState({});
   const [expandedCodeIds, setExpandedCodeIds] = useState([]);
   const [bulkCodeLoading, setBulkCodeLoading] = useState(false);
-  const [historyPages, setHistoryPages] = useState({ code: 1, tests: 1, images: 1, math: 1 });
+  const [historyPages, setHistoryPages] = useState({ code: 1, sql: 1, tests: 1, images: 1, math: 1 });
   const historyPageSize = 50;
 
   const [testDetailsMap, setTestDetailsMap] = useState({});
@@ -86,6 +86,8 @@ export default function AdminSolutionsPage() {
     users,
     solutions,
     solutionsTotal,
+    sqlSolutions,
+    sqlSolutionsTotal,
     testAttempts,
     testAttemptsTotal,
     imageSolutions,
@@ -97,6 +99,7 @@ export default function AdminSolutionsPage() {
     selectedGroupUserIds,
     searchLoading,
     listLoading,
+    sqlListLoading,
     testListLoading,
     imageListLoading,
     mathListLoading,
@@ -105,11 +108,13 @@ export default function AdminSolutionsPage() {
     error: queryError,
     refetchUsers,
     refetchSolutions,
+    refetchSql,
     refetchTests,
     refetchImages,
     refetchMath,
     refetchUserGroups,
     removeCodeSolution,
+    removeSqlSolution,
     removeTestAttempt,
     removeImageSolution,
     removeMathAttempt,
@@ -143,7 +148,7 @@ export default function AdminSolutionsPage() {
 
   useEffect(() => {
     setExpandedCodeIds([]);
-    setHistoryPages({ code: 1, tests: 1, images: 1, math: 1 });
+    setHistoryPages({ code: 1, sql: 1, tests: 1, images: 1, math: 1 });
     setExpandedTestAttemptId(null);
     setExpandedImageId(null);
     setExpandedMathAttemptId(null);
@@ -159,6 +164,12 @@ export default function AdminSolutionsPage() {
     list.sort((a, b) => new Date(getSolutionDate(b) || 0) - new Date(getSolutionDate(a) || 0));
     return list;
   }, [solutions]);
+
+  const displayedSqlSolutions = useMemo(() => {
+    const list = [...sqlSolutions];
+    list.sort((a, b) => new Date(getSolutionDate(b) || 0) - new Date(getSolutionDate(a) || 0));
+    return list;
+  }, [sqlSolutions]);
 
   const displayedAttempts = useMemo(() => {
     const list = [...testAttempts];
@@ -217,7 +228,7 @@ export default function AdminSolutionsPage() {
   };
 
   const handleExpandPageCodes = async () => {
-    const ids = displayedSolutions.map((item) => item.id).filter(Boolean);
+    const ids = (tab === 'sql' ? displayedSqlSolutions : displayedSolutions).map((item) => item.id).filter(Boolean);
     if (!ids.length) return;
     setBulkCodeLoading(true);
     try {
@@ -243,7 +254,7 @@ export default function AdminSolutionsPage() {
   };
 
   const handleCollapsePageCodes = () => {
-    const pageIds = new Set(displayedSolutions.map((item) => item.id));
+    const pageIds = new Set((tab === 'sql' ? displayedSqlSolutions : displayedSolutions).map((item) => item.id));
     setExpandedCodeIds((current) => current.filter((id) => !pageIds.has(id)));
   };
 
@@ -319,19 +330,27 @@ export default function AdminSolutionsPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!userId) return;
-    const ok = window.confirm('Удалить все решения выбранного пользователя?');
+    if (!userId || !['code', 'sql'].includes(tab)) return;
+    const kind = tab;
+    const ok = window.confirm(`Удалить все ${kind === 'sql' ? 'SQL-решения' : 'решения по коду'} выбранного пользователя?`);
     if (!ok) return;
-    await deleteUserSolutions(userId);
-    await refetchSolutions();
+    try {
+      await deleteUserSolutions(userId, { kind });
+      await Promise.all([refetchSolutions(), refetchSql()]);
+      notify.success('Решения удалены');
+    } catch (e) {
+      const parsed = handleApiError(e, notify, 'Не удалось удалить решения');
+      setPageError(parsed);
+    }
   };
 
   const handleDeleteSolution = async (id) => {
-    const ok = window.confirm('Удалить это решение (код)?');
+    const ok = window.confirm(`Удалить это ${tab === 'sql' ? 'SQL-решение' : 'решение по коду'}?`);
     if (!ok) return;
     try {
       await deleteSolution(id);
-      removeCodeSolution(id);
+      if (tab === 'sql') removeSqlSolution(id);
+      else removeCodeSolution(id);
       setDetailsMap((prev) => {
         const copy = { ...prev };
         delete copy[id];
@@ -407,6 +426,9 @@ export default function AdminSolutionsPage() {
             </Button>
             <Button variant={tab === 'code' ? 'primary' : 'outline'} onClick={() => setTab('code')}>
               Код
+            </Button>
+            <Button variant={tab === 'sql' ? 'primary' : 'outline'} onClick={() => setTab('sql')}>
+              SQL
             </Button>
             <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>
               Тесты
@@ -501,16 +523,19 @@ export default function AdminSolutionsPage() {
             <div className="flex flex-wrap items-end gap-2 min-w-0 md:col-span-2 xl:col-span-4">
               {tab !== 'live' && <Button
                 onClick={() => {
+                  if (tab === 'sql') return refetchSql();
                   if (tab === 'tests') return refetchTests();
                   if (tab === 'images') return refetchImages();
                   if (tab === 'math') return refetchMath();
                   if (tab === 'groups') return refetchUserGroups();
                   return refetchSolutions();
                 }}
-                disabled={!userId || listLoading || testListLoading || imageListLoading || mathListLoading || searchLoading}
+                disabled={!userId || listLoading || sqlListLoading || testListLoading || imageListLoading || mathListLoading || searchLoading}
               >
-                {tab === 'tests'
-                  ? 'Загрузить попытки тестов'
+                {tab === 'sql'
+                  ? 'Загрузить SQL-решения'
+                  : tab === 'tests'
+                    ? 'Загрузить попытки тестов'
                   : tab === 'images'
                     ? 'Загрузить решения (картинки)'
                     : tab === 'math'
@@ -519,9 +544,9 @@ export default function AdminSolutionsPage() {
                         ? 'Обновить группы'
                         : 'Загрузить решения'}
               </Button>}
-              {tab === 'code' && (
+              {(tab === 'code' || tab === 'sql') && (
                 <Button intent="danger" onClick={handleDeleteAll} disabled={!userId || listLoading}>
-                  Удалить все решения
+                  {tab === 'sql' ? 'Удалить все SQL-решения' : 'Удалить все решения по коду'}
                 </Button>
               )}
             </div>
@@ -566,6 +591,9 @@ export default function AdminSolutionsPage() {
         {tab === 'code' && listLoading && (
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
+        {tab === 'sql' && sqlListLoading && (
+          <div className="text-neutral-600 dark:text-neutral-300">Загрузка SQL-решений…</div>
+        )}
         {tab === 'tests' && testListLoading && (
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
@@ -576,13 +604,16 @@ export default function AdminSolutionsPage() {
           <div className="text-neutral-600 dark:text-neutral-300">Загрузка…</div>
         )}
 
-        {tab === 'code' && !listLoading && displayedSolutions.length > 0 && (
+        {(tab === 'code' || tab === 'sql') &&
+          !(tab === 'sql' ? sqlListLoading : listLoading) &&
+          (tab === 'sql' ? displayedSqlSolutions : displayedSolutions).length > 0 && (
           <AdminCodeSolutionsPanel
-            solutions={displayedSolutions}
-            total={solutionsTotal}
-            page={historyPages.code}
+            kind={tab}
+            solutions={tab === 'sql' ? displayedSqlSolutions : displayedSolutions}
+            total={tab === 'sql' ? sqlSolutionsTotal : solutionsTotal}
+            page={historyPages[tab]}
             pageSize={historyPageSize}
-            onPage={(page) => setHistoryPage('code', page)}
+            onPage={(page) => setHistoryPage(tab, page)}
             userId={userId}
             detailsMap={detailsMap}
             detailsLoadingMap={detailsLoadingMap}
@@ -595,7 +626,6 @@ export default function AdminSolutionsPage() {
           />
         )}
 
-        
         {tab === 'images' && !imageListLoading && displayedImageSolutions.length > 0 && (
           <Card className="p-4 space-y-4">
             <AdminHistoryPager
@@ -802,6 +832,12 @@ export default function AdminSolutionsPage() {
         {tab === 'code' && !listLoading && !displayedSolutions.length && selectedUser && (
           <Card className="p-4 text-neutral-600 dark:text-neutral-400">
             Для этого пользователя нет решений по коду за выбранный период.
+          </Card>
+        )}
+
+        {tab === 'sql' && !sqlListLoading && !displayedSqlSolutions.length && selectedUser && (
+          <Card className="p-4 text-neutral-600 dark:text-neutral-400">
+            Для этого пользователя нет SQL-решений за выбранный период.
           </Card>
         )}
 

@@ -21,16 +21,16 @@ export async function searchUsersOnce(q = '', take = 20) {
 }
 
 
-export async function getUserSolutionsPage(userId, { courseId, assignmentId, skip = 0, take = 50, days = null } = {}) {
+export async function getUserSolutionsPage(userId, { courseId, assignmentId, skip = 0, take = 50, days = null, kind } = {}) {
   const response = await api.get(`/api/admin/users/${userId}/solutions`, {
-    params: { courseId, assignmentId, skip, take, days },
+    params: { courseId, assignmentId, skip, take, days, kind },
   });
   return pageResult(response, userId);
 }
 
-export async function getUserSolutionsHistory(userId, { courseId, assignmentId, days = null } = {}) {
+export async function getUserSolutionsHistory(userId, { courseId, assignmentId, days = null, kind } = {}) {
   const response = await api.get(`/api/admin/users/${userId}/solutions`, {
-    params: { courseId, assignmentId, days, all: true },
+    params: { courseId, assignmentId, days, kind, all: true },
   });
   return pageResult(response, userId);
 }
@@ -90,9 +90,9 @@ export async function getSolutionsDetailsBulkOrFallback(ids, { concurrency = 4 }
 }
 
 
-export async function deleteUserSolutions(userId, { courseId, assignmentId } = {}) {
+export async function deleteUserSolutions(userId, { courseId, assignmentId, kind } = {}) {
   await api.delete(`/api/admin/users/${userId}/solutions`, {
-    params: { courseId, assignmentId },
+    params: { courseId, assignmentId, kind },
   });
 }
 

@@ -54,6 +54,7 @@ internal sealed class AccountIntelligenceScanner(
                 .Where(x => !string.Equals(x.Identity.Role, "Admin", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Identity.Role, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.Identity.CreatedAt)
                 .ToList();
+            var similarityContext = AccountSimilarityContext.FromAccounts(accounts);
             var pairs = BuildCandidatePairs(accounts);
             AddConfirmedReviewPairs(pairs, accounts, reviews);
             run.CandidatePairs = pairs.Count;
@@ -73,7 +74,7 @@ internal sealed class AccountIntelligenceScanner(
                 var pairKey = AccountSimilarityEngine.PairKey(a.UserId, b.UserId);
                 if (reviewByKey.TryGetValue(pairKey, out var prior) && prior.Decision is "different" or "ignored") continue;
 
-                var analysis = AccountSimilarityEngine.AnalyzePair(a, b, learning, now);
+                var analysis = AccountSimilarityEngine.AnalyzePair(a, b, learning, similarityContext, now);
                 var confirmedDuplicate = prior?.Decision == "duplicate";
                 if (!confirmedDuplicate && analysis.FinalScore < 42) continue;
                 if (!confirmedDuplicate && a.IsAnchor && b.IsAnchor) continue;

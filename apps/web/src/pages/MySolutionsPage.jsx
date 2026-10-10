@@ -25,9 +25,13 @@ import {
   getSolutionTitle,
 } from '../utils/solutionUi';
 import { useQueryClient } from '../data/QueryClientProvider';
+import { mergeSolutionTimeline, timelineHasMore, timelineNextPageRequests, SOLUTION_TIMELINE_KINDS } from '../utils/solutionTimeline';
 
 const PAGE_SIZE = 20;
-const MY_SOLUTIONS_PAGE_STATE_KEY = ['page-state', 'my-solutions'];
+const TIMELINE_LABELS = {
+  code: 'Код', sql: 'SQL', tests: 'Тест', images: 'Картинка', math: 'Математика',
+};
+const MY_SOLUTIONS_PAGE_STATE_KEY = ['page-state', 'my-solutions', 'v2'];
 const MY_SOLUTIONS_CACHE_STALE_MS = 60_000;
 
 const FILTER_OPTIONS = [
@@ -67,6 +71,7 @@ function SolutionMeta({ solution }) {
 function CodeSolutionDetails({ solution, fallbackLanguage }) {
   if (!solution) return null;
   const code = getSolutionCode(solution);
+  const isSql = fallbackLanguage === 'sql';
   const message = getSolutionMessage(solution);
   const stdout = getSolutionOutput(solution, 'stdout');
   const stderr = getSolutionOutput(solution, 'stderr');
@@ -76,7 +81,7 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
       {code ? (
         <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700">
           <CodeEditor
-            language={solution.language || fallbackLanguage || 'text'}
+            language={isSql ? 'sql' : solution.language || fallbackLanguage || 'text'}
             value={code}
             readOnly
             onChange={() => {}}
@@ -88,7 +93,7 @@ function CodeSolutionDetails({ solution, fallbackLanguage }) {
         </div>
       ) : (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950/30 p-3 text-sm text-neutral-500 dark:text-neutral-400">
-          Код не найден в деталях решения.
+          {isSql ? 'SQL-запрос не найден в деталях решения.' : 'Код не найден в деталях решения.'}
         </div>
       )}
 
@@ -176,10 +181,16 @@ export default function MySolutionsPage() {
   const cachedStateFresh = Number(cachedState.savedAt || 0) > 0
     && Date.now() - Number(cachedState.savedAt) < MY_SOLUTIONS_CACHE_STALE_MS;
   const filterInitializedRef = useRef(false);
+  const requestEpochRef = useRef(0);
 
-  const [tab, setTab] = useState(() => cachedState.tab || 'code');
+  const [tab, setTab] = useState(() => cachedState.tab || 'all');
   const [filterDays, setFilterDays] = useState(() => cachedState.filterDays ?? null);
   const [loadedTabs, setLoadedTabs] = useState(() => cachedStateFresh ? (cachedState.loadedTabs || {}) : {});
+  const [failedTabs, setFailedTabs] = useState(() => cachedStateFresh ? (cachedState.failedTabs || {}) : {});
+  const [allPage, setAllPage] = useState(() => Math.max(1, Number(cachedState.allPage) || 1));
+  const [allLoadingMore, setAllLoadingMore] = useState(false);
+  const [expandedTimelineKey, setExpandedTimelineKey] = useState(() => cachedState.expandedTimelineKey || null);
+  const [timelineDetailsLoading, setTimelineDetailsLoading] = useState({});
 
   const [solutions, setSolutions] = useState(() => Array.isArray(cachedState.solutions) ? cachedState.solutions : []);
   const [listLoading, setListLoading] = useState(false);
@@ -188,6 +199,11 @@ export default function MySolutionsPage() {
   const [details, setDetails] = useState(() => cachedState.details || {});
   const [codeDetailsLoading, setCodeDetailsLoading] = useState({});
   const [expandedId, setExpandedId] = useState(() => cachedState.expandedId ?? null);
+
+  const [sqlSolutions, setSqlSolutions] = useState(() => Array.isArray(cachedState.sqlSolutions) ? cachedState.sqlSolutions : []);
+  const [sqlListLoading, setSqlListLoading] = useState(false);
+  const [sqlHasMore, setSqlHasMore] = useState(() => cachedState.sqlHasMore ?? true);
+  const [sqlSkip, setSqlSkip] = useState(() => Number(cachedState.sqlSkip || 0));
 
   const [testAttempts, setTestAttempts] = useState(() => Array.isArray(cachedState.testAttempts) ? cachedState.testAttempts : []);
   const [testListLoading, setTestListLoading] = useState(false);
@@ -217,11 +233,17 @@ export default function MySolutionsPage() {
       tab,
       filterDays,
       loadedTabs,
+      failedTabs,
+      allPage,
+      expandedTimelineKey,
       solutions,
       solHasMore,
       solSkip,
       details,
       expandedId,
+      sqlSolutions,
+      sqlHasMore,
+      sqlSkip,
       testAttempts,
       testHasMore,
       testSkip,
@@ -238,13 +260,15 @@ export default function MySolutionsPage() {
       mathDetails,
       expandedMathAttemptId,
     });
-  }, [details, expandedId, expandedImageId, expandedMathAttemptId, expandedTestAttemptId, filterDays, imageDetails, imageHasMore, imageSkip, imageSolutions, loadedTabs, mathAttempts, mathDetails, mathHasMore, mathSkip, queryClient, solHasMore, solSkip, solutions, tab, testAttempts, testDetails, testHasMore, testSkip]);
+  }, [allPage, details, expandedId, expandedImageId, expandedMathAttemptId, expandedTestAttemptId, expandedTimelineKey, failedTabs, filterDays, imageDetails, imageHasMore, imageSkip, imageSolutions, loadedTabs, mathAttempts, mathDetails, mathHasMore, mathSkip, queryClient, solHasMore, solSkip, solutions, sqlHasMore, sqlSkip, sqlSolutions, tab, testAttempts, testDetails, testHasMore, testSkip]);
 
   const loadSolutions = useCallback(async ({ reset = false } = {}) => {
     setListLoading(true);
+    const requestEpoch = requestEpochRef.current;
     try {
       const skip = reset ? 0 : solSkip;
-      const list = await getMySolutions({ days: filterDays, skip, take: PAGE_SIZE });
+      const list = await getMySolutions({ kind: 'code', days: filterDays, skip, take: PAGE_SIZE });
+      if (requestEpoch !== requestEpochRef.current) return false;
       const arr = Array.isArray(list) ? list : [];
       if (reset) {
         setSolutions(arr);
@@ -256,19 +280,59 @@ export default function MySolutionsPage() {
         setSolSkip((prev) => prev + arr.length);
       }
       setSolHasMore(arr.length === PAGE_SIZE);
+      setFailedTabs((prev) => ({ ...prev, code: false }));
+      return true;
     } catch (e) {
+      if (requestEpoch !== requestEpochRef.current) return false;
+      setFailedTabs((prev) => ({ ...prev, code: true }));
       handleApiError(e, notify, 'Не удалось загрузить решения по коду');
+      return false;
     } finally {
-      setLoadedTabs((prev) => ({ ...prev, code: true }));
-      setListLoading(false);
+      if (requestEpoch === requestEpochRef.current) {
+        setLoadedTabs((prev) => ({ ...prev, code: true }));
+        setListLoading(false);
+      }
     }
   }, [filterDays, notify, solSkip]);
 
+  const loadSqlSolutions = useCallback(async ({ reset = false } = {}) => {
+    setSqlListLoading(true);
+    const requestEpoch = requestEpochRef.current;
+    try {
+      const skip = reset ? 0 : sqlSkip;
+      const list = await getMySolutions({ kind: 'sql', days: filterDays, skip, take: PAGE_SIZE });
+      if (requestEpoch !== requestEpochRef.current) return false;
+      const arr = Array.isArray(list) ? list : [];
+      if (reset) {
+        setSqlSolutions(arr);
+        setSqlSkip(arr.length);
+      } else {
+        setSqlSolutions((prev) => [...prev, ...arr]);
+        setSqlSkip((prev) => prev + arr.length);
+      }
+      setSqlHasMore(arr.length === PAGE_SIZE);
+      setFailedTabs((prev) => ({ ...prev, sql: false }));
+      return true;
+    } catch (e) {
+      if (requestEpoch !== requestEpochRef.current) return false;
+      setFailedTabs((prev) => ({ ...prev, sql: true }));
+      handleApiError(e, notify, 'Не удалось загрузить SQL-решения');
+      return false;
+    } finally {
+      if (requestEpoch === requestEpochRef.current) {
+        setLoadedTabs((prev) => ({ ...prev, sql: true }));
+        setSqlListLoading(false);
+      }
+    }
+  }, [filterDays, notify, sqlSkip]);
+
   const loadTestAttempts = useCallback(async ({ reset = false } = {}) => {
     setTestListLoading(true);
+    const requestEpoch = requestEpochRef.current;
     try {
       const skip = reset ? 0 : testSkip;
       const list = await getMyTaskTestAttempts({ days: filterDays, skip, take: PAGE_SIZE });
+      if (requestEpoch !== requestEpochRef.current) return false;
       const arr = Array.isArray(list) ? list : [];
       if (reset) {
         setTestAttempts(arr);
@@ -280,19 +344,28 @@ export default function MySolutionsPage() {
         setTestSkip((prev) => prev + arr.length);
       }
       setTestHasMore(arr.length === PAGE_SIZE);
+      setFailedTabs((prev) => ({ ...prev, tests: false }));
+      return true;
     } catch (e) {
+      if (requestEpoch !== requestEpochRef.current) return false;
+      setFailedTabs((prev) => ({ ...prev, tests: true }));
       handleApiError(e, notify, 'Не удалось загрузить попытки тестов');
+      return false;
     } finally {
-      setLoadedTabs((prev) => ({ ...prev, tests: true }));
-      setTestListLoading(false);
+      if (requestEpoch === requestEpochRef.current) {
+        setLoadedTabs((prev) => ({ ...prev, tests: true }));
+        setTestListLoading(false);
+      }
     }
   }, [filterDays, notify, testSkip]);
 
   const loadImageSolutions = useCallback(async ({ reset = false } = {}) => {
     setImageListLoading(true);
+    const requestEpoch = requestEpochRef.current;
     try {
       const skip = reset ? 0 : imageSkip;
       const list = await getMyImageSolutions({ days: filterDays, skip, take: PAGE_SIZE });
+      if (requestEpoch !== requestEpochRef.current) return false;
       const arr = Array.isArray(list) ? list : [];
       if (reset) {
         setImageSolutions(arr);
@@ -304,19 +377,28 @@ export default function MySolutionsPage() {
         setImageSkip((prev) => prev + arr.length);
       }
       setImageHasMore(arr.length === PAGE_SIZE);
+      setFailedTabs((prev) => ({ ...prev, images: false }));
+      return true;
     } catch (e) {
+      if (requestEpoch !== requestEpochRef.current) return false;
+      setFailedTabs((prev) => ({ ...prev, images: true }));
       handleApiError(e, notify, 'Не удалось загрузить решения по картинкам');
+      return false;
     } finally {
-      setLoadedTabs((prev) => ({ ...prev, images: true }));
-      setImageListLoading(false);
+      if (requestEpoch === requestEpochRef.current) {
+        setLoadedTabs((prev) => ({ ...prev, images: true }));
+        setImageListLoading(false);
+      }
     }
   }, [filterDays, imageSkip, notify]);
 
   const loadMathAttempts = useCallback(async ({ reset = false } = {}) => {
     setMathListLoading(true);
+    const requestEpoch = requestEpochRef.current;
     try {
       const skip = reset ? 0 : mathSkip;
       const list = await getMyMathAttempts({ days: filterDays, skip, take: PAGE_SIZE });
+      if (requestEpoch !== requestEpochRef.current) return false;
       const arr = Array.isArray(list) ? list : [];
       if (reset) {
         setMathAttempts(arr);
@@ -328,11 +410,18 @@ export default function MySolutionsPage() {
         setMathSkip((prev) => prev + arr.length);
       }
       setMathHasMore(arr.length === PAGE_SIZE);
+      setFailedTabs((prev) => ({ ...prev, math: false }));
+      return true;
     } catch (e) {
+      if (requestEpoch !== requestEpochRef.current) return false;
+      setFailedTabs((prev) => ({ ...prev, math: true }));
       handleApiError(e, notify, 'Не удалось загрузить math-попытки');
+      return false;
     } finally {
-      setLoadedTabs((prev) => ({ ...prev, math: true }));
-      setMathListLoading(false);
+      if (requestEpoch === requestEpochRef.current) {
+        setLoadedTabs((prev) => ({ ...prev, math: true }));
+        setMathListLoading(false);
+      }
     }
   }, [filterDays, mathSkip, notify]);
 
@@ -342,11 +431,19 @@ export default function MySolutionsPage() {
       return;
     }
 
+    requestEpochRef.current += 1;
     setSolSkip(0);
     setSolHasMore(true);
     setSolutions([]);
     setDetails({});
     setExpandedId(null);
+
+    setSqlSkip(0);
+    setSqlHasMore(true);
+    setSqlSolutions([]);
+    setAllPage(1);
+    setExpandedTimelineKey(null);
+    setFailedTabs({});
 
     setTestSkip(0);
     setTestHasMore(true);
@@ -370,11 +467,12 @@ export default function MySolutionsPage() {
   }, [filterDays]);
 
   useEffect(() => {
-    if (tab === 'code' && !loadedTabs.code) loadSolutions({ reset: true });
-    if (tab === 'tests' && !loadedTabs.tests) loadTestAttempts({ reset: true });
-    if (tab === 'images' && !loadedTabs.images) loadImageSolutions({ reset: true });
-    if (tab === 'math' && !loadedTabs.math) loadMathAttempts({ reset: true });
-  }, [tab, filterDays, loadedTabs.code, loadedTabs.tests, loadedTabs.images, loadedTabs.math, loadSolutions, loadTestAttempts, loadImageSolutions, loadMathAttempts]);
+    if ((tab === 'code' || tab === 'all') && !loadedTabs.code) loadSolutions({ reset: true });
+    if ((tab === 'sql' || tab === 'all') && !loadedTabs.sql) loadSqlSolutions({ reset: true });
+    if ((tab === 'tests' || tab === 'all') && !loadedTabs.tests) loadTestAttempts({ reset: true });
+    if ((tab === 'images' || tab === 'all') && !loadedTabs.images) loadImageSolutions({ reset: true });
+    if ((tab === 'math' || tab === 'all') && !loadedTabs.math) loadMathAttempts({ reset: true });
+  }, [tab, filterDays, loadedTabs.code, loadedTabs.sql, loadedTabs.tests, loadedTabs.images, loadedTabs.math, loadSolutions, loadSqlSolutions, loadTestAttempts, loadImageSolutions, loadMathAttempts]);
 
   const splitFillPrompt = (prompt) => {
     const p = String(prompt || '');
@@ -393,6 +491,12 @@ export default function MySolutionsPage() {
     return list;
   }, [solutions, withAssignmentMeta]);
 
+  const displayedSqlSolutions = useMemo(() => {
+    const list = sqlSolutions.map(withAssignmentMeta);
+    list.sort((a, b) => dateMs(getSolutionDate(b)) - dateMs(getSolutionDate(a)));
+    return list;
+  }, [sqlSolutions, withAssignmentMeta]);
+
   const displayedAttempts = useMemo(() => {
     const list = testAttempts.map(withAssignmentMeta);
     list.sort((a, b) => dateMs(b.submittedAt) - dateMs(a.submittedAt));
@@ -410,6 +514,56 @@ export default function MySolutionsPage() {
     list.sort((a, b) => dateMs(b.submittedAt) - dateMs(a.submittedAt));
     return list;
   }, [mathAttempts, withAssignmentMeta]);
+
+  const timelineHistories = useMemo(() => ({
+    code: displayedSolutions,
+    sql: displayedSqlSolutions,
+    tests: displayedAttempts,
+    images: displayedImageSolutions,
+    math: displayedMathAttempts,
+  }), [displayedSolutions, displayedSqlSolutions, displayedAttempts, displayedImageSolutions, displayedMathAttempts]);
+  const timelineEntries = useMemo(() => mergeSolutionTimeline(timelineHistories), [timelineHistories]);
+  const timelineHasMoreByKind = {
+    code: solHasMore, sql: sqlHasMore, tests: testHasMore,
+    images: imageHasMore, math: mathHasMore,
+  };
+  const timelineVisibleCount = allPage * PAGE_SIZE;
+  const visibleTimeline = timelineEntries.slice(0, timelineVisibleCount);
+  const timelineReady = SOLUTION_TIMELINE_KINDS.every((kind) => !!loadedTabs[kind]);
+  const timelineLoading = !timelineReady || listLoading || sqlListLoading || testListLoading || imageListLoading || mathListLoading;
+  const timelineFailed = SOLUTION_TIMELINE_KINDS.some((kind) => !!failedTabs[kind]);
+  const timelineCanLoadMore = timelineHasMore(timelineEntries, timelineVisibleCount, timelineHasMoreByKind);
+
+  const loadMoreTimeline = async () => {
+    if (allLoadingMore || timelineLoading || timelineFailed) return;
+    setAllLoadingMore(true);
+    const nextCount = timelineVisibleCount + PAGE_SIZE;
+    const missing = timelineNextPageRequests(timelineHistories, timelineHasMoreByKind, nextCount);
+    const loaders = {
+      code: loadSolutions,
+      sql: loadSqlSolutions,
+      tests: loadTestAttempts,
+      images: loadImageSolutions,
+      math: loadMathAttempts,
+    };
+    try {
+      const success = await Promise.all(missing.map((kind) => loaders[kind]({ reset: false })));
+      if (success.every(Boolean)) setAllPage((page) => page + 1);
+    } finally {
+      setAllLoadingMore(false);
+    }
+  };
+
+  const retryFailedTimeline = async () => {
+    const loaders = {
+      code: loadSolutions,
+      sql: loadSqlSolutions,
+      tests: loadTestAttempts,
+      images: loadImageSolutions,
+      math: loadMathAttempts,
+    };
+    await Promise.all(SOLUTION_TIMELINE_KINDS.filter((kind) => failedTabs[kind]).map((kind) => loaders[kind]({ reset: true })));
+  };
 
   const handleToggleCode = async (id) => {
     if (expandedId === id) {
@@ -497,6 +651,41 @@ export default function MySolutionsPage() {
       }
     }
     setExpandedMathAttemptId(id);
+  };
+
+  const handleToggleTimelineEntry = async (entry) => {
+    if (expandedTimelineKey === entry.key) {
+      setExpandedTimelineKey(null);
+      return;
+    }
+    const { kind, id, item } = entry;
+    if ((kind === 'tests' || kind === 'math') && item.allowReview === false) {
+      notify.warn('Просмотр результатов для этого задания отключён');
+      return;
+    }
+    setExpandedTimelineKey(entry.key);
+    setTimelineDetailsLoading((prev) => ({ ...prev, [entry.key]: true }));
+    try {
+      if ((kind === 'code' || kind === 'sql') && !details[id]) {
+        const value = await getMySolutionDetails(id);
+        setDetails((prev) => ({ ...prev, [id]: value }));
+      } else if (kind === 'tests' && !testDetails[id]) {
+        const value = await getMyTaskTestAttemptReview(id);
+        setTestDetails((prev) => ({ ...prev, [id]: value }));
+      } else if (kind === 'images' && !imageDetails[id]) {
+        const value = await getMyImageSolutionDetails(id);
+        setImageDetails((prev) => ({ ...prev, [id]: value }));
+      } else if (kind === 'math' && !mathDetails[id]) {
+        const value = await getMyMathAttemptReview(id);
+        setMathDetails((prev) => ({ ...prev, [id]: value }));
+      }
+    } catch (e) {
+      if (e?.response?.status === 403) notify.warn('Просмотр результатов этого задания отключён');
+      else handleApiError(e, notify, 'Не удалось загрузить детали решения');
+      setExpandedTimelineKey((current) => current === entry.key ? null : current);
+    } finally {
+      setTimelineDetailsLoading((prev) => ({ ...prev, [entry.key]: false }));
+    }
   };
 
   const renderAttemptReview = (dto) => {
@@ -601,7 +790,9 @@ export default function MySolutionsPage() {
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant={tab === 'all' ? 'primary' : 'outline'} onClick={() => setTab('all')}>Все</Button>
             <Button variant={tab === 'code' ? 'primary' : 'outline'} onClick={() => setTab('code')}>Код</Button>
+            <Button variant={tab === 'sql' ? 'primary' : 'outline'} onClick={() => setTab('sql')}>SQL</Button>
             <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>Тесты</Button>
             <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>Картинки</Button>
             <Button variant={tab === 'math' ? 'primary' : 'outline'} onClick={() => setTab('math')}>Математика</Button>
@@ -617,21 +808,110 @@ export default function MySolutionsPage() {
           </div>
 
           {tab === 'code' && listLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
+          {tab === 'all' && timelineLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загружаю последние решения всех типов…</div> : null}
+          {tab === 'sql' && sqlListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загружаю SQL-решения…</div> : null}
           {tab === 'tests' && testListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
           {tab === 'images' && imageListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
           {tab === 'math' && mathListLoading ? <div className="text-neutral-500 dark:text-neutral-400">Загрузка…</div> : null}
 
-          {tab === 'code' && !listLoading && !displayedSolutions.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div> : null}
+          {tab === 'all' && timelineReady && !timelineLoading && !timelineFailed && !timelineEntries.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div> : null}
+          {tab === 'all' && timelineFailed ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+              <span>Не удалось загрузить все типы решений. Общая лента может быть неполной.</span>
+              <Button variant="outline" disabled={timelineLoading} onClick={retryFailedTimeline}>Повторить загрузку</Button>
+            </div>
+          ) : null}
+          {tab === 'sql' && !sqlListLoading && !displayedSqlSolutions.length && !failedTabs.sql ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период SQL-решений нет.</div> : null}
+          {tab === 'code' && !listLoading && !displayedSolutions.length && !failedTabs.code ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений нет.</div> : null}
           {tab === 'tests' && !testListLoading && !displayedAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период попыток тестов нет.</div> : null}
           {tab === 'images' && !imageListLoading && !displayedImageSolutions.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период решений по картинкам нет.</div> : null}
           {tab === 'math' && !mathListLoading && !displayedMathAttempts.length ? <div className="text-neutral-500 dark:text-neutral-400">За выбранный период math-попыток нет.</div> : null}
         </Card>
 
-        {tab === 'code' && displayedSolutions.length > 0 ? (
+        {tab === 'all' && timelineReady && !timelineLoading && visibleTimeline.length > 0 ? (
+          <Card className="p-4 space-y-4" data-taskforge-agent-role="unified-solution-timeline">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-medium">Последние решения</div>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                Показано {visibleTimeline.length} {timelineCanLoadMore ? 'последних попыток' : 'попыток'}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {visibleTimeline.map((entry, index) => {
+                const { id, item, kind } = entry;
+                const expanded = expandedTimelineKey === entry.key;
+                const loadingDetails = expanded && !!timelineDetailsLoading[entry.key];
+                const reviewDisabled = (kind === 'tests' || kind === 'math') && item.allowReview === false;
+                const full = kind === 'code' || kind === 'sql' ? details[id]
+                  : kind === 'tests' ? testDetails[id]
+                    : kind === 'images' ? imageDetails[id] : mathDetails[id];
+                const isCode = kind === 'code' || kind === 'sql';
+                return (
+                  <div
+                    key={entry.key}
+                    className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[rgb(var(--card))] p-4 tf-reveal-item"
+                    style={{ '--tf-reveal-delay': `${(index % PAGE_SIZE) * 25}ms` }}
+                    data-taskforge-automation-id={`unified-solution-${entry.key}`}
+                    data-taskforge-agent-role="solution-history-item"
+                    data-taskforge-agent-kind={kind === 'tests' ? 'test' : kind === 'images' ? 'image' : kind}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge intent="secondary">{TIMELINE_LABELS[kind]}</Badge>
+                          <div className="font-medium break-words">{getSolutionTitle(item)}</div>
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+                          {formatDateTime(getSolutionDate(item) || item.submittedAt)}
+                          {isCode ? ` • ${kind === 'sql' ? 'SQL' : item.language || 'Код'}` : null}
+                          {(kind === 'tests' || kind === 'math') && item.attemptNumber ? ` • попытка #${item.attemptNumber}` : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isCode ? <SolutionMeta solution={item} /> : null}
+                        {(kind === 'tests' || kind === 'math') ? (
+                          <Badge intent={item.passed ? 'success' : 'danger'}>{item.scorePercent ?? (item.passed ? 'Зачёт' : 'Не зачтено')}{item.scorePercent != null ? '%' : ''}</Badge>
+                        ) : null}
+                        {kind === 'images' && item.passed != null ? (
+                          <Badge intent={item.passed ? 'success' : 'danger'}>{item.passed ? 'Пройдено' : 'Не пройдено'}</Badge>
+                        ) : null}
+                        {reviewDisabled ? <Badge intent="secondary">Просмотр скрыт</Badge> : (
+                          <Button variant="outline" disabled={loadingDetails} onClick={() => handleToggleTimelineEntry(entry)}
+                            data-taskforge-agent-role="solution-history-action"
+                            data-taskforge-agent-action={expanded ? 'hide-details' : 'show-details'}>
+                            {loadingDetails ? 'Загрузка…' : expanded ? 'Скрыть' : 'Подробнее'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {expanded && !reviewDisabled ? (
+                      <div className="mt-3 border-t border-neutral-200 dark:border-neutral-800 pt-3">
+                        {loadingDetails ? <div className="text-sm text-neutral-500 dark:text-neutral-400">Загружаю детали…</div> : null}
+                        {!loadingDetails && isCode ? <CodeSolutionDetails solution={full || item} fallbackLanguage={kind === 'sql' ? 'sql' : item.language} /> : null}
+                        {!loadingDetails && kind === 'tests' ? renderAttemptReview(full) : null}
+                        {!loadingDetails && kind === 'images' ? <ImageSolutionDetails solution={full || item} fallbackLanguage={item.language} /> : null}
+                        {!loadingDetails && kind === 'math' ? <MathAttemptReview dto={full} /> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            {timelineCanLoadMore && !timelineFailed ? (
+              <div className="flex justify-center pt-2">
+                <Button variant="outline" onClick={loadMoreTimeline} disabled={allLoadingMore}>
+                  {allLoadingMore ? 'Загружаю решения…' : 'Загрузить ещё'}
+                </Button>
+              </div>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {(tab === 'code' || tab === 'sql') && (tab === 'sql' ? displayedSqlSolutions : displayedSolutions).length > 0 ? (
           <Card className="p-4 space-y-4">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано решений по коду: {displayedSolutions.length}</div>
+            <div className="text-sm text-neutral-500 dark:text-neutral-400 mb-2">Показано {tab === 'sql' ? 'SQL-решений' : 'решений по коду'}: {(tab === 'sql' ? displayedSqlSolutions : displayedSolutions).length}</div>
             <div className="space-y-6">
-              {displayedSolutions.map((item, index) => {
+              {(tab === 'sql' ? displayedSqlSolutions : displayedSolutions).map((item, index) => {
                 const id = rowId(item);
                 const full = details[id] || null;
                 const expanded = expandedId === id;
@@ -644,13 +924,13 @@ export default function MySolutionsPage() {
                     data-taskforge-automation-id={`solution-history-${id}`}
                     data-taskforge-agent-role="solution-history-item"
                     data-taskforge-agent-state={getSolutionAutomationState(item)}
-                    data-taskforge-agent-kind="code"
+                    data-taskforge-agent-kind={tab}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="font-medium">{getSolutionTitle(item)}</div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatDateTime(getSolutionDate(item))} • {item.language || 'язык не указан'}
+                          {formatDateTime(getSolutionDate(item))} • {tab === 'sql' ? 'SQL' : item.language || 'язык не указан'}
                         </div>
                       </div>
                       <div className="flex gap-2 items-center flex-wrap">
@@ -662,19 +942,23 @@ export default function MySolutionsPage() {
                           data-taskforge-agent-role="solution-history-action"
                           data-taskforge-agent-action={expanded ? 'hide-code' : 'show-code'}
                         >
-                          {expanded ? 'Скрыть код' : 'Показать код'}
+                          {expanded ? (tab === 'sql' ? 'Скрыть SQL' : 'Скрыть код') : (tab === 'sql' ? 'Показать SQL' : 'Показать код')}
                         </Button>
                       </div>
                     </div>
                     {loadingDetails ? <div className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Загружаю детали решения…</div> : null}
-                    {expanded && !loadingDetails ? <CodeSolutionDetails solution={full || item} fallbackLanguage={item.language} /> : null}
+                    {expanded && !loadingDetails ? <CodeSolutionDetails solution={full || item} fallbackLanguage={tab === 'sql' ? 'sql' : item.language} /> : null}
                   </div>
                 );
               })}
             </div>
-            {solHasMore ? (
+            {(tab === 'sql' ? sqlHasMore : solHasMore) ? (
               <div className="pt-2 flex justify-center">
-                <Button variant="outline" onClick={() => loadSolutions({ reset: false })} disabled={listLoading}>{listLoading ? 'Загрузка…' : 'Загрузить ещё'}</Button>
+                <Button variant="outline"
+                  onClick={() => tab === 'sql' ? loadSqlSolutions({ reset: false }) : loadSolutions({ reset: false })}
+                  disabled={tab === 'sql' ? sqlListLoading : listLoading}>
+                  {(tab === 'sql' ? sqlListLoading : listLoading) ? 'Загрузка…' : 'Загрузить ещё'}
+                </Button>
               </div>
             ) : null}
           </Card>

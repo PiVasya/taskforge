@@ -23,12 +23,13 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapSubmissionsEndpoints(WebApplication app)
     {
-        app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
+        app.MapGet("/api/me/solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, string? kind, int skip = 0, int take = 50, CancellationToken ct = default) =>
         {
+            if (!IsValidSolutionHistoryKind(kind)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SOLUTION_KIND" });
             var uid = CurrentUserId(http, cfg);
             if (uid == null) return Unauthorized();
 
-            var q = db.Submissions.AsNoTracking().Where(x => x.UserId == uid.Value);
+            var q = FilterSolutionHistoryKind(db.Submissions.AsNoTracking().Where(x => x.UserId == uid.Value), kind);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
             if (days.HasValue && days.Value > 0)
             {
@@ -38,6 +39,7 @@ internal static partial class SolutionsApiEndpoints
 
             var rows = await q
                 .OrderByDescending(x => x.CreatedAt)
+                .ThenByDescending(x => x.Id)
                 .Skip(System.Math.Max(0, skip))
                 .Take(System.Math.Clamp(take, 1, 200))
                 .ToListAsync(ct);
@@ -76,9 +78,10 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id });
         });
 
-        app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, HttpContext http, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, bool all = false, CancellationToken ct = default) =>
+        app.MapGet("/api/admin/users/{userId:guid}/solutions", async (Guid userId, HttpContext http, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, string? kind, int skip = 0, int take = 50, bool all = false, CancellationToken ct = default) =>
         {
-            var q = db.Submissions.AsNoTracking().Where(x => x.UserId == userId);
+            if (!IsValidSolutionHistoryKind(kind)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SOLUTION_KIND" });
+            var q = FilterSolutionHistoryKind(db.Submissions.AsNoTracking().Where(x => x.UserId == userId), kind);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
             if (days.HasValue && days.Value > 0)
             {
@@ -121,9 +124,10 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToAdminHistoryDto(x, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
         });
 
-        app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days) =>
+        app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, string? kind) =>
         {
-            var q = db.Submissions.Where(x => x.UserId == userId);
+            if (!IsValidSolutionHistoryKind(kind)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_SOLUTION_KIND" });
+            var q = FilterSolutionHistoryKind(db.Submissions.Where(x => x.UserId == userId), kind);
             if (assignmentId.HasValue) q = q.Where(x => x.AssignmentId == assignmentId.Value);
             if (days.HasValue && days.Value > 0)
             {
@@ -229,5 +233,24 @@ internal static partial class SolutionsApiEndpoints
         });
 
         return app;
+    }
+
+    // Legacy SQL submissions might have the SQL engine profile or "sql" language,
+    // but no specification version. Mirror the SQL identity test used for
+    // /api/internal/users/{id}/activity-summary to keep histories consistent.
+    // Filter inside IQueryable (before Count/Skip/Take and deletes).
+    internal static bool IsValidSolutionHistoryKind(string? kind)
+        => string.IsNullOrWhiteSpace(kind) || string.Equals(kind, "code", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(kind, "sql", StringComparison.OrdinalIgnoreCase);
+
+    internal static IQueryable<SolutionSubmission> FilterSolutionHistoryKind(IQueryable<SolutionSubmission> source, string? kind)
+    {
+        if (string.Equals(kind, "code", StringComparison.OrdinalIgnoreCase))
+            return source.Where(x => x.SqlSpecVersionId == null && x.SqlEngineProfileId == null
+                && x.Language != "sql" && x.Language != "SQL" && x.Language != "Sql");
+        if (string.Equals(kind, "sql", StringComparison.OrdinalIgnoreCase))
+            return source.Where(x => x.SqlSpecVersionId != null || x.SqlEngineProfileId != null
+                || x.Language == "sql" || x.Language == "SQL" || x.Language == "Sql");
+        return source;
     }
 }
