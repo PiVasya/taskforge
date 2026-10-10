@@ -30,8 +30,10 @@ test('period filter excludes old live events', () => {
   assert.deepEqual(model.filterLiveItems(items, { filterDays: 1, now }).map(x => x.itemId), ['1', '2', '4']);
 });
 
-test('tab filters preserve code plus SQL and isolate other task types', () => {
-  assert.deepEqual(model.filterLiveItemsByTab(items, 'code').map(x => x.itemId), ['1', '2']);
+test('tab filters show code and SQL separately without hiding either from the live feed', () => {
+  assert.deepEqual(model.filterLiveItemsByTab(items, 'live').map(x => x.itemId), ['1', '2', '3', '4']);
+  assert.deepEqual(model.filterLiveItemsByTab(items, 'code').map(x => x.itemId), ['1']);
+  assert.deepEqual(model.filterLiveItemsByTab(items, 'sql').map(x => x.itemId), ['2']);
   assert.deepEqual(model.filterLiveItemsByTab(items, 'tests').map(x => x.itemId), ['3']);
   assert.deepEqual(model.filterLiveItemsByTab(items, 'math').map(x => x.itemId), ['4']);
 });
