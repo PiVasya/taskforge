@@ -1,4 +1,5 @@
 using System.Text;
+using TaskForge.Shared.Import;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -120,6 +121,29 @@ internal static partial class EducationApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Недостаточно прав для сохранения карты курса.", code = "COURSE_MAP_EDIT_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
+            if (request.OperationId == Guid.Empty)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "COURSE_MAP_OPERATION_ID_INVALID" });
+            await using var importLock = request.OperationId.HasValue
+                ? await PostgresImportLock.TryAcquireAsync(db, $"course-map-import:{request.OperationId:D}", ct) : null;
+            if (request.OperationId.HasValue && importLock is null)
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "IMPORT_OPERATION_BUSY",
+                    message = "Сохранение этой карты уже выполняется." });
+            var importHash = request.OperationId.HasValue
+                ? ImportJsonIdentity.Hash(JsonSerializer.SerializeToElement(new { request.ExpectedVersion, request.Document })) : null;
+            if (request.OperationId.HasValue)
+            {
+                var receipt = await db.CourseMapImportReceipts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.OperationId.Value, ct);
+                if (receipt is not null)
+                {
+                    if (receipt.UserId != access.UserId.Value || receipt.RootCourseId != root.Id)
+                        return Microsoft.AspNetCore.Http.Results.NotFound();
+                    if (receipt.RequestHash != importHash)
+                        return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "IMPORT_OPERATION_PAYLOAD_CHANGED",
+                            message = "Этот ключ сохранения уже использован для другой карты." });
+                    return Microsoft.AspNetCore.Http.Results.Json(ImportJsonIdentity.Read(receipt.ResponseJson));
+                }
+            }
+            await using var importTransaction = request.OperationId.HasValue ? await db.Database.BeginTransactionAsync(ct) : null;
             var validation = await ValidateCourseMapDocumentAsync(request.Document, root.Id, db, ct);
             if (validation is not null)
             {
@@ -224,6 +248,16 @@ internal static partial class EducationApiEndpoints
                 }
             }
 
+            var savedCourseRows = await LoadCourseMapReferencedCoursesAsync(request.Document, db, ct);
+            var savedResponse = new CourseMapResponse(root.Id, courseId, nextVersion, request.Document.Clone(), now, updatedBy, savedCourseRows);
+            if (request.OperationId.HasValue)
+            {
+                db.CourseMapImportReceipts.Add(new CourseMapImportReceipt { Id = request.OperationId.Value,
+                    RootCourseId = root.Id, UserId = updatedBy, RequestHash = importHash!,
+                    ResponseJson = JsonSerializer.Serialize(savedResponse, new JsonSerializerOptions(JsonSerializerDefaults.Web)), CreatedAt = now });
+                await db.SaveChangesAsync(ct);
+                await importTransaction!.CommitAsync(ct);
+            }
             TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_COMMIT",
                 ("user", updatedBy),
                 ("requestedCourse", courseId),
@@ -234,13 +268,18 @@ internal static partial class EducationApiEndpoints
                 ("nodeCount", incomingNodeCount),
                 ("edgeCount", incomingEdgeCount));
 
-            await hub.Clients.Group(CourseMapPresenceHub.Group(root.Id)).SendAsync("MapSaved", new
+            try
             {
-                rootCourseId = root.Id,
-                version = nextVersion,
-                updatedAt = now,
-                updatedBy
-            }, ct);
+                await hub.Clients.Group(CourseMapPresenceHub.Group(root.Id)).SendAsync("MapSaved", new
+                {
+                    rootCourseId = root.Id, version = nextVersion, updatedAt = now, updatedBy
+                }, ct);
+            }
+            catch (Exception error)
+            {
+                // Realtime delivery cannot undo an acknowledged database commit.
+                Console.WriteLine($"COURSE_MAP_NOTIFY_FAILED ROOT={root.Id:D} VERSION={nextVersion} ERROR={error.GetType().Name}");
+            }
 
             TaskForgeDebugTrace.Map("EDITOR_MAP_SAVE_END",
                 ("user", updatedBy),
@@ -249,15 +288,7 @@ internal static partial class EducationApiEndpoints
                 ("version", nextVersion),
                 ("updatedAt", now));
 
-            var savedCourseRows = await LoadCourseMapReferencedCoursesAsync(request.Document, db, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new CourseMapResponse(
-                root.Id,
-                courseId,
-                nextVersion,
-                request.Document.Clone(),
-                now,
-                updatedBy,
-                savedCourseRows));
+            return Microsoft.AspNetCore.Http.Results.Ok(savedResponse);
         });
 
         app.MapHub<CourseMapPresenceHub>("/hubs/course-map");

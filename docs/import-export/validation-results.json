@@ -1,0 +1,24 @@
+{
+  "frontend_model_tests": {
+    "passed": 117,
+    "failed": 0,
+    "new_import_tests": 31
+  },
+  "repository_checks": "passed",
+  "architecture_checks": "passed",
+  "javascript_syntax": {
+    "files": 286,
+    "errors": 0,
+    "production_build": false
+  },
+  "dotnet": "not_run_sdk_unavailable",
+  "jest_and_production_build": "not_run_dependencies_unavailable",
+  "live_browser_e2e": "not_run",
+  "deployment": "not_performed",
+  "migration_files_changed": 0,
+  "commands": [
+    "bash scripts/tests/repository.sh",
+    "bash scripts/tests/frontend.sh",
+    "bash scripts/tests/dotnet.sh"
+  ]
+}

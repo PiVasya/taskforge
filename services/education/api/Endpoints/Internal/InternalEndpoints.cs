@@ -173,6 +173,14 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(rows);
         });
 
+        app.MapPost("/api/internal/courses/import-probe", async (CourseIdsRequest request, EducationDbContext db, CancellationToken ct) =>
+        {
+            var ids = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToArray();
+            if (ids.Length > 1000) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Не больше 1000 UUID курсов за запрос." });
+            var existingIds = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToArrayAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { existingIds });
+        });
+
         app.MapPost("/api/internal/courses/import-ensure", async (CourseGraphImportEnsureRequest request, EducationDbContext db, CancellationToken ct) =>
         {
             if (request.RootCourseId == Guid.Empty)
@@ -225,9 +233,6 @@ internal static partial class EducationApiEndpoints
                 var desiredId = item.Id.HasValue && item.Id.Value != Guid.Empty ? item.Id.Value : Guid.NewGuid();
                 if (existingById.TryGetValue(desiredId, out var existing))
                 {
-                    if (item.IsPublic.HasValue) existing.IsPublic = item.IsPublic.Value;
-                    if (item.IsHiddenFromStudents.HasValue) existing.IsHiddenFromStudents = item.IsHiddenFromStudents.Value;
-                    if (item.VisibleGroupIds != null) existing.VisibleGroupIdsJson = Serialize(item.VisibleGroupIds);
                     response.Add(new CourseGraphImportItemResponse(key, existing.Id, existing.Title, false));
                     continue;
                 }

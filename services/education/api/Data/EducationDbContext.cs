@@ -7,6 +7,7 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
 {
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Course> Courses => Set<Course>();
+    public DbSet<CourseMapImportReceipt> CourseMapImportReceipts => Set<CourseMapImportReceipt>();
     public DbSet<CourseMap> CourseMaps => Set<CourseMap>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupOwner> GroupOwners => Set<GroupOwner>();
@@ -32,6 +33,15 @@ public sealed class EducationDbContext(DbContextOptions<EducationDbContext> opti
             entity.HasIndex(x => new { x.ParentCourseId, x.Sort });
         });
 
+        modelBuilder.Entity<CourseMapImportReceipt>(entity =>
+        {
+            entity.ToTable("CourseMapImportReceipts");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RootCourseId, x.CreatedAt });
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ResponseJson).HasColumnType("jsonb").IsRequired();
+            entity.HasOne<Course>().WithMany().HasForeignKey(x => x.RootCourseId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<CourseMap>(entity =>
         {
             entity.ToTable("CourseMaps");

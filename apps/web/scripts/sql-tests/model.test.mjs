@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { loadSourceModule } from '../test-utils/load-source-module.mjs';
 const source=await fs.readFile(new URL('../../src/features/sql-task/sqlModel.js',import.meta.url),'utf8');
 const m=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const graphSource=await fs.readFile(new URL('../../src/features/course-assignments/courseTaskGraphJson.js',import.meta.url),'utf8');
-const graph=await import(`data:text/javascript;base64,${Buffer.from(graphSource).toString('base64')}`);
+const graph=await loadSourceModule(new URL('../../src/features/course-assignments/courseTaskGraphJson.js',import.meta.url));
 test('SQL document defaults are separate and immutable between instances',()=>{
  const a=m.freshDataset(),b=m.freshDataset();a.definition.tables.push(m.newTable('items'));assert.equal(b.definition.tables.length,0);
  const s=m.freshSpec();assert.equal(s.mode,'result');assert.equal(s.allowMultipleStatements,false);assert.equal(s.limits.maxRows,1000);

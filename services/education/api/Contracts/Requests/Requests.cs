@@ -33,7 +33,7 @@ public sealed record CourseSortRequest(int Sort);
 
 public sealed record CoursePositionRequest(Guid? ParentCourseId, int? Position);
 
-public sealed record CourseMapSaveRequest(int ExpectedVersion, JsonElement Document);
+public sealed record CourseMapSaveRequest(int ExpectedVersion, JsonElement Document, Guid? OperationId = null);
 
 public sealed record GroupRequest(string? Name, string? Description, Guid[]? OwnerUserIds);
 

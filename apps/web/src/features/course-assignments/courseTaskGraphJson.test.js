@@ -140,7 +140,7 @@ test('course-only canonical import is considered applicable work', () => {
 
   const diff = buildTaskGraphImportDiff(incoming, graph('test'));
 
-  expect(diff.total).toBe(0);
+  expect(diff.total).toBe(1);
   expect(diff.courseCount).toBe(1);
   expect(diff.hasImportWork).toBe(true);
 });

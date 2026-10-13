@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Download, Settings2, X } from 'lucide-react';
 
 import { Button, Card } from '../../../components/ui';
+import { taskGraphExportIssue } from '../courseTaskGraphJson';
 
 function ExportOption({ checked, onChange, label, hint }) {
   return (
@@ -34,6 +35,7 @@ export default function JsonTaskGraphExportDialog({
   }, [open]);
 
   if (!open || typeof document === 'undefined') return null;
+  const exportIssue = taskGraphExportIssue(exportOptions);
 
   return createPortal((
     <div
@@ -66,6 +68,7 @@ export default function JsonTaskGraphExportDialog({
               <ExportOption checked={exportOptions.includeLayout} onChange={(value) => onExportOptionChange?.('includeLayout', value)} label="Позиции и масштаб" />
               <ExportOption checked={exportOptions.includeGuide} onChange={(value) => onExportOptionChange?.('includeGuide', value)} label="Обучалка внутри JSON" hint="большая справка для ИИ или человека" />
             </div>
+            {exportIssue ? <div role="alert" className="border-t border-red-400/60 p-3 text-sm text-red-700 dark:text-red-200">{exportIssue}</div> : null}
             {!exportOptions.includeIds ? (
               <div className="border-t border-[rgba(var(--border)/0.55)] px-4 py-3 text-xs text-amber-700 dark:text-amber-200">
                 Без ID задания при обратном импорте будут считаться новыми. Для переноса или редактирования существующего графа оставьте ID включёнными.
@@ -76,7 +79,7 @@ export default function JsonTaskGraphExportDialog({
 
         <div className="flex shrink-0 flex-col gap-3 border-t border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="text-xs text-neutral-500">Экспорт ничего не изменяет в курсе.</div>
-          <Button onClick={onExport} disabled={busy}>
+          <Button onClick={onExport} disabled={busy || Boolean(exportIssue)}>
             <Download size={16} /> {busy ? 'Готовлю файл…' : 'Скачать JSON'}
           </Button>
         </div>

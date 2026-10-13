@@ -38,8 +38,13 @@ export async function getAssignmentEditMeta(assignmentId) {
   return res.data;
 }
 
-export async function importAssignmentsFromJson(courseId, graph, options = {}) {
-  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, { graph, options });
+export async function importAssignmentsFromJson(courseId, graph, options = {}, operationId) {
+  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, { graph, options, operationId });
+  return res.data;
+}
+
+export async function previewAssignmentsFromJson(courseId, graph, options = {}) {
+  const res = await api.post(`/api/courses/${courseId}/assignments/import-json/preview`, { graph, options });
   return res.data;
 }
 
@@ -88,4 +93,24 @@ export async function setCourseOwners(courseId, ownerIds) {
 export async function getAssignmentsByCourseTree(courseId) {
   const res = await api.get(`/api/courses/${courseId}/assignments/tree`);
   return res.data;
+}
+
+
+export async function listTaskGraphImports(courseId) {
+  return (await api.get(`/api/courses/${courseId}/assignments/import-json/operations`)).data;
+}
+export async function getTaskGraphImport(courseId, operationId) {
+  return (await api.get(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}`)).data;
+}
+export async function resumeTaskGraphImport(courseId, operationId) {
+  return (await api.post(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/resume`)).data;
+}
+export async function saveTaskGraphImportMap(courseId, operationId, expectedVersion, document, replaceConflicted = false) {
+  return (await api.put(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/map`, {
+    expectedVersion, document, replaceConflicted,
+  })).data;
+}
+
+export async function stopTaskGraphImport(courseId, operationId) {
+  return (await api.post(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/stop`, { acknowledgePartial: true })).data;
 }

@@ -94,9 +94,9 @@ jobs:
             "postgres-ha|.|infrastructure/postgres-ha/Dockerfile|infrastructure/postgres-ha/"
 
             "identity-api|.|services/identity/api/Dockerfile|services/identity/api/ Directory.Build.props global.json .dockerignore"
-            "education-api|.|services/education/api/Dockerfile|services/education/api/ Directory.Build.props global.json .dockerignore"
+            "education-api|.|services/education/api/Dockerfile|services/education/api/ services/shared/Import/ Directory.Build.props global.json .dockerignore"
             "content-api|./services/content/api|Dockerfile|services/content/api/"
-            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ services/shared/Sql/ Directory.Build.props global.json .dockerignore"
+            "tasks-api|.|services/tasks/assignment-api/Dockerfile|services/tasks/assignment-api/ services/shared/Sql/ services/shared/Import/ Directory.Build.props global.json .dockerignore"
             "quiz-api|./services/tasks/quiz-api|Dockerfile|services/tasks/quiz-api/"
             "solutions-api|.|services/solutions/api/Dockerfile|services/solutions/api/ services/shared/Sql/ Directory.Build.props global.json .dockerignore"
             "rating-worker|.|services/solutions/rating-worker/Dockerfile|services/solutions/rating-worker/ Directory.Build.props global.json .dockerignore"

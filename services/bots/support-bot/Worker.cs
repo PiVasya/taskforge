@@ -222,7 +222,19 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
                 continue;
             }
 
-            var sent = await _bot.SendTextMessageAsync(contact.TelegramChatId.Value, FormatPrivateAdminReply(reply), cancellationToken: ct);
+            Message sent;
+            try
+            {
+                sent = await _bot.SendTextMessageAsync(contact.TelegramChatId.Value, FormatPrivateAdminReply(reply), cancellationToken: ct);
+            }
+            catch (ApiRequestException error) when (error.ErrorCode == 403)
+            {
+                // A blocked recipient is a permanent delivery outcome for this
+                // message, not a reason to abort or retry the entire oldest batch.
+                await MarkAdminReplyUnavailableAsync(reply.MessageId, ct, "recipient-forbidden");
+                logger.LogWarning("Support reply {MessageId} cannot be delivered: Telegram rejected the recipient (403). Continuing with other recipients.", reply.MessageId);
+                continue;
+            }
             using var mark = new HttpRequestMessage(HttpMethod.Post, $"api/internal/support/telegram/admin-replies/{reply.MessageId}/mark-delivered")
             {
                 Content = JsonContent.Create(new TelegramMarkMessageRequest(contact.TelegramChatId.Value, sent.MessageId), options: JsonOptions)
@@ -553,9 +565,10 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         return await response.Content.ReadFromJsonAsync<SourceSupportMessageDto>(JsonOptions, ct);
     }
 
-    private async Task MarkAdminReplyUnavailableAsync(Guid messageId, CancellationToken ct)
+    private async Task MarkAdminReplyUnavailableAsync(Guid messageId, CancellationToken ct, string? reason = null)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/internal/support/telegram/admin-replies/{messageId}/mark-unavailable");
+        var suffix = reason is null ? string.Empty : "?reason=" + Uri.EscapeDataString(reason);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/internal/support/telegram/admin-replies/{messageId}/mark-unavailable{suffix}");
         AddInternalKey(request);
         using var response = await SupportClient().SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)

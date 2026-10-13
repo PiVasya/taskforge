@@ -126,11 +126,11 @@ internal static partial class SupportApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true });
         });
 
-        app.MapPost("/api/internal/support/telegram/admin-replies/{messageId:guid}/mark-unavailable", async (Guid messageId, SupportDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/internal/support/telegram/admin-replies/{messageId:guid}/mark-unavailable", async (Guid messageId, string? reason, SupportDbContext db, CancellationToken ct) =>
         {
             var msg = await db.Messages.FindAsync([messageId], ct);
             if (msg == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Сообщение не найдено." });
-            msg.Source = "TelegramNoLinkedUser";
+            msg.Source = reason == "recipient-forbidden" ? "TelegramRecipientForbidden" : "TelegramNoLinkedUser";
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true });
         });

@@ -108,7 +108,8 @@ internal static class AssignmentTaskGraphJsonService
         bool UpdateConnections = true,
         bool UpdateConnectionAccess = true,
         bool UpdateLayout = true,
-        bool AllowDeletes = false);
+        bool AllowDeletes = false,
+        string ConnectionMode = "replace");
 
     internal sealed record GraphConnection(string From, string To, string HiddenEffect, string SequentialEffect)
     {
@@ -198,8 +199,9 @@ internal static class AssignmentTaskGraphJsonService
         return root.TryGetProperty("tasks", out _) && root.TryGetProperty("connections", out _);
     }
 
-    internal static (ParsedGraph? Graph, List<ValidationIssue> Issues) ParseAndValidate(JsonElement root)
+    internal static (ParsedGraph? Graph, List<ValidationIssue> Issues) ParseAndValidate(JsonElement root, GraphImportOptions? options = null)
     {
+        options ??= new GraphImportOptions();
         var issues = new List<ValidationIssue>();
         if (root.ValueKind != JsonValueKind.Object)
         {
@@ -300,12 +302,17 @@ internal static class AssignmentTaskGraphJsonService
             return (null, issues);
         }
 
-        if (!root.TryGetProperty("connections", out var connectionsElement) || connectionsElement.ValueKind != JsonValueKind.Array)
+        var hasConnections = root.TryGetProperty("connections", out var connectionsElement);
+        var needsConnections = (scopes.Contains("connections") && options.UpdateConnections)
+            || (scopes.Contains("connectionAccess") && options.UpdateConnectionAccess);
+        if ((!hasConnections && needsConnections) || (hasConnections && connectionsElement.ValueKind != JsonValueKind.Array))
         {
-            issues.Add(new ValidationIssue("$.connections", "Нужен массив связей."));
+            issues.Add(new ValidationIssue("$.connections", "Нужен массив связей для выбранного раздела. При выключенных связях и эффектах поле можно не указывать."));
             return (null, issues);
         }
+        if (!hasConnections) connectionsElement = JsonSerializer.SerializeToElement(Array.Empty<object>());
 
+        if (courses.Count > 1000) issues.Add(new ValidationIssue("$.courses", "Не больше 1000 вложенных курсов."));
         if (tasksElement.GetArrayLength() > MaxTasks)
             issues.Add(new ValidationIssue("$.tasks", $"За один импорт можно обработать не больше {MaxTasks} заданий."));
         if (connectionsElement.GetArrayLength() > MaxConnections)
@@ -496,6 +503,36 @@ internal static class AssignmentTaskGraphJsonService
             }, issues);
     }
 
+    internal static List<ValidationIssue> ValidateBindings(
+        ParsedGraph graph, Guid rootCourseId, IReadOnlySet<Guid> subtree,
+        IReadOnlyDictionary<Guid, Guid> assignmentCourses, IReadOnlySet<Guid> occupiedCourseIds)
+    {
+        var issues = new List<ValidationIssue>();
+        for (var index = 0; index < graph.Courses.Count; index++)
+        {
+            var course = graph.Courses[index];
+            if (course.Id == rootCourseId || (course.Id != Guid.Empty && occupiedCourseIds.Contains(course.Id) && !subtree.Contains(course.Id)))
+                issues.Add(new($"$.courses[{index}].id", "UUID курса уже занят вне импортируемого поддерева. Для текущего курса используйте $course; для нового уберите id или укажите свободный UUID."));
+        }
+        var courseIds = graph.Courses.ToDictionary(x => x.Key, x => x.Id, StringComparer.Ordinal);
+        for (var index = 0; index < graph.Tasks.Count; index++)
+        {
+            var task = graph.Tasks[index];
+            if (!task.Source.TryGetProperty("id", out var value) || value.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(value.GetString(), out var id) || !assignmentCourses.TryGetValue(id, out var actualCourseId)) continue;
+            if (!subtree.Contains(actualCourseId))
+            {
+                issues.Add(new($"$.tasks[{index}].id", "UUID задания уже занят вне импортируемого поддерева. Чужое задание не будет изменено или скопировано под другим UUID."));
+                continue;
+            }
+            if (!task.Source.TryGetProperty("course", out _)) continue;
+            var expectedCourseId = task.CourseRef == CourseReference ? rootCourseId : courseIds.GetValueOrDefault(task.CourseRef);
+            if (actualCourseId != expectedCourseId)
+                issues.Add(new($"$.tasks[{index}].course", "JSON-импорт не переносит существующее задание между курсами."));
+        }
+        return issues;
+    }
+
     private static bool ReadBool(JsonElement element, string property, bool fallback)
     {
         return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True
@@ -589,37 +626,6 @@ internal static class AssignmentTaskGraphJsonService
                     to,
                     options.IncludeConnectionAccess ? edge.HiddenEffect : "inherit",
                     options.IncludeConnectionAccess ? edge.SequentialEffect : "inherit"));
-            }
-        }
-        else if (!hasMap && options.IncludeConnections)
-        {
-            var assignmentsByCourse = ordered.GroupBy(x => x.CourseId).ToDictionary(g => g.Key, g => g.ToList());
-            var childrenByCourse = courseRows
-                .Where(x => x.ParentCourseId.HasValue && subtreeCourseIds.Contains(x.ParentCourseId.Value))
-                .GroupBy(x => x.ParentCourseId!.Value)
-                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Sort).ThenBy(x => x.Title).ToList());
-            foreach (var course in courseRows.Where(x => subtreeCourseIds.Contains(x.Id)))
-            {
-                var source = CourseRef(course.Id);
-                if (source.Length == 0) continue;
-                var directAssignments = assignmentsByCourse.GetValueOrDefault(course.Id) ?? new List<Assignment>();
-                if (directAssignments.Count > 0)
-                {
-                    AddConnection(connections, new GraphConnection(source, keyByAssignmentId[directAssignments[0].Id], "inherit", "inherit"));
-                    for (var i = 0; i + 1 < directAssignments.Count; i++)
-                    {
-                        AddConnection(connections, new GraphConnection(
-                            keyByAssignmentId[directAssignments[i].Id],
-                            keyByAssignmentId[directAssignments[i + 1].Id],
-                            "inherit",
-                            "inherit"));
-                    }
-                }
-                foreach (var child in childrenByCourse.GetValueOrDefault(course.Id) ?? new List<CourseTreeCourseDto>())
-                {
-                    var childRef = CourseRef(child.Id);
-                    if (childRef.Length > 0) AddConnection(connections, new GraphConnection(source, childRef, "inherit", "inherit"));
-                }
             }
         }
 
@@ -729,6 +735,32 @@ internal static class AssignmentTaskGraphJsonService
                 ["important"] = "Поле guide является только документацией. Импорт его читает как справочный блок и не применяет к курсу.",
                 ["goal"] = "Файл можно передать человеку или нейронной сети вместе с просьбой изменить/расширить курс. Возвращать нужно один валидный JSON taskforge-task-graph."
             },
+            ["expectedBehavior"] = new JsonObject
+            {
+                ["identity"] = "key — ссылка только внутри одного файла, не постоянный идентификатор. Совпадение key или названия не объединяет сущности. Существующий UUID в поддереве выбирает сущность; свободный UUID создаёт новую с этим UUID; без id создаётся новая с UUID от сервера. Запускать новую операцию импорта без id в тот же курс — значит создавать новые задания и курсы, а не обновлять старые.",
+                ["foreignId"] = "UUID, занятый заданием или курсом вне импортируемого поддерева, отклоняется. Preview проверяет занятость на сервере, но не резервирует UUID: проверка повторяется при Apply.",
+                ["courseMetadata"] = "У существующего вложенного курса поля title, isPublic, isHiddenFromStudents и visibleGroupIds используются как справочная информация и не обновляют курс. Меняйте их в редакторе курса. В courses эти поля задают параметры только нового курса. Новый вложенный курс создаётся прямым дочерним курсом открытого курса; стрелки карты не меняют иерархию хранения.",
+                ["parent"] = "Для нового задания отсутствие course означает $course. Для существующего задания отсутствие course сохраняет фактический курс. Явно указанный course должен совпадать с его текущим курсом: перенос через JSON не поддерживается.",
+                ["scopes"] = "scopes задаёт присутствующие категории, а переключатели импорта разрешают их применение. Выключенная категория сохраняется у существующих заданий. Новому заданию нужны scope content и полные поля его типа; выключение обновления существующих заданий не превращает новую задачу в пустую ссылку. guide — справка, не данные курса.",
+                ["optionalArrays"] = "tasks всегда является массивом, в том числе []. courses можно не указывать. connections требуется, когда включено изменение связей или эффектов стрелок. Если обе категории выключены, поле connections можно опустить; его отсутствие не очищает карту. datasets можно опустить без SQL-ресурсов. Для sql со ссылкой на датасет этот ресурс должен быть объявлен в datasets[]. Отдельного scope datasets нет.",
+                ["versions"] = "Поддерживаются schemaVersion 3, 4 и 5; новые экспорты используют 5. Пустой datasets: [] допустим в версиях 3 и 4 без SQL. Непустые SQL-ресурсы требуют версии 5. В версии 3 отсутствующий scopes включает исторический набор категорий; явно переданный scopes учитывается. layout поддерживается с версии 4.",
+                ["replaceConnections"] = "Режим «Заменить связи перечисленных узлов» не означает append. Список connections задаёт целевые стрелки между перечисленными в JSON узлами и $course. Прочие стрелки сохраняются, пока их узлы остаются на карте. Перечисленный узел без связей и применяемой позиции снимается с карты вместе со всеми стрелками, но сама сущность не удаляется. Поэтому при частичном JSON смотрите точный список удалений в Preview.",
+                ["mergeConnections"] = "Для добавления ветки выберите режим «Добавить связи, сохранив существующие». Совпадающая пара from/to не дублируется. Старые узлы и связи сохраняются; эффекты совпавшей стрелки меняются только при включённой категории эффектов. Цикл с сохраняемыми связями тоже запрещён.",
+                ["emptyConnections"] = "connections: [] — явно пустой список. При выключенных связях он не меняет топологию, кроме удаления стрелок явно удаляемых заданий. В режиме добавления он не добавляет стрелок. В режиме замены он может снять перечисленные узлы без позиций с карты и удалить затронутые связи; это показывается в Preview и требует подтверждения.",
+                ["unplaced"] = "«Не на карте» не означает удаление задания или неуспешное сохранение его содержимого. Новый элемент без применяемой связи и без явной применяемой позиции сохраняется в этом списке намеренно. Связанные новые элементы без layout размещаются автоматически. Счётчик Preview относится к итоговой карте с учётом переключателей, а не только к входному JSON.",
+                ["layout"] = "layout.positions — частичное обновление: меняются только перечисленные позиции. layout.viewport задаёт x, y, zoom рабочей области. Если layout выключен, существующие координаты и viewport сохраняются, а новые связанные узлы получают свободные позиции. Явные координаты принимаются как авторский выбор; их взаимное наложение не устраняется принудительно.",
+                ["edgeEffects"] = "connectionAccess независим от connections. При экспорте эффектов без топологии массив connections остаётся как адресация существующих стрелок, но scope connections отсутствует. Такой импорт меняет эффекты, а не добавляет и не удаляет стрелки. При выключенных эффектах прежние настройки совпадающих связей сохраняются.",
+                ["datasetReuse"] = "SQL-датасеты переиспользуются по содержимому схемы, seed и engineOverrides, а не по key или имени. Переиспользование возможно только для доступного редактору, неархивного датасета; сохраняются его прежние имя и идентичность. Новое имя само по себе не создаёт копию. Изменение содержимого создаёт отдельный ресурс. Preview показывает решение «создать» или «использовать существующий».",
+                ["export"] = "Для файла, который можно импортировать обратно, оставьте ID заданий либо «Условия и настройки». Экспорт без обоих разделов заблокирован. Без ID задачи импортируются как новые; перед созданием возможных дублей нужно подтверждение. ID вложенных курсов экспортируются независимо от переключателя «ID заданий»: этот переключатель не означает клонирование всего дерева.",
+                ["noStoredMap"] = "Экспорт отражает сохранённую карту. Если документа карты ещё нет, экспорт не придумывает связи по порядку заданий; connections остаётся пустым, layout отсутствует. Сохраните нужную карту перед экспортом.",
+                ["completion"] = "Импорт завершён только после подтверждённой записи данных и карты. Курсы, задания и карта сохраняются этапами: общей транзакции между сервисами нет. При сбое часть объектов может уже существовать. Журнал сохраняет этап и UUID; продолжайте эту же операцию, а не создавайте новую.",
+                ["deletion"] = "Отсутствие задания в tasks не удаляет его из курса. Удаление задаётся только deleteTasks с UUID, scope ids и отдельным подтверждением. При удалении исчезают и стрелки этого задания даже с выключенной категорией связей. SQL-задание с историей проверок физически не удаляется; используйте isVisible=false.",
+                ["operationIdentity"] = "operationId обозначает одну операцию, а не задание. Повтор с тем же operationId и теми же JSON/настройками возвращает сохранённый результат, не создаёт дубли. Другой JSON с этим ключом отклоняется. Клиент создаёт ключ сам; не добавляйте operationId в JSON графа. В HTTP API он передаётся рядом с graph и options.",
+                ["resume"] = "После таймаута или перезагрузки откройте журнал в том же курсе и аккаунте. Проверка состояния ничего не записывает. Продолжение выполняется только по нажатию. В localStorage хранится только operationId, не условия или ответы тестов.",
+                ["mapConflict"] = "Если карту изменили после Preview, она не перезаписывается молча. Пересчитайте карту и подтвердите новый Preview. Если ответ сохранения потерян, сначала повторяется точно тот же этап: новый граф не подставляется по догадке.",
+                ["audit"] = "Отчёт JSON содержит этап, UUID, изменённые поля, хеши до/после и разницу карты. Исходный JSON, ответы тестов и SQL-скрипты в отчёт не включаются. requestSha256 относится к нормализованному graph и options, не к байтам исходного файла. Порядок массивов и содержимое строк учитываются.",
+                ["stop"] = "«Прекратить без отката» не удаляет уже созданные объекты и не восстанавливает удалённые. Нужно явное подтверждение. Если результат записи карты неизвестен, сначала нужно получить её подтверждённый результат."
+            },
             ["document"] = new JsonObject
             {
                 ["schemaVersion"] = SchemaVersion,
@@ -790,7 +822,7 @@ internal static class AssignmentTaskGraphJsonService
             ["tasks"] = new JsonObject
             {
                 ["commonFields"] = Strings("key", "id?", "course?", "type", "title", "description", "language?", "allowedLanguages?", "tags?", "rating?", "starterCode?", "isVisible?"),
-                ["courseRule"] = "course = $course или key из courses. Если поле course отсутствует, используется $course.",
+                ["courseRule"] = "course = $course или key из courses. Для нового задания без course используется $course; у существующего сохраняется фактический курс.",
                 ["idRule"] = "Для задачи: существующий id в поддереве -> update; свободный UUID -> create с этим UUID; id отсутствует -> create с UUID от TaskForge; id из чужого поддерева -> ошибка.",
                 ["types"] = new JsonObject
                 {
@@ -1054,7 +1086,7 @@ internal static class AssignmentTaskGraphJsonService
 
     private static IReadOnlySet<string> ReadScopes(JsonElement root, int schemaVersion, ICollection<ValidationIssue> issues)
     {
-        if (schemaVersion == LegacySchemaVersion) return KnownScopes.Where(x => x != "layout").ToHashSet(StringComparer.Ordinal);
+        if (schemaVersion == LegacySchemaVersion && !root.TryGetProperty("scopes", out _)) return KnownScopes.Where(x => x != "layout").ToHashSet(StringComparer.Ordinal);
         var result = new HashSet<string>(StringComparer.Ordinal);
         if (!root.TryGetProperty("scopes", out var scopes))
         {

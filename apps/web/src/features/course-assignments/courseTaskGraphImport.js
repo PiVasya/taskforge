@@ -26,7 +26,7 @@ function stableEdgeId(source, target, index) {
 }
 
 function entityIdOf(node) {
-  return String(node?.entityId || node?.data?.entityId || '');
+  return String(node?.entityId || node?.data?.entityId || '').trim().toLowerCase();
 }
 
 function layoutPosition(taskGraph, ref) {
@@ -41,6 +41,7 @@ function graphApplyOptions(taskGraph) {
     connections: apply.connections !== false,
     connectionAccess: apply.connectionAccess !== false,
     layout: apply.layout !== false,
+    connectionMode: apply.connectionMode === 'merge' ? 'merge' : 'replace',
   };
 }
 
@@ -73,18 +74,35 @@ function graphHasCycle(nodes, edges) {
   return cursor !== ids.size;
 }
 
-function overlaps(position, occupied) {
-  return occupied.some((item) => Math.abs(item.x - position.x) < 270 && Math.abs(item.y - position.y) < 145);
+// Dimensions are in map coordinates, not screen pixels (which depend on zoom).
+export function taskGraphNodeSize(node) {
+  const course = node?.type === 'course' || node?.kind === 'course';
+  return {
+    width: Math.max(Number(node?.width || node?.measured?.width) || 0, course ? 440 : 290),
+    height: Math.max(Number(node?.height || node?.measured?.height) || 0, course ? 260 : 220),
+  };
 }
 
-function freePosition(preferred, occupied) {
-  const offsets = [0];
-  for (let step = 1; step <= 100; step += 1) offsets.push(step, -step);
-  for (const offset of offsets) {
-    const candidate = { x: preferred.x, y: preferred.y + offset * 170 };
-    if (!overlaps(candidate, occupied)) return candidate;
+function occupiedRect(node) {
+  return { x: Number(node?.position?.x) || 0, y: Number(node?.position?.y) || 0, ...taskGraphNodeSize(node) };
+}
+
+function overlaps(position, occupied, size) {
+  return occupied.some((item) => position.x < item.x + item.width + 60
+    && position.x + size.width + 60 > item.x
+    && position.y < item.y + item.height + 50
+    && position.y + size.height + 50 > item.y);
+}
+
+function freePosition(preferred, occupied, size = taskGraphNodeSize(null)) {
+  // Each occupied rectangle can block only a finite number of rows.
+  const step = Math.max(size.height, ...occupied.map((item) => item.height), 220) + 60;
+  for (let index = 0; index <= occupied.length * 2 + 2; index += 1) {
+    const offset = index === 0 ? 0 : Math.ceil(index / 2) * (index % 2 ? 1 : -1);
+    const candidate = { x: preferred.x, y: preferred.y + offset * step };
+    if (!overlaps(candidate, occupied, size)) return candidate;
   }
-  return { x: preferred.x + occupied.length * 24, y: preferred.y + occupied.length * 24 };
+  return { x: Math.max(preferred.x, ...occupied.map((item) => item.x + item.width)) + 96, y: preferred.y };
 }
 
 function graphRanks(refs, connections) {
@@ -120,14 +138,10 @@ function graphRanks(refs, connections) {
 
 function autoPositions({ refs, allRefs, connections, descriptors, existingNodes, anchor }) {
   const { rank, order } = graphRanks(allRefs || refs, connections);
-  const occupied = existingNodes.map((node) => ({
-    x: Number(node?.position?.x) || 0,
-    y: Number(node?.position?.y) || 0,
-  }));
-  const anchorPosition = {
-    x: Number(anchor?.position?.x) || 0,
-    y: Number(anchor?.position?.y) || 0,
-  };
+  const occupied = existingNodes.map(occupiedRect);
+  const anchorPosition = { x: Number(anchor?.position?.x) || 0, y: Number(anchor?.position?.y) || 0 };
+  const maxWidth = Math.max(taskGraphNodeSize(anchor).width, ...[...descriptors.values()].map((d) => taskGraphNodeSize(d).width));
+  const maxHeight = Math.max(...[...descriptors.values()].map((d) => taskGraphNodeSize(d).height), 220);
   const layers = new Map();
   for (const ref of refs) {
     if (ref === COURSE_REF) continue;
@@ -138,32 +152,53 @@ function autoPositions({ refs, allRefs, connections, descriptors, existingNodes,
   const result = new Map();
   for (const [depth, layerRefs] of [...layers.entries()].sort((a, b) => a[0] - b[0])) {
     layerRefs.sort((a, b) => (order.get(a) || 0) - (order.get(b) || 0));
-    const top = anchorPosition.y - ((layerRefs.length - 1) * 170) / 2;
+    const top = anchorPosition.y - ((layerRefs.length - 1) * (maxHeight + 60)) / 2;
     layerRefs.forEach((ref, index) => {
       const descriptor = descriptors.get(ref);
       if (!descriptor) return;
-      const preferred = { x: anchorPosition.x + (depth + 1) * 340, y: top + index * 170 };
-      const position = freePosition(preferred, occupied);
-      occupied.push(position);
+      const size = taskGraphNodeSize(descriptor);
+      const preferred = { x: anchorPosition.x + (depth + 1) * (maxWidth + 96), y: top + index * (maxHeight + 60) };
+      const position = freePosition(preferred, occupied, size);
+      occupied.push({ ...position, ...size });
       result.set(ref, position);
     });
   }
   return result;
 }
 
+// The POST response is authoritative for the newly committed entities. Never wait
+// for an unrelated, possibly cached course-tree request to discover their IDs.
+export function mergeTaskGraphAssignments(assignments, committedAssignments, deleteTasks = []) {
+  const deleted = new Set(deleteTasks.map((id) => String(id).toLowerCase()));
+  const byId = new Map();
+  for (const row of [...(assignments || []), ...(committedAssignments || [])]) {
+    const id = String(row?.id || '').toLowerCase();
+    if (id && !deleted.has(id)) byId.set(id, row);
+  }
+  return [...byId.values()];
+}
+
+export function prepareTaskGraphImport({ request, assignments, ...state }) {
+  if (request?.courseId && String(request.courseId) !== String(state.courseId)) return { error: 'course-changed' };
+  const merged = mergeTaskGraphAssignments(assignments, request?.assignments, request?.taskGraph?.deleteTasks);
+  const result = applyTaskGraphImport({ ...state, assignments: merged, taskGraph: request?.taskGraph, taskMappings: request?.taskMappings });
+  if (result.pending) return { ...result, error: 'missing-assignments', assignments: merged };
+  return { ...result, assignments: merged };
+}
+
 function taskGraphMappings(tasks, mappings) {
   const mappingByKey = new Map((Array.isArray(mappings) ? mappings : [])
-    .map((item) => [String(item?.key || ''), String(item?.assignmentId || '')])
+    .map((item) => [String(item?.key || ''), String(item?.assignmentId || '').toLowerCase()])
     .filter(([key, assignmentId]) => key && assignmentId));
   return tasks.map((task) => ({
     ...task,
-    assignmentId: String(task?.assignmentId || mappingByKey.get(String(task?.key || '')) || ''),
+    assignmentId: String(task?.assignmentId || mappingByKey.get(String(task?.key || '')) || '').toLowerCase(),
   }));
 }
 
 function buildDescriptors(taskGraph, taskMappings, courseId, assignments) {
   const assignmentById = new Map((Array.isArray(assignments) ? assignments : [])
-    .map((assignment) => [String(assignment?.id || ''), assignment])
+    .map((assignment) => [String(assignment?.id || '').toLowerCase(), assignment])
     .filter(([id]) => id));
   const courses = Array.isArray(taskGraph?.courses) ? taskGraph.courses : [];
   const tasks = taskGraphMappings(Array.isArray(taskGraph?.tasks) ? taskGraph.tasks : [], taskMappings);
@@ -171,12 +206,12 @@ function buildDescriptors(taskGraph, taskMappings, courseId, assignments) {
   descriptors.set(COURSE_REF, {
     ref: COURSE_REF,
     kind: 'course',
-    entityId: String(courseId || ''),
+    entityId: String(courseId || '').toLowerCase(),
     nodeId: courseNodeId(courseId),
   });
   for (const course of courses) {
     const ref = String(course?.key || '').trim();
-    const entityId = String(course?.id || '').trim();
+    const entityId = String(course?.id || '').trim().toLowerCase();
     if (!ref || !entityId) continue;
     descriptors.set(ref, { ref, kind: 'course', entityId, nodeId: courseNodeId(entityId), course });
   }
@@ -219,7 +254,7 @@ function nodeForDescriptor(descriptor, position, existing = null) {
 
 export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, assignments, courseId }) {
   const deletedAssignmentIds = new Set((Array.isArray(taskGraph?.deleteTasks) ? taskGraph.deleteTasks : [])
-    .map((value) => String(value || '').trim())
+    .map((value) => String(value || '').trim().toLowerCase())
     .filter(Boolean));
   const initialNodes = Array.isArray(nodes) ? nodes : [];
   const deletedNodeIds = new Set(initialNodes
@@ -232,6 +267,9 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
   const connections = Array.isArray(taskGraph?.connections) ? taskGraph.connections : [];
   const apply = graphApplyOptions(taskGraph);
   const { descriptors, tasks, assignmentById } = buildDescriptors(taskGraph, taskMappings, courseId, assignments);
+
+  const unresolvedKeys = [...(taskGraph?.courses || []), ...tasks].map((row) => String(row?.key || '')).filter((key) => !descriptors.has(key));
+  if (unresolvedKeys.length) return { error: 'unresolved-keys', unresolvedKeys };
 
   const missingAssignmentIds = tasks
     .map((task) => String(task?.assignmentId || ''))
@@ -297,7 +335,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
       edges: nextEdges,
       importedNodeIds,
       createdNodeIds,
-      unplacedAssignmentIds: [],
+      unplacedAssignmentIds: tasks.filter((task) => !nextNodes.some((node) => entityIdOf(node) === task.assignmentId)).map((task) => task.assignmentId),
       deletedNodeCount: deletedNodeIds.size,
       detachedCount: 0,
       connectionCount: 0,
@@ -313,7 +351,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
     if (to) connectedRefs.add(to);
   }
   const layoutRefs = new Set(Object.keys(taskGraph?.layout?.positions || {}));
-  const shouldPlace = new Set([COURSE_REF, ...connectedRefs, ...(apply.layout ? layoutRefs : [])]);
+  const shouldPlace = new Set([COURSE_REF, ...connectedRefs, ...(apply.layout ? layoutRefs : []), ...(apply.connectionMode === 'merge' ? existingNodeByRef.keys() : [])]);
   const importedExistingNodeIds = new Set();
   const removedImportedNodeIds = new Set();
   for (const [ref, existing] of existingNodeByRef) {
@@ -329,22 +367,29 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
   let rootNode = retainedNodes.find((node) => String(node.id) === nodeIdByRef.get(COURSE_REF));
   if (!rootNode) {
     const descriptor = descriptors.get(COURSE_REF);
-    rootNode = nodeForDescriptor(descriptor, layoutPosition(taskGraph, COURSE_REF) || { x: 0, y: 0 });
+    rootNode = nodeForDescriptor(descriptor, (apply.layout && layoutPosition(taskGraph, COURSE_REF)) || { x: 0, y: 0 });
     rootNode.selected = false;
     retainedNodes.push(rootNode);
     retainedNodeIds.add(String(rootNode.id));
     nodeIdByRef.set(COURSE_REF, String(rootNode.id));
   }
 
-  const refsNeedingNewNode = [...shouldPlace].filter((ref) => ref !== COURSE_REF && descriptors.has(ref) && !existingNodeByRef.has(ref));
-  const auto = autoPositions({
-    refs: refsNeedingNewNode,
-    allRefs: [...descriptors.keys()],
-    connections,
-    descriptors,
-    existingNodes: retainedNodes,
-    anchor: rootNode,
+  if (apply.layout) {
+    for (const node of retainedNodes) {
+      const ref = refByNodeId.get(String(node.id)) || (String(node.id) === nodeIdByRef.get(COURSE_REF) ? COURSE_REF : null);
+      const position = ref && layoutPosition(taskGraph, ref);
+      if (position) node.position = position;
+    }
+  }
+  const reserved = [];
+  const refsNeedingNewNode = [...shouldPlace].filter((ref) => {
+    if (ref === COURSE_REF || !descriptors.has(ref) || existingNodeByRef.has(ref)) return false;
+    const position = apply.layout && layoutPosition(taskGraph, ref);
+    if (position) { reserved.push(nodeForDescriptor(descriptors.get(ref), position)); return false; }
+    return true;
   });
+  const auto = autoPositions({ refs: refsNeedingNewNode, allRefs: [...descriptors.keys()], connections,
+    descriptors, existingNodes: [...retainedNodes, ...reserved], anchor: rootNode });
 
   let nextNodes = retainedNodes;
   const importedNodeIds = [];
@@ -362,7 +407,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
       if (ref !== COURSE_REF) importedNodeIds.push(String(existing.id));
       continue;
     }
-    const position = explicitPosition || auto.get(ref) || freePosition(rootNode.position || { x: 0, y: 0 }, nextNodes.map((node) => node.position || { x: 0, y: 0 }));
+    const position = explicitPosition || auto.get(ref) || freePosition(rootNode.position || { x: 0, y: 0 }, nextNodes.map(occupiedRect), taskGraphNodeSize(descriptor));
     const created = nodeForDescriptor(descriptor, position);
     nextNodes.push(created);
     nodeIdByRef.set(ref, String(created.id));
@@ -377,7 +422,7 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
     const target = String(edge?.target || '');
     if (!nextNodeIds.has(source) || !nextNodeIds.has(target)) return false;
     const bothImported = importedNodeIdSet.has(source) && importedNodeIdSet.has(target);
-    return !bothImported;
+    return apply.connectionMode === 'merge' || !bothImported;
   });
 
   const importedEdges = [];
@@ -399,7 +444,8 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
     });
   });
 
-  const nextEdges = [...retainedEdges, ...importedEdges];
+  const replacedPairs = new Set(importedEdges.map((edge) => `${edge.source}\u001f${edge.target}`));
+  const nextEdges = [...retainedEdges.filter((edge) => !replacedPairs.has(`${edge.source}\u001f${edge.target}`)), ...importedEdges];
   if (graphHasCycle(nextNodes, nextEdges)) return { error: 'cycle' };
 
   const unplacedAssignmentIds = [...descriptors.values()]
@@ -417,4 +463,74 @@ export function applyTaskGraphImport({ nodes, edges, taskGraph, taskMappings, as
     connectionCount: importedEdges.length,
     viewport: apply.layout && taskGraph?.layout?.viewport ? { ...taskGraph.layout.viewport } : null,
   };
+}
+
+// Preview and Apply share the same reducer, including retained cross-boundary
+// edges, detached nodes, deletion effects, merge mode and effective layout.
+export function projectTaskGraphImport(incoming, current, options) {
+  const rootId = 'preview-root';
+  const identity = (graph, prefix) => new Map([
+    [COURSE_REF, { id: rootId, kind: 'course', nodeId: courseNodeId(rootId) }],
+    ...(graph.courses || []).map((row) => {
+      const id = row.id ? String(row.id).toLowerCase() : `${prefix}-course:${row.key}`;
+      return [row.key, { id, kind: 'course', nodeId: courseNodeId(id), row }];
+    }),
+    ...(graph.tasks || []).map((row) => {
+      const id = row.id ? String(row.id).toLowerCase() : `${prefix}-task:${row.key}`;
+      return [row.key, { id, kind: 'assignment', nodeId: assignmentNodeId(id), row }];
+    }),
+  ]);
+  const before = identity(current, 'current');
+  const incomingIds = identity(incoming, 'incoming');
+  const placedKeys = new Set([COURSE_REF, ...Object.keys(current.layout?.positions || {})]);
+  for (const edge of current.connections || []) { placedKeys.add(edge.from); placedKeys.add(edge.to); }
+  const nodes = [...before.entries()].filter(([key]) => placedKeys.has(key)).map(([key, entity]) => ({
+    id: entity.nodeId, entityId: entity.id, type: entity.kind === 'course' ? 'course' : assignmentNodeType(entity.row?.type),
+    position: current.layout?.positions?.[key] || { x: 0, y: 0 },
+  }));
+  const edges = (current.connections || []).filter((edge) => before.has(edge.from) && before.has(edge.to)).map((edge, index) => ({
+    id: `preview:${index}`, source: before.get(edge.from).nodeId, target: before.get(edge.to).nodeId,
+    settings: connectionSettings(edge), original: edge, originalIndex: index,
+  }));
+  const assignments = mergeTaskGraphAssignments(
+    (current.tasks || []).map((row) => ({ ...row, id: before.get(row.key).id })),
+    (incoming.tasks || []).map((row) => ({ ...row, id: incomingIds.get(row.key).id })),
+    incoming.deleteTasks || [],
+  );
+  const taskGraph = { ...incoming,
+    courses: (incoming.courses || []).map((row) => ({ ...row, id: incomingIds.get(row.key).id })),
+    tasks: (incoming.tasks || []).map((row) => ({ ...row, assignmentId: incomingIds.get(row.key).id })),
+    apply: { connections: options.updateConnections, connectionAccess: options.updateConnectionAccess,
+      layout: options.updateLayout, connectionMode: options.connectionMode },
+  };
+  const result = applyTaskGraphImport({ nodes, edges, taskGraph, assignments, courseId: rootId });
+  const finalNodes = result.nodes || nodes;
+  const finalEdges = result.edges || edges;
+  const pair = (edge) => `${edge.source}\u001f${edge.target}`;
+  const oldPairs = new Map(edges.map((edge) => [pair(edge), edge]));
+  const newPairs = new Map(finalEdges.map((edge) => [pair(edge), edge]));
+  const added = finalEdges.filter((edge) => !oldPairs.has(pair(edge)));
+  const removed = edges.filter((edge) => !newPairs.has(pair(edge)));
+  const kept = finalEdges.filter((edge) => oldPairs.has(pair(edge)));
+  const accessChanged = kept.filter((edge) => {
+    const previous = oldPairs.get(pair(edge));
+    return normalizeEffect(previous.settings?.hiddenEffect) !== normalizeEffect(edge.settings?.hiddenEffect)
+      || normalizeEffect(previous.settings?.sequentialEffect) !== normalizeEffect(edge.settings?.sequentialEffect);
+  });
+  const finalIds = new Set(finalNodes.map((node) => node.id));
+  const placements = [...incomingIds.entries()].filter(([key]) => key !== COURSE_REF).map(([key, entity]) => ({
+    key, kind: entity.kind, title: entity.row?.title || key, placed: finalIds.has(entity.nodeId),
+    position: finalNodes.find((node) => node.id === entity.nodeId)?.position || null,
+  }));
+  const positionChanges = options.updateLayout ? Object.entries(incoming.layout?.positions || {}).filter(([key, value]) => {
+    const nodeId = incomingIds.get(key)?.nodeId;
+    const existing = nodes.find((node) => node.id === nodeId);
+    return !existing || existing.position.x !== value.x || existing.position.y !== value.y;
+  }).length : 0;
+  const viewportChanged = Boolean(options.updateLayout && incoming.layout?.viewport
+    && ['x', 'y', 'zoom'].some((key) => incoming.layout.viewport[key] !== current.layout?.viewport?.[key]));
+  const labels = new Map([...before.values(), ...incomingIds.values()].map((row) => [row.nodeId, row.row?.title || row.row?.key || COURSE_REF]));
+  const previewNodes = finalNodes.map((node) => ({ ...node, label: labels.get(node.id) || node.entityId || node.id,
+    ...taskGraphNodeSize(node) }));
+  return { ...result, previewNodes, added, removed, kept, accessChanged, placements, positionChanges, viewportChanged };
 }

@@ -1,3 +1,5 @@
+import { projectTaskGraphImport } from './courseTaskGraphImport';
+
 export const TASK_GRAPH_SCHEMA_VERSION = 5;
 export const TASK_GRAPH_LEGACY_SCHEMA_VERSION = 3;
 export const TASK_GRAPH_PREVIOUS_SCHEMA_VERSION = 4;
@@ -5,6 +7,30 @@ export const TASK_GRAPH_FORMAT = 'taskforge-task-graph';
 export const TASK_GRAPH_COURSE_REF = '$course';
 export const TASK_GRAPH_MAX_TASKS = 5000;
 export const TASK_GRAPH_MAX_CONNECTIONS = 20_000;
+
+export const FULL_JSON_EXPORT_OPTIONS = Object.freeze({
+  includeIds: true,
+  includeContent: true,
+  includeChecks: true,
+  includeVisibility: true,
+  includeConnections: true,
+  includeConnectionAccess: true,
+  includeLayout: true,
+  includeGuide: true,
+});
+
+export const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
+  updateContent: true,
+  updateChecks: true,
+  updateVisibility: true,
+  updateConnections: true,
+  updateConnectionAccess: true,
+  updateLayout: true,
+  allowDeletes: false,
+  allowConnectionDeletes: false,
+  allowDuplicates: false,
+  connectionMode: 'replace',
+});
 
 const TASK_FIELDS = new Set([
   'key', 'id', 'course', 'type', 'title', 'description', 'language', 'allowedLanguages', 'tags',
@@ -356,7 +382,7 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
   format: TASK_GRAPH_FORMAT,
   scopes: [...TASK_GRAPH_SCOPES],
   courses: [
-    { key: 'course-advanced', id: '22222222-2222-4222-8222-222222222222', title: 'Углубление' },
+    { key: 'course-advanced', title: 'Углубление' },
   ],
   tasks: [
     clone(codeTask),
@@ -400,19 +426,19 @@ export const TASK_GRAPH_MEGA_EXAMPLE = {
     { from: 'merge-finish', to: 'final-task' },
   ],
   layout: {
-    viewport: { x: 80, y: 60, zoom: 0.9 },
+    viewport: { x: 136, y: 96, zoom: 0.9 },
     positions: {
       [TASK_GRAPH_COURSE_REF]: { x: 0, y: 0 },
-      'input-output': { x: 340, y: 0 },
-      'json-basics': { x: 680, y: 0 },
-      'draw-pixel': { x: 1020, y: -330 },
-      'course-advanced': { x: 1020, y: -110 },
-      'math-blocks': { x: 1360, y: -110 },
-      'sequential-a': { x: 1020, y: 110 },
-      'hidden-a': { x: 1020, y: 330 },
-      'combined-a': { x: 1020, y: 550 },
-      'merge-finish': { x: 1700, y: 0 },
-      'final-task': { x: 2040, y: 0 },
+      'input-output': { x: 578, y: 0 },
+      'json-basics': { x: 1156, y: 0 },
+      'draw-pixel': { x: 1734, y: -528 },
+      'course-advanced': { x: 1734, y: -176 },
+      'math-blocks': { x: 2312, y: -176 },
+      'sequential-a': { x: 1734, y: 176 },
+      'hidden-a': { x: 1734, y: 528 },
+      'combined-a': { x: 1734, y: 880 },
+      'merge-finish': { x: 2890, y: 0 },
+      'final-task': { x: 3468, y: 0 },
     },
   },
 };
@@ -495,7 +521,34 @@ export const TASK_GRAPH_EXAMPLES = [
   { key: 'delete-task', title: 'Удаление задания', type: 'deleteTasks', payload: DELETE_TASK_EXAMPLE },
 ];
 
+export const TASK_GRAPH_BEHAVIOR_GUIDE = {
+  "identity": "key — ссылка только внутри одного файла, не постоянный идентификатор. Совпадение key или названия не объединяет сущности. Существующий UUID в поддереве выбирает сущность; свободный UUID создаёт новую с этим UUID; без id создаётся новая с UUID от сервера. Запускать новую операцию импорта без id в тот же курс — значит создавать новые задания и курсы, а не обновлять старые.",
+  "foreignId": "UUID, занятый заданием или курсом вне импортируемого поддерева, отклоняется. Preview проверяет занятость на сервере, но не резервирует UUID: проверка повторяется при Apply.",
+  "courseMetadata": "У существующего вложенного курса поля title, isPublic, isHiddenFromStudents и visibleGroupIds используются как справочная информация и не обновляют курс. Меняйте их в редакторе курса. В courses эти поля задают параметры только нового курса. Новый вложенный курс создаётся прямым дочерним курсом открытого курса; стрелки карты не меняют иерархию хранения.",
+  "parent": "Для нового задания отсутствие course означает $course. Для существующего задания отсутствие course сохраняет фактический курс. Явно указанный course должен совпадать с его текущим курсом: перенос через JSON не поддерживается.",
+  "scopes": "scopes задаёт присутствующие категории, а переключатели импорта разрешают их применение. Выключенная категория сохраняется у существующих заданий. Новому заданию нужны scope content и полные поля его типа; выключение обновления существующих заданий не превращает новую задачу в пустую ссылку. guide — справка, не данные курса.",
+  "optionalArrays": "tasks всегда является массивом, в том числе []. courses можно не указывать. connections требуется, когда включено изменение связей или эффектов стрелок. Если обе категории выключены, поле connections можно опустить; его отсутствие не очищает карту. datasets можно опустить без SQL-ресурсов. Для sql со ссылкой на датасет этот ресурс должен быть объявлен в datasets[]. Отдельного scope datasets нет.",
+  "versions": "Поддерживаются schemaVersion 3, 4 и 5; новые экспорты используют 5. Пустой datasets: [] допустим в версиях 3 и 4 без SQL. Непустые SQL-ресурсы требуют версии 5. В версии 3 отсутствующий scopes включает исторический набор категорий; явно переданный scopes учитывается. layout поддерживается с версии 4.",
+  "replaceConnections": "Режим «Заменить связи перечисленных узлов» не означает append. Список connections задаёт целевые стрелки между перечисленными в JSON узлами и $course. Прочие стрелки сохраняются, пока их узлы остаются на карте. Перечисленный узел без связей и применяемой позиции снимается с карты вместе со всеми стрелками, но сама сущность не удаляется. Поэтому при частичном JSON смотрите точный список удалений в Preview.",
+  "mergeConnections": "Для добавления ветки выберите режим «Добавить связи, сохранив существующие». Совпадающая пара from/to не дублируется. Старые узлы и связи сохраняются; эффекты совпавшей стрелки меняются только при включённой категории эффектов. Цикл с сохраняемыми связями тоже запрещён.",
+  "emptyConnections": "connections: [] — явно пустой список. При выключенных связях он не меняет топологию, кроме удаления стрелок явно удаляемых заданий. В режиме добавления он не добавляет стрелок. В режиме замены он может снять перечисленные узлы без позиций с карты и удалить затронутые связи; это показывается в Preview и требует подтверждения.",
+  "unplaced": "«Не на карте» не означает удаление задания или неуспешное сохранение его содержимого. Новый элемент без применяемой связи и без явной применяемой позиции сохраняется в этом списке намеренно. Связанные новые элементы без layout размещаются автоматически. Счётчик Preview относится к итоговой карте с учётом переключателей, а не только к входному JSON.",
+  "layout": "layout.positions — частичное обновление: меняются только перечисленные позиции. layout.viewport задаёт x, y, zoom рабочей области. Если layout выключен, существующие координаты и viewport сохраняются, а новые связанные узлы получают свободные позиции. Явные координаты принимаются как авторский выбор; их взаимное наложение не устраняется принудительно.",
+  "edgeEffects": "connectionAccess независим от connections. При экспорте эффектов без топологии массив connections остаётся как адресация существующих стрелок, но scope connections отсутствует. Такой импорт меняет эффекты, а не добавляет и не удаляет стрелки. При выключенных эффектах прежние настройки совпадающих связей сохраняются.",
+  "datasetReuse": "SQL-датасеты переиспользуются по содержимому схемы, seed и engineOverrides, а не по key или имени. Переиспользование возможно только для доступного редактору, неархивного датасета; сохраняются его прежние имя и идентичность. Новое имя само по себе не создаёт копию. Изменение содержимого создаёт отдельный ресурс. Preview показывает решение «создать» или «использовать существующий».",
+  "export": "Для файла, который можно импортировать обратно, оставьте ID заданий либо «Условия и настройки». Экспорт без обоих разделов заблокирован. Без ID задачи импортируются как новые; перед созданием возможных дублей нужно подтверждение. ID вложенных курсов экспортируются независимо от переключателя «ID заданий»: этот переключатель не означает клонирование всего дерева.",
+  "noStoredMap": "Экспорт отражает сохранённую карту. Если документа карты ещё нет, экспорт не придумывает связи по порядку заданий; connections остаётся пустым, layout отсутствует. Сохраните нужную карту перед экспортом.",
+  "completion": "Импорт завершён только после подтверждённой записи данных и карты. Курсы, задания и карта сохраняются этапами: общей транзакции между сервисами нет. При сбое часть объектов может уже существовать. Журнал сохраняет этап и UUID; продолжайте эту же операцию, а не создавайте новую.",
+  "deletion": "Отсутствие задания в tasks не удаляет его из курса. Удаление задаётся только deleteTasks с UUID, scope ids и отдельным подтверждением. При удалении исчезают и стрелки этого задания даже с выключенной категорией связей. SQL-задание с историей проверок физически не удаляется; используйте isVisible=false.",
+  "operationIdentity": "operationId обозначает одну операцию, а не задание. Повтор с тем же operationId и теми же JSON/настройками возвращает сохранённый результат, не создаёт дубли. Другой JSON с этим ключом отклоняется. Клиент создаёт ключ сам; не добавляйте operationId в JSON графа. В HTTP API он передаётся рядом с graph и options.",
+  "resume": "После таймаута или перезагрузки откройте журнал в том же курсе и аккаунте. Проверка состояния ничего не записывает. Продолжение выполняется только по нажатию. В localStorage хранится только operationId, не условия или ответы тестов.",
+  "mapConflict": "Если карту изменили после Preview, она не перезаписывается молча. Пересчитайте карту и подтвердите новый Preview. Если ответ сохранения потерян, сначала повторяется точно тот же этап: новый граф не подставляется по догадке.",
+  "audit": "Отчёт JSON содержит этап, UUID, изменённые поля, хеши до/после и разницу карты. Исходный JSON, ответы тестов и SQL-скрипты в отчёт не включаются. requestSha256 относится к нормализованному graph и options, не к байтам исходного файла. Порядок массивов и содержимое строк учитываются.",
+  "stop": "«Прекратить без отката» не удаляет уже созданные объекты и не восстанавливает удалённые. Нужно явное подтверждение. Если результат записи карты неизвестен, сначала нужно получить её подтверждённый результат."
+};
+
 export const TASK_GRAPH_GUIDE_SECTIONS = [
+  { key: 'behavior', title: 'Как читать результат импорта', items: Object.entries(TASK_GRAPH_BEHAVIOR_GUIDE).map(([field, text]) => ({ field, text })) },
   {
     key: 'document',
     title: 'Документ',
@@ -515,7 +568,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     title: 'Разделы экспорта',
     items: [
       { field: 'ids', text: 'id заданий. Существующий id обновляет конкретное задание, а свободный UUID может быть сохранён за новым заданием.' },
-      { field: 'content', text: 'Тип, название, условие, язык, теги, сложность, рейтинг и стартовый код.' },
+      { field: 'content', text: 'Тип, название, условие, язык, теги, рейтинг и стартовый код.' },
       { field: 'checks', text: 'Тест-кейсы, правильные ответы, настройки тестов и math-блоков, обязательные и запрещённые вызовы.' },
       { field: 'visibility', text: 'isVisible задания.' },
       { field: 'connections', text: 'Кто за кем идёт: from → to.' },
@@ -599,7 +652,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     key: 'import',
     title: 'Выбор при импорте',
     items: [
-      { field: 'Содержимое', text: 'Разрешает менять название, условие, тип, языки, теги, сложность, рейтинг и стартовый код существующих заданий.' },
+      { field: 'Содержимое', text: 'Разрешает менять название, условие, тип, языки, теги, рейтинг и стартовый код существующих заданий.' },
       { field: 'Проверки', text: 'Разрешает менять тесты, ответы, testSettings/math blocks и ограничения кода.' },
       { field: 'Видимость', text: 'Разрешает менять isVisible.' },
       { field: 'Связи', text: 'Разрешает менять топологию from → to для перечисленных заданий.' },
@@ -611,7 +664,10 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
   },
 ];
 
-export const TASK_GRAPH_AI_PROMPT = `Ты работаешь с JSON-графом курса TaskForge.
+export const TASK_GRAPH_AI_PROMPT = `Правила импорта:
+${Object.values(TASK_GRAPH_BEHAVIOR_GUIDE).join('\n')}
+
+Ты работаешь с JSON-графом курса TaskForge.
 
 Верни только один валидный JSON без Markdown и текста вокруг него.
 
@@ -994,7 +1050,7 @@ export function normalizeTaskGraphPayload(parsed) {
     };
   }
   const schemaVersion = Number(parsed.schemaVersion);
-  const scopes = schemaVersion === TASK_GRAPH_LEGACY_SCHEMA_VERSION
+  const scopes = schemaVersion === TASK_GRAPH_LEGACY_SCHEMA_VERSION && parsed.scopes === undefined
     ? ['ids', 'content', 'checks', 'visibility', 'connections', 'connectionAccess']
     : (Array.isArray(parsed.scopes) ? parsed.scopes.map(String) : []);
   return {
@@ -1011,7 +1067,7 @@ export function normalizeTaskGraphPayload(parsed) {
   };
 }
 
-export function validateTaskGraphPayload(parsed) {
+export function validateTaskGraphPayload(parsed, importOptions = {}) {
   const graph = normalizeTaskGraphPayload(parsed);
   const issues = [];
   collectLegacyLayoutIssues(parsed, '$', issues);
@@ -1039,9 +1095,9 @@ export function validateTaskGraphPayload(parsed) {
     if (!TOP_LEVEL_FIELDS.has(key)) issues.push({ path: `$.${key}`, message: 'Неизвестное поле верхнего уровня.' });
   }
   const schemaVersion = Number(root?.schemaVersion);
-  if (![TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_PREVIOUS_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(schemaVersion)) issues.push({ path: '$.schemaVersion', message: `Поддерживаются ${TASK_GRAPH_LEGACY_SCHEMA_VERSION} и ${TASK_GRAPH_SCHEMA_VERSION}.` });
+  if (![TASK_GRAPH_LEGACY_SCHEMA_VERSION, TASK_GRAPH_PREVIOUS_SCHEMA_VERSION, TASK_GRAPH_SCHEMA_VERSION].includes(schemaVersion)) issues.push({ path: '$.schemaVersion', message: `Поддерживаются ${TASK_GRAPH_LEGACY_SCHEMA_VERSION}, ${TASK_GRAPH_PREVIOUS_SCHEMA_VERSION} и ${TASK_GRAPH_SCHEMA_VERSION}.` });
   if (root?.format !== TASK_GRAPH_FORMAT) issues.push({ path: '$.format', message: `Ожидается "${TASK_GRAPH_FORMAT}".` });
-  if (schemaVersion >= TASK_GRAPH_PREVIOUS_SCHEMA_VERSION) {
+  if (schemaVersion >= TASK_GRAPH_PREVIOUS_SCHEMA_VERSION || root?.scopes !== undefined) {
     if (!Array.isArray(root?.scopes)) issues.push({ path: '$.scopes', message: 'Нужен массив scopes.' });
     else {
       const seenScopes = new Set();
@@ -1059,10 +1115,17 @@ export function validateTaskGraphPayload(parsed) {
   if (root?.deleteTasks !== undefined && root?.deleteTasks !== null && !Array.isArray(root.deleteTasks)) {
     issues.push({ path: '$.deleteTasks', message: 'deleteTasks должен быть массивом GUID заданий.' });
   }
-  if (!Array.isArray(root?.connections)) issues.push({ path: '$.connections', message: 'Нужен массив связей.' });
+  const needsConnections = (graph.scopes.includes('connections') && importOptions.updateConnections !== false)
+    || (graph.scopes.includes('connectionAccess') && importOptions.updateConnectionAccess !== false);
+  if (!Array.isArray(root?.connections) && (root?.connections !== undefined || needsConnections)) {
+    issues.push({ path: '$.connections', message: 'Нужен массив связей для выбранного раздела. При выключенных связях и эффектах поле можно не указывать.' });
+  }
+  if (root?.courses !== undefined && !Array.isArray(root.courses)) issues.push({ path: '$.courses', message: 'courses должен быть массивом.' });
+
   if (graph.tasks.length > TASK_GRAPH_MAX_TASKS) issues.push({ path: '$.tasks', message: `Не больше ${TASK_GRAPH_MAX_TASKS} заданий.` });
   if (graph.connections.length > TASK_GRAPH_MAX_CONNECTIONS) issues.push({ path: '$.connections', message: `Не больше ${TASK_GRAPH_MAX_CONNECTIONS} связей.` });
 
+  if (graph.courses.length > 1000) issues.push({ path: '$.courses', message: 'Не больше 1000 вложенных курсов.' });
   const courseKeySet = new Set();
   const courseIdSet = new Set();
   graph.courses.forEach((course, index) => {
@@ -1202,7 +1265,7 @@ export function summarizeTaskGraphPayload(parsed) {
     const unplaced = legacy ? 0 : graph.tasks.filter((task) => !connected.has(String(task?.key || ''))).length;
     const topology = legacy
       ? ' · без графа'
-      : ` · ${graph.connections.length} связей${unplaced ? ` · вне карты ${unplaced}` : ''}`;
+      : ` · ${graph.connections.length} связей${unplaced ? ` · в JSON без связей ${unplaced}` : ''}`;
     const deletions = Array.isArray(graph.deleteTasks) && graph.deleteTasks.length ? ` · удалить ${graph.deleteTasks.length}` : '';
     return `${graph.tasks.length} заданий${deletions}${graph.courses?.length ? ` · курсов ${graph.courses.length}` : ''}${topology}${issues.length ? ` · ошибок ${issues.length}` : ''}`;
   } catch {
@@ -1287,12 +1350,12 @@ function connectionRow(connection, index, titleByKey, status) {
   };
 }
 
-export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = {}) {
-  const incomingValidation = validateTaskGraphPayload(parsed);
+export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = {}, preflight = {}) {
+  const incomingValidation = validateTaskGraphPayload(parsed, importOptions);
   const currentValidation = validateTaskGraphPayload(currentExport);
   const incoming = incomingValidation.graph;
   const current = currentValidation.graph;
-  const importIssues = [];
+  const importIssues = [...(preflight.issues || [])];
   const scopes = new Set(incoming.scopes || []);
   const options = {
     updateContent: importOptions.updateContent !== false && scopes.has('content'),
@@ -1301,6 +1364,9 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     updateConnections: importOptions.updateConnections !== false && scopes.has('connections'),
     updateConnectionAccess: importOptions.updateConnectionAccess !== false && scopes.has('connectionAccess'),
     updateLayout: importOptions.updateLayout !== false && scopes.has('layout'),
+    connectionMode: importOptions.connectionMode === 'merge' ? 'merge' : 'replace',
+    allowConnectionDeletes: importOptions.allowConnectionDeletes === true,
+    allowDuplicates: importOptions.allowDuplicates === true,
     allowDeletes: importOptions.allowDeletes === true,
   };
   const currentById = new Map(current.tasks.map((task) => [cleanId(task.id), task]).filter(([id]) => id));
@@ -1330,11 +1396,22 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     };
   });
 
-  const rows = incoming.tasks.map((task, index) => {
+  const rows = incoming.tasks.map((rawTask, index) => {
+    const task = isPlainObject(rawTask) ? rawTask : {};
     const id = cleanId(task.id ?? task.assignmentId);
     const existing = id ? currentById.get(id) : null;
     const title = String(task.title || existing?.title || `Импорт #${index + 1}`).trim();
     const duplicateTitle = !existing && title && currentTitles.has(title.toLowerCase());
+    if (existing && task.course !== undefined) {
+      const incomingCourse = incoming.courses.find((row) => row.key === task.course);
+      const existingCourse = current.courses.find((row) => row.key === existing.course);
+      const expectedId = task.course === TASK_GRAPH_COURSE_REF ? TASK_GRAPH_COURSE_REF : cleanId(incomingCourse?.id);
+      const actualId = !existing.course || existing.course === TASK_GRAPH_COURSE_REF ? TASK_GRAPH_COURSE_REF : cleanId(existingCourse?.id);
+      if (expectedId !== actualId) importIssues.push({ path: `$.tasks[${index}].course`, message: 'JSON-импорт не переносит существующее задание между курсами.' });
+    }
+    if (!existing && id && !String(task.title || '').trim()) importIssues.push({ path: `$.tasks[${index}].title`, message: 'Для нового задания нужен title, даже если указан свободный UUID.' });
+    if (!existing && !scopes.has('content') && !incomingValidation.legacy) importIssues.push({ path: `$.tasks[${index}]`, message: 'Для нового задания нужны scope content и полное описание.' });
+
     if (existing && options.updateContent && task.type !== undefined) {
       const currentType = String(existing.type || '').trim().toLowerCase();
       const nextType = String(task.type || '').trim().toLowerCase();
@@ -1366,8 +1443,8 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
       index,
       id,
       key: task.key,
-      courseRef: String(task?.course || TASK_GRAPH_COURSE_REF),
-      courseLabel: incomingTitle.get(String(task?.course || TASK_GRAPH_COURSE_REF)) || String(task?.course || TASK_GRAPH_COURSE_REF),
+      courseRef: String(existing?.course || task?.course || TASK_GRAPH_COURSE_REF),
+      courseLabel: existing ? (currentTitle.get(String(existing.course || TASK_GRAPH_COURSE_REF)) || existing.course) : (incomingTitle.get(String(task?.course || TASK_GRAPH_COURSE_REF)) || String(task?.course || TASK_GRAPH_COURSE_REF)),
       title,
       type: task.type || existing?.type || 'code-test',
       action,
@@ -1379,71 +1456,18 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
 
   const incomingIdentity = graphIdentityByKey(incoming, 'new');
   const currentIdentity = graphIdentityByKey(current, 'current');
-  const incomingTopologyConnections = new Map(incoming.connections.map((connection, index) => [
-    connectionSignature(connection, incomingIdentity, false),
-    { connection, index },
-  ]));
   const currentTopologyConnections = new Map(current.connections.map((connection, index) => [
     connectionSignature(connection, currentIdentity, false),
     { connection, index },
   ]));
-  const importedBoundIdentities = new Set();
-  for (const course of incoming.courses || []) {
-    const identity = incomingIdentity.get(String(course?.key || ''));
-    if (identity?.startsWith('course:')) importedBoundIdentities.add(identity);
-  }
-  for (const task of incoming.tasks || []) {
-    const identity = incomingIdentity.get(String(task?.key || ''));
-    if (identity?.startsWith('task:')) importedBoundIdentities.add(identity);
-  }
-  for (const row of deleteRows) {
-    if (row.id) importedBoundIdentities.add(`task:${row.id}`);
-  }
-
-  const deletedBoundIdentities = new Set(deleteRows
-    .filter((row) => row.action === 'delete' && row.id)
-    .map((row) => `task:${row.id}`));
-  const affectedCurrentConnections = new Map();
-  const forcedRemovedConnections = new Map();
-  for (const [signature, row] of currentTopologyConnections) {
-    const sourceIdentity = currentIdentity.get(row.connection.from);
-    const targetIdentity = currentIdentity.get(row.connection.to);
-    const sourceImported = importedBoundIdentities.has(sourceIdentity);
-    const targetImported = importedBoundIdentities.has(targetIdentity);
-    const affected = (sourceIdentity === TASK_GRAPH_COURSE_REF && targetImported)
-      || sourceImported
-      || targetImported;
-    if (affected) affectedCurrentConnections.set(signature, row);
-    if (deletedBoundIdentities.has(sourceIdentity) || deletedBoundIdentities.has(targetIdentity)) {
-      forcedRemovedConnections.set(signature, row);
-    }
-  }
-
-  const connectionAddedCount = incomingValidation.legacy || !options.updateConnections
-    ? 0
-    : [...incomingTopologyConnections.keys()].filter((signature) => !currentTopologyConnections.has(signature)).length;
-  const removedConnections = new Map(forcedRemovedConnections);
-  if (!incomingValidation.legacy && options.updateConnections) {
-    for (const [signature, row] of affectedCurrentConnections) {
-      if (!incomingTopologyConnections.has(signature)) removedConnections.set(signature, row);
-    }
-  }
-  const connectionRemovedCount = incomingValidation.legacy ? 0 : removedConnections.size;
-  const connectionUnchangedCount = incomingValidation.legacy
-    ? currentTopologyConnections.size
-    : !options.updateConnections
-      ? Math.max(0, currentTopologyConnections.size - forcedRemovedConnections.size)
-      : [...incomingTopologyConnections.keys()].filter((signature) => currentTopologyConnections.has(signature)).length;
-  const connectionAccessChangedCount = incomingValidation.legacy || !options.updateConnectionAccess
-    ? 0
-    : [...incomingTopologyConnections.entries()].filter(([signature, row]) => {
-        const currentRow = currentTopologyConnections.get(signature);
-        return currentRow && !sameValue(normalizeAccess(currentRow.connection.access), normalizeAccess(row.connection.access));
-      }).length;
-  const connected = connectedTaskKeys(incoming);
-  const unplacedCount = incomingValidation.legacy
-    ? 0
-    : incoming.tasks.filter((task) => !connected.has(String(task?.key || ''))).length;
+  const projection = incomingValidation.legacy || incomingValidation.issues.length
+    ? null : projectTaskGraphImport(incoming, current, options);
+  if (projection?.error === 'cycle') importIssues.push({ path: '$.connections', message: 'Связи образуют цикл вместе с сохраняемой частью карты.' });
+  const connectionAddedCount = projection?.added.length || 0;
+  const connectionRemovedCount = projection?.removed.length || 0;
+  const connectionUnchangedCount = projection?.kept.length ?? currentTopologyConnections.size;
+  const connectionAccessChangedCount = projection?.accessChanged.length || 0;
+  const unplacedCount = projection?.placements.filter((row) => !row.placed).length || 0;
   const connectionRows = incomingValidation.legacy || (!options.updateConnections && !options.updateConnectionAccess)
     ? []
     : incoming.connections.map((connection, index) => {
@@ -1455,10 +1479,7 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
           && !sameValue(normalizeAccess(currentRow.connection.access), normalizeAccess(connection.access))) status = 'update';
         return connectionRow(connection, index, incomingTitle, status);
       });
-  const removedConnectionRows = incomingValidation.legacy
-    ? []
-    : [...removedConnections.values()]
-        .map((row) => connectionRow(row.connection, row.index, currentTitle, 'remove'));
+  const removedConnectionRows = (projection?.removed || []).map((edge) => connectionRow(edge.original, edge.originalIndex, currentTitle, 'remove'));
 
 
   const currentCourseIds = new Set((current.courses || []).map((course) => cleanId(course?.id)).filter(Boolean));
@@ -1467,17 +1488,36 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     return !id || !currentCourseIds.has(id);
   }).length;
   const courseExistingCount = Math.max(0, (incoming.courses || []).length - courseCreateCount);
-  const layoutPositionCount = incoming.layout?.positions && typeof incoming.layout.positions === 'object'
+  const layoutPositionCount = options.updateLayout && incoming.layout?.positions && typeof incoming.layout.positions === 'object'
     ? Object.keys(incoming.layout.positions).length
     : 0;
   const hasImportWork = rows.length > 0
     || deleteRows.length > 0
     || (incoming.courses || []).length > 0
     || (!incomingValidation.legacy && (options.updateConnections || options.updateConnectionAccess) && incoming.connections.length > 0)
-    || (options.updateLayout && layoutPositionCount > 0);
+    || (options.updateLayout && (layoutPositionCount > 0 || incoming.layout?.viewport));
 
+  const warnings = [];
+  for (const course of incoming.courses || []) {
+    const existing = current.courses.find((row) => cleanId(row.id) && cleanId(row.id) === cleanId(course.id));
+    if (!existing) continue;
+    const ignored = ['title', 'isPublic', 'isHiddenFromStudents', 'visibleGroupIds'].filter((field) => course[field] !== undefined && !sameValue(course[field], existing[field]));
+    if (ignored.length) warnings.push(`Курс «${existing.title || course.key}»: ${ignored.join(', ')} не обновляются импортом. Эти поля используются только при создании курса; существующий курс изменяйте в его редакторе.`);
+  }
+  if (unplacedCount) warnings.push(`Вне карты после импорта: ${unplacedCount}. Эти элементы сохранятся в списке «Не на карте». Для размещения добавьте связь либо явную позицию с включённым layout.`);
+  const operationCount = rows.filter((row) => row.action !== 'unchanged').length + deleteRows.filter((row) => row.action === 'delete').length
+    + courseCreateCount + connectionAddedCount + connectionRemovedCount + connectionAccessChangedCount
+    + (projection?.positionChanges || 0) + (projection?.viewportChanged ? 1 : 0);
   return {
-    total: rows.length + deleteRows.length,
+    total: operationCount,
+    taskCount: rows.length,
+    warnings,
+    placements: projection?.placements || [],
+    previewMap: projection ? { nodes: projection.previewNodes || projection.nodes || [], edges: projection.edges || [] } : null,
+    datasets: preflight.datasets || [],
+    requiresConnectionDeleteConfirmation: connectionRemovedCount > 0 && !options.allowConnectionDeletes,
+    requiresDuplicateConfirmation: rows.some((row) => row.duplicateTitle) && !options.allowDuplicates,
+
     courseCount: Array.isArray(incoming.courses) ? incoming.courses.length : 0,
     courseCreateCount,
     courseExistingCount,
@@ -1530,38 +1570,56 @@ export function taskGraphExampleToText(example) {
 // Dedicated v5 documents are not legacy diagram coordinates or code-test JSON.
 function validateSqlResources(root, graph, issues) {
   const problem = (path, message) => issues.push({ path, message });
+  const hasSql = graph.tasks.some((task) => task?.sql || task?.type === 'sql-test');
   if (graph.schemaVersion < 5) {
-    if (root.datasets !== undefined || graph.tasks.some(t => t?.sql || t?.type === 'sql-test')) problem('$.schemaVersion','SQL resources require schemaVersion 5.');
+    if (hasSql || (root.datasets !== undefined && (!Array.isArray(root.datasets) || root.datasets.length))) problem('$.datasets', 'SQL-ресурсы требуют schemaVersion 5. Пустой datasets: [] допустим без SQL.');
     return;
   }
-  if (!Array.isArray(root.datasets)) { problem('$.datasets','schemaVersion 5 requires datasets[] (empty is allowed).'); return; }
-  if (root.datasets.length > 256) problem('$.datasets','At most 256 shared SQL datasets.');
+  if (root.datasets !== undefined && !Array.isArray(root.datasets)) { problem('$.datasets', 'datasets должен быть массивом.'); return; }
+  const datasets = root.datasets || [];
+  if (datasets.length > 256) problem('$.datasets', 'Допускается не больше 256 SQL-датасетов.');
   const keys = new Set();
-  root.datasets.forEach((d,i) => {
+  datasets.forEach((d,i) => {
     const path = `$.datasets[${i}]`;
-    if (!isPlainObject(d)) { problem(path,'Expected a dataset object.'); return; }
-    for (const k of Object.keys(d)) if (!['key','name','description','definition','seed','engineOverrides'].includes(k)) problem(`${path}.${k}`,'Unknown dataset field.');
-    if (!/^[a-zA-Z0-9_.-]{1,80}$/.test(d.key || '') || keys.has(d.key)) problem(`${path}.key`,'Unique dataset key required.');
+    if (!isPlainObject(d)) { problem(path,'Ожидался объект датасета.'); return; }
+    for (const k of Object.keys(d)) if (!['key','name','description','definition','seed','engineOverrides'].includes(k)) problem(`${path}.${k}`,'Неизвестное поле датасета.');
+    if (!/^[a-zA-Z0-9_.-]{1,80}$/.test(d.key || '') || keys.has(d.key)) problem(`${path}.key`,'Нужен уникальный key датасета.');
     keys.add(d.key);
-    if (!String(d.name || '').trim() || !Array.isArray(d.definition?.tables) || !isPlainObject(d.seed)) problem(path,'Dataset needs name, definition.tables and seed.');
+    if (!String(d.name || '').trim() || !Array.isArray(d.definition?.tables) || !isPlainObject(d.seed)) problem(path,'Нужны name, definition.tables и seed датасета.');
   });
   graph.tasks.forEach((task,i) => {
     const path = `$.tasks[${i}].sql`, s = task?.sql;
-    if (task?.type === 'sql-test' && !task.id && graph.scopes.includes('content') && !s) problem(path,'New SQL assignment needs a SQL spec.');
+    if (task?.type === 'sql-test' && !task.id && graph.scopes.includes('content') && !s) problem(path,'Новому SQL-заданию нужны sql и ссылка на датасет.');
     if (!s) return;
-    if (!isPlainObject(s)) { problem(path,'Expected a SQL specification.'); return; }
-    if (task.type && task.type !== 'sql-test') problem(path,'Only sql-test can contain a SQL specification.');
+    if (!isPlainObject(s)) { problem(path,'Ожидался объект sql.'); return; }
+    if (task.type && task.type !== 'sql-test') problem(path,'Поле sql допустимо только для sql-test.');
     const privateFields = ['referenceSql','comparison','stateCheck','schemaCheck'];
     const allowed = ['dataset','mode','allowMultipleStatements','targets','starterSql','limits',...privateFields];
-    for (const k of Object.keys(s)) if (!allowed.includes(k)) problem(`${path}.${k}`,'Unknown SQL specification field.');
-    if (!keys.has(s.dataset)) problem(`${path}.dataset`,'Dataset reference is not declared in datasets[].');
-    if (!['result','state','schema'].includes(s.mode)) problem(`${path}.mode`,'Expected result, state or schema.');
-    if (!Array.isArray(s.targets) || !s.targets.length) { problem(`${path}.targets`,'At least one engine target is required.'); return; }
-    if (!graph.scopes.includes('checks') && privateFields.some(k => s[k] != null)) problem(path,'Private checks require scope checks.');
+    for (const k of Object.keys(s)) if (!allowed.includes(k)) problem(`${path}.${k}`,'Неизвестное поле sql.');
+    if (!keys.has(s.dataset)) problem(`${path}.dataset`,'Датасет не объявлен в datasets[].');
+    if (!['result','state','schema'].includes(s.mode)) problem(`${path}.mode`,'Допустимы result, state или schema.');
+    if (!Array.isArray(s.targets) || !s.targets.length) { problem(`${path}.targets`,'Нужен хотя бы один SQL-движок.'); return; }
+    if (!graph.scopes.includes('checks') && privateFields.some(k => s[k] != null)) problem(path,'Эталон и проверки требуют scope checks.');
     s.targets.forEach((t,ti) => {
       const p = t?.profile;
-      if (!isPlainObject(p) || !['postgresql','mysql','sqlite'].includes(p.engine) || !/^sha256:[0-9a-f]{64}$/.test(p.runtimeDigest || '') || !p.engineVersion || !p.adapterVersion || !isPlainObject(p.settings)) problem(`${path}.targets[${ti}].profile`,'Exact engine runtime profile required.');
-      if (!graph.scopes.includes('checks') && ['referenceSqlOverride','comparisonOverride','stateCheckOverride','schemaCheckOverride'].some(k => t?.[k] != null)) problem(`${path}.targets[${ti}]`,'Private engine checks require scope checks.');
+      if (!isPlainObject(p) || !['postgresql','mysql','sqlite'].includes(p.engine) || !/^sha256:[0-9a-f]{64}$/.test(p.runtimeDigest || '') || !p.engineVersion || !p.adapterVersion || !isPlainObject(p.settings)) problem(`${path}.targets[${ti}].profile`,'Нужен точный профиль SQL-движка.');
+      if (!graph.scopes.includes('checks') && ['referenceSqlOverride','comparisonOverride','stateCheckOverride','schemaCheckOverride'].some(k => t?.[k] != null)) problem(`${path}.targets[${ti}]`,'Проверки SQL-движка требуют scope checks.');
     });
   });
+}
+
+export function taskGraphExportIssue(options = {}) {
+  return options.includeIds === false && options.includeContent === false
+    ? 'Для обратного импорта нужны ID заданий или «Условия и настройки». Включите хотя бы один из этих разделов.' : '';
+}
+
+export function taskGraphJsonParseMessage(error, text = '') {
+  const message = String(error?.message || '');
+  const match = message.match(/position\s+(\d+)/i);
+  if (match) {
+    const offset = Math.max(0, Math.min(text.length, Number(match[1])));
+    const lines = text.slice(0, offset).split('\n');
+    return `JSON не читается: строка ${lines.length}, столбец ${lines[lines.length - 1].length + 1}. Проверьте кавычки, запятые и скобки.`;
+  }
+  return 'JSON не читается. Проверьте двойные кавычки, запятые и парные скобки; комментарии и запятая после последнего элемента недопустимы.';
 }

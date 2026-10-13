@@ -43,7 +43,8 @@ internal static partial class AssignmentApiEndpoints
             ReadOption(options, "updateConnections", true),
             ReadOption(options, "updateConnectionAccess", true),
             ReadOption(options, "updateLayout", true),
-            ReadOption(options, "allowDeletes", false));
+            ReadOption(options, "allowDeletes", false),
+            options.TryGetProperty("connectionMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() == "merge" ? "merge" : "replace");
     }
 
     private static JsonElement ReadGraphImportPayload(JsonElement payload)
@@ -104,6 +105,8 @@ internal static partial class AssignmentApiEndpoints
 
     private static WebApplication MapAssignmentsEndpoints(WebApplication app)
     {
+        MapTaskGraphPreviewEndpoints(app);
+        MapTaskGraphOperationEndpoints(app);
         app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var includeHidden = await CanUserEditCourseAsync(courseId, http, cfg, clients, ct);
@@ -545,13 +548,96 @@ internal static partial class AssignmentApiEndpoints
                 includeConnectionAccess ?? true,
                 includeLayout ?? true,
                 includeGuide ?? false);
+            if (!exportOptions.IncludeIds && !exportOptions.IncludeContent)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "TASK_GRAPH_EXPORT_INCOMPLETE",
+                    message = "Для обратного импорта нужны ID заданий или раздел «Условия и настройки»." });
             var sql = await SqlTaskGraphService.Export(db, rows, exportOptions, ct);
             var exportDtos = await AssignmentTypedExportService.LoadImportDtosAsync(db, rows, ct);
             return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql, exportDtos), JsonOptions());
         }).AddEndpointFilter<SqlEndpointFilter>();
 
-        app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", async (Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
+        app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", JournaledTaskGraphImportAsync)
+            .AddEndpointFilter<SqlEndpointFilter>();
+
+
+        app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
+            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            if (assignment.Type == SqlTaskTypes.SqlTest && await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId, ct))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = AssignmentImportPolicy.SqlDeleteRetainedMessage });
+            var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
+            var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
+            db.Attempts.RemoveRange(attempts);
+            db.Assignments.Remove(assignment);
+            await db.SaveChangesAsync(ct);
+            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-deleted", ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
+        });
+
+        app.MapPatch("/api/assignments/{assignmentId:guid}/sort", async (Guid assignmentId, SortRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.FindAsync(assignmentId);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            assignment.Sort = request.Sort;
+            assignment.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
+        });
+
+        app.MapPatch("/api/assignments/{assignmentId:guid}/position", async (Guid assignmentId, PositionRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.FindAsync(assignmentId);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            var siblings = await db.Assignments.Where(x => x.CourseId == assignment.CourseId && x.Id != assignment.Id).OrderBy(x => x.Sort).ToListAsync();
+            var pos = System.Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
+            siblings.Insert(pos, assignment);
+            for (var i = 0; i < siblings.Count; i++) siblings[i].Sort = i;
+            await db.SaveChangesAsync();
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
+        });
+
+        app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
+        {
+            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
+            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            if (assignment.Type == SqlTaskTypes.SqlTest && request.IsVisible && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-задание нужно сначала опубликовать." });
+            var changed = assignment.IsVisible != request.IsVisible;
+            assignment.IsVisible = request.IsVisible;
+            await db.SaveChangesAsync(ct);
+            if (changed)
+            {
+                var users = await db.Attempts.AsNoTracking()
+                    .Where(x => x.TaskAssignmentId == assignmentId)
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .ToListAsync(ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
+            }
+            return Microsoft.AspNetCore.Http.Results.Json(
+                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
+                JsonOptions());
+        });
+
+        return app;
+    }
+
+    private static IResult CourseEditForbidden()
+        => Microsoft.AspNetCore.Http.Results.Json(
+            new { message = "Недостаточно прав для изменения этого курса.", code = "COURSE_EDIT_FORBIDDEN" },
+            statusCode: StatusCodes.Status403Forbidden);
+    private static async Task<IResult> ApplyTaskGraphImportAsync(Guid courseId, JsonElement payload, HttpContext http,
+        IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
+    {
             if (!IsEditor(http, cfg))
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
@@ -566,7 +652,7 @@ internal static partial class AssignmentApiEndpoints
             List<JsonElement> sourceItems;
             if (LooksLikeCanonicalGraph(graphPayload))
             {
-                var parsed = ParseAndValidate(graphPayload);
+                var parsed = ParseAndValidate(graphPayload, importOptions);
                 if (parsed.Issues.Count > 0 || parsed.Graph == null)
                 {
                     return Microsoft.AspNetCore.Http.Results.Json(new
@@ -632,6 +718,10 @@ internal static partial class AssignmentApiEndpoints
                         issues = courseReferenceIssues
                     }, statusCode: StatusCodes.Status400BadRequest);
                 }
+                var bindingIssues = await CheckTaskGraphBindingsAsync(taskGraph, courseId, graphSubtreeCourseIds, db, clients, cfg, ct);
+                if (bindingIssues.Count > 0)
+                    return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "TASK_GRAPH_BINDING_INVALID",
+                        message = "Импорт остановлен: конфликт UUID или курса задания.", issues = bindingIssues });
                 sourceItems = taskGraph.Tasks.Select(x => x.Source).ToList();
             }
             else
@@ -823,7 +913,7 @@ internal static partial class AssignmentApiEndpoints
                         continue;
                     }
                     var expectedCourseId = graphCourseIds.GetValueOrDefault(taskGraph.Tasks[index].CourseRef, courseId);
-                    if (existingRow.CourseId != expectedCourseId)
+                    if (taskGraph.Tasks[index].Source.TryGetProperty("course", out _) && existingRow.CourseId != expectedCourseId)
                     {
                         idIssues.Add(new { path = $"$.tasks[{index}].course", message = "Поле course не совпадает с курсом существующего задания. JSON-импорт не переносит задания между курсами." });
                     }
@@ -897,7 +987,7 @@ internal static partial class AssignmentApiEndpoints
             var processed = new List<(string? Key, string CourseRef, Assignment Assignment, string Action)>();
             var ratingAffectedAssignmentIds = new HashSet<Guid>();
             var deletedRatingUsers = new Dictionary<Guid, Guid[]>();
-            await using var sqlImportTransaction = taskGraph?.SourceSchemaVersion == SchemaVersion
+            await using var sqlImportTransaction = db.Database.CurrentTransaction is null
                 ? await db.Database.BeginTransactionAsync(ct) : null;
 
             for (var i = 0; i < requests.Count; i++)
@@ -1007,6 +1097,7 @@ internal static partial class AssignmentApiEndpoints
                         ["key"] = item.Key,
                         ["course"] = item.CourseRef,
                         ["assignmentId"] = item.Assignment.Id.ToString(),
+                        ["type"] = item.Assignment.Type,
                         ["action"] = item.Action
                     });
                 }
@@ -1047,6 +1138,7 @@ internal static partial class AssignmentApiEndpoints
                         ["checks"] = importOptions.UpdateChecks,
                         ["visibility"] = importOptions.UpdateVisibility,
                         ["connections"] = importOptions.UpdateConnections,
+                        ["connectionMode"] = importOptions.ConnectionMode,
                         ["connectionAccess"] = importOptions.UpdateConnectionAccess,
                         ["layout"] = importOptions.UpdateLayout,
                         ["deletions"] = importOptions.AllowDeletes
@@ -1068,81 +1160,6 @@ internal static partial class AssignmentApiEndpoints
                 assignments = processedDtos,
                 taskGraph = importedTaskGraph
             });
-        }).AddEndpointFilter<SqlEndpointFilter>();
-
-        app.MapDelete("/api/assignments/{assignmentId:guid}", async (Guid assignmentId, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            if (assignment.Type == SqlTaskTypes.SqlTest && await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = AssignmentImportPolicy.SqlDeleteRetainedMessage });
-            var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
-            var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
-            db.Attempts.RemoveRange(attempts);
-            db.Assignments.Remove(assignment);
-            await db.SaveChangesAsync(ct);
-            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-deleted", ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
-        });
-
-        app.MapPatch("/api/assignments/{assignmentId:guid}/sort", async (Guid assignmentId, SortRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            assignment.Sort = request.Sort;
-            assignment.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
-            return Microsoft.AspNetCore.Http.Results.Json(
-                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
-                JsonOptions());
-        });
-
-        app.MapPatch("/api/assignments/{assignmentId:guid}/position", async (Guid assignmentId, PositionRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var assignment = await db.Assignments.FindAsync(assignmentId);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            var siblings = await db.Assignments.Where(x => x.CourseId == assignment.CourseId && x.Id != assignment.Id).OrderBy(x => x.Sort).ToListAsync();
-            var pos = System.Math.Clamp((request.Position ?? siblings.Count + 1) - 1, 0, siblings.Count);
-            siblings.Insert(pos, assignment);
-            for (var i = 0; i < siblings.Count; i++) siblings[i].Sort = i;
-            await db.SaveChangesAsync();
-            return Microsoft.AspNetCore.Http.Results.Json(
-                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
-                JsonOptions());
-        });
-
-        app.MapPatch("/api/assignments/{assignmentId:guid}/visibility", async (Guid assignmentId, VisibilityRequest request, HttpContext http, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var assignment = await db.Assignments.FindAsync([assignmentId], ct);
-            if (assignment == null) return Microsoft.AspNetCore.Http.Results.NotFound();
-            if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
-            if (assignment.Type == SqlTaskTypes.SqlTest && request.IsVisible && !await SqlTaskService.HasPublishedRevision(db, assignmentId, ct))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_NOT_PUBLISHED", message = "SQL-\u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043d\u0443\u0436\u043d\u043e \u0441\u043d\u0430\u0447\u0430\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c." });
-            var changed = assignment.IsVisible != request.IsVisible;
-            assignment.IsVisible = request.IsVisible;
-            await db.SaveChangesAsync(ct);
-            if (changed)
-            {
-                var users = await db.Attempts.AsNoTracking()
-                    .Where(x => x.TaskAssignmentId == assignmentId)
-                    .Select(x => x.UserId)
-                    .Distinct()
-                    .ToListAsync(ct);
-                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
-            }
-            return Microsoft.AspNetCore.Http.Results.Json(
-                await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
-                JsonOptions());
-        });
-
-        return app;
     }
 
-    private static IResult CourseEditForbidden()
-        => Microsoft.AspNetCore.Http.Results.Json(
-            new { message = "Недостаточно прав для изменения этого курса.", code = "COURSE_EDIT_FORBIDDEN" },
-            statusCode: StatusCodes.Status403Forbidden);
 }

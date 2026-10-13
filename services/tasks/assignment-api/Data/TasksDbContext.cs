@@ -7,6 +7,7 @@ namespace TaskForge.Tasks.Api.Data;
 
 public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : DbContext(options)
 {
+    public DbSet<TaskGraphImportOperation> TaskGraphImportOperations => Set<TaskGraphImportOperation>();
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<CodeAssignmentSpec> CodeAssignmentSpecs => Set<CodeAssignmentSpec>();
@@ -43,6 +44,20 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     {
         modelBuilder.ConfigureSqlDomain();
 
+        modelBuilder.Entity<TaskGraphImportOperation>(entity =>
+        {
+            entity.ToTable("TaskGraphImportOperations");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.CourseId, x.UserId, x.UpdatedAt });
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.State).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PreparedPayloadJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.ResponseJson).HasColumnType("jsonb");
+            entity.Property(x => x.MapRequestJson).HasColumnType("jsonb");
+            entity.Property(x => x.MapResponseJson).HasColumnType("jsonb");
+            entity.Property(x => x.LastErrorJson).HasColumnType("jsonb");
+            entity.Property(x => x.AuditJson).HasColumnType("jsonb").IsRequired();
+        });
         modelBuilder.Entity<ServiceSchemaMarker>(entity =>
         {
             entity.ToTable("ServiceSchemaMarkers");

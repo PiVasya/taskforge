@@ -22,7 +22,7 @@ import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator } 
 import { Button } from '../../../components/ui';
 import { useNotify } from '../../../components/notify/NotifyProvider';
 import { useAuth } from '../../../auth/AuthContext';
-import { deleteAssignment, getAssignmentsByCourseTree } from '../../../api/assignments';
+import { deleteAssignment, getAssignmentsByCourseTree, saveTaskGraphImportMap } from '../../../api/assignments';
 import { apiForAssignmentType } from '../../../api/assignmentKindApi';
 import { createCourse, deleteCourse } from '../../../api/courses';
 import { getCourseMap, getLearningCourseMapDelta, saveCourseMap, streamLearningCourseMap } from '../../../api/courseMaps';
@@ -55,7 +55,7 @@ import {
 } from '../courseProgressionFreshness';
 import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
-import { applyTaskGraphImport } from '../courseTaskGraphImport';
+import { prepareTaskGraphImport } from '../courseTaskGraphImport';
 import { buildCompletedCourseLearnerView, findCourseLearnerAssignmentAction } from '../courseMapLearnerViewModel';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
@@ -323,7 +323,7 @@ function findOpenMapPosition(basePosition, existingNodes, index = 0) {
   return { x: base.x + index * 34, y: base.y + index * 34 };
 }
 
-function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, onGraphImportComplete, onLearnerProgress = null }) {
+function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, importReloadKey = 0, onGraphImportComplete, onLearnerProgress = null }) {
   const nav = useNavigate();
   const location = useLocation();
   const notify = useNotify();
@@ -360,6 +360,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const presenceIdsRef = React.useRef(new Set());
   const focusedCourseRef = React.useRef('');
   const dataRevisionRef = React.useRef(dataRevision);
+  const importReloadRef = React.useRef(0);
+  const importRecoveryCallbacksRef = React.useRef(null);
+  importRecoveryCallbacksRef.current = { graphImportRequest, onGraphImportComplete };
   const loadMapRef = React.useRef(null);
   const loadRequestRef = React.useRef(0);
   const loadedViewRef = React.useRef('');
@@ -2047,6 +2050,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         path: restoredFromCache ? 'editor-cache+server' : 'editor-server',
         durationMs: Math.round((performance.now() - started) * 10) / 10,
       });
+      return true;
     } catch (error) {
       courseMapConsole('LOAD_FAIL', {
         requestId,
@@ -2537,6 +2541,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   const save = React.useCallback(async (options = {}) => {
     if (!editorMode || !rootId) return false;
+    if (graphImportRequest?.operationId && !options?.importOperation) {
+      notify.warn('Завершите сохранение через журнал импорта.');
+      return false;
+    }
     if (!dirtyRef.current) return true;
     const quietSuccess = Boolean(options?.quietSuccess);
     const source = graphSourceRef.current;
@@ -2575,7 +2583,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         nodes: nodesRef.current,
         edges: edgesRef.current,
       });
-      const saved = await saveCourseMap(rootId, Number(recordRef.current.version || 0), document);
+      const operation = options?.importOperation;
+      const saved = operation?.operationId
+        ? await saveTaskGraphImportMap(operation.courseId, operation.operationId, operation.expectedMapVersion ?? Number(recordRef.current.version || 0), document, operation.replaceConflicted === true)
+        : await saveCourseMap(rootId, Number(recordRef.current.version || 0), document);
       setRecord(saved);
       recordRef.current = saved;
       setDirty(false);
@@ -2594,8 +2605,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         userId: currentUserId,
         aliases: cacheCourseIds,
         mapRecord: { ...saved, document },
-        assignments,
-        courses: visibleCourses,
+        assignments: assignmentsRef.current,
+        courses: mapCoursesRef.current.length ? mapCoursesRef.current : visibleCourses,
         dirty: false,
       });
       clearCourseMapLocalCache({ courseId: rootId, editorMode: false, userId: currentUserId });
@@ -2621,67 +2632,107 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
       return false;
     }
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey, visibleCourses]);
+  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey, visibleCourses, graphImportRequest]);
+
+  React.useEffect(() => {
+    if (!editorMode || importReloadRef.current === importReloadKey) return;
+    clearCourseMapSessionState(rootId, sessionOptions);
+    clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
+    let active = true;
+    void Promise.resolve(loadMapRef.current?.({ preferSession: false })).then((loaded) => {
+      if (!active) return;
+      if (loaded) {
+        importReloadRef.current = importReloadKey;
+        setGraphRevision((value) => value + 1);
+      } else if (importRecoveryCallbacksRef.current?.graphImportRequest?.key) {
+        importRecoveryCallbacksRef.current.onGraphImportComplete?.(importRecoveryCallbacksRef.current.graphImportRequest.key, { success: false,
+          message: 'Карта не загружена с сервера. Повторите проверку карты.' });
+      }
+    });
+    return () => { active = false; };
+  }, [currentUserId, editorMode, importReloadKey, rootId, sessionOptions]);
 
   React.useEffect(() => {
     const requestKey = String(graphImportRequest?.key || '');
-    if (!editorMode || loading || !requestKey || appliedGraphImportRef.current === requestKey) return;
+    const attemptKey = `${requestKey}:${graphImportRequest?.attempt || 0}`;
+    if (!editorMode || loading || graphImportRequest?.status !== 'saving' || importReloadRef.current !== importReloadKey || !requestKey || appliedGraphImportRef.current === attemptKey) return;
+    appliedGraphImportRef.current = attemptKey;
+    if (graphImportRequest.expectedMapVersion != null && Number(recordRef.current.version || 0) !== graphImportRequest.expectedMapVersion) {
+      onGraphImportComplete?.(requestKey, { success: false,
+        message: 'Карта изменилась после Preview. Пересчитайте карту через журнал импорта.' });
+      return;
+    }
+    courseMapConsole('IMPORT_MAP_BEGIN', { requestKey, attempt: graphImportRequest?.attempt || 0,
+      committedAssignments: graphImportRequest?.assignments?.length || 0 });
 
-    const result = applyTaskGraphImport({
-      nodes: nodesRef.current,
-      edges: edgesRef.current,
-      taskGraph: graphImportRequest?.taskGraph,
-      taskMappings: graphImportRequest?.taskMappings,
-      assignments,
-      courseId: course?.id || rootId,
-    });
-    if (result.pending) return;
-
-    appliedGraphImportRef.current = requestKey;
-    if (result.error === 'cycle') {
-      notify.error('Импортированные связи создают цикл вместе с текущей картой.');
-      onGraphImportComplete?.(requestKey);
+    const result = prepareTaskGraphImport({ nodes: nodesRef.current, edges: edgesRef.current,
+      request: graphImportRequest, assignments: assignmentsRef.current, courseId: course?.id || rootId });
+    if (result.error) {
+      const message = result.error === 'course-changed'
+        ? 'Курс на экране изменился. Вернитесь в курс импорта и повторите сохранение карты; данные уже созданы в исходном курсе.'
+        : result.error === 'cycle'
+        ? 'Импортированные связи создают цикл вместе с текущей картой.'
+        : 'Данные импортированы, но не все ключи карты разрешены в UUID. Повторите сохранение карты, не импорт заданий.';
+      courseMapConsole('IMPORT_MAP_FAIL', { requestKey, reason: result.error,
+        missingAssignmentIds: result.missingAssignmentIds || [], unresolvedKeys: result.unresolvedKeys || [] }, 'error');
+      notify.error(message);
+      onGraphImportComplete?.(requestKey, { success: false, message });
       return;
     }
 
+    const courseById = new Map(visibleCourses.map((row) => [String(row.id), row]));
+    for (const row of graphImportRequest.taskGraph?.courses || []) {
+      if (row.id && !courseById.has(String(row.id))) courseById.set(String(row.id), { ...row, parentCourseId: rootId });
+    }
+    const nextCourses = [...courseById.values()];
+    assignmentsRef.current = result.assignments;
+    setAssignments(result.assignments);
+    mapCoursesRef.current = nextCourses;
+    setMapCourses(nextCourses);
     const nextEdges = decorateEdges(result.edges);
     edgesRef.current = nextEdges;
-    const nextNodes = decorateNodes(result.nodes);
+    const nextNodes = decorateNodesWithSources(result.nodes, nextEdges, result.assignments, nextCourses, courseProgressRef.current);
     nodesRef.current = nextNodes;
     setEdges(nextEdges);
     setNodes(nextNodes);
+    // Persist the requested viewport before the asynchronous visual animation.
+    if (result.viewport) viewportRef.current = { ...result.viewport };
     markDirty();
     setGraphRevision((value) => value + 1);
     persistSession(true);
 
-    window.requestAnimationFrame(() => {
-      if (result.viewport && Number.isFinite(Number(result.viewport.zoom))) {
-        const viewport = {
-          x: Number(result.viewport.x) || 0,
-          y: Number(result.viewport.y) || 0,
-          zoom: Number(result.viewport.zoom) || 1,
-        };
-        viewportRef.current = viewport;
-        try { flow.setViewport(viewport, { duration: 280 }); } catch {}
-        return;
-      }
-      const importedIds = new Set(result.importedNodeIds);
-      const imported = nextNodes.filter((node) => importedIds.has(String(node.id)));
-      if (!imported.length) return;
-      try { flow.fitView({ nodes: imported, padding: 0.55, duration: 380, maxZoom: 1.05 }); } catch {}
-    });
-
     void (async () => {
-      const saved = await save({ quietSuccess: true });
-      if (saved) {
+      try {
+        const saved = await save({ quietSuccess: true, importOperation: graphImportRequest });
+        if (!saved) {
+          const message = 'Задания уже импортированы, но карта не сохранена. Повторите только сохранение карты; новые задания повторно создаваться не будут.';
+          courseMapConsole('IMPORT_MAP_FAIL', { requestKey, reason: 'save-not-confirmed' }, 'error');
+          onGraphImportComplete?.(requestKey, { success: false, message });
+          return;
+        }
         const unplacedCount = result.unplacedAssignmentIds.length;
-        const unplacedText = unplacedCount ? `, вне карты: ${unplacedCount}` : '';
-        const deletedText = result.deletedNodeCount ? `, удалено с карты: ${result.deletedNodeCount}` : '';
-        notify.success(`Граф применён: ${result.connectionCount} связей${deletedText}${unplacedText}`);
+        const summary = graphImportRequest.summary || {};
+        courseMapConsole('IMPORT_MAP_END', { requestKey, nodes: nextNodes.length, edges: nextEdges.length, unplacedCount });
+        notify.success(`Импорт завершён: создано ${summary.createdCount || 0}, обновлено ${summary.updatedCount || 0}, удалено ${summary.deletedCount || 0}, курсов создано ${summary.createdCourseCount || 0}. Карта сохранена${unplacedCount ? `; вне карты: ${unplacedCount}` : ''}.`);
+        onGraphImportComplete?.(requestKey, { success: true });
+        window.requestAnimationFrame(() => {
+          if (activeViewRef.current !== viewKey) return;
+          if (result.viewport) {
+            try { flow.setViewport(result.viewport, { duration: 280 }); } catch {}
+          } else {
+            const importedIds = new Set(result.importedNodeIds);
+            const imported = nextNodes.filter((node) => importedIds.has(String(node.id)));
+            if (imported.length) try { flow.fitView({ nodes: imported, padding: 0.55, duration: 380, maxZoom: 1.05 }); } catch {}
+          }
+        });
+      } catch (error) {
+        const message = getApiErrorMessage(error, 'Данные импортированы, но сохранение карты не завершено. Повторите только сохранение карты.');
+        courseMapConsole('IMPORT_MAP_FAIL', { requestKey, reason: 'exception', message }, 'error');
+        onGraphImportComplete?.(requestKey, { success: false, message });
       }
-      onGraphImportComplete?.(requestKey);
     })();
-  }, [assignments, course?.id, decorateEdges, decorateNodes, editorMode, flow, graphImportRequest, loading, markDirty, notify, onGraphImportComplete, persistSession, rootId, save, setEdges, setNodes]);
+  }, [course?.id, decorateEdges, decorateNodesWithSources, editorMode, flow, graphImportRequest, loading, markDirty, notify,
+    onGraphImportComplete, persistSession, rootId, save, setEdges, setNodes, viewKey, visibleCourses, importReloadKey, graphRevision]);
 
   const copySelection = React.useCallback(() => {
     if (!editorMode) return false;
@@ -3054,7 +3105,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
           {editorMode && onShowGrid ? <button type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" onClick={onShowGrid}><LayoutGrid size={16} /></button> : null}
           {editorMode && onExportJson ? <button type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} onClick={onExportJson}><Download size={16} /></button> : null}
-          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={onImportJson}><FileJson size={16} /></button> : null}
+          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={() => { if (dirtyRef.current) { notify.warn('Сначала сохраните или отмените локальные изменения карты.'); return; } onImportJson(); }}><FileJson size={16} /></button> : null}
           {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty} title="Сохранить карту (Ctrl+S)"><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
         </div>
       </div>

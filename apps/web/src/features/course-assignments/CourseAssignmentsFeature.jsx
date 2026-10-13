@@ -5,12 +5,12 @@ import { Card, Button, Input } from "../../components/ui";
 
 import { getCourse, getCourses, createCourse, updateCourseSort, moveCoursePosition } from "../../api/courses";
 import { getApiErrorMessage } from "../../api/http";
-import { getLearningCourseMap } from "../../api/courseMaps";
+import { getLearningCourseMap, getCourseMap } from "../../api/courseMaps";
 
 import {
   getAssignmentsByCourse,
   getCourseProgressByCourses,
-  importAssignmentsFromJson,
+  previewAssignmentsFromJson,
   exportAssignmentsToJson,
   updateAssignmentSort,
 } from "../../api/assignments";
@@ -60,10 +60,20 @@ import JsonTaskGraphDiffModal from './components/JsonTaskGraphDiffModal';
 import {
   TASK_GRAPH_AI_PROMPT,
   buildTaskGraphImportDiff,
+  FULL_JSON_EXPORT_OPTIONS,
+  DEFAULT_JSON_IMPORT_OPTIONS,
   summarizeTaskGraphPayload,
   taskGraphExampleToText,
+  taskGraphJsonParseMessage,
+  taskGraphExportIssue,
 } from './courseTaskGraphJson';
 import { resolveRootCourseId } from './courseMapModel';
+import { useAuth } from '../../auth/AuthContext';
+import { captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
+import TaskGraphImportStatus from './components/TaskGraphImportStatus';
+import useTaskGraphImportActions from './useTaskGraphImportActions';
+import useTaskGraphImportJournal from './useTaskGraphImportJournal';
+import { isImportPending } from './courseTaskGraphOperation';
 import { navigateToCourseEditor } from './courseMapNavigation';
 const EMPTY_LIST = Object.freeze([]);
 const EMPTY_COURSE_BUNDLE = Object.freeze({
@@ -76,27 +86,6 @@ const EMPTY_COURSE_BUNDLE = Object.freeze({
   learnerLocks: EMPTY_LIST,
 });
 
-const FULL_JSON_EXPORT_OPTIONS = Object.freeze({
-  includeIds: true,
-  includeContent: true,
-  includeChecks: true,
-  includeVisibility: true,
-  includeConnections: true,
-  includeConnectionAccess: true,
-  includeLayout: true,
-  includeGuide: true,
-});
-
-const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
-  updateContent: true,
-  updateChecks: true,
-  updateVisibility: true,
-  updateConnections: true,
-  updateConnectionAccess: true,
-  updateLayout: true,
-  allowDeletes: false,
-});
-
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -105,6 +94,8 @@ export default function CourseAssignmentsPage() {
   const notify = useNotify();
   const queryClient = useQueryClient();
   const { isEditorMode } = useEditorMode();
+  const { user } = useAuth();
+  const importUserId = String(user?.id || user?.userId || user?.uuid || "");
   const { courseContentLayout } = useCourseUiSettings();
   const learnerCards = !isEditorMode && courseContentLayout === 'cards';
   const courseBundleMode = isEditorMode ? 'editor' : learnerCards ? 'learner-cards' : 'learner-flow';
@@ -262,6 +253,20 @@ export default function CourseAssignmentsPage() {
   const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS });
   const [jsonImportOptions, setJsonImportOptions] = useState({ ...DEFAULT_JSON_IMPORT_OPTIONS });
   const [graphImportRequest, setGraphImportRequest] = useState(null);
+  const [jsonMapRecovery, setJsonMapRecovery] = useState(false);
+  const [importReloadKey, setImportReloadKey] = useState(0);
+  const lastImportDiffRef = useRef(null);
+  const importContextRef = useRef('');
+  importContextRef.current = `${courseId}:${importUserId}`;
+  const importJournal = useTaskGraphImportJournal({ courseId, userId: importUserId, enabled: Boolean(isEditorMode && courseCanEdit) });
+  useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
+  const jsonPreviewSequenceRef = useRef(0);
+  const jsonPreviewMapVersionRef = useRef(null);
+  useEffect(() => {
+    if (importJournal.operation?.state === 'stopped') {
+      setGraphImportRequest(null); setImportReloadKey((n) => n + 1);
+    }
+  }, [importJournal.operation?.operationId, importJournal.operation?.state]);
   const [draggedContentKey, setDraggedContentKey] = useState(null);
   const [dragOverContentKey, setDragOverContentKey] = useState(null);
   const [dragOverContentMode, setDragOverContentMode] = useState('before');
@@ -341,12 +346,13 @@ export default function CourseAssignmentsPage() {
   }, [courseCanEdit, isEditorMode]);
 
   const openJsonImportDialog = React.useCallback(() => {
+    if (graphImportRequest || (isImportPending(importJournal.operation) && importJournal.operation.state !== 'missing')) { notify.warn('Сначала завершите сохранение карты предыдущего импорта.'); return; }
     closeContextMenu();
     closeCreateMenu();
     setJsonDocsOpen(false);
-    setJsonImportOptions((current) => ({ ...current, allowDeletes: false }));
+    setJsonImportOptions((current) => ({ ...current, allowDeletes: false, allowConnectionDeletes: false, allowDuplicates: false }));
     setJsonImportDialogOpen(true);
-  }, [closeContextMenu, closeCreateMenu]);
+  }, [closeContextMenu, closeCreateMenu, graphImportRequest, importJournal.operation, notify]);
 
   const openJsonExportDialog = React.useCallback(() => {
     closeContextMenu();
@@ -891,47 +897,15 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const applyJsonImport = async (parsed) => {
-    setJsonImportBusy(true);
-    setJsonImportApplyError(null);
-    try {
-      const res = await importAssignmentsFromJson(courseId, parsed, jsonImportOptions);
-      await Promise.all([reloadAssignments(), reloadCourseData()]);
-      setJsonImportDiffOpen(false);
-      setJsonImportDiff(null);
-      setJsonImportParsed(null);
-      setJsonImportDialogOpen(false);
-      const created = res?.createdCount ?? 0;
-      const updated = res?.updatedCount ?? 0;
-      const deleted = res?.deletedCount ?? 0;
-      const alreadyDeleted = res?.alreadyDeletedCount ?? 0;
-      const createdCourses = res?.createdCourseCount ?? 0;
-      const taskGraph = res?.taskGraph || res?.graph;
-      const taskMappings = Array.isArray(res?.taskMappings) ? res.taskMappings : [];
-      const hasGraph = Boolean(Array.isArray(taskGraph?.tasks) && Array.isArray(taskGraph?.connections));
-      if (hasGraph) {
-        const mappedIds = taskGraph.tasks
-          .map((item) => item?.assignmentId)
-          .filter(Boolean);
-        setContentLayout('flow');
-        setGraphImportRequest({
-          key: `${Date.now()}:${[...mappedIds, ...(taskGraph?.deleteTasks || []), ...taskMappings.map((item) => item?.assignmentId)].filter(Boolean).join(',')}`,
-          taskGraph,
-          taskMappings,
-        });
-        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}, удалено ${deleted}${alreadyDeleted ? `, уже отсутствовало ${alreadyDeleted}` : ''}, курсов создано ${createdCourses}. Карта обновляется.`);
-      } else {
-        notify.success(`Импорт завершён: создано ${created}, обновлено ${updated}, удалено ${deleted}${alreadyDeleted ? `, уже отсутствовало ${alreadyDeleted}` : ''}, курсов создано ${createdCourses}`);
-      }
-    } catch (e) {
-      const parsedError = handleApiError(e, false, "Не удалось импортировать JSON");
-      setJsonImportApplyError(parsedError);
-    } finally {
-      setJsonImportBusy(false);
-    }
-  };
+  const { installImportedGraph, applyJsonImport, handleGraphImportComplete, prepareMapRecovery, resumeImport } = useTaskGraphImportActions({
+    courseId, importContextRef, importJournal, jsonImportDiff, jsonImportOptions, lastImportDiffRef, jsonPreviewMapVersionRef,
+    reloadAssignments, reloadCourseData, notify, setContentLayout, setGraphImportRequest,
+    setJsonImportBusy, setJsonImportApplyError, setJsonImportDiffOpen, setJsonImportDialogOpen, setJsonImportDiff,
+    setJsonImportParsed, setJsonMapRecovery, setJsonImportOptions, setJsonImportCurrentExport, setImportReloadKey,
+  });
 
   const handlePrepareJsonImportDiff = async () => {
+    setJsonMapRecovery(false);
     if (!ensureCanManageAssignments("импортировать JSON")) return;
     if (!String(jsonImportText || "").trim()) {
       notify.warn("Вставьте JSON для импорта");
@@ -942,15 +916,22 @@ export default function CourseAssignmentsPage() {
     try {
       parsed = JSON.parse(jsonImportText);
     } catch (e) {
-      notify.error(`JSON не читается: ${e.message}`);
+      notify.error(taskGraphJsonParseMessage(e, jsonImportText));
       return;
     }
 
     setJsonImportBusy(true);
     setJsonImportApplyError(null);
     try {
-      const currentExport = await exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS);
-      const diff = buildTaskGraphImportDiff(parsed, currentExport, jsonImportOptions);
+      const sequence = ++jsonPreviewSequenceRef.current;
+      const [snapshot, preflight] = await Promise.all([
+        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId), readExport: () => exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS) }),
+        previewAssignmentsFromJson(courseId, parsed, jsonImportOptions),
+      ]);
+      const { currentExport, mapVersion } = snapshot;
+      if (sequence !== jsonPreviewSequenceRef.current) return;
+      jsonPreviewMapVersionRef.current = mapVersion;
+      const diff = buildTaskGraphImportDiff(parsed, currentExport, jsonImportOptions, preflight);
       setJsonImportCurrentExport(currentExport);
       setJsonImportParsed(parsed);
       setJsonImportDiff(diff);
@@ -964,15 +945,26 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const handleJsonImportOptionChange = (key, value) => {
+  const handleJsonImportOptionChange = async (key, value) => {
+    const next = { ...jsonImportOptions, [key]: value };
+    if (!['allowDeletes', 'allowConnectionDeletes', 'allowDuplicates'].includes(key)) {
+      next.allowConnectionDeletes = false;
+      next.allowDuplicates = false;
+    }
+    setJsonImportOptions(next);
     setJsonImportApplyError(null);
-    setJsonImportOptions((current) => {
-      const next = { ...current, [key]: value };
-      if (jsonImportParsed && jsonImportCurrentExport) {
-        setJsonImportDiff(buildTaskGraphImportDiff(jsonImportParsed, jsonImportCurrentExport, next));
-      }
-      return next;
-    });
+    if (!jsonImportParsed || !jsonImportCurrentExport) return;
+    const sequence = ++jsonPreviewSequenceRef.current;
+    setJsonImportBusy(true);
+    try {
+      const preflight = await previewAssignmentsFromJson(courseId, jsonImportParsed, next);
+      if (sequence !== jsonPreviewSequenceRef.current) return;
+      setJsonImportDiff(buildTaskGraphImportDiff(jsonImportParsed, jsonImportCurrentExport, next, preflight));
+    } catch (error) {
+      if (sequence === jsonPreviewSequenceRef.current) setJsonImportApplyError(handleApiError(error, false, 'Не удалось проверить импорт на сервере. Применение заблокировано.'));
+    } finally {
+      if (sequence === jsonPreviewSequenceRef.current) setJsonImportBusy(false);
+    }
   };
 
   const handleJsonExportOptionChange = (key, value) => {
@@ -988,8 +980,26 @@ export default function CourseAssignmentsPage() {
       notify.error("Сначала исправьте ошибки JSON");
       return;
     }
+    if (jsonImportBusy || jsonImportApplyError) return;
+    if (jsonImportDiff?.requiresConnectionDeleteConfirmation || jsonImportDiff?.requiresDuplicateConfirmation) {
+      notify.error('Подтвердите удаление связей или создание возможных дублей в проверке импорта.');
+      return;
+    }
     if (jsonImportDiff?.requiresDeleteConfirmation) {
       notify.error("Подтвердите удаление заданий в проверке импорта");
+      return;
+    }
+    if (jsonMapRecovery) {
+      const op = importJournal.operation;
+      if (!op?.response) return;
+      lastImportDiffRef.current = { operationId: op.operationId, diff: jsonImportDiff };
+      setJsonImportDiffOpen(false);
+      // Reload the authoritative map before applying a confirmed rebase.
+      setImportReloadKey((n) => n + 1);
+      installImportedGraph(op, { replaceConflicted: ['map-conflict', 'map-rejected'].includes(op.state), attempt: Date.now(),
+        taskGraph: { ...op.response.taskGraph, apply: { ...op.response.taskGraph.apply,
+          connections: jsonImportOptions.updateConnections, connectionAccess: jsonImportOptions.updateConnectionAccess,
+          layout: jsonImportOptions.updateLayout, connectionMode: jsonImportOptions.connectionMode } } });
       return;
     }
     await applyJsonImport(jsonImportParsed);
@@ -997,6 +1007,8 @@ export default function CourseAssignmentsPage() {
 
   const handleExportJson = async () => {
     if (!ensureCanManageAssignments("экспортировать JSON")) return;
+    const issue = taskGraphExportIssue(jsonExportOptions);
+    if (issue) { notify.warn(issue); return; }
     setJsonExportBusy(true);
     try {
       const data = await exportAssignmentsToJson(courseId, jsonExportOptions);
@@ -1028,6 +1040,9 @@ export default function CourseAssignmentsPage() {
 
   return (
     <>
+      {isEditorMode && courseCanEdit ? <TaskGraphImportStatus importJournal={importJournal} graphImportRequest={graphImportRequest}
+        jsonImportBusy={jsonImportBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
+        openJsonImportDialog={openJsonImportDialog} notify={notify} lastImportDiffRef={lastImportDiffRef} /> : null}
       {!showFlowLayout ? (
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -1145,6 +1160,7 @@ export default function CourseAssignmentsPage() {
           setJsonImportDiffOpen(false);
         }}
         onApply={handleApplyPreparedJsonImport}
+        mapOnly={jsonMapRecovery}
         importOptions={jsonImportOptions}
         onImportOptionChange={handleJsonImportOptionChange}
       />
@@ -1221,7 +1237,8 @@ export default function CourseAssignmentsPage() {
           dataRevision={assignmentsQuery.updatedAt || 0}
           onLearnerProgress={mapEditorMode ? null : setLearnerFlowProgress}
           graphImportRequest={graphImportRequest}
-          onGraphImportComplete={(key) => setGraphImportRequest((current) => current?.key === key ? null : current)}
+          importReloadKey={importReloadKey}
+          onGraphImportComplete={handleGraphImportComplete}
           onRefreshCourseData={async () => {
             if (isEditorMode) {
               await Promise.all([reloadCourseData(), reloadAssignments()]);

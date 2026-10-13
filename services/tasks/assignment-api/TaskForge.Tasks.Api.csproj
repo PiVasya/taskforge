@@ -30,4 +30,7 @@
       <_Parameter1>TaskForge.Tasks.Api.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/Import/*.cs" Link="Shared/Import/%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

@@ -1,0 +1,517 @@
+{
+  "reportVersion": 2,
+  "date": "2026-10-13",
+  "baseArchive": "taskforge-develop(308).zip",
+  "incrementalBase": "TaskForge-308-import-export-fixes.zip",
+  "summary": "Доработаны журнал импорта, восстановление, повтор операции, отчёт и Preview. Полная сборка и живой E2E не выполнялись.",
+  "liveSiteModified": false,
+  "repairPayloadApplied": false,
+  "inheritedPhaseOneFindings": [
+    {
+      "id": "IMPORT-001",
+      "severity": "P0",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Потеря connections/layout при одновременном создании сущностей и карты.",
+      "cause": "После POST клиент не использовал assignments из ответа. Редуктор карты ждал новые UUID в отдельной загрузке дерева, возвращал pending, а эффект молча выходил без save. Загрузка дерева могла быть отменена/отложена после потребления dataRevision; повтор по уже известным UUID обходил ожидание. В старой модели сценарий с устаревшим деревом воспроизведён: pending=true, 13 missingAssignmentIds. Конкретное срабатывание отмены effect в живой браузерной сессии не зафиксировано; этот путь найден в исходниках и согласуется с логами.",
+      "change": "Передавать и объединять committed assignments из ответа POST, разрешать реальные UUID сразу. Отсутствующие ключи — явная ошибка, не вечный pending. Успех только после await save/PUT map. При неудаче сохранять запрос карты и повторять только карту, не создание задач. Запрещено применять отложенный запрос к другому курсу после навигации.",
+      "verification": "Мега-пример: 13 задач, 1 подкурс, 17 связей, 14 размещённых узлов вместе с корнем, один намеренный черновик вне карты; повтор карты не дублирует узлы/стрелки. Проверена модель, не живой HTTP/E2E."
+    },
+    {
+      "id": "IMPORT-002",
+      "severity": "P1",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Preview считает удаления и размещение не так, как Apply; при выключенных связях существующие узлы ошибочно показываются вне карты.",
+      "cause": "Два независимых алгоритма: Preview ориентировался на входной JSON и удалял в расчёте любую затронутую стрелку, Apply сохранял часть граничных стрелок.",
+      "change": "Общий reducer для Preview и Apply, итоговая топология с сохраняемыми рёбрами, корректный unplaced и проверка цикла вместе с неизменяемой частью карты. Нормализация регистра UUID при проекции/удалении."
+    },
+    {
+      "id": "IMPORT-003",
+      "severity": "P1",
+      "classification": "bug",
+      "status": "patched_source_backend_tests_not_run",
+      "problem": "Занятые UUID курса/задания не блокировались в Preview.",
+      "cause": "Preview знал только экспорт текущего поддерева, а не глобальную занятость. Backend уже запрещал чужой UUID задачи; это не подтверждение захвата чужой задачи.",
+      "change": "Read-only POST import-json/preview и internal courses/import-probe, общая проверка привязок на Preview/Apply, защита фактического родителя существующей задачи. Фиксированный UUID удалён из мега-примера. Проверка не резервирует UUID, поэтому повторяется на Apply."
+    },
+    {
+      "id": "IMPORT-004",
+      "severity": "P2",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Выключенные разделы требуют connections/datasets-заглушки; datasets:[] ломает v3.",
+      "change": "Обязательность connections зависит от активных связей/эффектов. Без SQL datasets можно опустить. Пустой datasets допустим в v3/v4; реальные SQL-ресурсы требуют v5. Явные scopes v3 учитываются и клиентом, и сервером; тексты ошибок переведены."
+    },
+    {
+      "id": "LAYOUT-001",
+      "severity": "P2",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Авторасстановка шагом 340 перекрывает широкую карточку курса.",
+      "change": "Габариты измеренных узлов, консервативные минимальные размеры, прямоугольники занятости, зазоры, резерв явных позиций перед авторaсстановкой. Увеличены интервалы встроенного мега-примера. Явные координаты не исправляются принудительно: это авторский выбор.",
+      "limits": "Проверены координаты модели; визуальный прогон при разных браузерах/шрифтах не выполнен."
+    },
+    {
+      "id": "LAYOUT-002",
+      "severity": "P2",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Изменение только layout показывает 0 операций; viewport мог сохраниться до его обновления в requestAnimationFrame.",
+      "change": "Операции карты входят в общий счётчик. viewportRef задаётся до сериализации и save, а анимация выполняется после подтверждения."
+    },
+    {
+      "id": "EXPORT-001",
+      "severity": "P2",
+      "classification": "bug",
+      "status": "patched_source_model_verified",
+      "problem": "Экспорт без ID и content не импортируется обратно.",
+      "change": "Комбинация блокируется в UI и API с объяснением. Разрешены ID-only частичные экспорты и полноценное создание без ID. Старые файлы без идентичности/содержимого не преобразуются в совпадения по названию."
+    },
+    {
+      "id": "EXPORT-002",
+      "severity": "P1",
+      "classification": "bug",
+      "status": "patched_source_backend_tests_not_run",
+      "problem": "При отсутствии документа карты экспорт выдумывал линейные связи и подключал черновик.",
+      "cause": "Fallback BuildExport собирал граф по порядку сущностей, не по сохранённым рёбрам.",
+      "change": "Fallback удалён. Нет сохранённой карты — нет выдуманных connections/layout. Для этого поведения добавлен серверный тест и пункт guide."
+    },
+    {
+      "id": "CONNECTIONS-001",
+      "severity": "P2",
+      "classification": "feature_with_ux_fix",
+      "status": "documented_and_extended",
+      "problem": "Неполный connections заменяет часть графа, хотя пользователь ожидал добавления одной стрелки.",
+      "change": "Сохранён режим замены с точным описанием границ. Добавлен отдельный merge. Список удалений раскрывается, Apply требует подтверждения удаления связей; возможные дубли по названию требуют отдельного подтверждения."
+    },
+    {
+      "id": "COURSES-001",
+      "severity": "P2",
+      "classification": "feature_and_consistency_bug",
+      "status": "documented_and_patched",
+      "problem": "Имя существующего курса не обновляется; аудитория обновлялась непоследовательно, в зависимости от наличия новых курсов в том же пакете.",
+      "change": "Поля курса title/isPublic/isHiddenFromStudents/visibleGroupIds объявлены параметрами создания, а не обновления существующего курса. Для различий Preview показывает предупреждение. Убраны случайные мутации аудитории существующего курса."
+    },
+    {
+      "id": "SQL-001",
+      "severity": "P2",
+      "classification": "feature_with_ux_fix",
+      "status": "documented_and_patched",
+      "problem": "Совпадающий dataset возвращается под прежним именем и content-based ключом.",
+      "cause": "Переиспользование доступного неархивного ресурса с тем же хешем definition/seed/engineOverrides. Название не является содержимым для идентичности.",
+      "change": "Read-only Preview показывает create/reuse и имя выбранного ресурса; правило явно включено в JSON guide. Дедупликация сохранена."
+    },
+    {
+      "id": "SQL-002",
+      "severity": "P2",
+      "classification": "bug_found_in_source",
+      "status": "patched_source_backend_tests_not_run",
+      "problem": "Выключение обновления content/checks существующих задач могло пропустить инициализацию SQL-spec у новой задачи.",
+      "change": "Новые SQL-задачи инициализируются из полного входного spec независимо от переключателей обновления существующих. Для существующих задачи переключатели сохранены. Добавлены серверные policy-тесты; SQL-профили и алгоритмы проверки не менялись."
+    },
+    {
+      "id": "BOT-001",
+      "severity": "P1",
+      "classification": "bug_with_expected_external_error",
+      "status": "patched_source_not_live_tested",
+      "problem": "2 135 сообщений Forbidden: bot was blocked by the user; исключение из ForwardPendingAdminRepliesToUsersAsync прерывало всю итерацию каждые 10 секунд.",
+      "cause": "403 получателя не обрабатывался как недоступность доставки конкретного ответа. Старейший недоставленный ответ снова попадал в начало очереди.",
+      "change": "403 перехватывается у конкретного получателя, ответ помечается через существующий mark-unavailable с reason=recipient-forbidden, состояние Source=TelegramRecipientForbidden; далее обрабатываются остальные ответы. Сообщение не помечается доставленным и не удаляется, связь аккаунта с Telegram сохраняется. Схема БД не меняется.",
+      "feature": "Сам запрет Telegram после блокировки бота пользователем — нормальный внешний отказ, не баг авторизации TaskForge. Багом были бесконечный повтор и остановка остальных отправок."
+    }
+  ],
+  "phaseTwoFindings": [
+    {
+      "id": "JOURNAL-001",
+      "status": "implemented_source_model_tested_backend_pending",
+      "complaint": "A failed or lost response could leave a partial import with no safe recovery after reload.",
+      "implemented": "Persist prepared UUIDs, stages and data/map response receipts. Discover the owner/course operation after reload and continue the same operation. No client payload in localStorage.",
+      "paths": [
+        "services/tasks/assignment-api/Endpoints/Assignments/TaskGraphOperationEndpoints.cs",
+        "apps/web/src/features/course-assignments/taskGraphJournalClient.js"
+      ],
+      "boundary": "Recoverable multi-stage operation, not distributed atomic rollback."
+    },
+    {
+      "id": "JOURNAL-002",
+      "status": "implemented_source_model_tested_backend_pending",
+      "complaint": "Repeated submit after uncertain outcome could create duplicate entities.",
+      "implemented": "Canonical request fingerprint, stable operation UUID, reserved entity UUIDs, PostgreSQL session locks, same-receipt replay, competing unfinished operation refusal.",
+      "boundary": "A deliberately new operation remains a new import; no deduplication by title/key."
+    },
+    {
+      "id": "JOURNAL-003",
+      "status": "implemented_source_backend_pending",
+      "complaint": "Retry could overwrite a newer map or re-run already committed tasks.",
+      "implemented": "Map and receipt commit together in Education API; checkpoint saved in Tasks before dispatch. Exact replay does not rewrite a later map. Confirmed version conflict requires explicit map-only preview. Uncertain replies stay pending.",
+      "paths": [
+        "services/education/api/Endpoints/CourseMaps/CourseMapEndpoints.cs",
+        "services/shared/Import/PostgresImportLock.cs"
+      ]
+    },
+    {
+      "id": "AUDIT-001",
+      "status": "implemented_source_model_tested_backend_pending",
+      "complaint": "No downloadable operation audit with entities, settings, results and changes.",
+      "implemented": "Per-operation metadata JSON with request hash, scopes/options, assignment UUIDs/actions, semantic before/after hashes, changed field names, deletion IDs, course IDs and map diff. Available from live status and history.",
+      "boundary": "Raw payload and complete raw Preview not retained in downloaded report. No test answers or SQL scripts. Cross-service course-creation history is not a global audit transaction."
+    },
+    {
+      "id": "PREVIEW-001",
+      "status": "implemented_model_and_component_smoke_tested",
+      "complaint": "No visual plan of the future map.",
+      "implemented": "SVG preview from the same projected graph used by Apply; actual node sizes, coordinates and connections. Stable map/export/map snapshot rejects version drift.",
+      "paths": [
+        "apps/web/src/features/course-assignments/components/TaskGraphPreviewMap.jsx",
+        "apps/web/src/features/course-assignments/taskGraphPreviewSnapshot.js"
+      ],
+      "verification": "Official mega fixture: 14 placed nodes and 17 edges in Chromium at 1280 and 390 viewport widths. Not full app E2E."
+    },
+    {
+      "id": "RESULT-001",
+      "status": "implemented_source_model_tested_backend_pending",
+      "complaint": "Final success/details could misrepresent pending map and unchanged existing tasks.",
+      "implemented": "Explicit durable stages; final success only after map acknowledgement, distinct unchanged counts, per-entity UUID/action result. Explicit stop does not pretend to roll back."
+    },
+    {
+      "id": "HELP-001",
+      "status": "implemented_model_tested",
+      "complaint": "Intentional behavior not clearly separated from bugs.",
+      "implemented": "23 Russian behavior rules synchronized in JSON guide, authoring prompt and backend exports. Covers operation replay versus new import, map-only conflict recovery, no distributed rollback, dataset reuse, unplaced draft, course metadata, scopes and version semantics."
+    },
+    {
+      "id": "LANGUAGE-PARENT-001",
+      "status": "inherited_fix_reverified_in_models",
+      "complaint": "JSON parser error localization and existing-task parent display were previously left unconfirmed in the summary.",
+      "implemented": "Retained localized parse helper and actual-parent resolution, plus dedicated regression cases in the current source."
+    },
+    {
+      "id": "ACCEPTANCE-001",
+      "status": "script_added_not_live_executed",
+      "complaint": "Live post-fix E2E, exact field round trips, deletion and large Apply not established.",
+      "implemented": "Opt-in real HTTP script for an empty hidden QA root course, including mega replay, changed-payload refusal, later-map preservation, strings/checks, invalid reference, own synthetic deletion and optional 250-node apply.",
+      "boundary": "Script not run against a live site. SQL profile execution, browser orchestration and crash injection remain separate release gates."
+    }
+  ],
+  "validation": {
+    "date": "2026-10-13",
+    "scope": "Cumulative source upgrade from develop(308); no live deployment performed.",
+    "executed": [
+      {
+        "check": "Frontend executable model regression suite",
+        "result": "passed",
+        "tests": 146,
+        "failed": 0,
+        "newPhaseTwoCases": 29,
+        "limits": "Pure models/controllers, including injected HTTP failures. Not a live backend or browser feature E2E."
+      },
+      {
+        "check": "Frontend architecture",
+        "result": "passed",
+        "spaRoutes": 46
+      },
+      {
+        "check": "Repository and release-boundary checks",
+        "result": "passed",
+        "limits": "Does not certify .NET compilation or the EF pending-model-changes gate."
+      },
+      {
+        "check": "JS/JSX/MJS syntax",
+        "result": "passed",
+        "kind": "syntax-only",
+        "parser": "TypeScript",
+        "files": 316,
+        "errors": []
+      },
+      {
+        "check": "Chromium preview component",
+        "result": "passed",
+        "testType": "production-preview-component-smoke",
+        "renderer": "installed React 16 UMD fixture (not full project React 18 build)",
+        "browser": "Chromium",
+        "checks": [
+          {
+            "viewportWidth": 1280,
+            "nodes": 14,
+            "edges": 17,
+            "expandCollapse": "passed",
+            "consoleErrors": []
+          },
+          {
+            "viewportWidth": 390,
+            "nodes": 14,
+            "edges": 17,
+            "expandCollapse": "passed",
+            "consoleErrors": []
+          }
+        ],
+        "liveTaskForge": false
+      },
+      {
+        "check": "C# project XML",
+        "result": "parsed",
+        "limits": "XML syntax only; not compiler validation."
+      },
+      {
+        "check": "Live HTTP acceptance script CLI",
+        "result": "help_only",
+        "path": "scripts/tests/task-graph-import-live.mjs",
+        "serverRequests": 0
+      },
+      {
+        "check": "Existing migrations and ModelSnapshot bytes",
+        "result": "passed",
+        "files": 102,
+        "allByteIdenticalToOriginal308": true
+      },
+      {
+        "check": "Git diff whitespace validation",
+        "result": "passed"
+      }
+    ],
+    "notExecuted": [
+      {
+        "check": "Full .NET compilation and test suite",
+        "reason": "Required .NET 10 SDK and dependency restore unavailable in this runtime.",
+        "newBackendUnitCasesWritten": 20
+      },
+      {
+        "check": "Full npm/Jest and production frontend build",
+        "reason": "Project node_modules unavailable; dependency installation was not available."
+      },
+      {
+        "check": "Live TaskForge HTTP acceptance, including real 250-node apply/deletion",
+        "reason": "No authenticated isolated deployed QA instance used; opt-in script supplied but not run."
+      },
+      {
+        "check": "Full React feature/browser E2E",
+        "reason": "Component smoke does not exercise application routing, hooks or real server orchestration."
+      },
+      {
+        "check": "PostgreSQL concurrent writers and crash injection at each commit boundary",
+        "reason": "No PostgreSQL/Docker integration environment."
+      },
+      {
+        "check": "All SQL engine/profile executions and request-size/timeout ceilings",
+        "reason": "Not covered by model tests or by the supplied HTTP acceptance script."
+      },
+      {
+        "check": "EF semantic migration consistency gate",
+        "reason": "New model schema deliberately awaits user-generated migrations; gate must fail before that step."
+      }
+    ],
+    "schema": {
+      "newTables": [
+        "TaskGraphImportOperations",
+        "CourseMapImportReceipts"
+      ],
+      "generateCommand": "bash scripts/generate-migrations.sh AddTaskGraphImportJournal assignment,education",
+      "existingHistoryChanged": false,
+      "generatedMigrationsInArchive": false,
+      "requiredBeforeDeployment": true
+    },
+    "releaseOrder": [
+      "generate and commit migrations",
+      "normal database migration stage",
+      "education-api",
+      "tasks-api",
+      "front"
+    ],
+    "inheritedSupportFixReleaseOrder": [
+      "support-api",
+      "support-bot"
+    ],
+    "operationalLimits": [
+      "No global distributed rollback. Subcourses, assignments and map are separate stages; durable resumption is the supported alternative.",
+      "Idempotence binds one operation UUID to its owner/course/payload. Intentionally starting a new operation without entity IDs can create duplicates.",
+      "Stopping is explicit and does not undo committed creations, edits or deletions.",
+      "Per-assignment baseline guards unfinished canonical operation recovery; it is not global optimistic locking for all independent task-edit endpoints.",
+      "Course creation counts after a partially completed cross-service attempt may reflect the final ensure call; reserved course IDs remain discoverable.",
+      "Journal stores sensitive authoring payloads under editor access. Downloadable audit is allowlisted metadata, not raw payload. UUIDs can still be private.",
+      "No automatic retention/purge policy. Last-30 UI history does not mean database expiry. Receipt purging must not break replay.",
+      "Unrelated isolated SignalR timeout from the report is not diagnosed or claimed fixed."
+    ],
+    "guidance": {
+      "path": "docs/import-export/expected-behavior.json",
+      "rules": 23,
+      "synchronizedFrontendPromptAndBackendExport": true
+    }
+  },
+  "expectedBehavior": {
+    "language": "ru",
+    "rules": {
+      "identity": "key — ссылка только внутри одного файла, не постоянный идентификатор. Совпадение key или названия не объединяет сущности. Существующий UUID в поддереве выбирает сущность; свободный UUID создаёт новую с этим UUID; без id создаётся новая с UUID от сервера. Запускать новую операцию импорта без id в тот же курс — значит создавать новые задания и курсы, а не обновлять старые.",
+      "foreignId": "UUID, занятый заданием или курсом вне импортируемого поддерева, отклоняется. Preview проверяет занятость на сервере, но не резервирует UUID: проверка повторяется при Apply.",
+      "courseMetadata": "У существующего вложенного курса поля title, isPublic, isHiddenFromStudents и visibleGroupIds используются как справочная информация и не обновляют курс. Меняйте их в редакторе курса. В courses эти поля задают параметры только нового курса. Новый вложенный курс создаётся прямым дочерним курсом открытого курса; стрелки карты не меняют иерархию хранения.",
+      "parent": "Для нового задания отсутствие course означает $course. Для существующего задания отсутствие course сохраняет фактический курс. Явно указанный course должен совпадать с его текущим курсом: перенос через JSON не поддерживается.",
+      "scopes": "scopes задаёт присутствующие категории, а переключатели импорта разрешают их применение. Выключенная категория сохраняется у существующих заданий. Новому заданию нужны scope content и полные поля его типа; выключение обновления существующих заданий не превращает новую задачу в пустую ссылку. guide — справка, не данные курса.",
+      "optionalArrays": "tasks всегда является массивом, в том числе []. courses можно не указывать. connections требуется, когда включено изменение связей или эффектов стрелок. Если обе категории выключены, поле connections можно опустить; его отсутствие не очищает карту. datasets можно опустить без SQL-ресурсов. Для sql со ссылкой на датасет этот ресурс должен быть объявлен в datasets[]. Отдельного scope datasets нет.",
+      "versions": "Поддерживаются schemaVersion 3, 4 и 5; новые экспорты используют 5. Пустой datasets: [] допустим в версиях 3 и 4 без SQL. Непустые SQL-ресурсы требуют версии 5. В версии 3 отсутствующий scopes включает исторический набор категорий; явно переданный scopes учитывается. layout поддерживается с версии 4.",
+      "replaceConnections": "Режим «Заменить связи перечисленных узлов» не означает append. Список connections задаёт целевые стрелки между перечисленными в JSON узлами и $course. Прочие стрелки сохраняются, пока их узлы остаются на карте. Перечисленный узел без связей и применяемой позиции снимается с карты вместе со всеми стрелками, но сама сущность не удаляется. Поэтому при частичном JSON смотрите точный список удалений в Preview.",
+      "mergeConnections": "Для добавления ветки выберите режим «Добавить связи, сохранив существующие». Совпадающая пара from/to не дублируется. Старые узлы и связи сохраняются; эффекты совпавшей стрелки меняются только при включённой категории эффектов. Цикл с сохраняемыми связями тоже запрещён.",
+      "emptyConnections": "connections: [] — явно пустой список. При выключенных связях он не меняет топологию, кроме удаления стрелок явно удаляемых заданий. В режиме добавления он не добавляет стрелок. В режиме замены он может снять перечисленные узлы без позиций с карты и удалить затронутые связи; это показывается в Preview и требует подтверждения.",
+      "unplaced": "«Не на карте» не означает удаление задания или неуспешное сохранение его содержимого. Новый элемент без применяемой связи и без явной применяемой позиции сохраняется в этом списке намеренно. Связанные новые элементы без layout размещаются автоматически. Счётчик Preview относится к итоговой карте с учётом переключателей, а не только к входному JSON.",
+      "layout": "layout.positions — частичное обновление: меняются только перечисленные позиции. layout.viewport задаёт x, y, zoom рабочей области. Если layout выключен, существующие координаты и viewport сохраняются, а новые связанные узлы получают свободные позиции. Явные координаты принимаются как авторский выбор; их взаимное наложение не устраняется принудительно.",
+      "edgeEffects": "connectionAccess независим от connections. При экспорте эффектов без топологии массив connections остаётся как адресация существующих стрелок, но scope connections отсутствует. Такой импорт меняет эффекты, а не добавляет и не удаляет стрелки. При выключенных эффектах прежние настройки совпадающих связей сохраняются.",
+      "datasetReuse": "SQL-датасеты переиспользуются по содержимому схемы, seed и engineOverrides, а не по key или имени. Переиспользование возможно только для доступного редактору, неархивного датасета; сохраняются его прежние имя и идентичность. Новое имя само по себе не создаёт копию. Изменение содержимого создаёт отдельный ресурс. Preview показывает решение «создать» или «использовать существующий».",
+      "export": "Для файла, который можно импортировать обратно, оставьте ID заданий либо «Условия и настройки». Экспорт без обоих разделов заблокирован. Без ID задачи импортируются как новые; перед созданием возможных дублей нужно подтверждение. ID вложенных курсов экспортируются независимо от переключателя «ID заданий»: этот переключатель не означает клонирование всего дерева.",
+      "noStoredMap": "Экспорт отражает сохранённую карту. Если документа карты ещё нет, экспорт не придумывает связи по порядку заданий; connections остаётся пустым, layout отсутствует. Сохраните нужную карту перед экспортом.",
+      "completion": "Импорт завершён только после подтверждённой записи данных и карты. Курсы, задания и карта сохраняются этапами: общей транзакции между сервисами нет. При сбое часть объектов может уже существовать. Журнал сохраняет этап и UUID; продолжайте эту же операцию, а не создавайте новую.",
+      "deletion": "Отсутствие задания в tasks не удаляет его из курса. Удаление задаётся только deleteTasks с UUID, scope ids и отдельным подтверждением. При удалении исчезают и стрелки этого задания даже с выключенной категорией связей. SQL-задание с историей проверок физически не удаляется; используйте isVisible=false.",
+      "operationIdentity": "operationId обозначает одну операцию, а не задание. Повтор с тем же operationId и теми же JSON/настройками возвращает сохранённый результат, не создаёт дубли. Другой JSON с этим ключом отклоняется. Клиент создаёт ключ сам; не добавляйте operationId в JSON графа. В HTTP API он передаётся рядом с graph и options.",
+      "resume": "После таймаута или перезагрузки откройте журнал в том же курсе и аккаунте. Проверка состояния ничего не записывает. Продолжение выполняется только по нажатию. В localStorage хранится только operationId, не условия или ответы тестов.",
+      "mapConflict": "Если карту изменили после Preview, она не перезаписывается молча. Пересчитайте карту и подтвердите новый Preview. Если ответ сохранения потерян, сначала повторяется точно тот же этап: новый граф не подставляется по догадке.",
+      "audit": "Отчёт JSON содержит этап, UUID, изменённые поля, хеши до/после и разницу карты. Исходный JSON, ответы тестов и SQL-скрипты в отчёт не включаются. requestSha256 относится к нормализованному graph и options, не к байтам исходного файла. Порядок массивов и содержимое строк учитываются.",
+      "stop": "«Прекратить без отката» не удаляет уже созданные объекты и не восстанавливает удалённые. Нужно явное подтверждение. Если результат записи карты неизвестен, сначала нужно получить её подтверждённый результат."
+    }
+  },
+  "changedPhaseTwoSourceFiles": [
+    ".github/workflows/develop-build.yml",
+    "apps/web/scripts/course-map-tests/import-journal.test.mjs",
+    "apps/web/scripts/course-map-tests/task-graph-import.test.mjs",
+    "apps/web/src/api/assignments.js",
+    "apps/web/src/features/course-assignments/CourseAssignmentsFeature.jsx",
+    "apps/web/src/features/course-assignments/components/CourseFlowEditor.jsx",
+    "apps/web/src/features/course-assignments/components/JsonTaskGraphDiffModal.jsx",
+    "apps/web/src/features/course-assignments/components/TaskGraphImportStatus.jsx",
+    "apps/web/src/features/course-assignments/components/TaskGraphPreviewMap.jsx",
+    "apps/web/src/features/course-assignments/courseTaskGraphImport.js",
+    "apps/web/src/features/course-assignments/courseTaskGraphJson.js",
+    "apps/web/src/features/course-assignments/courseTaskGraphOperation.js",
+    "apps/web/src/features/course-assignments/taskGraphJournalClient.js",
+    "apps/web/src/features/course-assignments/taskGraphPreviewSnapshot.js",
+    "apps/web/src/features/course-assignments/useTaskGraphImportActions.js",
+    "apps/web/src/features/course-assignments/useTaskGraphImportJournal.js",
+    "docs/import-export/acceptance.md",
+    "docs/import-export/expected-behavior.json",
+    "docs/import-export/journal-design.md",
+    "scripts/tests/task-graph-import-live.mjs",
+    "services/education/api/Contracts/Requests/Requests.cs",
+    "services/education/api/Data/EducationDbContext.cs",
+    "services/education/api/Dockerfile",
+    "services/education/api/Domain/CourseMapImportReceipt.cs",
+    "services/education/api/Endpoints/CourseMaps/CourseMapEndpoints.cs",
+    "services/education/api/TaskForge.Education.Api.csproj",
+    "services/shared/Import/ImportJsonIdentity.cs",
+    "services/shared/Import/PostgresImportLock.cs",
+    "services/tasks/assignment-api/Data/TasksDbContext.cs",
+    "services/tasks/assignment-api/Dockerfile",
+    "services/tasks/assignment-api/Domain/TaskGraphImportOperation.cs",
+    "services/tasks/assignment-api/Endpoints/Assignments/AssignmentsEndpoints.cs",
+    "services/tasks/assignment-api/Endpoints/Assignments/TaskGraphImportAudit.cs",
+    "services/tasks/assignment-api/Endpoints/Assignments/TaskGraphOperationEndpoints.cs",
+    "services/tasks/assignment-api/Services/Serialization/AssignmentTaskGraphJsonService.cs",
+    "services/tasks/assignment-api/TaskForge.Tasks.Api.csproj",
+    "services/tasks/assignment-api/tests/TaskForge.Tasks.Api.Tests/TaskGraphJournalTests.cs"
+  ],
+  "documentation": [
+    "docs/import-export/journal-design.md",
+    "docs/import-export/acceptance.md",
+    "docs/import-export/validation-results-phase2.json"
+  ],
+  "existingMigrationsSha256": {
+    "services/ai/api/Migrations/20260531182629_InitialMicroserviceSchema.Designer.cs": "8202541fed2b0631d7c5186e5adaa30ffdc3078e1a144ebad630fa3e4fc3311b",
+    "services/ai/api/Migrations/20260531182629_InitialMicroserviceSchema.cs": "07cb49c421a2d6243ea4a3b0c5d2ffe3f6ce479d5b48fa1e3f8b88dd7ec73fb0",
+    "services/ai/api/Migrations/20260601203821_CompileCheck_20260601_233749.Designer.cs": "ae3f5485283c8920ab6d82de69def1fdddfbd1e12891380fd8c8418c204ca16d",
+    "services/ai/api/Migrations/20260601203821_CompileCheck_20260601_233749.cs": "4f0888323206a8b4b469e5f7f9b634d67a11d25facdcec748a4e9bd4d4d33900",
+    "services/ai/api/Migrations/20260617120000_AgentContextAndSteps.Designer.cs": "4069e21a235721f8f168bd984b7ab642e602782bc05a760f85c23aa9e58d1848",
+    "services/ai/api/Migrations/20260617120000_AgentContextAndSteps.cs": "a327f6d5862d551eb704098821ecc918a8aa83ba2b6e86695c2d8a27612f6511",
+    "services/ai/api/Migrations/20260730102149_AddAccountIntelligenceManager.Designer.cs": "595d9ca41890133b46b7de8a48cd4a6798cfac7a04767829d4eaa1d113022113",
+    "services/ai/api/Migrations/20260730102149_AddAccountIntelligenceManager.cs": "d36613b38ce1984b9e544db115da110009e268231feb8586f3e7dc146ee20948",
+    "services/ai/api/Migrations/20260730135238_AddAccountLifecycleManager.Designer.cs": "c2f49084e5e96bcc4e608224659f7e91be4ce5f9b0719e67c13dd26790656a15",
+    "services/ai/api/Migrations/20260730135238_AddAccountLifecycleManager.cs": "af8701c588a6b825b44d9c5111b0365bd68c4da4856e5694d5cc9fea76850af2",
+    "services/ai/api/Migrations/AiDbContextModelSnapshot.cs": "576ce662f7620f166c3bb4d90a31e9aa2edd2d57a872699128b0fcbcd28f86c8",
+    "services/bots/telegram-quiz-bot/Data/Migrations/20260531182651_InitialMicroserviceSchema.Designer.cs": "0536de03152a9aeffa7e9db22baf7e274b84e1ac1d4e23fe92da1b4df34684b3",
+    "services/bots/telegram-quiz-bot/Data/Migrations/20260531182651_InitialMicroserviceSchema.cs": "5ee0f97908ea29938f3dc566d4abca58051dfd59c42c6311ebf05d9366c2f0de",
+    "services/bots/telegram-quiz-bot/Data/Migrations/TelegramQuizDbContextModelSnapshot.cs": "598391bad7320152a46faaa4b81a5f31f7d9d6ef47ede03193b90623c9a971ae",
+    "services/content/api/Migrations/20260531182612_InitialMicroserviceSchema.Designer.cs": "dad4da1d785f3a45700d24576f599051124d03e8104062d3156bc53dbf09c060",
+    "services/content/api/Migrations/20260531182612_InitialMicroserviceSchema.cs": "0f19d5e07f08fed02352d8a6ea68f64ad2adfba61265a245ac5a4b3d89315ccb",
+    "services/content/api/Migrations/LearningDbContextModelSnapshot.cs": "e884379d92d306b69a376c1775ed9f561cc0a29b85a59baccf86e94084c28741",
+    "services/education/api/Migrations/20260531182608_InitialMicroserviceSchema.Designer.cs": "75a81da69085deb89c47e0b134895e219d1847bced7cc6972a83c5ad14ad0419",
+    "services/education/api/Migrations/20260531182608_InitialMicroserviceSchema.cs": "a67e50102610727bcd1f4446fb1dcd0bdcede4d81800532ae01af39961d71918",
+    "services/education/api/Migrations/20260621082411_AddCourseHierarchyAndSort.Designer.cs": "930393494cb3642954f708442a66607f567a6fe28db5283f3e4703f000fea0a1",
+    "services/education/api/Migrations/20260621082411_AddCourseHierarchyAndSort.cs": "78210f26f8b6c4514e4a2bcd44f5bdf300777c9f39ab65e24c4e94675266c1f7",
+    "services/education/api/Migrations/20260810012744_AddCourseMapDocument.Designer.cs": "6a9121f68c96a912a2d5a022803f5aa9a9aabc55b5f6c14631e093bb8ab73b1b",
+    "services/education/api/Migrations/20260810012744_AddCourseMapDocument.cs": "666554a08bb322aadad40aa3a72f98e3d4f3ace8e7d2a3a0f33cc3e7755d4adb",
+    "services/education/api/Migrations/20260810043625_AddCourseStudentVisibility.Designer.cs": "535b8a71450a5fbf8eda61e1c60a2157375fdba5099a27c98585cb96d4ec1efe",
+    "services/education/api/Migrations/20260810043625_AddCourseStudentVisibility.cs": "d947c3e0b16b771e916de7a63a35007050a1b120bbc933ba20753dab2316ad8d",
+    "services/education/api/Migrations/20261002164553_SimplifyGroupsAndAddOwners.Designer.cs": "2431c687a43be17a268814243a8c1e65b526ff126a365a5417834ff73d85d7bf",
+    "services/education/api/Migrations/20261002164553_SimplifyGroupsAndAddOwners.cs": "33648bd0c53c3256ebc58b23dda0549311edded2847c13c50c3c4be6c87a8534",
+    "services/education/api/Migrations/EducationDbContextModelSnapshot.cs": "cd79cf0fab391bb8ebdb2ac365ae707a999aebc19259fd78683a99f61521e179",
+    "services/execution/api/Migrations/20260608192609_RegenerateRuntimeSchema.Designer.cs": "5e3d1133a231e067192039f6fb92e8915616c385e627d6383db234dc1c7a5acb",
+    "services/execution/api/Migrations/20260608192609_RegenerateRuntimeSchema.cs": "4f81f810a82392ceba94eee02697dcb543252970a089b05e3f56b3f96d8eafeb",
+    "services/execution/api/Migrations/20260909054614_AddSqlDomain.Designer.cs": "486444a8ec20b8d14b30902127dbfb23a5f3b58621e03c88e5c65c0073928551",
+    "services/execution/api/Migrations/20260909054614_AddSqlDomain.cs": "89460493e5a8fb360274953d0153e4ff48ad950670b0932fae270ecdac009a94",
+    "services/execution/api/Migrations/ExecutionDbContextModelSnapshot.cs": "cd9fcdc569d3a3672cf4d889e538cae623e33e9741ef359bd97e9e3f7740e447",
+    "services/files/api/Migrations/20260531182640_InitialMicroserviceSchema.Designer.cs": "8cda59e0376dbcba7e95c26e399c4957b7f5bc8271b7a1538de7565fffde9617",
+    "services/files/api/Migrations/20260531182640_InitialMicroserviceSchema.cs": "28aa1df62ecb1ba943afb24a3a2a70f76fff614bb28c21c0958e09db8f3395ab",
+    "services/files/api/Migrations/FilesDbContextModelSnapshot.cs": "2d602b01bf31a30f7f8aa76ef98871613d487f4d8f80d5d07ade8676227ec03a",
+    "services/identity/api/Migrations/20260531182604_InitialMicroserviceSchema.Designer.cs": "843d2d61c8d3ca9a1dff348baf941863a1edc4c7e0e307df8b7d28172ec62896",
+    "services/identity/api/Migrations/20260531182604_InitialMicroserviceSchema.cs": "742e334120c688641897551b5703f285ab55d416bbe38be0722bfdb0597f0c4d",
+    "services/identity/api/Migrations/20260601195808_CompileCheck_20260601_225801.Designer.cs": "62022ebcb014112b5bae53235ee663aded5e0bccba54ad4178e3c2218382724c",
+    "services/identity/api/Migrations/20260601195808_CompileCheck_20260601_225801.cs": "2ba349d6b759f01c6c5effdac14fdab6eec3ad1e3bc7c028a0a0c2ec1856369e",
+    "services/identity/api/Migrations/20260610190000_AddProfileContactFields.Designer.cs": "47b9ed69ea1d27efc1fcfb35fb682a66df07269c381f7e5ad5bac429daa463ce",
+    "services/identity/api/Migrations/20260610190000_AddProfileContactFields.cs": "069081e8937c3359d56f368b1f7feed6a79eb13d8707536327c56803541934a1",
+    "services/identity/api/Migrations/20260615134547_AddUserLoginAndOptionalEmail.Designer.cs": "a416655ecc0b0e11b4707d8a5ccfd07cd3b3854a8ff1eeed6ff1e7640384940b",
+    "services/identity/api/Migrations/20260615134547_AddUserLoginAndOptionalEmail.cs": "11e477700d5e49f8bf18a4bd14986701c1e6a9422a1da5db4f9e15f244f07b8b",
+    "services/identity/api/Migrations/20260622150956_SupportBotTelegramIntegration.Designer.cs": "4240984a8c2b4e5cdf3901ef298d48a32f90e6abcbe8917dd9d0b08c83401e81",
+    "services/identity/api/Migrations/20260622150956_SupportBotTelegramIntegration.cs": "417915acef31ecb3566c5b68cde08eb5e9e9377411b2975b005f23db6ccc9502",
+    "services/identity/api/Migrations/20260730103418_AddAccountIntelligenceManager.Designer.cs": "ded678d0a7fef6841e69af6ca30d9ee0c33db2d94afa1889516d03c6eb05c263",
+    "services/identity/api/Migrations/20260730103418_AddAccountIntelligenceManager.cs": "b4d57b0b520e9a1571e98ef261a6d08bf06e9a65a2a7fa72cce7607a11af4f3d",
+    "services/identity/api/Migrations/20260730135136_AddAccountLifecycleManager.Designer.cs": "d9489d3e8898036cc8848df34b76f62419619704fd841dee7aa1019c73a07f65",
+    "services/identity/api/Migrations/20260730135136_AddAccountLifecycleManager.cs": "b90a2fde2efc473a4aad46eb15899cf75387ed5602fd86b153a484fa982fb1fe",
+    "services/identity/api/Migrations/20260807225514_AddAiAccountType.Designer.cs": "fb3abcf602aa9ef10cee2d94444cc6a351f176b4e059da33460a87705db71946",
+    "services/identity/api/Migrations/20260807225514_AddAiAccountType.cs": "7817ff05182ccc4ae4d59f59eb25c79bfd87b807091b6035f55c877258ca3fbe",
+    "services/identity/api/Migrations/20260923100059_AddRoleHierarchy.Designer.cs": "9af6463c62804e927c376863ac3af475946279d2d01222c4c4c19634a0e5b876",
+    "services/identity/api/Migrations/20260923100059_AddRoleHierarchy.cs": "9ca3e95a864a2d9df1e538a9a08bdac0484b2df9ca166f38c7885d30c7499866",
+    "services/identity/api/Migrations/IdentityDbContextModelSnapshot.cs": "0104bb667a604660a94e2f1cd81fe52104d2a5b12cf98128d4192f25184f01c6",
+    "services/minecraft/api/Migrations/20260531182636_InitialMicroserviceSchema.Designer.cs": "4329db1b2655bed9803ce3c01bc0247679089b0231d6377b582952dd9da30afc",
+    "services/minecraft/api/Migrations/20260531182636_InitialMicroserviceSchema.cs": "3f267aba8bbd961d23f3b3f1cbdc2f93f202ca4108e93bdfa28dac64e28a0459",
+    "services/minecraft/api/Migrations/20260713043533_MinecraftDeathRecoveryAndEconomyCleanup.Designer.cs": "610f86cbf5738ebeeb8f2cd9c5b3c5e510fb1c1ab4404fef588cbf1511d39a3b",
+    "services/minecraft/api/Migrations/20260713043533_MinecraftDeathRecoveryAndEconomyCleanup.cs": "acaf45798228a34f4a2cdcaeae8baab64d644976088a463c251fcda8a2ec8584",
+    "services/minecraft/api/Migrations/MinecraftDbContextModelSnapshot.cs": "10c449704099954e826711f1f7195e57309f3404b515c12f95f0facb8e799163",
+    "services/notifications/api/Migrations/20260531182643_InitialMicroserviceSchema.Designer.cs": "82cd20a230fdfadf0fa52bf1b7fb5b5b06251d22f8312801bb5a1cd3c790b5b7",
+    "services/notifications/api/Migrations/20260531182643_InitialMicroserviceSchema.cs": "fe9a62e2e9fa665bfdd6c3bc068d6fa42d893d91451c2b4f9b8fb851f132a403",
+    "services/notifications/api/Migrations/NotificationsDbContextModelSnapshot.cs": "6101b935bba167d32abe241b6d4371f5a867fe4a7b18f3a4780ba1d730b426a8",
+    "services/observability/api/Migrations/20260531182646_InitialMicroserviceSchema.Designer.cs": "4eece16142af2f0a341ea78b763afd2572b167719e54cf9d63e783c54a7d9b32",
+    "services/observability/api/Migrations/20260531182646_InitialMicroserviceSchema.cs": "d703ccadaaaa62e91f0cebdaf172f35dfbed171e13b40d72d34de4b3182b3a6d",
+    "services/observability/api/Migrations/20260601203839_CompileCheck_20260601_233749.Designer.cs": "e152382f27ca9b3505eab57e2ef9d24e3fd6935678e2f80edde0af8d7aa33038",
+    "services/observability/api/Migrations/20260601203839_CompileCheck_20260601_233749.cs": "13976a9ff7b525fdd52140db479a40b605a11c5eac0eaa83308fb6348aafa4b5",
+    "services/observability/api/Migrations/20260625144735_ObservabilityAnalyticsNetworkMetadata.Designer.cs": "188950d2e39966a9584deb5454aaaba41c3d31bcb85e41d668ae03c02ee37f6a",
+    "services/observability/api/Migrations/20260625144735_ObservabilityAnalyticsNetworkMetadata.cs": "195b80ddeb507c5d1bf5b49179acd322f8a79c96f389959306b2625193f793a7",
+    "services/observability/api/Migrations/ObservabilityDbContextModelSnapshot.cs": "18b48bad2d17e0255f97c5045320f2bebed5e877e7ace51159a1d6244cd97f5c",
+    "services/solutions/api/Migrations/20260531182622_InitialMicroserviceSchema.Designer.cs": "063a9ca837672e0ed7f51c62fe190b2f12000508f5eaba6e30b838d83c48100b",
+    "services/solutions/api/Migrations/20260531182622_InitialMicroserviceSchema.cs": "e99a66256c735c97b1da2b6a4a2aa9c923ebaa1a272791058800067be9e26ec5",
+    "services/solutions/api/Migrations/20260601203811_CompileCheck_20260601_233749.Designer.cs": "70c0fe422662305b0b107abce8fc3b67a5a76adb294f65212ca86b793853302b",
+    "services/solutions/api/Migrations/20260601203811_CompileCheck_20260601_233749.cs": "fd5db6d7a18398251fcdd86a33c2a2c172fbb150520078250d86f1892e72e922",
+    "services/solutions/api/Migrations/20260622183608_RatingDirtyUsers.Designer.cs": "f5166a6c010a6cefe9a4b0253512915c28cc754859458275bb939e357dc43b3d",
+    "services/solutions/api/Migrations/20260622183608_RatingDirtyUsers.cs": "1e747e32d79bd3723d2f570bc64b78805229952a223dfbaca36fc48829805e79",
+    "services/solutions/api/Migrations/20260909054622_AddSqlDomain.Designer.cs": "014b195db5321eaf2762e3dab31eb66cb478fd8fa0e01936e2fa5fee415aa594",
+    "services/solutions/api/Migrations/20260909054622_AddSqlDomain.cs": "b51d1105cdc6361567a8ba6a964ff3c41ab625103458330d86ac1a8b2346678b",
+    "services/solutions/api/Migrations/SolutionsDbContextModelSnapshot.cs": "0d023faff92601a0fde3527243fbb787c2978b1c22f8f48e66cadd5271fe2bac",
+    "services/support/api/Migrations/20260531182633_InitialMicroserviceSchema.Designer.cs": "096b6e75bb2fd29010152f108fb7edea3e644e628253212ef3a8c9e7b3b3bb26",
+    "services/support/api/Migrations/20260531182633_InitialMicroserviceSchema.cs": "5e54b6f2ff91153e7e24f0c0b1889bbc7717b19d1a0a41d744c54436f704d4a8",
+    "services/support/api/Migrations/20260622151025_SupportBotTelegramIntegration.Designer.cs": "14651697da43172293b438483b46cabf404f72fb1ee55bc421e42edaaa093dbf",
+    "services/support/api/Migrations/20260622151025_SupportBotTelegramIntegration.cs": "cfb7f8795dc5902bb7d484ccddbf4d1cc79eff2f49ac6638e2d2a3e3a3ad9aae",
+    "services/support/api/Migrations/20260626124453_SupportSingleChatReplyMessages.Designer.cs": "fc6cafb1487d0c9a8bfbbd5ecf6f0c108ea459046050af810519a65acbb19df2",
+    "services/support/api/Migrations/20260626124453_SupportSingleChatReplyMessages.cs": "35e9341a8dd9d2a39e58bf89e7ef6037505e0b01d62eba341d5710fa33b9b42f",
+    "services/support/api/Migrations/SupportDbContextModelSnapshot.cs": "4c431d9e70ca0d0257b494bbf1fbecdb4ff04f8fef95d40e6123094580fe6f35",
+    "services/tasks/assignment-api/Migrations/20260608192557_RegenerateRuntimeSchema.Designer.cs": "266a6ea04304e31d4f3c7117fee5846ba6d039029d12cd51db6b24ba8190a39b",
+    "services/tasks/assignment-api/Migrations/20260608192557_RegenerateRuntimeSchema.cs": "154ef1c8f87999197e34171bfb8ec5cd7cb1a4a349fb8509d2bc9a06b0bde607",
+    "services/tasks/assignment-api/Migrations/20260624085810_AddAssignmentAnalytics.Designer.cs": "0e22953ccb76463d37c4e98306d47c1af0615b8a721346ca863cce65d3036a7d",
+    "services/tasks/assignment-api/Migrations/20260624085810_AddAssignmentAnalytics.cs": "7abc96f4f62e5417e0a69290440e30c14559498704e5439322e2227c6feaf27e",
+    "services/tasks/assignment-api/Migrations/20260909054604_AddSqlDomain.Designer.cs": "3529435fd3850741f352a92b4f9daa0b15d6836eb9f7e79f54dc0a8dbe8f080b",
+    "services/tasks/assignment-api/Migrations/20260909054604_AddSqlDomain.cs": "d75e7b9c6387f8e303bbc1d0a0ff1a9e2f6d030976c77a1ec973ae302d0e1f80",
+    "services/tasks/assignment-api/Migrations/20260923022235_RemoveAssignmentDifficulty.Designer.cs": "b6d00f6a3075eb753ea341696a223c8ade8a8b4abd87a10360fbae35cfcf7cc9",
+    "services/tasks/assignment-api/Migrations/20260923022235_RemoveAssignmentDifficulty.cs": "b1fd64a6a4b169341011bed0a37492a184670c8481084828a20077dac8975db1",
+    "services/tasks/assignment-api/Migrations/20260930001840_TaskForgeSchemaUpdate.Designer.cs": "968568763a643e8311cdc734db92c560eb68719469603057b73fe2ab1e0dde99",
+    "services/tasks/assignment-api/Migrations/20260930001840_TaskForgeSchemaUpdate.cs": "6f4188e540f6a3ad70b1b0e08979184d8563bc5cee8327f334aa501d716a5349",
+    "services/tasks/assignment-api/Migrations/TasksDbContextModelSnapshot.cs": "779db40cd6fc7b0fc7db62ef945be410280bc8737f4c08c63107c2ec4c4bfb29",
+    "services/tasks/quiz-api/Migrations/20260531182619_InitialMicroserviceSchema.Designer.cs": "922d8acf0fa29f8f48ed4a645a90a0baef1b2ea787a72712cbe22e7be7ab7fec",
+    "services/tasks/quiz-api/Migrations/20260531182619_InitialMicroserviceSchema.cs": "8ac0d4a08d9f5745b8d06d416d55e4989306ae89f28143fbe0ea0b3961765431",
+    "services/tasks/quiz-api/Migrations/20260923022247_RemoveQuizDifficulty.Designer.cs": "e504e27006ab0e05a4198a61020580d8b6a8af33dff223d344b1bccc5c0ac795",
+    "services/tasks/quiz-api/Migrations/20260923022247_RemoveQuizDifficulty.cs": "d6591d09d3f840fc67d85a57ba33d8986b0afac594bdce402c48888aa1322060",
+    "services/tasks/quiz-api/Migrations/QuizDbContextModelSnapshot.cs": "f8dec9e0b1184896b8200e653062e3bf80aa56525fdb98274f01d0ab09676818"
+  }
+}

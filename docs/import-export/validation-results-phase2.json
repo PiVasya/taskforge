@@ -1,0 +1,144 @@
+{
+  "date": "2026-10-13",
+  "scope": "Cumulative source upgrade from develop(308); no live deployment performed.",
+  "executed": [
+    {
+      "check": "Frontend executable model regression suite",
+      "result": "passed",
+      "tests": 146,
+      "failed": 0,
+      "newPhaseTwoCases": 29,
+      "limits": "Pure models/controllers, including injected HTTP failures. Not a live backend or browser feature E2E."
+    },
+    {
+      "check": "Frontend architecture",
+      "result": "passed",
+      "spaRoutes": 46
+    },
+    {
+      "check": "Repository and release-boundary checks",
+      "result": "passed",
+      "limits": "Does not certify .NET compilation or the EF pending-model-changes gate."
+    },
+    {
+      "check": "JS/JSX/MJS syntax",
+      "result": "passed",
+      "kind": "syntax-only",
+      "parser": "TypeScript",
+      "files": 316,
+      "errors": []
+    },
+    {
+      "check": "Chromium preview component",
+      "result": "passed",
+      "testType": "production-preview-component-smoke",
+      "renderer": "installed React 16 UMD fixture (not full project React 18 build)",
+      "browser": "Chromium",
+      "checks": [
+        {
+          "viewportWidth": 1280,
+          "nodes": 14,
+          "edges": 17,
+          "expandCollapse": "passed",
+          "consoleErrors": []
+        },
+        {
+          "viewportWidth": 390,
+          "nodes": 14,
+          "edges": 17,
+          "expandCollapse": "passed",
+          "consoleErrors": []
+        }
+      ],
+      "liveTaskForge": false
+    },
+    {
+      "check": "C# project XML",
+      "result": "parsed",
+      "limits": "XML syntax only; not compiler validation."
+    },
+    {
+      "check": "Live HTTP acceptance script CLI",
+      "result": "help_only",
+      "path": "scripts/tests/task-graph-import-live.mjs",
+      "serverRequests": 0
+    },
+    {
+      "check": "Existing migrations and ModelSnapshot bytes",
+      "result": "passed",
+      "files": 102,
+      "allByteIdenticalToOriginal308": true
+    },
+    {
+      "check": "Git diff whitespace validation",
+      "result": "passed"
+    }
+  ],
+  "notExecuted": [
+    {
+      "check": "Full .NET compilation and test suite",
+      "reason": "Required .NET 10 SDK and dependency restore unavailable in this runtime.",
+      "newBackendUnitCasesWritten": 20
+    },
+    {
+      "check": "Full npm/Jest and production frontend build",
+      "reason": "Project node_modules unavailable; dependency installation was not available."
+    },
+    {
+      "check": "Live TaskForge HTTP acceptance, including real 250-node apply/deletion",
+      "reason": "No authenticated isolated deployed QA instance used; opt-in script supplied but not run."
+    },
+    {
+      "check": "Full React feature/browser E2E",
+      "reason": "Component smoke does not exercise application routing, hooks or real server orchestration."
+    },
+    {
+      "check": "PostgreSQL concurrent writers and crash injection at each commit boundary",
+      "reason": "No PostgreSQL/Docker integration environment."
+    },
+    {
+      "check": "All SQL engine/profile executions and request-size/timeout ceilings",
+      "reason": "Not covered by model tests or by the supplied HTTP acceptance script."
+    },
+    {
+      "check": "EF semantic migration consistency gate",
+      "reason": "New model schema deliberately awaits user-generated migrations; gate must fail before that step."
+    }
+  ],
+  "schema": {
+    "newTables": [
+      "TaskGraphImportOperations",
+      "CourseMapImportReceipts"
+    ],
+    "generateCommand": "bash scripts/generate-migrations.sh AddTaskGraphImportJournal assignment,education",
+    "existingHistoryChanged": false,
+    "generatedMigrationsInArchive": false,
+    "requiredBeforeDeployment": true
+  },
+  "releaseOrder": [
+    "generate and commit migrations",
+    "normal database migration stage",
+    "education-api",
+    "tasks-api",
+    "front"
+  ],
+  "inheritedSupportFixReleaseOrder": [
+    "support-api",
+    "support-bot"
+  ],
+  "operationalLimits": [
+    "No global distributed rollback. Subcourses, assignments and map are separate stages; durable resumption is the supported alternative.",
+    "Idempotence binds one operation UUID to its owner/course/payload. Intentionally starting a new operation without entity IDs can create duplicates.",
+    "Stopping is explicit and does not undo committed creations, edits or deletions.",
+    "Per-assignment baseline guards unfinished canonical operation recovery; it is not global optimistic locking for all independent task-edit endpoints.",
+    "Course creation counts after a partially completed cross-service attempt may reflect the final ensure call; reserved course IDs remain discoverable.",
+    "Journal stores sensitive authoring payloads under editor access. Downloadable audit is allowlisted metadata, not raw payload. UUIDs can still be private.",
+    "No automatic retention/purge policy. Last-30 UI history does not mean database expiry. Receipt purging must not break replay.",
+    "Unrelated isolated SignalR timeout from the report is not diagnosed or claimed fixed."
+  ],
+  "guidance": {
+    "path": "docs/import-export/expected-behavior.json",
+    "rules": 23,
+    "synchronizedFrontendPromptAndBackendExport": true
+  }
+}

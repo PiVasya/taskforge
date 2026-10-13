@@ -143,3 +143,8 @@ public sealed class AssignmentExternalAttemptDto
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset? SubmittedAtUtc { get; set; }
 }
+
+public sealed class CourseGraphImportProbeResponse
+{
+    public Guid[] ExistingIds { get; set; } = Array.Empty<Guid>();
+}

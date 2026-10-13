@@ -41,17 +41,20 @@ internal static class SqlTaskGraphService
         }
         if (schemaVersion < 5)
         {
-            if (hasDatasets || sqlTasks.Length > 0) issues.Add(new("$.datasets", "SQL resources require schemaVersion 5."));
+            if ((hasDatasets && (datasets.ValueKind != JsonValueKind.Array || datasets.GetArrayLength() > 0)) || sqlTasks.Length > 0
+                || tasks.Any(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "sql-test"))
+                issues.Add(new("$.datasets", "SQL-ресурсы требуют schemaVersion 5. Пустой datasets: [] допустим без SQL."));
             return issues;
         }
-        if (!hasDatasets || datasets.ValueKind != JsonValueKind.Array)
+        if (hasDatasets && datasets.ValueKind != JsonValueKind.Array)
         {
-            issues.Add(new("$.datasets", "schemaVersion 5 requires a datasets array (empty is allowed)."));
+            issues.Add(new("$.datasets", "datasets должен быть массивом."));
             return issues;
         }
+        if (!hasDatasets) datasets = JsonSerializer.SerializeToElement(Array.Empty<object>());
         if (datasets.GetArrayLength() > 256 || datasets.GetRawText().Length > 16_000_000)
         {
-            issues.Add(new("$.datasets", "SQL resources exceed the graph import budget (256 resources / 16 MB)."));
+            issues.Add(new("$.datasets", "SQL-ресурсы превышают лимит: 256 датасетов / 16 МБ."));
             return issues;
         }
         var keys = new HashSet<string>(StringComparer.Ordinal);
@@ -76,7 +79,7 @@ internal static class SqlTaskGraphService
             {
                 if (node.TryGetProperty("type", out var type) && type.GetString() != "sql-test") throw new ArgumentException("Only sql-test can contain a SQL specification.");
                 var spec = SqlWire.Read<SqlGraphSpec>(raw);
-                if (spec.Dataset is null || !keys.Contains(spec.Dataset)) throw new ArgumentException("SQL dataset reference is not declared in datasets[].");
+                if (spec.Dataset is null || !keys.Contains(spec.Dataset)) throw new ArgumentException("Датасет не объявлен в datasets[].");
                 if (spec.Mode is not ("result" or "state" or "schema") || spec.Targets is null || spec.Targets.Length is < 1 or > 12 || !spec.Targets.Any(x => x is not null && x.Enabled)) throw new ArgumentException("Invalid SQL mode or engine target list.");
                 (spec.Limits ?? new()).Validate(); (spec.Comparison ?? new()).Validate();
                 foreach (var target in spec.Targets)
@@ -158,11 +161,49 @@ internal static class SqlTaskGraphService
         return new(specs, array);
     }
 
+    internal sealed record DatasetPreview(string Key, string Name, string Action, string? ResolvedName);
+
+    internal static async Task<List<DatasetPreview>> PreviewDatasets(TasksDbContext db, JsonElement graph,
+        GraphImportOptions options, Guid user, bool admin, CancellationToken ct)
+    {
+        var result = new List<DatasetPreview>();
+        if (!graph.TryGetProperty("datasets", out var datasets)) return result;
+        var sqlTasks = graph.GetProperty("tasks").EnumerateArray()
+            .Where(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("sql", out var value) && value.ValueKind == JsonValueKind.Object).ToArray();
+        var ids = sqlTasks.Select(x => x.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.String
+            && Guid.TryParse(value.GetString(), out var id) ? id : Guid.Empty).Where(id => id != Guid.Empty).ToArray();
+        var existingIds = (await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct)).ToHashSet();
+        var referenced = sqlTasks.Where(x => options.UpdateContent || options.UpdateChecks || !x.TryGetProperty("id", out var id)
+            || !Guid.TryParse(id.GetString(), out var parsed) || !existingIds.Contains(parsed))
+            .Select(x => SqlWire.Read<SqlGraphSpec>(x.GetProperty("sql")).Dataset).ToHashSet(StringComparer.Ordinal);
+        var plannedByHash = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var node in datasets.EnumerateArray())
+        {
+            var input = SqlWire.Read<SqlGraphDataset>(node);
+            if (!referenced.Contains(input.Key)) continue;
+            var hash = SqlContentKeys.Dataset(CreateImportedDatasetVersion(input));
+            if (!plannedByHash.TryGetValue(hash, out var resolvedName))
+            {
+                resolvedName = await (from version in db.SqlDatasetVersions.AsNoTracking()
+                    join dataset in db.SqlDatasets.AsNoTracking() on version.DatasetId equals dataset.Id
+                    where version.ContentHash == hash && !dataset.IsArchived
+                        && (dataset.OwnerUserId == user || dataset.AccessScope == "editor-library" || admin)
+                    orderby version.CreatedAt select dataset.Name).FirstOrDefaultAsync(ct);
+            }
+            result.Add(new(input.Key, input.Name, resolvedName is null ? "create" : "reuse", resolvedName));
+            plannedByHash[hash] = resolvedName ?? input.Name;
+        }
+        return result;
+    }
+
     internal static async Task Import(TasksDbContext db, JsonElement graph, IReadOnlyList<(string? Key, string CourseRef, Assignment Assignment, string Action)> processed,
         GraphImportOptions options, Guid user, bool admin, CancellationToken ct)
     {
-        if ((!options.UpdateContent && !options.UpdateChecks) || !graph.TryGetProperty("datasets", out var dataArray)) return;
-        var tasks = graph.GetProperty("tasks").EnumerateArray().Where(x => x.TryGetProperty("sql", out var s) && s.ValueKind == JsonValueKind.Object)
+        if (!graph.TryGetProperty("datasets", out var dataArray)) return;
+        var keysToApply = processed.Where(x => x.Action == "created" || options.UpdateContent || options.UpdateChecks)
+            .Select(x => x.Key).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
+        var tasks = graph.GetProperty("tasks").EnumerateArray().Where(x => keysToApply.Contains(x.GetProperty("key").GetString())
+            && x.TryGetProperty("sql", out var s) && s.ValueKind == JsonValueKind.Object)
             .ToDictionary(x => x.GetProperty("key").GetString()!, x => SqlWire.Read<SqlGraphSpec>(x.GetProperty("sql")), StringComparer.Ordinal);
         if (tasks.Count == 0) return;
         var referenced = tasks.Values.Select(x => x.Dataset).ToHashSet(StringComparer.Ordinal);
@@ -190,6 +231,7 @@ internal static class SqlTaskGraphService
         foreach (var item in processed)
         {
             if (item.Key is null || !tasks.TryGetValue(item.Key, out var source)) continue;
+            var itemOptions = OptionsForTask(item.Action == "created", options);
             if (item.Assignment.Type != SqlTaskTypes.SqlTest) throw new ArgumentException("SQL specifications cannot be imported into another assignment type.");
             var root = await db.SqlAssignmentSpecs.AsNoTracking().FirstOrDefaultAsync(x => x.AssignmentId == item.Assignment.Id, ct);
             var old = root?.DraftVersionId is null ? null : await db.SqlAssignmentSpecVersions.AsNoTracking().SingleAsync(x => x.Id == root.DraftVersionId, ct);
@@ -200,13 +242,13 @@ internal static class SqlTaskGraphService
                 var profile = await ResolveProfile(db, input.Profile, ct);
                 var previous = oldTargets.FirstOrDefault(x => x.EngineProfileId == profile.Id);
                 targets.Add(new SqlTargetInput(profile.Id, input.Enabled, input.Sort,
-                    options.UpdateContent ? input.StarterSqlOverride : previous?.StarterSqlOverride,
-                    options.UpdateChecks ? input.ReferenceSqlOverride : previous?.ReferenceSqlOverride,
-                    options.UpdateChecks ? input.ComparisonOverride : Read<SqlComparison>(previous?.ResultComparisonSettingsOverrideJson),
-                    options.UpdateChecks ? input.StateCheckOverride : Read<SqlStateCheck>(previous?.StateCheckSettingsOverrideJson),
-                    options.UpdateChecks ? input.SchemaCheckOverride : Read<SqlSchemaCheck>(previous?.SchemaCheckSettingsOverrideJson)));
+                    itemOptions.UpdateContent ? input.StarterSqlOverride : previous?.StarterSqlOverride,
+                    itemOptions.UpdateChecks ? input.ReferenceSqlOverride : previous?.ReferenceSqlOverride,
+                    itemOptions.UpdateChecks ? input.ComparisonOverride : Read<SqlComparison>(previous?.ResultComparisonSettingsOverrideJson),
+                    itemOptions.UpdateChecks ? input.StateCheckOverride : Read<SqlStateCheck>(previous?.StateCheckSettingsOverrideJson),
+                    itemOptions.UpdateChecks ? input.SchemaCheckOverride : Read<SqlSchemaCheck>(previous?.SchemaCheckSettingsOverrideJson)));
             }
-            if (!options.UpdateContent && old is not null)
+            if (!itemOptions.UpdateContent && old is not null)
             {
                 var oldData = await db.SqlDatasetVersions.AsNoTracking().SingleAsync(x => x.Id == old.DatasetVersionId, ct);
                 if (oldData.ContentHash != versionByKey[source.Dataset].ContentHash || old.Mode != source.Mode
@@ -215,15 +257,15 @@ internal static class SqlTaskGraphService
                 targets = targets.Select(x => x with { Enabled = oldTargets.Single(t => t.EngineProfileId == x.EngineProfileId).Enabled,
                     Sort = oldTargets.Single(t => t.EngineProfileId == x.EngineProfileId).Sort }).ToList();
             }
-            var request = new SqlSpecInput(options.UpdateContent || old is null ? versionByKey[source.Dataset].Id : old.DatasetVersionId,
-                options.UpdateContent || old is null ? source.Mode : old.Mode,
-                options.UpdateContent ? source.StarterSql : old?.StarterSql,
-                options.UpdateChecks ? source.ReferenceSql : old?.ReferenceSql,
-                options.UpdateContent || old is null ? source.AllowMultipleStatements : old.AllowMultipleStatements,
-                options.UpdateChecks ? source.Comparison ?? new() : Read<SqlComparison>(old?.ResultComparisonSettingsJson) ?? new(),
-                options.UpdateChecks ? source.StateCheck ?? new() : Read<SqlStateCheck>(old?.StateCheckSettingsJson) ?? new(),
-                options.UpdateChecks ? source.SchemaCheck ?? new() : Read<SqlSchemaCheck>(old?.SchemaCheckSettingsJson) ?? new(),
-                options.UpdateContent ? source.Limits ?? new() : Read<SqlLimits>(old?.LimitsJson) ?? new(), targets.ToArray(), root?.ConcurrencyStamp);
+            var request = new SqlSpecInput(itemOptions.UpdateContent || old is null ? versionByKey[source.Dataset].Id : old.DatasetVersionId,
+                itemOptions.UpdateContent || old is null ? source.Mode : old.Mode,
+                itemOptions.UpdateContent ? source.StarterSql : old?.StarterSql,
+                itemOptions.UpdateChecks ? source.ReferenceSql : old?.ReferenceSql,
+                itemOptions.UpdateContent || old is null ? source.AllowMultipleStatements : old.AllowMultipleStatements,
+                itemOptions.UpdateChecks ? source.Comparison ?? new() : Read<SqlComparison>(old?.ResultComparisonSettingsJson) ?? new(),
+                itemOptions.UpdateChecks ? source.StateCheck ?? new() : Read<SqlStateCheck>(old?.StateCheckSettingsJson) ?? new(),
+                itemOptions.UpdateChecks ? source.SchemaCheck ?? new() : Read<SqlSchemaCheck>(old?.SchemaCheckSettingsJson) ?? new(),
+                itemOptions.UpdateContent ? source.Limits ?? new() : Read<SqlLimits>(old?.LimitsJson) ?? new(), targets.ToArray(), root?.ConcurrencyStamp);
             await SqlTaskService.SaveSpec(db, item.Assignment.Id, request, user, admin, ct, preserveAssignmentVisibility: true);
             // The first fully validated revision is published by the validation dispatcher.
             // Existing published assignments keep their current published revision until an
@@ -232,6 +274,9 @@ internal static class SqlTaskGraphService
         await db.SaveChangesAsync(ct);
     }
 
+
+    internal static GraphImportOptions OptionsForTask(bool isNew, GraphImportOptions options)
+        => isNew ? options with { UpdateContent = true, UpdateChecks = true } : options;
 
     internal static SqlDatasetVersion CreateImportedDatasetVersion(SqlGraphDataset input)
         => new()

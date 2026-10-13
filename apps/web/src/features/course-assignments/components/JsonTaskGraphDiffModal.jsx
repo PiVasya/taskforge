@@ -1,3 +1,5 @@
+import TaskGraphPreviewMap from './TaskGraphPreviewMap';
+import { downloadTaskGraphAudit } from '../courseTaskGraphOperation';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowRight, FileJson, GitCompare, X } from 'lucide-react';
@@ -101,7 +103,7 @@ function DeleteList({ rows }) {
   );
 }
 
-export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error = null, onClose, onApply, importOptions = {}, onImportOptionChange }) {
+export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error = null, onClose, onApply, importOptions = {}, onImportOptionChange, mapOnly = false }) {
   React.useEffect(() => {
     if (!(open && diff) || typeof document === 'undefined') return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -127,8 +129,9 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
             <div className="mt-1 text-sm text-neutral-500">Сначала проверьте, что именно будет создано, обновлено или удалено. Изменения применятся только после подтверждения.</div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => downloadTaskGraphAudit(null, diff)}>{'Скачать отчёт'}</Button>
             <Button variant="outline" onClick={onClose} disabled={busy}><X size={16} /> Назад</Button>
-            <Button onClick={onApply} disabled={busy || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation}>
+            <Button onClick={onApply} disabled={busy || Boolean(error) || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation || diff.requiresConnectionDeleteConfirmation || diff.requiresDuplicateConfirmation}>
               <FileJson size={16} /> {busy ? 'Импортирую…' : 'Импортировать'}
             </Button>
           </div>
@@ -137,7 +140,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
           {error ? (
             <div className="mb-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
-              <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={17} /> Импорт не выполнен</div>
+              <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={17} /> Импорт не завершён</div>
               <div className="mt-1">{error.primaryMessage || error.userMessage || 'Не удалось импортировать JSON.'}</div>
               {error.howToFix?.length ? (
                 <div className="mt-2 text-xs opacity-80">{error.howToFix.slice(0, 2).join(' ')}</div>
@@ -148,13 +151,23 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] bg-[rgb(var(--muted))]/10 p-3">
           <div className="mb-2 text-sm font-semibold">Какие части существующих заданий можно обновить</div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <ImportOption checked={Boolean(importOptions.updateContent && diff.scopes?.includes('content'))} disabled={!diff.scopes?.includes('content')} onChange={(value) => onImportOptionChange?.('updateContent', value)} label="Условия и настройки" />
-            <ImportOption checked={Boolean(importOptions.updateChecks && diff.scopes?.includes('checks'))} disabled={!diff.scopes?.includes('checks')} onChange={(value) => onImportOptionChange?.('updateChecks', value)} label="Тесты и ответы" />
-            <ImportOption checked={Boolean(importOptions.updateVisibility && diff.scopes?.includes('visibility'))} disabled={!diff.scopes?.includes('visibility')} onChange={(value) => onImportOptionChange?.('updateVisibility', value)} label="Видимость заданий" />
-            <ImportOption checked={Boolean(importOptions.updateConnections && diff.scopes?.includes('connections'))} disabled={!diff.scopes?.includes('connections')} onChange={(value) => onImportOptionChange?.('updateConnections', value)} label="Связи" />
-            <ImportOption checked={Boolean(importOptions.updateConnectionAccess && diff.scopes?.includes('connectionAccess'))} disabled={!diff.scopes?.includes('connectionAccess')} onChange={(value) => onImportOptionChange?.('updateConnectionAccess', value)} label="Эффекты стрелок" />
-            <ImportOption checked={Boolean(importOptions.updateLayout && diff.scopes?.includes('layout'))} disabled={!diff.scopes?.includes('layout')} onChange={(value) => onImportOptionChange?.('updateLayout', value)} label="Позиции и масштаб" />
+            <ImportOption checked={Boolean(importOptions.updateContent && diff.scopes?.includes('content'))} disabled={busy || mapOnly || !diff.scopes?.includes('content')} onChange={(value) => onImportOptionChange?.('updateContent', value)} label="Условия и настройки" />
+            <ImportOption checked={Boolean(importOptions.updateChecks && diff.scopes?.includes('checks'))} disabled={busy || mapOnly || !diff.scopes?.includes('checks')} onChange={(value) => onImportOptionChange?.('updateChecks', value)} label="Тесты и ответы" />
+            <ImportOption checked={Boolean(importOptions.updateVisibility && diff.scopes?.includes('visibility'))} disabled={busy || mapOnly || !diff.scopes?.includes('visibility')} onChange={(value) => onImportOptionChange?.('updateVisibility', value)} label="Видимость заданий" />
+            <ImportOption checked={Boolean(importOptions.updateConnections && diff.scopes?.includes('connections'))} disabled={busy || !diff.scopes?.includes('connections')} onChange={(value) => onImportOptionChange?.('updateConnections', value)} label="Связи" />
+            <ImportOption checked={Boolean(importOptions.updateConnectionAccess && diff.scopes?.includes('connectionAccess'))} disabled={busy || !diff.scopes?.includes('connectionAccess')} onChange={(value) => onImportOptionChange?.('updateConnectionAccess', value)} label="Эффекты стрелок" />
+            <ImportOption checked={Boolean(importOptions.updateLayout && diff.scopes?.includes('layout'))} disabled={busy || !diff.scopes?.includes('layout')} onChange={(value) => onImportOptionChange?.('updateLayout', value)} label="Позиции и масштаб" />
           </div>
+          <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+            Режим связей
+            <select className="rounded-lg border bg-[rgb(var(--card))] p-2" value={importOptions.connectionMode || 'replace'}
+              disabled={busy || !importOptions.updateConnections || !diff.scopes?.includes('connections')}
+              onChange={(event) => onImportOptionChange?.('connectionMode', event.target.value)}>
+              <option value="replace">Заменить связи перечисленных узлов</option>
+              <option value="merge">Добавить связи, сохранив существующие</option>
+            </select>
+          </label>
+          <div className="mt-2 text-xs text-neutral-500">В режиме замены меняются связи между перечисленными узлами и $course. Узел без связей и применяемой позиции снимается с карты вместе со своими стрелками, но не удаляется из курса.</div>
           <div className="mt-2 text-xs text-neutral-500">ID связывает строку JSON с существующим заданием. Галочки определяют, какие его части будут обновлены.</div>
         </div>
 
@@ -167,7 +180,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
             <div className="mt-3">
               <ImportOption
                 checked={Boolean(importOptions.allowDeletes)}
-                disabled={diff.deleteCount === 0}
+                disabled={busy || diff.deleteCount === 0}
                 onChange={(value) => onImportOptionChange?.('allowDeletes', value)}
                 label={`Разрешить удалить ${diff.deleteCount} ${diff.deleteCount === 1 ? 'задание' : 'заданий'}`}
                 hint={diff.deleteMissingCount > 0 ? `Уже отсутствует: ${diff.deleteMissingCount}` : ''}
@@ -176,6 +189,21 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           </div>
         ) : null}
 
+        {diff.connectionRemovedCount > 0 ? (
+          <div className="mt-3 rounded-xl border border-amber-400/60 p-3">
+            <ImportOption checked={Boolean(importOptions.allowConnectionDeletes)} disabled={busy}
+              onChange={(value) => onImportOptionChange?.('allowConnectionDeletes', value)}
+              label={`Разрешить удалить ${diff.connectionRemovedCount} связей карты`} />
+          </div>
+        ) : null}
+        {diff.duplicateTitleCount > 0 ? (
+          <div className="mt-3 rounded-xl border border-amber-400/60 p-3">
+            <ImportOption checked={Boolean(importOptions.allowDuplicates)} disabled={busy}
+              onChange={(value) => onImportOptionChange?.('allowDuplicates', value)}
+              label={`Создать новые задания несмотря на ${diff.duplicateTitleCount} совпадений названий`}
+              hint="key не заменяет UUID. Совпадение названия не объединяет задания." />
+          </div>
+        ) : null}
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
           <Stat label="Операций" value={diff.total} />
           <Stat label="Курсов" value={diff.courseCount || 0} />
@@ -200,6 +228,28 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           {diff.deleteMissingCount > 0 ? <Badge intent="warning">Уже отсутствует: {diff.deleteMissingCount}</Badge> : null}
         </div>
 
+        {diff.warnings?.length ? (
+          <div className="mt-3 rounded-xl border border-amber-400/60 p-3 text-sm">
+            {diff.warnings.map((warning) => <p key={warning} className="my-1">{warning}</p>)}
+          </div>
+        ) : null}
+        {diff.datasets?.length ? (
+          <details className="mt-3 rounded-xl border p-3 text-sm" open>
+            <summary className="cursor-pointer font-semibold">SQL-датасеты · {diff.datasets.length}</summary>
+            {diff.datasets.map((dataset) => <p key={dataset.key} className="my-2">
+              <code>{dataset.key}</code>: {dataset.action === 'reuse' ? `используется существующий «${dataset.resolvedName}»; новое имя не применяется` : `создаётся «${dataset.name}»`}
+            </p>)}
+          </details>
+        ) : null}
+        {diff.placements?.length ? (
+          <details className="mt-3 rounded-xl border p-3 text-sm">
+            <summary className="cursor-pointer font-semibold">Размещение после импорта · {diff.placements.length}</summary>
+            <div className="max-h-60 overflow-auto">{diff.placements.map((row) => <p key={row.key} className="my-1">
+              {row.title}: {row.placed ? `на карте (${row.position.x}, ${row.position.y})` : 'Не на карте'}
+            </p>)}</div>
+          </details>
+        ) : null}
+        <TaskGraphPreviewMap graph={diff.previewMap} />
         {diff.legacy ? (
           <div className="mt-4 rounded-2xl border border-amber-400/70 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
             Этот файл содержит только задания. Они импортируются без изменения связей карты.
@@ -226,7 +276,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
         {!diff.legacy ? (
           <div className="mt-4 grid gap-3 xl:grid-cols-2">
             <ConnectionList title="Маршруты из JSON" rows={diff.connectionRows} />
-            <ConnectionList title="Связи, которые исчезнут" rows={diff.removedConnectionRows} removed />
+            <ConnectionList title="Связи, которые исчезнут" rows={diff.removedConnectionRows} removed defaultOpen />
           </div>
         ) : null}
 

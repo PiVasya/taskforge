@@ -3,6 +3,7 @@ WORKDIR /src
 COPY services/education/api/TaskForge.Education.Api.csproj services/education/api/
 RUN dotnet restore services/education/api/TaskForge.Education.Api.csproj
 COPY services/education/api services/education/api
+COPY services/shared/Import services/shared/Import
 RUN dotnet publish services/education/api/TaskForge.Education.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
