@@ -22,6 +22,15 @@ public static class TaskForgeRequestSecurity
     {
         return app.Use(async (context, next) =>
         {
+            if (context.Request.Path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase))
+                context.Response.Headers.CacheControl = "no-store";
+            if (!IsBrowserRequestAllowed(context.Request))
+            {
+                await WriteProblem(context, StatusCodes.Status403Forbidden,
+                    "\u0417\u0430\u043f\u0440\u043e\u0441 \u043d\u0435 \u043f\u0440\u043e\u0448\u0451\u043b \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0443 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443.", "CSRF_VALIDATION_FAILED");
+                return;
+            }
+
             var requirement = GetRequirement(service, context.Request.Method, Normalize(context.Request.Path));
             if (requirement == Requirement.Public)
             {
@@ -90,6 +99,45 @@ public static class TaskForgeRequestSecurity
         });
     }
 
+    // Cookie credentials are ambient. Unsafe API calls require a non-simple
+    // header; browser-origin checks also protect WebSocket/SSE handshakes.
+    // The gateway preserves Host and overwrites X-Forwarded-Proto.
+    public static bool IsBrowserRequestAllowed(HttpRequest request)
+    {
+        var authEndpoint = request.Path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase);
+        var hub = request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase);
+        var socket = string.Equals(request.Headers["Upgrade"].ToString(), "websocket", StringComparison.OrdinalIgnoreCase);
+        var cookie = request.Cookies.ContainsKey("tf_at") || request.Cookies.ContainsKey("tf_rt");
+        if (!cookie && !authEndpoint && !(socket && request.Headers.ContainsKey("Cookie"))) return true;
+        if (HttpMethods.IsOptions(request.Method)) return true;
+        var safe = HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method);
+        if (safe && !hub && !socket) return true;
+
+        var fetchSite = request.Headers["Sec-Fetch-Site"].ToString();
+        if (fetchSite.Length > 0 && fetchSite != "same-origin" && fetchSite != "none") return false;
+        var originText = request.Headers["Origin"].ToString();
+        var sameOrigin = false;
+        if (originText.Length > 0)
+        {
+            var scheme = request.Headers["X-Forwarded-Proto"].ToString();
+            if (scheme != "https" && scheme != "http") scheme = request.Scheme;
+            if (!Uri.TryCreate(originText, UriKind.Absolute, out var origin)
+                || !Uri.TryCreate($"{scheme}://{request.Host}", UriKind.Absolute, out var target)
+                || (origin.Scheme != "https" && origin.Scheme != "http")
+                || origin.UserInfo.Length > 0 || origin.AbsolutePath != "/"
+                || origin.Query.Length > 0 || origin.Fragment.Length > 0
+                || !string.Equals(origin.Scheme, target.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(origin.IdnHost, target.IdnHost, StringComparison.OrdinalIgnoreCase)
+                || origin.Port != target.Port) return false;
+            sameOrigin = true;
+        }
+
+        var hasHeader = request.Headers["X-TaskForge-CSRF"].ToString() == "1";
+        // Browser WebSocket and EventSource APIs cannot attach custom headers.
+        if (safe && (hub || socket)) return sameOrigin || fetchSite == "same-origin" || hasHeader;
+        return hasHeader;
+    }
+
     private static Requirement GetRequirement(string service, string method, string path)
     {
         if (path is "" or "/" || path.StartsWith("/health") || path.StartsWith("/swagger")) return Requirement.Public;
@@ -150,7 +198,7 @@ public static class TaskForgeRequestSecurity
 
     public static ClaimsPrincipal? ValidateUser(HttpContext context, IConfiguration config)
     {
-        var token = ReadBearer(context) ?? ReadCookie(context, "tf_at") ?? ReadAccessTokenQuery(context);
+        var token = ReadCookie(context, "tf_at") ?? ReadBearer(context);
         if (string.IsNullOrWhiteSpace(token)) return null;
 
         try
@@ -158,7 +206,7 @@ public static class TaskForgeRequestSecurity
             var keyText = config["Jwt:Key"] ?? config["Jwt:SigningKey"] ?? "dev_change_me_please_change_me_please_32_chars";
             if (IsProduction() && IsUnsafeSecret(keyText, minLength: 48)) return null;
             var key = Encoding.UTF8.GetBytes(keyText);
-            return new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
+            var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuer = true,
                 ValidateAudience = true,
@@ -167,8 +215,11 @@ public static class TaskForgeRequestSecurity
                 ValidIssuer = config["Jwt:Issuer"] ?? "TaskForge",
                 ValidAudience = config["Jwt:Audience"] ?? "TaskForge",
                 IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
                 ClockSkew = TimeSpan.FromSeconds(30)
             }, out _);
+            return string.Equals(principal.FindFirstValue("token_type"), "access", StringComparison.Ordinal)
+                ? principal : null;
         }
         catch
         {
@@ -258,13 +309,6 @@ public static class TaskForgeRequestSecurity
     }
 
     private static string? ReadCookie(HttpContext http, string name) => http.Request.Cookies.TryGetValue(name, out var v) ? v : null;
-    private static string? ReadAccessTokenQuery(HttpContext http)
-    {
-        // Query-string tokens are accepted only for WebSocket/SignalR handshakes.
-        // For normal HTTP API calls they are intentionally rejected to avoid token leakage in logs/history.
-        if (!http.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase)) return null;
-        return http.Request.Query.TryGetValue("access_token", out var v) ? v.ToString() : null;
-    }
 
     private static bool IsProduction() => string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
 

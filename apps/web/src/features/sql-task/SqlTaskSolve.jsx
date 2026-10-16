@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, CheckCircle2, Database, XCircle } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
@@ -87,7 +87,7 @@ export default function SqlTaskSolve({
     if (currentDraftKey && !loading) write(currentDraftKey, source);
   }, [currentDraftKey, source, loading]);
 
-  const finish = (kind, data) => {
+  const finish = useCallback((kind, data) => {
     setLastKind(kind);
     setStatus(data.status || data.verdict);
     setResult(ownSnapshot(data.result));
@@ -103,7 +103,7 @@ export default function SqlTaskSolve({
       kind === 'check' ? 'submit_finished' : 'sql_preview_finished',
       { language: 'sql', payload: { status: data.status || data.verdict, engineProfileId: data.sqlEngineProfileId || engineId } },
     );
-  };
+  }, [engineId]);
 
   useEffect(() => {
     if (!receipt?.id) return undefined;
@@ -136,8 +136,7 @@ export default function SqlTaskSolve({
       stopped = true;
       clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipt?.id, key]);
+  }, [assignment.id, finish, key, receipt?.id, receipt?.kind]);
 
   const submit = async (kind, savedRequest = null) => {
     if (sending || receipt) return;

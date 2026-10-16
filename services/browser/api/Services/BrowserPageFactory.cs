@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Playwright;
 using TaskForge.Browser.Api.Configuration;
 using TaskForge.Browser.Api.Contracts;
@@ -191,16 +190,13 @@ public sealed class BrowserPageFactory(
             {
                 Name = "tf_at",
                 Value = caller.AccessToken,
-                Domain = site.Host,
-                Path = "/",
+                Url = site.GetLeftPart(UriPartial.Authority) + "/",
                 HttpOnly = true,
                 Secure = site.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase),
                 SameSite = SameSiteAttribute.Lax
             }
         });
 
-        var serializedToken = JsonSerializer.Serialize(caller.AccessToken);
-        await context.AddInitScriptAsync($"window.__TASKFORGE_BROWSER_ACCESS_TOKEN__ = {serializedToken};");
     }
 
     private void AttachEvents(IPage page, BrowserEventBuffer events)

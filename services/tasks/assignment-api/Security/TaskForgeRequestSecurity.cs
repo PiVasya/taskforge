@@ -22,6 +22,15 @@ public static class TaskForgeRequestSecurity
     {
         return app.Use(async (context, next) =>
         {
+            if (context.Request.Path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase))
+                context.Response.Headers.CacheControl = "no-store";
+            if (!IsBrowserRequestAllowed(context.Request))
+            {
+                await WriteProblem(context, StatusCodes.Status403Forbidden,
+                    "\u0417\u0430\u043f\u0440\u043e\u0441 \u043d\u0435 \u043f\u0440\u043e\u0448\u0451\u043b \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0443 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443.", "CSRF_VALIDATION_FAILED");
+                return;
+            }
+
             var requirement = GetRequirement(service, context.Request.Method, Normalize(context.Request.Path));
             if (requirement == Requirement.Public)
             {
@@ -169,7 +178,7 @@ public static class TaskForgeRequestSecurity
 
     public static ClaimsPrincipal? ValidateUser(HttpContext context, IConfiguration config)
     {
-        var token = ReadBearer(context) ?? ReadCookie(context, "tf_at") ?? ReadAccessTokenQuery(context);
+        var token = ReadCookie(context, "tf_at") ?? ReadBearer(context);
         if (string.IsNullOrWhiteSpace(token)) return null;
 
         try
@@ -177,7 +186,7 @@ public static class TaskForgeRequestSecurity
             var keyText = config["Jwt:Key"] ?? config["Jwt:SigningKey"] ?? "dev_change_me_please_change_me_please_32_chars";
             if (IsProduction() && IsUnsafeSecret(keyText, minLength: 48)) return null;
             var key = Encoding.UTF8.GetBytes(keyText);
-            return new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
+            var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuer = true,
                 ValidateAudience = true,
@@ -186,8 +195,11 @@ public static class TaskForgeRequestSecurity
                 ValidIssuer = config["Jwt:Issuer"] ?? "TaskForge",
                 ValidAudience = config["Jwt:Audience"] ?? "TaskForge",
                 IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
                 ClockSkew = TimeSpan.FromSeconds(30)
             }, out _);
+            return string.Equals(principal.FindFirstValue("token_type"), "access", StringComparison.Ordinal)
+                ? principal : null;
         }
         catch
         {
@@ -281,13 +293,6 @@ public static class TaskForgeRequestSecurity
     }
 
     private static string? ReadCookie(HttpContext http, string name) => http.Request.Cookies.TryGetValue(name, out var v) ? v : null;
-    private static string? ReadAccessTokenQuery(HttpContext http)
-    {
-        // Query-string tokens are accepted only for WebSocket/SignalR handshakes.
-        // For normal HTTP API calls they are intentionally rejected to avoid token leakage in logs/history.
-        if (!http.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase)) return null;
-        return http.Request.Query.TryGetValue("access_token", out var v) ? v.ToString() : null;
-    }
 
     private static bool IsProduction() => string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
 

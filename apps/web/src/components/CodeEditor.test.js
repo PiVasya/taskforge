@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 import CodeEditor, { isPlainTextEditorStyle } from './CodeEditor';
 import { useEditorUiSettings } from '../contexts/UiSettingsContext';
 

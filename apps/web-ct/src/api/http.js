@@ -1,19 +1,21 @@
+import { COOKIE_SESSION_UPDATED_EVENT, createCookieSessionClient, prepareCookieRequest } from '../auth/cookieSession';
 import axios from 'axios';
 import { isRememberedDevice } from '../auth/rememberMe';
 
-let accessToken = null;
 
-export function setAccessToken(token) {
-  accessToken = token || null;
-}
-
-export function getAccessToken() {
-  return accessToken;
-}
 
 const api = axios.create({
   withCredentials: true,
 });
+
+export const cookieSession = createCookieSessionClient(
+  (url, payload) => api.post(url, payload, { __skipAuthRefresh: true }).then(response => response.data),
+  session => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(COOKIE_SESSION_UPDATED_EVENT, { detail: session }));
+    }
+  },
+);
 
 function emitQuotaFromHeaders(headers, fallbackBucket, fallbackRetry) {
   try {
@@ -163,18 +165,7 @@ export function normalizeApiError(error, fallback = 'Не удалось вып�
 
 api.interceptors.request.use((config) => {
   config.headers = config.headers || {};
-  const token = accessToken;
-  // Replayed requests must not keep an expired Authorization header.
-  if (typeof config.headers.set === 'function') {
-    if (token) config.headers.set('Authorization', `Bearer ${token}`);
-    else if (typeof config.headers.delete === 'function') config.headers.delete('Authorization');
-  } else if (token) {
-    delete config.headers.authorization;
-    config.headers.Authorization = `Bearer ${token}`;
-  } else {
-    delete config.headers.Authorization;
-    delete config.headers.authorization;
-  }
+  prepareCookieRequest(config);
   return config;
 });
 
@@ -247,9 +238,7 @@ api.interceptors.response.use(
 
     isRefreshing = true;
     try {
-      const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
-      const newToken = res?.data?.accessToken;
-      if (newToken) setAccessToken(newToken);
+      await cookieSession.refresh();
 
       resolveQueue(null);
       return api(original);

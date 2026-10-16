@@ -21,19 +21,19 @@ function getMsgField(obj, a, b) {
 }
 
 export default function SupportNotifier() {
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const notify = useNotify();
   const { isAdmin } = useRoleFlags();
 
   useEffect(() => {
-    if (!access) return;
+    if (!isAuthenticated) return;
     let disposed = false;
     let conn = null;
     let onReceive = null;
 
     const setup = async () => {
       try {
-        conn = await ensureSupportHubStarted(access);
+        conn = await ensureSupportHubStarted();
         if (!conn || disposed) return;
 
         const joinAll = async () => {
@@ -99,7 +99,7 @@ export default function SupportNotifier() {
         if (conn && onReceive) conn.off('ReceiveMessage', onReceive);
       } catch {}
     };
-  }, [access, notify, isAdmin]);
+  }, [isAuthenticated, notify, isAdmin]);
 
   return null;
 }

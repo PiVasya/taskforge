@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Copy,
@@ -362,7 +362,6 @@ export default function SectionTaskAdminPanel({ selectedCourse }) {
   const canUse = Boolean(sectionCode);
   const isEdit = Boolean(form.id);
   const isChoice = !isTextAnswerType(form.type, sectionCode);
-  const options = useMemo(() => splitValues(form.optionsText), [form.optionsText]);
 
   function setField(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));

@@ -327,7 +327,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const nav = useNavigate();
   const location = useLocation();
   const notify = useNotify();
-  const { access, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const flow = useReactFlow();
   const nodesInitialized = useNodesInitialized({ includeHiddenNodes: true });
   const shellRef = React.useRef(null);
@@ -2224,7 +2224,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (!editorMode || !rootId) return undefined;
     let disposed = false;
     let heartbeat = null;
-    const connection = createCourseMapPresenceConnection(access, rootId);
+    const connection = createCourseMapPresenceConnection(currentUserId, rootId);
     const handlePresence = (rows) => {
       if (disposed) return;
       const list = Array.isArray(rows) ? rows : [];
@@ -2264,15 +2264,15 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       connection.off('PresenceChanged', handlePresence);
       connection.off('MapSaved', handleMapSaved);
       connection.invoke('LeaveMap', rootId).catch(() => {});
-      disposeCourseMapPresenceConnection(access, rootId).catch(() => {});
+      disposeCourseMapPresenceConnection(currentUserId, rootId).catch(() => {});
     };
-  }, [access, currentUserId, editorMode, notify, rootId, user]);
+  }, [isAuthenticated, currentUserId, editorMode, notify, rootId, user]);
 
   React.useEffect(() => {
     if (!editorMode || !rootId) return;
-    const connection = createCourseMapPresenceConnection(access, rootId);
+    const connection = createCourseMapPresenceConnection(currentUserId, rootId);
     connection?.invoke('Heartbeat', rootId, dirty, userDisplayName(user), userAvatar(user)).catch(() => {});
-  }, [access, dirty, editorMode, rootId, user]);
+  }, [isAuthenticated, currentUserId, dirty, editorMode, rootId, user]);
 
   const markDirty = React.useCallback(() => {
     if (!editorMode) return;
@@ -2632,7 +2632,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       notify.error(getApiErrorMessage(error, 'Не удалось сохранить карту'));
       return false;
     }
-  }, [assignments, cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey, visibleCourses, graphImportRequest]);
+  }, [cacheCourseIds, currentUserId, editorMode, notify, rootId, sessionOptions, viewKey, visibleCourses, graphImportRequest]);
 
   React.useEffect(() => {
     if (!editorMode || importReloadRef.current === importReloadKey) return;

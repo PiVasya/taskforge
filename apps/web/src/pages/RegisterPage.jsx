@@ -80,7 +80,7 @@ export default function RegisterPage() {
     const [searchParams] = useSearchParams();
     const requestedAccountType = searchParams.get("accountType")?.toLowerCase() === "ai" ? "ai" : "human";
     const isAiRegistration = requestedAccountType === "ai";
-    const { login: signIn, access } = useAuth();
+    const { login: signIn, isAuthenticated } = useAuth();
 
     const [login, setLogin] = useRegistrationDraftField(requestedAccountType, "login");
     const [password, setPassword] = useRegistrationDraftField(requestedAccountType, "password");
@@ -142,11 +142,11 @@ export default function RegisterPage() {
     };
 
     useEffect(() => {
-        if (access) {
+        if (isAuthenticated) {
             clearRegistrationDraft(requestedAccountType);
             nav("/courses", { replace: true });
         }
-    }, [access, nav, requestedAccountType]);
+    }, [isAuthenticated, nav, requestedAccountType]);
 
     return (
         <>

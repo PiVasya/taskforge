@@ -5,16 +5,18 @@ function createClient({ remembered, succeedAfterRefresh = false }) {
   let responseErrorInterceptor;
   const requests = [];
   let protectedCalls = 0;
+  let cookieAccepted = false;
 
   const client = jest.fn(async (request) => {
     const config = requestInterceptor({ ...request, headers: { ...request.headers } });
     requests.push({ url: config.url, authorization: config.headers.Authorization });
     if (config.url === '/api/auth/refresh') {
-      return { data: { accessToken: 'fresh-access' }, config };
+      cookieAccepted = true;
+      return { data: { authenticated: true, expiresAtUtc: new Date(Date.now() + 60000).toISOString(), rememberMe: true, user: { id: 'user-1', role: 'User' } }, config };
     }
     protectedCalls += 1;
     if (protectedCalls > 5) throw new Error('refresh retry loop');
-    if (succeedAfterRefresh && config.headers.Authorization === 'Bearer fresh-access') {
+    if (succeedAfterRefresh && cookieAccepted) {
       return { data: { ok: true }, config };
     }
     return responseErrorInterceptor({
@@ -30,20 +32,19 @@ function createClient({ remembered, succeedAfterRefresh = false }) {
 
   jest.doMock('axios', () => ({ __esModule: true, default: { create: () => client } }));
   jest.doMock('../auth/rememberMe', () => ({ isRememberedDevice: () => remembered }));
-  const { default: api, setAccessToken } = require('./http');
-  setAccessToken('expired-access');
+  const { default: api } = require('./http');
   return { api, requests };
 }
 
 beforeEach(() => jest.resetModules());
 afterEach(() => { jest.dontMock('axios'); jest.dontMock('../auth/rememberMe'); });
 
-test('a remembered session retries once using the new access token', async () => {
+test('a remembered session retries once using the renewed cookie', async () => {
   const { api, requests } = createClient({ remembered: true, succeedAfterRefresh: true });
   await expect(api({ url: '/api/private', method: 'GET', headers: { Authorization: 'Bearer expired-access' } }))
     .resolves.toMatchObject({ data: { ok: true } });
   expect(requests.map((r) => r.url)).toEqual(['/api/private', '/api/auth/refresh', '/api/private']);
-  expect(requests.at(-1).authorization).toBe('Bearer fresh-access');
+  expect(requests.every(request => request.authorization === undefined)).toBe(true);
 });
 
 test('a repeatedly rejected request never triggers a second refresh', async () => {

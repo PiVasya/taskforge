@@ -1,3 +1,4 @@
+import { BROWSER_REQUEST_HEADERS } from '../auth/cookieSession';
 import api from './http';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
@@ -12,17 +13,11 @@ export function sendAssignmentActivityBeacon(assignmentId, payload) {
   try {
     const body = JSON.stringify(payload);
     const url = `/api/assignments/${encodeURIComponent(assignmentId)}/activity/batch`;
-    if (typeof navigator.sendBeacon === 'function') {
-      const blob = new Blob([body], { type: 'application/json' });
-      const accepted = navigator.sendBeacon(url, blob);
-      logFrontendEvent('activity', 'beacon', { assignmentId: String(assignmentId), transport: 'sendBeacon', accepted, bytes: body.length });
-      return accepted;
-    }
     if (typeof fetch === 'function') {
       logFrontendEvent('activity', 'beacon', { assignmentId: String(assignmentId), transport: 'fetch', accepted: true, bytes: body.length });
       fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...BROWSER_REQUEST_HEADERS },
         body,
         credentials: 'include',
         keepalive: true,

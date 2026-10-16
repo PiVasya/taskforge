@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Card, Button, Input } from "../components/ui";
 import { getCourses, createCourse, moveCoursePosition } from "../api/courses";
 import { getCourseProgressByCourses } from "../api/assignments";
@@ -207,6 +207,7 @@ export default function CoursesPage() {
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, course: null });
   const dragStartedRef = useRef(false);
   const progressMountRefreshRef = useRef(true);
+  const initialCoursesLoadRef = useRef(false);
 
   const nav = useNavigate();
   const notify = useNotify();
@@ -260,7 +261,7 @@ export default function CoursesPage() {
     return next;
   }, [directProgressByCourseId, progressLoading, rootCourses, visibleCourses]);
 
-  const loadCourses = async ({ reset = false } = {}) => {
+  const loadCourses = useCallback(async ({ reset = false } = {}) => {
     const nextPage = reset ? 1 : page + 1;
     try {
       if (reset) setLoading(true);
@@ -280,17 +281,18 @@ export default function CoursesPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [notify, page]);
 
   useEffect(() => {
+    if (initialCoursesLoadRef.current) return;
+    initialCoursesLoadRef.current = true;
     const cacheFresh = dataLoadedAt > 0 && Date.now() - dataLoadedAt < COURSES_CACHE_STALE_MS;
     if (cacheFresh) {
       setLoading(false);
       return;
     }
-    loadCourses({ reset: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void loadCourses({ reset: true });
+  }, [dataLoadedAt, loadCourses]);
 
   useEffect(() => {
     queryClient.setQueryData(COURSES_PAGE_STATE_KEY, {

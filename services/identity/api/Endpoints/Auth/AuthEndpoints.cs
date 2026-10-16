@@ -157,10 +157,10 @@ internal static partial class IdentityApiEndpoints
             {
                 aiTelemetry.RecordAiAccountEvent(http, user.Id, user.Login, "ai-account-login");
             }
-            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
+            return Microsoft.AspNetCore.Http.Results.Ok(BrowserSessionInfo(access, ToProfile(user, roles), request.RememberMe));
         });
 
-        // Return the original, still-valid access token from its HttpOnly cookie.
+        // Describe the still-valid cookie session without exposing its credential.
         // This does not extend the session or issue a refresh token.
         app.MapGet("/api/auth/session", async (HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
@@ -178,26 +178,24 @@ internal static partial class IdentityApiEndpoints
             if (block != null && (!block.ExpiresAtUtc.HasValue || block.ExpiresAtUtc > DateTimeOffset.UtcNow))
                 return Unauthorized("Сессия истекла. Войдите заново.");
 
-            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, await RolesForUser(db, user)) });
+            var refreshPrincipal = ValidateToken(ReadCookie(http, "tf_rt"), cfg, validateLifetime: true);
+            var remembered = refreshPrincipal != null
+                && refreshPrincipal.FindFirstValue("token_type") == "refresh"
+                && TryGetUserId(refreshPrincipal) == user.Id;
+            return Microsoft.AspNetCore.Http.Results.Ok(BrowserSessionInfo(access!, ToProfile(user, await RolesForUser(db, user)), remembered));
         });
 
-        // This operation requires a real access bearer token, not ambient cookies.
+        // The cookie session is authenticated here; middleware verifies browser CSRF.
         // It only changes refresh-cookie state for the browser making the request.
         app.MapPost("/api/auth/remember", async (RememberMeRequest request, HttpContext http, IdentityDbContext db, IConfiguration cfg) =>
         {
             http.Response.Headers.CacheControl = "no-store";
-            var principal = ValidateToken(ReadBearer(http), cfg, validateLifetime: true);
+            var principal = ValidateToken(ReadCookie(http, "tf_at"), cfg, validateLifetime: true);
             if (principal == null || !string.Equals(principal.FindFirstValue("token_type"), "access", StringComparison.Ordinal))
                 return Unauthorized("Сессия истекла. Войдите заново.");
 
             var uid = TryGetUserId(principal);
-            // Requiring this device's still-valid access cookie prevents a stolen
-            // bearer token alone from creating a long-lived remembered session.
-            var cookiePrincipal = ValidateToken(ReadCookie(http, "tf_at"), cfg, validateLifetime: true);
-            var cookieUid = cookiePrincipal == null || !string.Equals(cookiePrincipal.FindFirstValue("token_type"), "access", StringComparison.Ordinal)
-                ? null
-                : TryGetUserId(cookiePrincipal);
-            if (uid == null || cookieUid != uid)
+            if (uid == null)
                 return Unauthorized("Сессия истекла. Войдите заново.");
             var user = await db.Users.FindAsync(uid.Value);
             if (user == null || !string.Equals(user.AccountStatus, "active", StringComparison.OrdinalIgnoreCase))
@@ -260,7 +258,7 @@ internal static partial class IdentityApiEndpoints
             var access = CreateJwt(user, cfg, accessLifetime, "access", roles);
             var refresh = CreateJwt(user, cfg, refreshLifetime, "refresh", roles);
             SetAuthCookies(http, access, refresh, accessLifetime, refreshLifetime);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { accessToken = access, user = ToProfile(user, roles) });
+            return Microsoft.AspNetCore.Http.Results.Ok(BrowserSessionInfo(access, ToProfile(user, roles), true));
         });
 
         app.MapPost("/api/auth/logout", (HttpContext http) =>

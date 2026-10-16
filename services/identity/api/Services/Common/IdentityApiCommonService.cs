@@ -416,6 +416,19 @@ internal static class IdentityApiCommonService
         return access;
     }
 
+    // Only non-credential metadata may cross the JSON/browser boundary.
+    internal static object BrowserSessionInfo(string access, object profile, bool rememberMe)
+    {
+        var expiry = new JwtSecurityTokenHandler().ReadJwtToken(access).ValidTo;
+        return new
+        {
+            authenticated = true,
+            expiresAtUtc = new DateTimeOffset(DateTime.SpecifyKind(expiry, DateTimeKind.Utc)),
+            rememberMe,
+            user = profile
+        };
+    }
+
     internal static void SetAuthCookies(HttpContext http, string access, string? refresh, TimeSpan accessLifetime, TimeSpan refreshLifetime)
     {
         var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
@@ -438,7 +451,9 @@ internal static class IdentityApiCommonService
 
     internal static void ClearAuthCookies(HttpContext http)
     {
-        http.Response.Cookies.Delete("tf_at", new CookieOptions { Path = "/" });
+        http.Response.Headers.CacheControl = "no-store";
+        var secure = string.Equals(http.Request.Headers["X-Forwarded-Proto"].ToString(), "https", StringComparison.OrdinalIgnoreCase) || http.Request.IsHttps;
+        http.Response.Cookies.Delete("tf_at", new CookieOptions { Path = "/", HttpOnly = true, Secure = secure, SameSite = SameSiteMode.Lax });
         ClearRefreshCookie(http);
     }
 

@@ -37,18 +37,20 @@ export default function useTaskGraphImportActions({ courseId, importContextRef, 
     } finally { if (context === importContextRef.current) setJsonImportBusy(false); }
   };
 
+  const { getSnapshot: getImportSnapshot, remember: rememberImport, refresh: refreshImport } = importJournal;
   const handleGraphImportComplete = React.useCallback((key, result) => {
-    if (importJournal.getSnapshot().operation?.operationId !== key) return;
+    const operation = getImportSnapshot().operation;
+    if (operation?.operationId !== key) return;
     if (result?.success) {
       setGraphImportRequest((current) => current?.key === key ? null : current);
-      importJournal.remember({ ...importJournal.getSnapshot().operation, state: "completed" });
-      void importJournal.refresh(key).catch(() => {});
+      rememberImport({ ...operation, state: 'completed' });
+      void refreshImport(key).catch(() => {});
       void Promise.allSettled([reloadAssignments(), reloadCourseData()]);
     } else {
       setGraphImportRequest((current) => current?.key === key ? { ...current, status: 'failed', error: result?.message } : current);
-      void importJournal.refresh(key).catch(() => {});
+      void refreshImport(key).catch(() => {});
     }
-  }, [importJournal.refresh, importJournal.remember, importJournal.getSnapshot, reloadAssignments, reloadCourseData]);
+  }, [getImportSnapshot, rememberImport, refreshImport, reloadAssignments, reloadCourseData, setGraphImportRequest]);
 
   const prepareMapRecovery = async (operation = importJournal.operation) => {
     const context = importContextRef.current;

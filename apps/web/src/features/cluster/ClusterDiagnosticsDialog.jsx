@@ -129,15 +129,22 @@ export default function ClusterDiagnosticsDialog({ open, nodes, initialNodeId, o
   const [lastPollAt, setLastPollAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const pollAbort = useRef(null);
+  const selectionContextRef = useRef({ open: false, initialNodeId: null });
   const jobsRef = useRef([]);
   const eligibleNodes = useMemo(() => nodes.filter(node => diagnosticsEligibility(node).ready), [nodes]);
   const batchProgress = useMemo(() => diagnosticsBatchProgress(jobs), [jobs]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      selectionContextRef.current = { open: false, initialNodeId: null };
+      return;
+    }
+    const context = selectionContextRef.current;
+    if (context.open && context.initialNodeId === initialNodeId) return;
+    selectionContextRef.current = { open: true, initialNodeId };
     const preferred = eligibleNodes.find(node => node.id === initialNodeId) || eligibleNodes[0];
     setSelected(preferred ? [preferred.id] : []);
-  }, [open, initialNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initialNodeId, eligibleNodes]);
 
   useEffect(() => {
     if (!open) return undefined;

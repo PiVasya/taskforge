@@ -31,13 +31,3 @@ export function canRememberDevice() {
     return false;
   }
 }
-
-export function accessExpiresAt(token) {
-  try {
-    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const expiry = Number(JSON.parse(window.atob(payload)).exp);
-    return Number.isFinite(expiry) && expiry > 0 ? expiry * 1000 : null;
-  } catch {
-    return null;
-  }
-}

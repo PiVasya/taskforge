@@ -1,50 +1,6 @@
+import { rolesFromProfile } from '../auth/profileRoles';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
-
-function parseJwt(token) {
-  try {
-    const [, payload] = token.split(".");
-    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(decodeURIComponent(escape(json)));
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRoles(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw.flatMap(normalizeRoles);
-  if (typeof raw === "string") {
-    if (raw.includes(",") || raw.includes(";")) {
-      return raw
-        .split(/[,;]+/g)
-        .map((x) => x.trim())
-        .filter(Boolean);
-    }
-    return [raw.trim()].filter(Boolean);
-  }
-  return [];
-}
-
-function getRolesFromToken(access) {
-  if (!access) return [];
-  const p = parseJwt(access);
-  if (!p) return [];
-
-  const buckets = [
-    p?.role,
-    p?.Role,
-    p?.roles,
-    p?.Roles,
-    p?.primary_role,
-    p?.["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"],
-  ];
-
-  return buckets
-    .flatMap(normalizeRoles)
-    .filter(Boolean)
-    .filter((v, i, arr) => arr.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i);
-}
 
 function hasRoleName(roles, role) {
   const wanted = String(role || '').trim().toLowerCase();
@@ -59,10 +15,10 @@ export const useEditorMode = () => useContext(Ctx);
 const STORAGE_KEY = "editorMode.v1";
 
 export default function EditorModeProvider({ children }) {
-  const { access } = useAuth();
+  const { user } = useAuth();
   const [isEditorMode, setIsEditorMode] = useState(false);
 
-  const roles = useMemo(() => getRolesFromToken(access), [access]);
+  const roles = useMemo(() => rolesFromProfile(user), [user]);
   const isAdmin = hasRoleName(roles, "Admin");
   const isEditor = hasRoleName(roles, "Editor") || hasRoleName(roles, "LearningEditor");
   const canEdit = isAdmin || isEditor;
@@ -109,8 +65,8 @@ export default function EditorModeProvider({ children }) {
 }
 
 export function useRoleFlags() {
-  const { access } = useAuth();
-  const roles = useMemo(() => getRolesFromToken(access), [access]);
+  const { user } = useAuth();
+  const roles = useMemo(() => rolesFromProfile(user), [user]);
   return {
     roles,
     isAdmin: hasRoleName(roles, "Admin"),

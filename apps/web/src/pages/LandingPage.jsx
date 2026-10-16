@@ -245,7 +245,7 @@ function FaqItem({ item, open, onToggle }) {
 }
 
 export default function LandingPage() {
-  const { access, ready } = useAuth();
+  const { isAuthenticated, ready } = useAuth();
   const [activeFeatureId, setActiveFeatureId] = useState(featureTabs[1].id);
   const [openFaq, setOpenFaq] = useState(0);
 
@@ -254,7 +254,7 @@ export default function LandingPage() {
     [activeFeatureId],
   );
 
-  const sessionCta = getLandingSessionCta({ ready, access });
+  const sessionCta = getLandingSessionCta({ ready, isAuthenticated });
 
   return (
     <>

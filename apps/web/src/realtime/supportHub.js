@@ -1,43 +1,37 @@
-
-
+import { BROWSER_REQUEST_HEADERS } from '../auth/cookieSession';
+import { registerAuthenticatedConnection, unregisterAuthenticatedConnection } from './connectionRegistry';
 
 import * as signalR from '@microsoft/signalr';
 import { instrumentSignalRConnection, logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 let conn = null;
-let token = null;
 let startPromise = null;
 
-function build(tokenValue) {
+function build() {
   return new signalR.HubConnectionBuilder()
     .withUrl('/hubs/support', {
-      
-      
       withCredentials: true,
-      accessTokenFactory: () => tokenValue || null,
+      headers: BROWSER_REQUEST_HEADERS,
     })
     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
     .configureLogging(signalR.LogLevel.Warning)
     .build();
 }
 
-export function getSupportHub(accessToken) {
-  
-  if (conn && token === accessToken) return conn;
-
-  
-  try {
-    if (conn) conn.stop();
-  } catch {}
-
-  token = accessToken || null;
-  conn = instrumentSignalRConnection(build(token), 'support');
+export function getSupportHub() {
+  if (conn) return conn;
+  const current = instrumentSignalRConnection(build(), 'support');
+  conn = current;
   startPromise = null;
-  return conn;
+  current.onclose(() => { if (conn === current) startPromise = null; });
+  registerAuthenticatedConnection(current, () => {
+    if (conn === current) { conn = null; startPromise = null; }
+  });
+  return current;
 }
 
-export async function ensureSupportHubStarted(accessToken) {
-  const c = getSupportHub(accessToken);
+export async function ensureSupportHubStarted() {
+  const c = getSupportHub();
 
   if (c.state === signalR.HubConnectionState.Connected) return c;
 
@@ -45,7 +39,7 @@ export async function ensureSupportHubStarted(accessToken) {
     logFrontendEvent('realtime', 'start', { hub: 'support' });
     startPromise = c.start().then(() => { logFrontendEvent('realtime', 'connected', { hub: 'support', connectionId: c.connectionId || null }); return c; }).catch((err) => {
       logFrontendEvent('realtime', 'connect-error', { hub: 'support', error: err }, 'error');
-      startPromise = null;
+      if (conn === c) startPromise = null;
       throw err;
     });
   }
@@ -55,11 +49,12 @@ export async function ensureSupportHubStarted(accessToken) {
 }
 
 export async function stopSupportHub() {
-  if (!conn) return;
-  try {
-    await conn.stop();
-  } catch {}
+  const current = conn;
+  if (!current) return;
   conn = null;
-  token = null;
   startPromise = null;
+  unregisterAuthenticatedConnection(current);
+  try {
+    await current.stop();
+  } catch {}
 }

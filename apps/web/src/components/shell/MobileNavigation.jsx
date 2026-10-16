@@ -14,7 +14,7 @@ import {
 import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 import QuotaStatusBar from '../QuotaStatusBar';
-import { useNotificationCenter } from '../notify/NotifyProvider';
+import { useNotificationCenter, useNotify } from '../notify/NotifyProvider';
 import { useShellNavigation } from './navigation';
 
 const FOCUSABLE_SELECTOR = [
@@ -37,7 +37,8 @@ function getFocusableElements(container) {
 function MobileNavigation({ open, onClose }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { access, logout } = useAuth();
+  const notify = useNotify();
+  const { isAuthenticated, logout } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const { currentViewTitle, primaryNav, adminNav } = useShellNavigation();
   const { openCenter: openNotifications, unreadCount } = useNotificationCenter();
@@ -159,9 +160,11 @@ function MobileNavigation({ open, onClose }) {
     onClose();
     try {
       await logout();
-    } catch {}
-    navigate('/', { replace: true });
-  }, [logout, navigate, onClose]);
+      navigate('/', { replace: true });
+    } catch {
+      notify.error('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0439\u0442\u0438. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0432\u044b\u0445\u043e\u0434.');
+    }
+  }, [logout, navigate, notify, onClose]);
 
   if (!open) return null;
 
@@ -199,7 +202,7 @@ function MobileNavigation({ open, onClose }) {
           </button>
         </div>
 
-        {access ? <QuotaStatusBar mobile className="mobile-nav-sheet__quota" /> : null}
+        {isAuthenticated ? <QuotaStatusBar mobile className="mobile-nav-sheet__quota" /> : null}
 
         <div className="mobile-nav-sheet__content">
           <section className="mobile-nav-section">
@@ -219,7 +222,7 @@ function MobileNavigation({ open, onClose }) {
             </div>
           </section>
 
-          {access && (
+          {isAuthenticated && (
             <section className="mobile-nav-section">
               <div className="mobile-nav-section__title">Аккаунт</div>
               <div className="mobile-nav-grid">
@@ -282,7 +285,7 @@ function MobileNavigation({ open, onClose }) {
           )}
 
           <section className="mobile-nav-section mobile-nav-section--last">
-            {access ? (
+            {isAuthenticated ? (
               <button type="button" className="mobile-nav-card mobile-nav-card--danger w-full" onClick={handleLogout}>
                 <LogOut size={19} />
                 <span>Выйти</span>

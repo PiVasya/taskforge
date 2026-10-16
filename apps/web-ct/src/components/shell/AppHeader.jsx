@@ -1,23 +1,26 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, LogOut, PencilLine } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 
 function AppHeader() {
-  const { access, user, logout } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
   const { canEdit, isEditorMode, setEditorMode } = useEditorMode();
   const navigate = useNavigate();
+  const [logoutError, setLogoutError] = useState(null);
   const displayName = [user?.lastName, user?.firstName].filter(Boolean).join(' ')
     || user?.login
     || user?.email
     || 'Пользователь';
 
   const handleLogout = useCallback(async () => {
+    setLogoutError(null);
     try {
       await logout();
-    } finally {
       navigate('/login', { replace: true });
+    } catch {
+      setLogoutError('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0439\u0442\u0438. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0432\u044b\u0445\u043e\u0434.');
     }
   }, [logout, navigate]);
 
@@ -35,8 +38,9 @@ function AppHeader() {
           CT
         </Link>
 
+        {logoutError && <p role="alert" className="text-sm text-red-600">{logoutError}</p>}
         <nav className="flex items-center gap-2 text-sm">
-          {access && (
+          {isAuthenticated && (
             <>
               {canEdit && (
                 <button

@@ -79,7 +79,7 @@ export default function CourseEditPage({ overlay = false }) {
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map((x) => String(x).toLowerCase())), [ownerIds]);
 
-  const rememberOwners = (users) => {
+  const rememberOwners = React.useCallback((users) => {
     const list = Array.isArray(users) ? users : [];
     if (!list.length) return;
     setOwnerProfiles((prev) => {
@@ -90,7 +90,7 @@ export default function CourseEditPage({ overlay = false }) {
       });
       return next;
     });
-  };
+  }, []);
 
   const ownerLabel = (id) => {
     const u = ownerProfiles[String(id).toLowerCase()];
@@ -100,6 +100,7 @@ export default function CourseEditPage({ overlay = false }) {
   const ownerEmail = (id) => ownerProfiles[String(id).toLowerCase()]?.email || '';
 
   useEffect(() => {
+    let active = true;
     (async () => {
       try {
         setErr('');
@@ -109,6 +110,7 @@ export default function CourseEditPage({ overlay = false }) {
           getCourse(courseId),
           isAdmin ? getGroups().catch(() => []) : Promise.resolve([]),
         ]);
+        if (!active) return;
 
         if (c?.canEdit !== true) {
           notify.warn('Вы не можете редактировать данный курс — открыт режим просмотра');
@@ -127,21 +129,25 @@ export default function CourseEditPage({ overlay = false }) {
         if (isAdmin && loadedOwnerIds.length) {
           try {
             const result = await getAdminUsers({ take: 500 });
+            if (!active) return;
             const users = result?.items || [];
-            rememberOwners((Array.isArray(users) ? users : []).filter((u) => loadedOwnerIds.map((x) => String(x).toLowerCase()).includes(String(u?.id || u?.userId || '').toLowerCase())));
+            const ownerKeys = new Set(loadedOwnerIds.map((id) => String(id).toLowerCase()));
+            rememberOwners((Array.isArray(users) ? users : []).filter((u) => ownerKeys.has(String(u?.id || u?.userId || '').toLowerCase())));
           } catch {}
         }
 
-        setGroups(Array.isArray(g) ? g : []);
+        if (active) setGroups(Array.isArray(g) ? g : []);
       } catch (e) {
-        handleApiError(e, notify, 'Не удалось загрузить курс');
-        setErr(e?.userMessage || e?.message || 'Не удалось загрузить курс');
+        if (active) {
+          handleApiError(e, notify, 'Не удалось загрузить курс');
+          setErr(e?.userMessage || e?.message || 'Не удалось загрузить курс');
+        }
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, nav, isAdmin]);
+    return () => { active = false; };
+  }, [courseId, nav, isAdmin, notify, rememberOwners]);
 
   const toggleGroup = (id) => {
     const sid = String(id);

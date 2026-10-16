@@ -16,7 +16,7 @@ import { logFrontendEvent, startFrontendDiagnostics } from '../devtools/frontend
 
 
 function FrontendDiagnosticsBridge() {
-  const { access, ready } = useAuth();
+  const { isAuthenticated, ready } = useAuth();
   const location = useLocation();
 
   useEffect(() => startFrontendDiagnostics(), []);
@@ -32,8 +32,8 @@ function FrontendDiagnosticsBridge() {
 
   useEffect(() => {
     if (!ready) return;
-    logFrontendEvent('auth', access ? 'session-authenticated' : 'session-anonymous');
-  }, [access, ready]);
+    logFrontendEvent('auth', isAuthenticated ? 'session-authenticated' : 'session-anonymous');
+  }, [isAuthenticated, ready]);
 
   return null;
 }
@@ -65,12 +65,12 @@ function RouteScrollReset() {
 }
 
 function PageViewTracker() {
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
   const lastTrackedPathRef = useRef('');
 
   useEffect(() => {
-    if (!access) return;
+    if (!isAuthenticated) return;
     const path = `${location.pathname}${location.search || ''}`;
     if (!path || lastTrackedPathRef.current === path) return;
     lastTrackedPathRef.current = path;
@@ -81,7 +81,7 @@ function PageViewTracker() {
       action: 'page-view',
       source: 'page',
     }).catch(() => {});
-  }, [access, location.pathname, location.search]);
+  }, [isAuthenticated, location.pathname, location.search]);
 
   return null;
 }
@@ -106,9 +106,9 @@ function AuthRequiredRedirect() {
 }
 
 function SessionProviders({ children }) {
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   return (
-    <QuotaProvider enabled={Boolean(access)}>
+    <QuotaProvider enabled={Boolean(isAuthenticated)}>
       <div className="min-h-screen relative isolate flex flex-col">
         <PersistentBackground />
         <FrontendDiagnosticsBridge />

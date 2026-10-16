@@ -18,24 +18,29 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import http.cookiejar
 from datetime import datetime, timezone
 
 base = os.environ["TASKFORGE_GATEWAY_URL"].rstrip("/")
 email = os.environ["TASKFORGE_SMOKE_EMAIL"]
 password = os.environ["TASKFORGE_SMOKE_PASSWORD"]
 timeout_seconds = int(os.environ.get("TASKFORGE_SMOKE_TIMEOUT_SECONDS", "120"))
+cookies = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
 
 
 def request(method: str, path: str, body=None, token: str | None = None, ok=(200, 201, 204), timeout=30):
     data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(base + path, data=data, method=method)
     req.add_header("Accept", "application/json")
+    if method.upper() not in ("GET", "HEAD", "OPTIONS"):
+        req.add_header("X-TaskForge-CSRF", "1")
     if body is not None:
         req.add_header("Content-Type", "application/json; charset=utf-8")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             text = resp.read().decode("utf-8", errors="replace")
             if resp.status not in ok:
                 raise RuntimeError(f"{method} {path} -> HTTP {resp.status}: {text}")
@@ -72,9 +77,9 @@ def login_or_register():
         print(f"[warn] register skipped: {ex}")
 
     data = request("POST", "/api/auth/login", {"email": email, "password": password}, ok=(200,))
-    token = data.get("accessToken")
+    token = next((cookie.value for cookie in cookies if cookie.name == "tf_at"), None)
     if not token:
-        raise RuntimeError("Login response does not contain accessToken. Check TASKFORGE_SMOKE_EMAIL/PASSWORD and BOOTSTRAP_ADMIN_EMAILS.")
+        raise RuntimeError("Login did not set the tf_at session cookie. Check TASKFORGE_SMOKE_EMAIL/PASSWORD and BOOTSTRAP_ADMIN_EMAILS.")
     role = ((data.get("user") or {}).get("role") or (data.get("user") or {}).get("roles") or "?")
     print(f"[ok] logged in as {email}, role={role}")
     return token

@@ -7,7 +7,7 @@ import { getApiErrorMessage } from "../api/http";
 import { locationToInternalPath, safeInternalPath } from "../auth/authRedirect";
 
 export default function LoginPage() {
-  const { login, access } = useAuth();      
+  const { login, isAuthenticated } = useAuth();      
   const [loginName, setLoginName] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -54,10 +54,10 @@ export default function LoginPage() {
 
   
   useEffect(() => {
-    if (access) {
+    if (isAuthenticated) {
       nav(from, { replace: true });
     }
-  }, [access, nav, from]);
+  }, [isAuthenticated, nav, from]);
   
   return (
     <>

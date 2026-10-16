@@ -3,9 +3,9 @@ import { importPointerKey, isImportPending, newImportOperationId } from './cours
 // One instance belongs to one authenticated user/course. No payload is kept in
 // browser storage, and a late response cannot change another instance's state.
 export function createTaskGraphJournalClient({ courseId, userId, enabled = true, api,
-  storage = undefined, cryptoProvider = globalThis.crypto }) {
+  storage = undefined, cryptoProvider = typeof crypto === 'undefined' ? null : crypto }) {
   const key = importPointerKey(userId, courseId);
-  if (storage === undefined) try { storage = globalThis.localStorage; } catch { storage = null; }
+  if (storage === undefined) try { storage = typeof localStorage === 'undefined' ? null : localStorage; } catch { storage = null; }
   let generation = 0;
   let state = { operation: null, history: [], busy: false, ready: !enabled, lookupError: null };
   let inFlight = false;
@@ -58,7 +58,7 @@ export function createTaskGraphJournalClient({ courseId, userId, enabled = true,
   };
   const begin = async (graph, options) => {
     if (!enabled || !userId || !courseId || !state.ready || inFlight) throw new Error('Дождитесь проверки журнала импорта.');
-    if (isImportPending(state.operation) && state.operation.state !== 'missing'
+    if ((isImportPending(state.operation) && state.operation.state !== 'missing')
         || state.history.some((x) => isImportPending(x) && x.operationId !== state.operation?.operationId))
       throw new Error('Сначала завершите предыдущий импорт.');
     const operationId = state.operation?.state === 'missing' ? state.operation.operationId : newImportOperationId(cryptoProvider);

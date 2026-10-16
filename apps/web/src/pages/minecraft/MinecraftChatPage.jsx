@@ -24,7 +24,7 @@ function shouldHideMinecraftMessage(m) {
 
 export default function MinecraftChatPage() {
   const notify = useNotify();
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -75,7 +75,7 @@ export default function MinecraftChatPage() {
 
     const setup = async () => {
       try {
-        conn = await ensureMinecraftChatHubStarted(access);
+        conn = await ensureMinecraftChatHubStarted();
         if (!conn || disposed) return;
         await conn.invoke('JoinChat');
 
@@ -103,7 +103,7 @@ export default function MinecraftChatPage() {
         if (conn) conn.invoke('LeaveChat').catch(() => {});
       } catch {}
     };
-  }, [access, load, scrollToBottom]);
+  }, [isAuthenticated, load, scrollToBottom]);
 
   const send = async () => {
     const value = text.trim();

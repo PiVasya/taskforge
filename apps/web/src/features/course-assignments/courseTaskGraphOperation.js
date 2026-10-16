@@ -2,7 +2,7 @@ export function importPointerKey(userId, courseId) {
   return `taskforge:import-operation:v1:${userId}:${courseId}`;
 }
 
-export function newImportOperationId(cryptoProvider = globalThis.crypto) {
+export function newImportOperationId(cryptoProvider = typeof crypto === 'undefined' ? null : crypto) {
   if (cryptoProvider?.randomUUID) return cryptoProvider.randomUUID();
   if (!cryptoProvider?.getRandomValues) throw new Error('Нужен безопасный контекст браузера для создания operationId.');
   const bytes = cryptoProvider.getRandomValues(new Uint8Array(16));

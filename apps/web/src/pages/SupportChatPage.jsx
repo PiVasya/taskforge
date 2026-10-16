@@ -89,7 +89,7 @@ export default function SupportChatPage() {
   const location = useLocation();
   const isAdminView = location.pathname.startsWith('/admin/support');
   const notify = useNotify();
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const [chat, setChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -166,7 +166,7 @@ export default function SupportChatPage() {
   }, [messages.length]);
 
   useEffect(() => {
-    if (!chatId || !access) return undefined;
+    if (!chatId || !isAuthenticated) return undefined;
 
     let conn = null;
     let disposed = false;
@@ -174,7 +174,7 @@ export default function SupportChatPage() {
 
     const setupRealtime = async () => {
       try {
-        conn = await ensureSupportHubStarted(access);
+        conn = await ensureSupportHubStarted();
         if (!conn || disposed) return;
 
         const join = async () => {
@@ -224,7 +224,7 @@ export default function SupportChatPage() {
         }
       } catch {}
     };
-  }, [chatId, access, isAdminView, notify]);
+  }, [chatId, isAuthenticated, isAdminView, notify]);
 
   const send = async (e = null) => {
     e?.preventDefault?.();

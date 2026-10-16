@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import CodeEditor from '../../components/CodeEditor';
 import { getApiErrorMessage } from '../../api/http';
 import * as api from '../../api/sqlTasks';
@@ -40,8 +40,8 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
   current.current = { datasetDirty, specDirty, busy };
   const changeSpec = patch => { setSpec(old => ({ ...old, ...patch })); setSpecDirty(true); setMessage(''); };
   const changeDoc = value => { setDoc(value); setDatasetDirty(true); setMessage(''); };
-  const applyView = value => { setView(value); if (value?.spec) setSpec(value.spec); setSpecDirty(false); };
-  const loadDataset = async (id, preferredVersion) => {
+  const applyView = useCallback(value => { setView(value); if (value?.spec) setSpec(value.spec); setSpecDirty(false); }, []);
+  const loadDataset = useCallback(async (id, preferredVersion) => {
     const seq = ++selection.current;
     const info = await api.sqlDataset(id);
     const selected = preferredVersion || info.versions?.[0]?.id || '';
@@ -51,7 +51,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
     setName(info.dataset.name); setDescription(info.dataset.description || ''); setScope(info.dataset.accessScope);
     setDoc(version ? { definition: version.definition, seed: version.seed, engineOverrides: version.engineOverrides || {} } : freshDataset());
     setDatasetDirty(false);
-  };
+  }, []);
   useEffect(() => {
     mounted.current = true;
     let alive = true;
@@ -65,9 +65,7 @@ const SqlTaskEditor = forwardRef(function SqlTaskEditor({ assignmentId, onPublis
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; mounted.current = false; invalidateSelection(selection); };
-    // The editor is keyed by assignment; an in-flight change must not overwrite dirty fields.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentId]);
+  }, [assignmentId, applyView, loadDataset]);
   useEffect(() => {
     let stopped = false;
     const refresh = async () => {

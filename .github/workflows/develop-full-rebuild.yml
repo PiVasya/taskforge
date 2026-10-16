@@ -71,7 +71,9 @@ jobs:
         with:
           node-version: '22.x'
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/web-ct/package-lock.json
       - name: Run frontend behavior tests and production build
         run: bash scripts/tests/frontend.sh
 

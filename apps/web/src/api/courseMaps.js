@@ -1,4 +1,4 @@
-import api, { getAccessToken } from './http';
+import api from './http';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
 export async function getCourseMap(courseId) {
@@ -15,8 +15,6 @@ async function openLearningMapStream(courseId, signal, retry = true, fresh = fal
   const startedAt = Date.now();
   logFrontendEvent('stream', 'learning-map-open', { courseId: String(courseId || ''), retry, fresh });
   const headers = { Accept: 'application/x-ndjson' };
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
   const suffix = fresh ? '?fresh=true' : '';
   const response = await fetch(`/api/courses/${courseId}/learning-map/stream${suffix}`, {
     method: 'GET',

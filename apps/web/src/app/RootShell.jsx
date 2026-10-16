@@ -4,8 +4,8 @@ import AppShell from './AppShell';
 import PublicShell from './PublicShell';
 
 function RootShell() {
-  const { access } = useAuth();
-  return access ? <AppShell /> : <PublicShell />;
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <AppShell /> : <PublicShell />;
 }
 
 export default React.memo(RootShell);

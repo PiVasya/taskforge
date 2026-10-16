@@ -6,7 +6,7 @@ const source = await fs.readFile(new URL('../../src/features/landing/landingSess
 const model = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('guest CTA points to registration and login', () => {
-  const cta = model.getLandingSessionCta({ ready: true, access: null });
+  const cta = model.getLandingSessionCta({ ready: true, isAuthenticated: false });
   assert.equal(cta.pending, false);
   assert.equal(cta.authenticated, false);
   assert.deepEqual(cta.primary, { href: '/register', text: 'Начать обучение' });
@@ -15,7 +15,7 @@ test('guest CTA points to registration and login', () => {
 });
 
 test('authenticated CTA makes courses the primary action and removes registration copy', () => {
-  const cta = model.getLandingSessionCta({ ready: true, access: 'token' });
+  const cta = model.getLandingSessionCta({ ready: true, isAuthenticated: true });
   assert.equal(cta.pending, false);
   assert.equal(cta.authenticated, true);
   assert.deepEqual(cta.primary, { href: '/courses', text: 'Открыть курсы' });
@@ -25,7 +25,7 @@ test('authenticated CTA makes courses the primary action and removes registratio
 });
 
 test('unknown session state exposes no guest or authenticated navigation target', () => {
-  const cta = model.getLandingSessionCta({ ready: false, access: null });
+  const cta = model.getLandingSessionCta({ ready: false, isAuthenticated: false });
   assert.equal(cta.pending, true);
   assert.equal(cta.authenticated, false);
   assert.equal(cta.primary, null);

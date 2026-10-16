@@ -1,3 +1,4 @@
+import { BROWSER_REQUEST_HEADERS, COOKIE_SESSION_UPDATED_EVENT, createCookieSessionClient, prepareCookieRequest } from '../auth/cookieSession';
 import axios from 'axios';
 import { isRememberedDevice } from '../auth/rememberMe';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
@@ -6,22 +7,23 @@ const API_TELEMETRY_SLOW_MS = 750;
 const API_TELEMETRY_DUPLICATE_WINDOW_MS = 10_000;
 const API_TELEMETRY_GLOBAL_WINDOW_MS = 60_000;
 const API_TELEMETRY_MAX_PER_WINDOW = 30;
-let accessToken = null;
 let apiTelemetryWindowStartedAt = 0;
 let apiTelemetryWindowCount = 0;
 const apiTelemetryLastBySignature = new Map();
 
-export function setAccessToken(token) {
-  accessToken = token || null;
-}
-
-export function getAccessToken() {
-  return accessToken;
-}
 
 const api = axios.create({
   withCredentials: true,
 });
+
+export const cookieSession = createCookieSessionClient(
+  (url, payload) => api.post(url, payload, { __skipAuthRefresh: true }).then(response => response.data),
+  session => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(COOKIE_SESSION_UPDATED_EVENT, { detail: session }));
+    }
+  },
+);
 
 function telemetryPath(url) {
   try {
@@ -99,9 +101,7 @@ function trackApiTelemetry(config = {}, statusCode, error) {
       errorMessage: isError ? safeErrorMessage(error) : undefined,
     };
     const body = JSON.stringify(payload);
-    const headers = { 'Content-Type': 'application/json' };
-    const token = accessToken;
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const headers = { 'Content-Type': 'application/json', ...BROWSER_REQUEST_HEADERS };
     fetch('/api/activity/page-view', {
       method: 'POST',
       credentials: 'include',
@@ -268,22 +268,7 @@ api.interceptors.request.use((config) => {
     path: telemetryPath(config.url || ''),
     retryAfterRefresh: Boolean(config.__authRefreshAttempted),
   });
-  const token = accessToken;
-
-  // Requests retried after /auth/refresh carry the headers of the failed request.
-  // Never preserve an expired Authorization header: the in-memory access token is
-  // the source of truth for this API client. Without this overwrite a 401 could
-  // refresh successfully, retry with the old token, and enter a refresh loop.
-  if (typeof config.headers.set === 'function') {
-    if (token) config.headers.set('Authorization', `Bearer ${token}`);
-    else if (typeof config.headers.delete === 'function') config.headers.delete('Authorization');
-  } else if (token) {
-    delete config.headers.authorization;
-    config.headers.Authorization = `Bearer ${token}`;
-  } else {
-    delete config.headers.Authorization;
-    delete config.headers.authorization;
-  }
+  prepareCookieRequest(config);
   return config;
 });
 
@@ -383,9 +368,7 @@ api.interceptors.response.use(
 
     isRefreshing = true;
     try {
-      const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
-      const newToken = res?.data?.accessToken;
-      if (newToken) setAccessToken(newToken);
+      await cookieSession.refresh();
 
       resolveQueue(null);
       return api(original);

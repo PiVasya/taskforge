@@ -5,12 +5,13 @@
   "proxy": "http://localhost:8080",
   "scripts": {
     "prestart": "node scripts/check-architecture.js && node scripts/copy-monaco.js",
-    "start": "set WDS_ALLOWED_HOSTS=all&& react-scripts start",
-    "prebuild": "node scripts/check-architecture.js && node --test scripts/cluster-tests/*.test.mjs && node scripts/copy-monaco.js",
+    "start": "react-scripts start",
+    "prebuild": "node --test scripts/auth-tests/*.test.mjs && node scripts/check-architecture.js && node --test scripts/cluster-tests/*.test.mjs && node scripts/copy-monaco.js",
     "build": "react-scripts build --profile",
     "test": "react-scripts test --env=jsdom",
     "eject": "react-scripts eject",
-    "test:cluster": "node --test scripts/cluster-tests/*.test.mjs"
+    "test:cluster": "node --test scripts/cluster-tests/*.test.mjs",
+    "test:auth": "node --test scripts/auth-tests/*.test.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",

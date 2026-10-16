@@ -175,7 +175,7 @@ Policy-blocked requests are not counted as site failures. They are reported sepa
 
 Read-only mode blocks `POST`, `PUT`, `PATCH`, `DELETE` and same-origin WebSockets at the browser network layer. It cannot repair an application endpoint that incorrectly mutates state through `GET`/`HEAD`; TaskForge APIs must preserve normal HTTP method semantics.
 
-Authenticated contexts receive the caller's existing access token. They do not receive the caller's refresh token. Keep the access-token lifetime longer than the configured session lifetime (the current defaults are 120 and 110 minutes), or create a new browser session after token expiry.
+Authenticated Chromium contexts receive the caller's existing access token only as a host-scoped HttpOnly cookie; no init script or page variable contains it. They do not receive the caller's refresh token. Keep the access-token lifetime longer than the configured session lifetime (the current defaults are 120 and 110 minutes), or create a new browser session after token expiry.
 
 Artifact limits are separate:
 
@@ -302,3 +302,13 @@ Browser API Chromium contexts set `window.__TASKFORGE_BROWSER_AUTOMATION__ = tru
 ### Nested-course progression
 
 A child course can appear in the course catalog before its graph gate has opened. For learner APIs, `/api/courses/{childId}/assignments` and `/learning-map` return `COURSE_NOT_AVAILABLE` until progression reaches that course. This is an intentional graph lock, not `COURSE_NOT_FOUND` and not a publication failure. Resolve/solve the currently visible upstream assignment, refresh the root learning map, then retry the child course.
+
+## Identity cookie login contract
+
+`POST /api/auth/login` returns `authenticated`, `expiresAtUtc`, `rememberMe` and
+`user`, never a JSON access token. Send `X-TaskForge-CSRF: 1` on identity POSTs.
+Ordinary browser JavaScript uses the HttpOnly cookies automatically. A server-side
+Browser API integration can read `tf_at` from the identity Set-Cookie response and
+provide the existing explicit Bearer credential. Browser API still ignores ambient
+cookies and its public cross-origin policy does not grant cookie credentials.
+Do not put the raw credential into browser storage, init scripts, or page globals.

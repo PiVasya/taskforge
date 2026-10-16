@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 import { MemoryRouter } from 'react-router-dom';
 import LandingPage from './LandingPage';
 import { useAuth } from '../auth/AuthContext';
@@ -29,7 +28,7 @@ describe('LandingPage session-aware calls to action', () => {
     useAuth.mockReturnValue(value);
     await act(async () => {
       root.render(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <LandingPage />
         </MemoryRouter>,
       );
@@ -41,7 +40,7 @@ describe('LandingPage session-aware calls to action', () => {
   }
 
   test('guest sees registration and login actions', async () => {
-    await renderWithAuth({ ready: true, access: null });
+    await renderWithAuth({ ready: true, isAuthenticated: false });
 
     const registerLinks = linksWithText('Начать обучение');
     expect(registerLinks).toHaveLength(2);
@@ -53,7 +52,7 @@ describe('LandingPage session-aware calls to action', () => {
   });
 
   test('authenticated user gets courses as the primary action on both calls to action', async () => {
-    await renderWithAuth({ ready: true, access: 'access-token' });
+    await renderWithAuth({ ready: true, isAuthenticated: true });
 
     const courseLinks = linksWithText('Открыть курсы');
     expect(courseLinks).toHaveLength(2);
@@ -67,7 +66,7 @@ describe('LandingPage session-aware calls to action', () => {
   });
 
   test('landing keeps one process explanation instead of repeating the same journey', async () => {
-    await renderWithAuth({ ready: true, access: null });
+    await renderWithAuth({ ready: true, isAuthenticated: false });
 
     expect(container.textContent).toContain('От курса до принятого решения');
     expect(container.textContent).not.toContain('Один понятный путь вместо лишнего шума');
@@ -77,7 +76,7 @@ describe('LandingPage session-aware calls to action', () => {
   });
 
   test('solution check is explicitly a demonstration and does not promise a real submit', async () => {
-    await renderWithAuth({ ready: true, access: null });
+    await renderWithAuth({ ready: true, isAuthenticated: false });
 
     expect(container.textContent).toContain('Повторить демонстрацию');
     expect(container.textContent).toContain('Это демонстрация интерфейса: код не отправляется на сервер.');
@@ -85,7 +84,7 @@ describe('LandingPage session-aware calls to action', () => {
   });
 
   test('session check exposes no guest navigation before authentication state is known', async () => {
-    await renderWithAuth({ ready: false, access: null });
+    await renderWithAuth({ ready: false, isAuthenticated: false });
 
     expect(container.querySelector('a[href="/register"]')).toBeNull();
     expect(container.querySelector('a[href="/login"]')).toBeNull();

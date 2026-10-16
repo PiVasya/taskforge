@@ -422,9 +422,6 @@ const httpSource = read('api/http.js');
 if (!/API_TELEMETRY_SLOW_MS/.test(httpSource) || /action:\s*isError\s*\?\s*['"]api-error['"]\s*:\s*['"]api-request['"]/.test(httpSource)) {
   fail('per-request success telemetry returned and can amplify API request storms');
 }
-if (!/__authRefreshAttempted/.test(httpSource) || !/config\.headers\.set\(['"]Authorization['"]/.test(httpSource)) {
-  fail('auth retry can reuse an expired bearer token or refresh the same request more than once');
-}
 
 const coursesPage = read('pages/CoursesPage.jsx');
 if (!/!selectedCourse && !editorTools/.test(coursesPage)) {

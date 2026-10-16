@@ -21,7 +21,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 import { useUiNavigationSettings } from '../../contexts/UiSettingsContext';
 import QuotaStatusBar from '../QuotaStatusBar';
-import { useNotificationCenter } from '../notify/NotifyProvider';
+import { useNotificationCenter, useNotify } from '../notify/NotifyProvider';
 import AdminNavigation from './AdminNavigation';
 import { useShellNavigation } from './navigation';
 
@@ -67,7 +67,7 @@ function getInitials(user) {
 }
 
 function AppHeader({ onOpenMobile, mobileOpen = false }) {
-  const { access, logout, user } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
   const { canEdit, isEditorMode, toggle, isAdmin } = useEditorMode();
   const {
     sidebarCollapsed,
@@ -82,6 +82,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
     isActive,
   } = useShellNavigation();
   const navigate = useNavigate();
+  const notify = useNotify();
   const { openCenter: openNotifications, unreadCount } = useNotificationCenter();
   const [quickOpen, setQuickOpen] = useState(false);
   const quickMenuRef = useRef(null);
@@ -107,11 +108,13 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
     setQuickOpen(false);
     try {
       await logout();
-    } catch {}
-    navigate('/', { replace: true });
-  }, [logout, navigate]);
+      navigate('/', { replace: true });
+    } catch {
+      notify.error('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0439\u0442\u0438. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0432\u044b\u0445\u043e\u0434.');
+    }
+  }, [logout, navigate, notify]);
 
-  const brandHref = access ? '/news' : '/';
+  const brandHref = isAuthenticated ? '/news' : '/';
   const displayName = getDisplayName(user);
   const displaySubline = isAdmin
     ? 'Администратор'
@@ -127,7 +130,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
     >
       <div className="container-app flex min-h-16 items-center justify-between gap-3 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          {access && showSidebarToggle ? (
+          {isAuthenticated && showSidebarToggle ? (
             <>
               <button
                 type="button"
@@ -163,7 +166,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
           </Link>
         </div>
 
-        {access && (
+        {isAuthenticated && (
           <div className="header-center-cluster hidden xl:flex min-w-0 flex-1 justify-center px-4">
             <div className="header-quick-row min-w-0">
               {isAdmin && (
@@ -201,7 +204,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
         )}
 
         <div className="flex items-center gap-2">
-          {access && (
+          {isAuthenticated && (
             <Link
               to="/settings?section=profile"
               className="hidden xl:flex items-center gap-3 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))]/80 px-3 py-2 shadow-soft max-w-[20rem]"
@@ -223,7 +226,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
             </Link>
           )}
 
-          {access ? (
+          {isAuthenticated ? (
             <div className="hidden md:block relative" ref={quickMenuRef}>
               <button
                 type="button"

@@ -46,7 +46,7 @@ function titleForPath(pathname) {
 }
 
 export function useShellNavigation() {
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { isAdmin, hasRole } = useEditorMode();
   const { pathname } = useLocation();
   const canUseMinecraft = isAdmin || hasRole('Minecraft');
@@ -70,35 +70,35 @@ export function useShellNavigation() {
         icon: GraduationCap,
         active: active('/courses') || active('/course'),
       },
-      access && {
+      isAuthenticated && {
         to: '/my/solutions',
         label: 'Мои решения',
         subtitle: 'История отправок',
         icon: ListOrdered,
         active: active('/my/solutions'),
       },
-      access && {
+      isAuthenticated && {
         to: '/compiler',
         label: 'Компилятор',
         subtitle: 'Код и живая консоль',
         icon: Terminal,
         active: active('/compiler'),
       },
-      access && {
+      isAuthenticated && {
         to: '/leaderboard',
         label: 'Рейтинг',
         subtitle: 'Топ студентов',
         icon: Trophy,
         active: active('/leaderboard'),
       },
-      access && {
+      isAuthenticated && {
         to: supportHref,
         label: 'Поддержка',
         subtitle: isAdmin ? 'Тикеты пользователей' : 'Мои обращения',
         icon: LifeBuoy,
         active: active(supportHref),
       },
-      access && canUseMinecraft && {
+      isAuthenticated && canUseMinecraft && {
         to: '/minecraft/chat',
         label: 'Minecraft',
         subtitle: 'Игровой чат',
@@ -198,5 +198,5 @@ export function useShellNavigation() {
       adminNav: [...adminPrimaryNav, ...adminSecondaryNav],
       isActive: active,
     };
-  }, [access, canUseMinecraft, isAdmin, pathname, supportHref]);
+  }, [isAuthenticated, canUseMinecraft, isAdmin, pathname, supportHref]);
 }

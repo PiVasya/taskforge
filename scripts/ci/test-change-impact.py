@@ -61,7 +61,7 @@ def classify(paths: list[str]) -> dict[str, bool]:
         if not path:
             continue
 
-        if starts(path, 'apps/web/') or any_name(path, 'scripts/tests/frontend.sh'):
+        if starts(path, 'apps/web/', 'apps/web-ct/') or any_name(path, 'scripts/tests/frontend.sh'):
             gates['frontend'] = True
 
         if (

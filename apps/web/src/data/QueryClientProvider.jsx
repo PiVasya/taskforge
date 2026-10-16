@@ -5,8 +5,8 @@ import { QueryClient } from './queryClient';
 const QueryClientContext = createContext(null);
 QueryClientContext.displayName = 'QueryClientContext';
 
-function getSessionKey(access, user) {
-  if (!access) return 'public';
+function getSessionKey(isAuthenticated, user) {
+  if (!isAuthenticated) return 'public';
   return String(user?.id || user?.userId || user?.uuid || user?.login || 'authenticated');
 }
 
@@ -19,8 +19,8 @@ function SessionQueryClientProvider({ children }) {
 }
 
 export function QueryClientProvider({ children }) {
-  const { access, user } = useAuth();
-  const sessionKey = getSessionKey(access, user);
+  const { isAuthenticated, user } = useAuth();
+  const sessionKey = getSessionKey(isAuthenticated, user);
   return <SessionQueryClientProvider key={sessionKey}>{children}</SessionQueryClientProvider>;
 }
 

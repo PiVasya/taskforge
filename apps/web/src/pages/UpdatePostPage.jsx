@@ -10,7 +10,7 @@ import useQuery from '../hooks/useQuery';
 
 export default function UpdatePostPage() {
   const { postId } = useParams();
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const indexQuery = useQuery({
     queryKey: ['updates', 'index'],
     queryFn: getUpdatesIndex,
@@ -60,8 +60,8 @@ export default function UpdatePostPage() {
             <span>Назад в ленту</span>
           </Link>
 
-          <Link to={access ? "/courses" : "/register"} className="btn-outline self-start sm:self-auto">
-            {access ? "Перейти к курсам" : "Создать аккаунт"}
+          <Link to={isAuthenticated ? "/courses" : "/register"} className="btn-outline self-start sm:self-auto">
+            {isAuthenticated ? "Перейти к курсам" : "Создать аккаунт"}
           </Link>
         </div>
 

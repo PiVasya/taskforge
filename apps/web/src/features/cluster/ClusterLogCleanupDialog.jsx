@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, HardDrive, Loader2, Server, ShieldCheck, Trash2, X } from 'lucide-react';
 import { cleanupClusterLogs } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
@@ -25,12 +25,18 @@ export default function ClusterLogCleanupDialog({ open, nodes, onClose, notify, 
   const [selected, setSelected] = useState([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const previousReadyKeyRef = useRef(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previousReadyKeyRef.current = null;
+      return;
+    }
+    if (previousReadyKeyRef.current === readySignature) return;
+    previousReadyKeyRef.current = readySignature;
     setSelected(readyIds);
     setResult(null);
-  }, [open, readySignature]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, readySignature, readyIds]);
 
   useEffect(() => {
     if (!open) return undefined;

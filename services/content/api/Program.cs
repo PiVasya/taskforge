@@ -49,11 +49,18 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             RoleClaimType = ClaimTypes.Role,
             NameClaimType = ClaimTypes.NameIdentifier,
+            ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
             ClockSkew = TimeSpan.FromSeconds(30)
         };
 
         options.Events = new JwtBearerEvents
         {
+            OnTokenValidated = context =>
+            {
+                if (context.Principal?.FindFirst("token_type")?.Value != "access")
+                    context.Fail("Only access tokens are accepted.");
+                return Task.CompletedTask;
+            },
             OnMessageReceived = context =>
             {
                 if (string.IsNullOrWhiteSpace(context.Token) && context.Request.Cookies.TryGetValue("tf_at", out var token))

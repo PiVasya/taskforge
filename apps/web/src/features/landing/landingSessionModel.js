@@ -1,4 +1,4 @@
-export function getLandingSessionCta({ ready, access }) {
+export function getLandingSessionCta({ ready, isAuthenticated }) {
   if (!ready) {
     return {
       pending: true,
@@ -13,7 +13,7 @@ export function getLandingSessionCta({ ready, access }) {
     };
   }
 
-  if (access) {
+  if (isAuthenticated) {
     return {
       pending: false,
       authenticated: true,

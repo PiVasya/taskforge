@@ -1,5 +1,7 @@
 import * as signalR from '@microsoft/signalr';
-import api, { getAccessToken } from './http';
+import api from './http';
+import { BROWSER_REQUEST_HEADERS } from '../auth/cookieSession';
+import { registerAuthenticatedConnection, unregisterAuthenticatedConnection } from '../realtime/connectionRegistry';
 
 export async function getAdminAssignmentInsights(assignmentId) {
   const { data } = await api.get(`/api/admin/assignments/${assignmentId}/insights`);
@@ -13,12 +15,12 @@ export async function getAdminAssignmentTimeline(assignmentId, userId) {
 
 export function createAssignmentAnalyticsConnection(assignmentId, onActivity, onStatus) {
   if (!assignmentId || typeof window === 'undefined') return null;
-  const tokenFactory = () => getAccessToken?.() || '';
   const connection = new signalR.HubConnectionBuilder()
-    .withUrl('/hubs/assignment-analytics', { accessTokenFactory: tokenFactory })
+    .withUrl('/hubs/assignment-analytics', { withCredentials: true, headers: BROWSER_REQUEST_HEADERS })
     .withAutomaticReconnect()
     .build();
 
+  registerAuthenticatedConnection(connection);
   connection.on('assignmentActivity', (items) => {
     const rows = Array.isArray(items) ? items : [items].filter(Boolean);
     if (rows.length) onActivity?.(rows);
@@ -29,7 +31,7 @@ export function createAssignmentAnalyticsConnection(assignmentId, onActivity, on
     onStatus?.('connected');
     connection.invoke('JoinAssignment', String(assignmentId)).catch(() => {});
   });
-  connection.onclose(() => onStatus?.('offline'));
+  connection.onclose(() => { unregisterAuthenticatedConnection(connection); onStatus?.('offline'); });
 
   onStatus?.('connecting');
   connection.start()

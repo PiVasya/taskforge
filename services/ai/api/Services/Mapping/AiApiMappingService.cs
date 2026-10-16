@@ -196,6 +196,7 @@ internal static class AiApiMappingService
     {
         if (request.Headers.TryGetValue("Authorization", out var auth)) client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", auth.ToString());
         if (request.Headers.TryGetValue("Cookie", out var cookie)) client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookie.ToString());
+        if (request.Headers.TryGetValue("X-TaskForge-CSRF", out var csrf)) client.DefaultRequestHeaders.TryAddWithoutValidation("X-TaskForge-CSRF", csrf.ToString());
     }
 
     internal static JsonNode? BuildCourseOutline(JsonNode? assignments)

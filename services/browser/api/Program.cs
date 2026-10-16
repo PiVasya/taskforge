@@ -493,7 +493,7 @@ app.MapGet("/api/site/agent/playbook", (HttpRequest request, BrowserOptions opti
         },
         workflow = new object[]
         {
-            new { step = 1, action = "register-login", note = "POST /api/auth/register with accountType=ai, then POST /api/auth/login and keep the returned ordinary access token." },
+            new { step = 1, action = "register-login", note = "Send X-TaskForge-CSRF: 1 with POST /api/auth/register and POST /api/auth/login. Login returns metadata and HttpOnly cookies, not a JSON token. Server-side Browser API clients may read tf_at from Set-Cookie for their explicit Bearer credential; page JavaScript must use cookies only." },
             new { step = 2, action = "create-session", note = "Create readOnly=false session with Authorization: Bearer <access-token>, site=main, path=/courses. GET-only clients can use /.well-known/taskforge-ai-browser.json and /api/ai/browser/start instead." },
             new { step = 3, action = "choose-course", targetRole = "course-card", preferredState = "incomplete" },
             new { step = 4, action = "choose-assignment", targetRoles = new[] { "course-map-node", "assignment-card" }, targetAction = "open-assignment", preferredState = "unsolved", note = "Flow-map and card modes expose the same stable assignment-{id} automationId. In Browser Automation, one click on a flow assignment node performs open-assignment; normal human map behavior remains unchanged." },

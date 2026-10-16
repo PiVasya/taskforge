@@ -25,6 +25,7 @@ def expect(path: str, **expected: bool) -> None:
 
 
 expect('apps/web/src/features/landing/landing.css', frontend=True, oj=False, browser=False, compose=False, cluster=False)
+expect('apps/web-ct/src/App.jsx', frontend=True, oj=False, browser=True, compose=False, cluster=False)
 expect('services/support/api/Program.cs', frontend=False, oj=False, browser=False, compose=False, repo_runtime=True)
 expect('services/bots/support-bot/Program.cs', browser=True, frontend=False, oj=False, repo_runtime=True)
 expect('services/bots/support-bot/TelegramSupportService.cs', browser=False, frontend=False, oj=False)

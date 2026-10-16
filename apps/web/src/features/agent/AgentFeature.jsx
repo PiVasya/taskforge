@@ -57,7 +57,7 @@ import {
 
 export default function AgentPage() {
   const notify = useNotify();
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [params] = useSearchParams();
   const courseId = params.get('courseId') || undefined;
   const assignmentId = params.get('assignmentId') || undefined;
@@ -164,8 +164,8 @@ export default function AgentPage() {
 
     const setup = async () => {
       try {
-        if (!access) return;
-        conn = await joinAgentConversation(access, selectedId);
+        if (!isAuthenticated) return;
+        conn = await joinAgentConversation(selectedId);
         if (disposed || !conn) return;
 
         handler = (evt) => {
@@ -236,10 +236,10 @@ export default function AgentPage() {
       disposed = true;
       try {
         if (conn && handler) conn.off('AgentEvent', handler);
-        leaveAgentConversation(access, selectedId).catch(() => {});
+        leaveAgentConversation(selectedId).catch(() => {});
       } catch {}
     };
-  }, [access, loadConversation, refreshConversations, rememberEvent, scrollToBottom, selectedId]);
+  }, [isAuthenticated, loadConversation, refreshConversations, rememberEvent, scrollToBottom, selectedId]);
 
   useEffect(() => {
     scrollToBottom('smooth');

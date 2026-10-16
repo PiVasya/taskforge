@@ -255,7 +255,7 @@ Example registration body:
 }
 ```
 
-Log in through `POST {{root}}/api/auth/login`. Authenticated Browser API calls accept the ordinary TaskForge access token in `Authorization: Bearer <token>`.
+Send `X-TaskForge-CSRF: 1` with registration and `POST {{root}}/api/auth/login`. Login returns session metadata and HttpOnly cookies, not a token in JSON. A server-side HTTP client can read `tf_at` from the `Set-Cookie` response and use it as the explicit `Authorization: Bearer <token>` credential required by Browser API. Never put it into page JavaScript. Ordinary web pages and the rendered Chromium context authenticate only through HttpOnly cookies.
 
 ## Remote browser for GET-only or restricted agents
 If the client cannot send arbitrary POST requests or browser form input, use `GET {{root}}/api/ai/browser/start`. This creates only a one-time challenge. Open the returned `confirmUrl` to allocate a temporary writable Chromium tab.

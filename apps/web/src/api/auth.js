@@ -1,4 +1,5 @@
-import api from './http';
+import api, { cookieSession } from './http';
+import { readSessionInfo } from '../auth/cookieSession';
 
 export async function registerUser(payload) {
   const res = await api.post('/api/auth/register', payload, { __skipAuthRefresh: true });
@@ -6,29 +7,25 @@ export async function registerUser(payload) {
 }
 
 export const AuthApi = {
-  async login(payload) {
-    const res = await api.post('/api/auth/login', payload, { __skipAuthRefresh: true });
-    return res.data;
+  login(payload) {
+    return cookieSession.login(payload);
   },
 
   async session() {
     const res = await api.get('/api/auth/session', { __skipAuthRefresh: true });
-    return res.data;
+    return readSessionInfo(res.data);
   },
 
-  async remember(rememberMe) {
-    const res = await api.post('/api/auth/remember', { rememberMe }, { __skipAuthRefresh: true });
-    return res.data;
+  remember(rememberMe) {
+    return cookieSession.remember(rememberMe);
   },
 
-  async refresh() {
-    const res = await api.post('/api/auth/refresh', null, { __skipAuthRefresh: true });
-    return res.data;
+  refresh() {
+    return cookieSession.refresh();
   },
 
-  async logout() {
-    const res = await api.post('/api/auth/logout', null, { __skipAuthRefresh: true });
-    return res.data;
+  logout() {
+    return cookieSession.logout();
   },
 
   async getPasswordRecoveryStatus() {

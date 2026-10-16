@@ -4,9 +4,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 export default function NotFoundPage() {
-  const { access } = useAuth();
-  const primaryHref = access ? '/courses' : '/';
-  const primaryLabel = access ? 'Перейти к курсам' : 'Вернуться на главную';
+  const { isAuthenticated } = useAuth();
+  const primaryHref = isAuthenticated ? '/courses' : '/';
+  const primaryLabel = isAuthenticated ? 'Перейти к курсам' : 'Вернуться на главную';
 
   return (
     <section className="mx-auto max-w-3xl rounded-[2rem] border border-neutral-200/70 bg-[rgb(var(--card))]/90 p-7 text-center shadow-soft dark:border-neutral-800/70 sm:p-10">

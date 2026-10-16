@@ -1,35 +1,15 @@
+import { rolesFromProfile } from '../auth/profileRoles';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 
-function parseJwt(token) {
-  try {
-    const [, payload] = String(token || '').split('.');
-    if (!payload) return null;
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(decodeURIComponent(escape(json)));
-  } catch { return null; }
-}
-function normalizeRoles(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw.flatMap(normalizeRoles);
-  if (typeof raw === 'string') return raw.split(/[,;]+/g).map((x) => x.trim()).filter(Boolean);
-  return [];
-}
-function getRoles(access) {
-  const p = parseJwt(access);
-  if (!p) return [];
-  return [p.role, p.Role, p.roles, p.Roles, p.primary_role, p['http://schemas.microsoft.com/ws/2008/06/identity/claims/role']]
-    .flatMap(normalizeRoles)
-    .filter((v, i, a) => v && a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i);
-}
 const Ctx = createContext(null);
 Ctx.displayName = 'EditorModeContext';
 export const useEditorMode = () => useContext(Ctx) || { canEdit: false, isEditorMode: false, setEditorMode: () => {}, toggle: () => {}, roles: [], hasRole: () => false };
 const KEY = 'ctEditorMode.v1';
 export default function EditorModeProvider({ children }) {
-  const { access } = useAuth();
+  const { user } = useAuth();
   const [isEditorMode, setIsEditorMode] = useState(false);
-  const roles = useMemo(() => getRoles(access), [access]);
+  const roles = useMemo(() => rolesFromProfile(user), [user]);
   const hasRole = useCallback(
     (role) => roles.some((value) => value.toLowerCase() === String(role).toLowerCase()),
     [roles],

@@ -81,7 +81,7 @@ const UpdateCard = React.memo(function UpdateCard({ item, index }) {
 
 export default function NewsPage() {
   const nav = useNavigate();
-  const { access } = useAuth();
+  const { isAuthenticated } = useAuth();
   const updatesQuery = useQuery({
     queryKey: ['updates', 'index'],
     queryFn: getUpdatesIndex,
@@ -91,7 +91,7 @@ export default function NewsPage() {
   const profileQuery = useQuery({
     queryKey: ['profile', 'me'],
     queryFn: getProfile,
-    enabled: Boolean(access),
+    enabled: Boolean(isAuthenticated),
     staleTime: 60_000,
   });
   const loading = updatesQuery.isLoading;
@@ -135,13 +135,13 @@ export default function NewsPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[250px] lg:grid-cols-1">
-              <Button className="w-full" onClick={() => nav(access ? '/courses' : '/register')}>
+              <Button className="w-full" onClick={() => nav(isAuthenticated ? '/courses' : '/register')}>
                 <BookOpen size={18} />
-                <span>{access ? 'Открыть курсы' : 'Создать аккаунт'}</span>
+                <span>{isAuthenticated ? 'Открыть курсы' : 'Создать аккаунт'}</span>
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => nav(access ? '/leaderboard' : '/login')}>
+              <Button variant="outline" className="w-full" onClick={() => nav(isAuthenticated ? '/leaderboard' : '/login')}>
                 <Trophy size={18} />
-                <span>{access ? 'Топ студентов' : 'Войти'}</span>
+                <span>{isAuthenticated ? 'Топ студентов' : 'Войти'}</span>
               </Button>
             </div>
           </div>

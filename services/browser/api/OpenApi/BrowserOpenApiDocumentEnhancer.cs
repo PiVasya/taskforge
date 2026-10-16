@@ -163,18 +163,21 @@ public sealed class BrowserOpenApiDocumentEnhancer
             {
                 ["login"] = NullableStringSchema("Login name. Either login or email is required.", maxLength: 64),
                 ["email"] = NullableStringSchema("Email address. Either login or email is required.", format: "email", maxLength: 320),
-                ["password"] = new JsonObject { ["type"] = "string", ["format"] = "password", ["minLength"] = 1, ["maxLength"] = 256 }
+                ["password"] = new JsonObject { ["type"] = "string", ["format"] = "password", ["minLength"] = 1, ["maxLength"] = 256 },
+                ["rememberMe"] = new JsonObject { ["type"] = "boolean", ["default"] = false, ["description"] = "Opt in to a persistent HttpOnly refresh cookie." }
             }
         };
 
         schemas["TaskForgeLoginResponse"] = new JsonObject
         {
             ["type"] = "object",
-            ["required"] = Array("accessToken", "user"),
-            ["description"] = "Identity API response. Use accessToken as Authorization: Bearer <token> for authenticated Browser API calls. Refresh state is kept in the normal secure identity cookie and is not exposed to Browser API sessions.",
+            ["required"] = Array("authenticated", "expiresAtUtc", "rememberMe", "user"),
+            ["description"] = "Identity sets HttpOnly cookies and returns session metadata only. A server-side integration may read tf_at from Set-Cookie to supply the explicit Bearer credential required by Browser API. Never expose that credential to page JavaScript.",
             ["properties"] = new JsonObject
             {
-                ["accessToken"] = StringSchema("Ordinary TaskForge access token."),
+                ["authenticated"] = new JsonObject { ["type"] = "boolean" },
+                ["expiresAtUtc"] = new JsonObject { ["type"] = "string", ["format"] = "date-time" },
+                ["rememberMe"] = new JsonObject { ["type"] = "boolean" },
                 ["user"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }
             }
         };
@@ -262,6 +265,9 @@ public sealed class BrowserOpenApiDocumentEnhancer
             "Identity validation or request-binding failure.",
             "IdentityError",
             "ValidationProblemDetails");
+        responses["IdentityForbidden"] = ResponseWithSchema(
+            "Browser-origin or CSRF header validation failed.",
+            "IdentityError");
         responses["IdentityUnauthorized"] = ResponseWithSchema(
             "The supplied login/email or password is invalid.",
             "IdentityError");
@@ -422,6 +428,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
         {
             ["200"] = ResponseWithSchema("Account registered.", "TaskForgeRegisterResponse"),
             ["400"] = RefResponse("IdentityBadRequest"),
+            ["403"] = RefResponse("IdentityForbidden"),
             ["429"] = RefResponse("IdentityTooManyRequests"),
             ["500"] = RefResponse("InternalError")
         };
@@ -435,6 +442,12 @@ public sealed class BrowserOpenApiDocumentEnhancer
                 ["summary"] = "Register an ordinary AI-marked TaskForge.by account",
                 ["description"] = "Gateway-proxied identity endpoint documented here for agent onboarding. accountType=ai is self-declared and grants no elevated permission.",
                 ["operationId"] = "RegisterTaskForgeAiAccount",
+                ["parameters"] = new JsonArray(new JsonObject
+                {
+                    ["name"] = "X-TaskForge-CSRF", ["in"] = "header", ["required"] = true,
+                    ["schema"] = new JsonObject { ["type"] = "string", ["enum"] = Array("1") },
+                    ["description"] = "Browser request verification header. Send the literal value 1."
+                }),
                 ["requestBody"] = JsonRequestBody("TaskForgeRegisterRequest", new JsonObject
                 {
                     ["login"] = "my-agent-name",
@@ -455,6 +468,7 @@ public sealed class BrowserOpenApiDocumentEnhancer
             ["200"] = ResponseWithSchema("Authenticated.", "TaskForgeLoginResponse"),
             ["400"] = RefResponse("IdentityBadRequest"),
             ["401"] = RefResponse("IdentityUnauthorized"),
+            ["403"] = RefResponse("IdentityForbidden"),
             ["423"] = RefResponse("IdentityLocked"),
             ["429"] = RefResponse("IdentityTooManyRequests"),
             ["500"] = RefResponse("InternalError")
@@ -467,8 +481,14 @@ public sealed class BrowserOpenApiDocumentEnhancer
             {
                 ["tags"] = Array("Authentication helpers"),
                 ["summary"] = "Log in with an ordinary TaskForge.by account",
-                ["description"] = "Gateway-proxied identity endpoint. Use the returned accessToken in Authorization: Bearer for authenticated Browser API calls.",
+                ["description"] = "Gateway-proxied identity endpoint. Credentials are sent only in HttpOnly Set-Cookie headers, never in the JSON body. Browser API remains explicitly Bearer-authenticated for server-side clients.",
                 ["operationId"] = "LoginTaskForgeAccount",
+                ["parameters"] = new JsonArray(new JsonObject
+                {
+                    ["name"] = "X-TaskForge-CSRF", ["in"] = "header", ["required"] = true,
+                    ["schema"] = new JsonObject { ["type"] = "string", ["enum"] = Array("1") },
+                    ["description"] = "Browser request verification header. Send the literal value 1."
+                }),
                 ["requestBody"] = JsonRequestBody("TaskForgeLoginRequest", new JsonObject
                 {
                     ["login"] = "my-agent-name",

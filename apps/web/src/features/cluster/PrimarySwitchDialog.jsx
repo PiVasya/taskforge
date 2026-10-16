@@ -1,22 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, Cloud, Database, Repeat2, Server, ShieldCheck, X } from 'lucide-react';
 import { PRIMARY_SWITCH_REASON, primarySwitchEligibility } from './clusterModel';
 import { Tag } from './ClusterShared';
 
 export default function PrimarySwitchDialog({ open, nodes, activeId, initialTarget, busy, onClose, onSubmit }) {
   const [targetId, setTargetId] = useState(null);
+  const selectionContextRef = useRef(null);
   const active = useMemo(() => nodes.find(node => node.id === activeId) || null, [nodes, activeId]);
   const edgeRequired = nodes.some(node => node.edge?.configured === true);
   const candidates = useMemo(() => nodes.filter(node => node.id !== activeId), [nodes, activeId]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      selectionContextRef.current = null;
+      return;
+    }
+    const context = selectionContextRef.current;
+    if (context?.initialTarget === initialTarget && context?.activeId === activeId) return;
+    selectionContextRef.current = { initialTarget, activeId };
     const preferred = candidates.find(node => node.id === initialTarget && primarySwitchEligibility(node, active, edgeRequired).ready)
       || candidates.find(node => primarySwitchEligibility(node, active, edgeRequired).ready)
       || candidates[0]
       || null;
     setTargetId(preferred?.id || null);
-  }, [open, initialTarget, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initialTarget, activeId, candidates, active, edgeRequired]);
 
   useEffect(() => {
     if (!open) return undefined;

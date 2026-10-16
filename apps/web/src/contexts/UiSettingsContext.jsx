@@ -181,8 +181,8 @@ function persistSidebarCollapsed(value) {
 }
 
 export function UiSettingsProvider({ children }) {
-  const { access } = useAuth();
-  const authenticated = Boolean(access);
+  const { isAuthenticated } = useAuth();
+  const authenticated = Boolean(isAuthenticated);
   const [settings, setSettings] = useState(() => normalizeSettings());
   const loadedRemoteSettingsRef = useRef(false);
 

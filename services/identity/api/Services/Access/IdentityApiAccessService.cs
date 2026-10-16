@@ -218,7 +218,7 @@ internal static class IdentityApiAccessService
 
     internal static async Task<IdentityUser?> FindCurrentUserAsync(HttpContext http, IdentityDbContext db, IConfiguration cfg)
     {
-        var principal = ValidateToken(ReadBearer(http) ?? ReadCookie(http, "tf_at"), cfg, validateLifetime: true);
+        var principal = TaskForgeRequestSecurity.ValidateUser(http, cfg);
         var uid = principal == null ? null : TryGetUserId(principal);
         return uid == null ? null : await db.Users.FindAsync(uid.Value);
     }

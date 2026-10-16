@@ -35,7 +35,7 @@ export default function RegisterPage() {
     const [searchParams] = useSearchParams();
     const requestedAccountType = searchParams.get("accountType")?.toLowerCase() === "ai" ? "ai" : "human";
     const isAiRegistration = requestedAccountType === "ai";
-    const { login: signIn, access } = useAuth();
+    const { login: signIn, isAuthenticated } = useAuth();
 
     const [login, setLogin] = useState("");
     const [password, setPassword] = useState("");
@@ -96,10 +96,10 @@ export default function RegisterPage() {
     };
 
     useEffect(() => {
-        if (access) {
+        if (isAuthenticated) {
             nav("/", { replace: true });
         }
-    }, [access, nav]);
+    }, [isAuthenticated, nav]);
 
     return (
         <>
