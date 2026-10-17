@@ -200,6 +200,7 @@ internal static class TaskForgeDebugDiagnostics
     private static bool ShouldCaptureResponse(string? path, string? contentType)
     {
         var p = (path ?? string.Empty).ToLowerInvariant();
+        if (p == "/health" || p.StartsWith("/health/", StringComparison.Ordinal)) return false;
         if (p.Contains("/hubs") || p.Contains("/hub")) return false;
         if (p.Contains("/api/files") || p.Contains("/files/")) return false;
         var ct = (contentType ?? string.Empty).ToLowerInvariant();
@@ -246,9 +247,10 @@ internal static class TaskForgeDebugDiagnostics
     // A debug preview must never retain an unbounded API response on the managed heap.
     // Small JSON responses preserve the old capture-then-forward behavior; large
     // responses switch to direct delivery as soon as the bounded preview fills.
-    private sealed class BoundedDebugResponseStream : MemoryStream
+    private sealed class BoundedDebugResponseStream : Stream
     {
         private readonly Stream _destination;
+        private readonly MemoryStream _preview = new();
         private readonly int _maxBytes;
         private bool _forwarding;
 
@@ -259,7 +261,26 @@ internal static class TaskForgeDebugDiagnostics
         }
 
         internal long TotalBytes { get; private set; }
-        internal bool PreviewTruncated => TotalBytes > Length;
+        internal bool PreviewTruncated => TotalBytes > _preview.Length;
+
+        public override bool CanRead => _preview.CanRead;
+        public override bool CanSeek => _preview.CanSeek;
+        public override bool CanWrite => _preview.CanWrite;
+        public override long Length => _preview.Length;
+        public override long Position
+        {
+            get => _preview.Position;
+            set => _preview.Position = value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => _preview.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => _preview.Read(buffer);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => _preview.ReadAsync(buffer, offset, count, cancellationToken);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => _preview.ReadAsync(buffer, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => _preview.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count)
             => Write(buffer.AsSpan(offset, count));
@@ -273,17 +294,17 @@ internal static class TaskForgeDebugDiagnostics
                 return;
             }
 
-            var available = _maxBytes - (int)Length;
+            var available = _maxBytes - (int)_preview.Length;
             if (buffer.Length <= available)
             {
-                base.Write(buffer);
+                _preview.Write(buffer);
                 return;
             }
 
-            if (available > 0) base.Write(buffer[..available]);
+            if (available > 0) _preview.Write(buffer[..available]);
             _forwarding = true;
-            Position = 0;
-            base.CopyTo(_destination);
+            _preview.Position = 0;
+            _preview.CopyTo(_destination);
             _destination.Write(buffer[available..]);
         }
 
@@ -292,6 +313,7 @@ internal static class TaskForgeDebugDiagnostics
 
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             TotalBytes += buffer.Length;
             if (_forwarding)
             {
@@ -299,28 +321,34 @@ internal static class TaskForgeDebugDiagnostics
                 return;
             }
 
-            var available = _maxBytes - (int)Length;
+            var available = _maxBytes - (int)_preview.Length;
             if (buffer.Length <= available)
             {
-                base.Write(buffer.Span);
+                _preview.Write(buffer.Span);
                 return;
             }
 
-            if (available > 0) base.Write(buffer.Span[..available]);
+            if (available > 0) _preview.Write(buffer.Span[..available]);
             _forwarding = true;
-            Position = 0;
-            await base.CopyToAsync(_destination, cancellationToken);
+            _preview.Position = 0;
+            await _preview.CopyToAsync(_destination, cancellationToken);
             await _destination.WriteAsync(buffer[available..], cancellationToken);
         }
 
-        public override void WriteByte(byte value) => Write(new[] { value }, 0, 1);
+        public override void WriteByte(byte value)
+        {
+            Span<byte> buffer = stackalloc byte[1];
+            buffer[0] = value;
+            Write(buffer);
+        }
+
         public override void Flush()
         {
             if (!_forwarding)
             {
                 _forwarding = true;
-                Position = 0;
-                base.CopyTo(_destination);
+                _preview.Position = 0;
+                _preview.CopyTo(_destination);
             }
             _destination.Flush();
         }
@@ -330,19 +358,24 @@ internal static class TaskForgeDebugDiagnostics
             if (!_forwarding)
             {
                 _forwarding = true;
-                Position = 0;
-                await base.CopyToAsync(_destination, cancellationToken);
+                _preview.Position = 0;
+                await _preview.CopyToAsync(_destination, cancellationToken);
             }
             await _destination.FlushAsync(cancellationToken);
         }
 
         internal async Task CompleteAsync(CancellationToken cancellationToken)
         {
-            if (!_forwarding)
-            {
-                Position = 0;
-                await base.CopyToAsync(_destination, cancellationToken);
-            }
+            if (_forwarding) return;
+            _forwarding = true;
+            _preview.Position = 0;
+            await _preview.CopyToAsync(_destination, cancellationToken);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _preview.Dispose();
+            base.Dispose(disposing);
         }
     }
 
