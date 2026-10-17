@@ -29,7 +29,7 @@ export const DEFAULT_JSON_IMPORT_OPTIONS = Object.freeze({
   allowDeletes: false,
   allowConnectionDeletes: false,
   allowDuplicates: false,
-  connectionMode: 'replace',
+  connectionMode: 'merge',
 });
 
 const TASK_FIELDS = new Set([
@@ -1364,13 +1364,14 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     updateConnections: importOptions.updateConnections !== false && scopes.has('connections'),
     updateConnectionAccess: importOptions.updateConnectionAccess !== false && scopes.has('connectionAccess'),
     updateLayout: importOptions.updateLayout !== false && scopes.has('layout'),
-    connectionMode: importOptions.connectionMode === 'merge' ? 'merge' : 'replace',
+    connectionMode: importOptions.connectionMode === 'replace' ? 'replace' : 'merge',
     allowConnectionDeletes: importOptions.allowConnectionDeletes === true,
     allowDuplicates: importOptions.allowDuplicates === true,
     allowDeletes: importOptions.allowDeletes === true,
   };
   const currentById = new Map(current.tasks.map((task) => [cleanId(task.id), task]).filter(([id]) => id));
   const currentTitles = new Set(current.tasks.map((task) => String(task.title || '').trim().toLowerCase()).filter(Boolean));
+  const incomingTitlesSeen = new Set();
   const incomingTitle = graphTitleByKey(incoming);
   const currentTitle = graphTitleByKey(current);
 
@@ -1401,7 +1402,10 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     const id = cleanId(task.id ?? task.assignmentId);
     const existing = id ? currentById.get(id) : null;
     const title = String(task.title || existing?.title || `Импорт #${index + 1}`).trim();
-    const duplicateTitle = !existing && title && currentTitles.has(title.toLowerCase());
+    const titleKey = title.toLowerCase();
+    const repeatedTitleInBatch = Boolean(titleKey && incomingTitlesSeen.has(titleKey));
+    const duplicateTitle = Boolean(!existing && titleKey && (currentTitles.has(titleKey) || repeatedTitleInBatch));
+    if (titleKey) incomingTitlesSeen.add(titleKey);
     if (existing && task.course !== undefined) {
       const incomingCourse = incoming.courses.find((row) => row.key === task.course);
       const existingCourse = current.courses.find((row) => row.key === existing.course);
@@ -1449,6 +1453,7 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
       type: task.type || existing?.type || 'code-test',
       action,
       duplicateTitle,
+      repeatedTitleInBatch,
       changes,
       issues: rowIssues.map((issue) => issue.message),
     };
@@ -1488,16 +1493,25 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     return !id || !currentCourseIds.has(id);
   }).length;
   const courseExistingCount = Math.max(0, (incoming.courses || []).length - courseCreateCount);
+  const existingCourseTitles = new Map();
+  for (const course of current.courses || []) {
+    const title = String(course.title || '').trim().toLowerCase();
+    if (!title) continue;
+    if (!existingCourseTitles.has(title)) existingCourseTitles.set(title, new Set());
+    existingCourseTitles.get(title).add(cleanId(course.id));
+  }
+  const duplicateCourseTitles = (incoming.courses || []).filter((course) => {
+    const title = String(course.title || '').trim().toLowerCase();
+    const id = cleanId(course.id);
+    return title && existingCourseTitles.has(title) && !existingCourseTitles.get(title).has(id);
+  });
   const layoutPositionCount = options.updateLayout && incoming.layout?.positions && typeof incoming.layout.positions === 'object'
     ? Object.keys(incoming.layout.positions).length
     : 0;
-  const hasImportWork = rows.length > 0
-    || deleteRows.length > 0
-    || (incoming.courses || []).length > 0
-    || (!incomingValidation.legacy && (options.updateConnections || options.updateConnectionAccess) && incoming.connections.length > 0)
-    || (options.updateLayout && (layoutPositionCount > 0 || incoming.layout?.viewport));
-
   const warnings = [];
+  const repeatedTitles = rows.filter((row) => row.repeatedTitleInBatch);
+  if (duplicateCourseTitles.length) warnings.push(`В JSON есть ${duplicateCourseTitles.length} вложенных курсов с названиями существующих курсов, но другими UUID. Проверьте сопоставление перед созданием дублей.`);
+  if (repeatedTitles.length) warnings.push(`В JSON повторяются названия у разных задач: ${repeatedTitles.map((row) => row.key).join(', ')}. Сверьте ключи и UUID: название не служит идентификатором.`);
   for (const course of incoming.courses || []) {
     const existing = current.courses.find((row) => cleanId(row.id) && cleanId(row.id) === cleanId(course.id));
     if (!existing) continue;
@@ -1508,15 +1522,73 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
   const operationCount = rows.filter((row) => row.action !== 'unchanged').length + deleteRows.filter((row) => row.action === 'delete').length
     + courseCreateCount + connectionAddedCount + connectionRemovedCount + connectionAccessChangedCount
     + (projection?.positionChanges || 0) + (projection?.viewportChanged ? 1 : 0);
+  const hasImportWork = operationCount > 0 || (preflight.datasets || []).some((dataset) => dataset.action === 'create');
+
+  // Show connections as declared in the incoming JSON. A task may be reached via
+  // another task, so direct course->task edges alone are not sufficient.
+  const outgoing = new Map();
+  for (const connection of incoming.connections || []) {
+    const from = String(connection?.from || '');
+    const to = String(connection?.to || '');
+    if (!outgoing.has(from)) outgoing.set(from, []);
+    outgoing.get(from).push(to);
+  }
+  // A course may have every child edge and still be invisible if the root
+  // does not reach that course. Report both levels independently.
+  const rootReachable = new Set([TASK_GRAPH_COURSE_REF]);
+  const fromRoot = [TASK_GRAPH_COURSE_REF];
+  for (let index = 0; index < fromRoot.length; index += 1) {
+    for (const to of outgoing.get(fromRoot[index]) || []) {
+      if (rootReachable.has(to)) continue;
+      rootReachable.add(to);
+      fromRoot.push(to);
+    }
+  }
+  const courseRows = (incoming.courses || []).map((course) => {
+    const courseKey = String(course.key || '');
+    const children = rows.filter((row) => String(row.courseRef || '') === courseKey);
+    const childKeys = new Set(children.map((row) => String(row.key || '')));
+    const visited = new Set([courseKey]);
+    const queue = [courseKey];
+    for (let index = 0; index < queue.length; index += 1) {
+      for (const to of outgoing.get(queue[index]) || []) {
+        if (visited.has(to)) continue;
+        visited.add(to);
+        queue.push(to);
+      }
+    }
+    const unreachableKeys = children.filter((row) => !visited.has(String(row.key || ''))).map((row) => row.key);
+    return {
+      key: courseKey,
+      id: course.id || null,
+      title: course.title || courseKey,
+      taskCount: children.length,
+      reachableFromRoot: rootReachable.has(courseKey),
+      createCount: children.filter((row) => row.action === 'create').length,
+      existingCount: children.filter((row) => row.action !== 'create').length,
+      directLinkCount: (outgoing.get(courseKey) || []).filter((to) => childKeys.has(to)).length,
+      reachableCount: children.length - unreachableKeys.length,
+      unreachableKeys,
+    };
+  });
+  if (options.updateConnections) {
+    const unreachableFromRoot = rows.filter((row) => !rootReachable.has(String(row.key || '')));
+    if (unreachableFromRoot.length) warnings.push(`От корневого курса $course нет пути до ${unreachableFromRoot.length} заданий из JSON. Проверьте стрелки от корня и вложенных курсов.`);
+    for (const course of courseRows) {
+      if (!course.reachableFromRoot) warnings.push(`Курс «${course.title}» не достижим от $course; его счётчик может остаться нулевым.`);
+      if (course.unreachableKeys.length) warnings.push(`Курс «${course.title}»: ${course.unreachableKeys.length} заданий в JSON не достижимы по стрелкам от этого курса. Проверьте связи по key перед импортом.`);
+    }
+  }
   return {
     total: operationCount,
     taskCount: rows.length,
+    courseRows,
     warnings,
     placements: projection?.placements || [],
     previewMap: projection ? { nodes: projection.previewNodes || projection.nodes || [], edges: projection.edges || [] } : null,
     datasets: preflight.datasets || [],
     requiresConnectionDeleteConfirmation: connectionRemovedCount > 0 && !options.allowConnectionDeletes,
-    requiresDuplicateConfirmation: rows.some((row) => row.duplicateTitle) && !options.allowDuplicates,
+    requiresDuplicateConfirmation: (rows.some((row) => row.duplicateTitle) || duplicateCourseTitles.length > 0) && !options.allowDuplicates,
 
     courseCount: Array.isArray(incoming.courses) ? incoming.courses.length : 0,
     courseCreateCount,
@@ -1529,7 +1601,9 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     deleteMissingCount: deleteRows.filter((row) => row.action === 'missing').length,
     requiresDeleteConfirmation: deleteRows.some((row) => row.action === 'delete') && !options.allowDeletes,
     withoutIdCount: rows.filter((row) => !row.id).length,
-    duplicateTitleCount: rows.filter((row) => row.duplicateTitle).length,
+    duplicateTitleCount: rows.filter((row) => row.duplicateTitle).length + duplicateCourseTitles.length,
+    duplicateCourseTitleCount: duplicateCourseTitles.length,
+    repeatedTitleInBatchCount: repeatedTitles.length,
     validationErrorCount: incomingValidation.issues.length + importIssues.length,
     graphIssues: [...incomingValidation.issues, ...importIssues],
     legacy: incomingValidation.legacy,

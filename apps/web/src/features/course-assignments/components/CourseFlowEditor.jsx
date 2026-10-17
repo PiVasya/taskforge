@@ -2622,7 +2622,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       if (!quietSuccess) notify.success('Карта сохранена');
       return true;
     } catch (error) {
-      if (error?.response?.status === 409) {
+      if (error?.response?.status === 409 && error?.response?.data?.code === 'COURSE_MAP_VERSION_CONFLICT') {
         courseMapConsole('SAVE_FAIL', { viewKey, status: 409, reason: 'version-conflict', message: error?.message || String(error) }, 'error');
         setServerChanged(true);
         notify.warn('Карту уже изменил другой редактор. Ваши локальные изменения сохранены на экране.');

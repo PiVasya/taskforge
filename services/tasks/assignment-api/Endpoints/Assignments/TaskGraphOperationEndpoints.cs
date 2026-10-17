@@ -117,7 +117,22 @@ internal static partial class AssignmentApiEndpoints
                 var bindings = await CheckTaskGraphBindingsAsync(requestGraph, courseId, tree.CourseIds.Append(courseId).ToHashSet(), db, clients, cfg, ct);
                 if (bindings.Count > 0) return HttpResults.BadRequest(new { code = "TASK_GRAPH_BINDING_INVALID", issues = bindings });
             }
-            var reserved = ImportJsonIdentity.ReserveMissingIds(input);
+            var reserved = ImportJsonIdentity.ReserveMissingIds(input, courseId);
+            if (requestGraph is not null)
+            {
+                // Check derived identities as strictly as explicit client UUIDs.
+                // A deterministic key must never hijack an unrelated subtree.
+                var withIds = ParseAndValidate(reserved, ReadGraphImportOptions(payload));
+                if (withIds.Graph is null || withIds.Issues.Count > 0)
+                    return HttpResults.BadRequest(new { code = "TASK_GRAPH_VALIDATION_FAILED", issues = withIds.Issues });
+                var tree = await GetInternalAsync<CourseTreeResponse>(clients, cfg,
+                    ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), $"/api/internal/courses/{courseId:D}/tree", ct);
+                if (tree is null) return HttpResults.Json(new { code = "COURSE_TREE_UNAVAILABLE" }, statusCode: 503);
+                var bindingIssues = await CheckTaskGraphBindingsAsync(withIds.Graph, courseId,
+                    tree.CourseIds.Append(courseId).ToHashSet(), db, clients, cfg, ct);
+                if (bindingIssues.Count > 0)
+                    return HttpResults.BadRequest(new { code = "TASK_GRAPH_BINDING_INVALID", issues = bindingIssues });
+            }
             // Only canonical graphs have the strict cross-course binding contract.
             // Legacy input keeps compatibility and its transaction receipt, without
             // claiming a content-version precondition that its shape cannot express.
@@ -262,6 +277,13 @@ internal static partial class AssignmentApiEndpoints
                 || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var expected) || expected < 0
                 || !payload.TryGetProperty("document", out var document) || document.ValueKind != JsonValueKind.Object)
                 return HttpResults.BadRequest(new { code = "IMPORT_MAP_INVALID" });
+            // The write must include every requested edge. A missing edge is not
+            // a successful partial import, even when tasks were already committed.
+            var missingEdges = TaskGraphMapIntegrity.MissingConnections(
+                ImportJsonIdentity.Read(op.ResponseJson), document, courseId);
+            if (missingEdges.Count > 0)
+                return HttpResults.Conflict(new { code = "IMPORT_MAP_INCOMPLETE", operationId,
+                    message = "На карте отсутствуют связи из импортированного JSON. Применение не подтверждено.", missingEdges });
             var replace = payload.TryGetProperty("replaceConflicted", out var reset) && reset.ValueKind == JsonValueKind.True;
             if (op.MapRequestJson is null || replace && (op.State == "map-conflict" || op.State == "map-rejected"))
             {
@@ -310,6 +332,19 @@ internal static partial class AssignmentApiEndpoints
             await db.SaveChangesAsync(ct);
             Console.WriteLine($"TASK_GRAPH_IMPORT_MAP_REJECT OPERATION={op.Id:D} STATUS={(int)response.StatusCode} STATE={op.State}");
             return HttpResults.Json(result, statusCode: (int)response.StatusCode);
+        }
+        // A 2xx from the remote service is insufficient proof of a correct map.
+        // Its transaction receipt must contain the exact submitted document.
+        var durable = ImportJsonIdentity.Read(op.MapRequestJson!);
+        var expectedVersion = durable.GetProperty("expectedVersion").GetInt32();
+        if (!TaskGraphMapIntegrity.MatchesSavedDocument(durable, result, expectedVersion))
+        {
+            op.State = "map-rejected";
+            op.LastErrorJson = JsonSerializer.Serialize(new { code = "IMPORT_MAP_RECEIPT_MISMATCH" }, ImportJournalJson);
+            op.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return HttpResults.Json(new { code = "IMPORT_MAP_RECEIPT_MISMATCH", operationId = op.Id,
+                message = "Ответ сервера не подтверждает сохранение всех данных карты. Повторите проверку карты." }, statusCode: 502);
         }
         var audit = JsonNode.Parse(op.AuditJson)!.AsObject();
         if (audit["mapBefore"] is JsonObject baseline && result.ValueKind == JsonValueKind.Object

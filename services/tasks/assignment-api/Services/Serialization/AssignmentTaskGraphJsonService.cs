@@ -109,7 +109,7 @@ internal static class AssignmentTaskGraphJsonService
         bool UpdateConnectionAccess = true,
         bool UpdateLayout = true,
         bool AllowDeletes = false,
-        string ConnectionMode = "replace");
+        string ConnectionMode = "merge");
 
     internal sealed record GraphConnection(string From, string To, string HiddenEffect, string SequentialEffect)
     {

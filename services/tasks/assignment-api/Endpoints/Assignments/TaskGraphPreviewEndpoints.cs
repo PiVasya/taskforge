@@ -1,3 +1,4 @@
+using TaskForge.Shared.Import;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Contracts;
@@ -52,7 +53,13 @@ internal static partial class AssignmentApiEndpoints
             var parsed = ParseAndValidate(input, options);
             if (parsed.Graph is null || parsed.Issues.Count > 0)
                 return Microsoft.AspNetCore.Http.Results.Ok(new { issues = parsed.Issues });
-            var graph = parsed.Graph;
+            // Preview must use exactly the same stable key-to-UUID reservation as Apply.
+            // Otherwise the UI incorrectly labels a repeated keyed batch as "create".
+            var reserved = ImportJsonIdentity.ReserveMissingIds(input, courseId);
+            var withIds = ParseAndValidate(reserved, options);
+            if (withIds.Graph is null || withIds.Issues.Count > 0)
+                return Microsoft.AspNetCore.Http.Results.Ok(new { issues = withIds.Issues });
+            var graph = withIds.Graph;
             options = options with { UpdateContent = options.UpdateContent && graph.Scopes.Contains("content"),
                 UpdateChecks = options.UpdateChecks && graph.Scopes.Contains("checks") };
             Console.WriteLine($"TASK_GRAPH_PREVIEW_BEGIN COURSE={courseId:D} TASKS={graph.Tasks.Count} COURSES={graph.Courses.Count}");
@@ -98,7 +105,17 @@ internal static partial class AssignmentApiEndpoints
                 datasets = await SqlTaskGraphService.PreviewDatasets(db, input, options, sqlUser, sqlAdmin, ct);
             }
             Console.WriteLine($"TASK_GRAPH_PREVIEW_END COURSE={courseId:D} ISSUES={issues.Count} DATASETS={datasets.Count}");
-            return Microsoft.AspNetCore.Http.Results.Ok(new { issues, datasets });
+            var bindings = new
+            {
+                courses = graph.Courses.Select(x => new { key = x.Key, id = x.Id }).ToArray(),
+                tasks = graph.Tasks.Select(x => new
+                {
+                    key = x.Key,
+                    id = x.Source.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.String
+                        ? value.GetString() : null
+                }).ToArray()
+            };
+            return Microsoft.AspNetCore.Http.Results.Ok(new { issues, datasets, bindings });
         }).AddEndpointFilter<SqlEndpointFilter>();
     }
 }

@@ -5,6 +5,7 @@ import { loadSourceModule } from '../test-utils/load-source-module.mjs';
 const json = await loadSourceModule(new URL('../../src/features/course-assignments/courseTaskGraphJson.js', import.meta.url));
 const model = await loadSourceModule(new URL('../../src/features/course-assignments/courseTaskGraphImport.js', import.meta.url));
 const ids = await loadSourceModule(new URL('../../src/features/course-assignments/courseMapModel.js', import.meta.url));
+const snapshots = await loadSourceModule(new URL('../../src/features/course-assignments/taskGraphPreviewSnapshot.js', import.meta.url));
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const rootId = uid(999);
 const root = () => ({ id: ids.courseNodeId(rootId), entityId: rootId, type: 'course', position: { x: 0, y: 0 } });
@@ -23,6 +24,30 @@ const prepare = (request, state = {}) => model.prepareTaskGraphImport({ request,
 const connected = graph({ tasks: [task('a', { id: uid(1) }), task('b', { id: uid(2) }), task('c', { id: uid(3) })],
   connections: [{ from: '$course', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'c' }],
   layout: { positions: { $course: { x: 0, y: 0 }, a: { x: 540, y: 0 }, b: { x: 900, y: 0 }, c: { x: 1260, y: 0 } } } });
+
+test('server bindings are the preview and apply identity for a key without source UUID', () => {
+  const source = graph({ scopes: ['content', 'connections'], courses: [{ key: 'contest', title: 'Contest' }],
+    tasks: [task('example', { course: 'contest' })], connections: [{ from: '$course', to: 'contest' }, { from: 'contest', to: 'example' }] });
+  const bound = snapshots.applyServerGraphBindings(source, { bindings: {
+    courses: [{ key: 'contest', id: uid(200) }], tasks: [{ key: 'example', id: uid(1) }],
+  } });
+  assert.equal(bound.courses[0].id, uid(200));
+  assert.equal(bound.tasks[0].id, uid(1));
+  assert.equal(source.tasks[0].id, undefined);
+  assert.ok(bound.scopes.includes('ids'));
+  const repeated = diff(bound, bound);
+  assert.equal(repeated.createCount, 0);
+  assert.equal(repeated.courseCreateCount, 0);
+  assert.equal(repeated.connectionAddedCount, 0);
+});
+
+test('additive connections are the safe default when importing another batch', () => {
+  const input = graph({ scopes: ['ids', 'connections'], tasks: [{ key: 'a', id: uid(1) }, { key: 'b', id: uid(2) }],
+    connections: [{ from: '$course', to: 'b' }] });
+  const result = diff(input, connected);
+  assert.equal(result.connectionRemovedCount, 0);
+  assert.equal(result.connectionAddedCount, 1);
+});
 
 test('official mega: response DTOs place new entities despite a stale/empty tree', () => {
   const request = commit(json.TASK_GRAPH_MEGA_EXAMPLE);
@@ -165,14 +190,14 @@ test('disabled topology counts actual placement, not connectivity in the input J
 
 test('replace removes edges between included nodes, not arbitrary cross-boundary edges', () => {
   const input = graph({ scopes: ['ids', 'connections'], tasks: [{ key: 'a', id: uid(1) }, { key: 'b', id: uid(2) }], connections: [{ from: '$course', to: 'a' }, { from: '$course', to: 'b' }] });
-  const result = diff(input, connected);
+  const result = diff(input, connected, { connectionMode: 'replace' });
   assert.equal(result.connectionAddedCount, 1);
   assert.equal(result.connectionRemovedCount, 1);
   assert.equal(result.connectionUnchangedCount, 2);
   assert.equal(result.requiresConnectionDeleteConfirmation, true);
   assert.equal(result.removedConnectionRows[0].from, 'a');
   assert.equal(result.removedConnectionRows[0].to, 'b');
-  assert.equal(diff(input, connected, { allowConnectionDeletes: true }).requiresConnectionDeleteConfirmation, false);
+  assert.equal(diff(input, connected, { allowConnectionDeletes: true, connectionMode: 'replace' }).requiresConnectionDeleteConfirmation, false);
 });
 
 test('merge is additive and preserves nodes absent from incoming connections', () => {

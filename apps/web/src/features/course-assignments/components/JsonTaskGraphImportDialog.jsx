@@ -10,6 +10,7 @@ export default function JsonTaskGraphImportDialog({
   busy = false,
   preview = 'пусто',
   text = '',
+  source = 'Текстовое поле',
   docsOpen = false,
   onClose,
   onFile,
@@ -17,6 +18,8 @@ export default function JsonTaskGraphImportDialog({
   onFormat,
   onToggleDocs,
   onTextChange,
+  onPaste,
+  onClear,
   onCopyAiPrompt,
   onCopyExample,
   onUseExample,
@@ -31,6 +34,10 @@ export default function JsonTaskGraphImportDialog({
     };
   }, [open]);
 
+  const inputBytes = React.useMemo(() => new Blob([text]).size, [text]);
+  const largeInput = text.length > 350_000;
+  const hasText = Boolean(text.trim());
+
   if (!open || typeof document === 'undefined') return null;
 
   return createPortal((
@@ -38,6 +45,14 @@ export default function JsonTaskGraphImportDialog({
       className="tf-modal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-black/55 p-2 sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose?.();
+      }}
+      onDragOver={(event) => {
+        if (!busy && Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (busy || !event.dataTransfer?.files?.length) return;
+        event.preventDefault();
+        onFile?.(event.dataTransfer.files[0]);
       }}
     >
       <Card className="tf-modal-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-5xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
@@ -71,20 +86,35 @@ export default function JsonTaskGraphImportDialog({
                   }}
                 />
               </label>
-              <Button variant="outline" onClick={onCopy} disabled={busy || !text.trim()}><Copy size={16} /> Копировать</Button>
-              <Button variant="outline" onClick={onFormat} disabled={busy || !text.trim()}>Форматировать</Button>
+              <Button variant="outline" onClick={onCopy} disabled={busy || !hasText}><Copy size={16} /> Копировать</Button>
+              <Button variant="outline" onClick={onFormat} disabled={busy || !hasText || largeInput} title={largeInput ? 'Большой JSON форматируйте в исходном файле' : undefined}>Форматировать</Button>
+              {hasText ? <Button variant="outline" onClick={onClear} disabled={busy}>Очистить</Button> : null}
               <Button variant="outline" onClick={onToggleDocs} disabled={busy}><FileJson size={16} /> {docsOpen ? 'Скрыть справку' : 'Справка'}</Button>
             </div>
           </div>
 
-          <Textarea
-            rows={18}
-            value={text}
-            onChange={(event) => onTextChange?.(event.target.value)}
-            spellCheck={false}
-            placeholder="Вставьте JSON-граф для импорта"
-            className="mt-4 h-[clamp(240px,42dvh,560px)] min-h-[240px] resize-y font-mono text-xs leading-5"
-          />
+          <div className="mt-3 rounded-xl border border-[rgba(var(--border)/0.55)] px-3 py-2 text-xs" role="status" aria-live="polite">
+            <div className="break-all">Источник: <strong>{source}</strong></div>
+            <div className="mt-1">Содержимое: <strong>{inputBytes.toLocaleString('ru-RU')} байт</strong> ({(inputBytes / 1048576).toFixed(2)} МиБ), {text.length.toLocaleString('ru-RU')} символов</div>
+            <div className="mt-1 text-neutral-500">JSON-файлы до 24 МиБ загружайте через «Выбрать файл» или перетаскиванием .json в это окно. Проверяйте имя файла и размер перед импортом.</div>
+          </div>
+          {largeInput ? (
+            <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/15 p-4 text-sm">
+              <div className="font-semibold">Большой JSON загружен целиком</div>
+              <p className="mt-2 text-neutral-500">Чтобы браузер не зависал, текст не выводится целиком в редактор. Проверка и импорт используют полное содержимое ({inputBytes.toLocaleString('ru-RU')} байт), а не этот фрагмент. Чтобы вставить другой JSON, нажмите «Очистить» или выберите новый файл.</p>
+              <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-[rgb(var(--card))] p-3 text-xs">{text.slice(0, 600)}…</pre>
+            </div>
+          ) : (
+            <Textarea
+              rows={18}
+              value={text}
+              onChange={(event) => onTextChange?.(event.target.value)}
+              onPaste={onPaste}
+              spellCheck={false}
+              placeholder="Вставьте JSON-граф для импорта"
+              className="mt-4 h-[clamp(240px,42dvh,560px)] min-h-[240px] resize-y font-mono text-xs leading-5"
+            />
+          )}
 
           {docsOpen ? (
             <JsonImportHelp
@@ -100,7 +130,7 @@ export default function JsonTaskGraphImportDialog({
           <div className="min-w-0 text-xs text-neutral-500">
             На следующем шаге вы увидите, что будет создано, обновлено, удалено или оставлено без изменений. До подтверждения курс не меняется.
           </div>
-          <Button className="shrink-0" onClick={onPrepareDiff} disabled={busy || !text.trim()}>
+          <Button className="shrink-0" onClick={onPrepareDiff} disabled={busy || !hasText}>
             <GitCompare size={16} /> {busy ? 'Проверяю…' : 'Проверить импорт'}
           </Button>
         </div>

@@ -62,17 +62,17 @@ import {
   buildTaskGraphImportDiff,
   FULL_JSON_EXPORT_OPTIONS,
   DEFAULT_JSON_IMPORT_OPTIONS,
-  summarizeTaskGraphPayload,
   taskGraphExampleToText,
   taskGraphJsonParseMessage,
   taskGraphExportIssue,
 } from './courseTaskGraphJson';
 import { resolveRootCourseId } from './courseMapModel';
 import { useAuth } from '../../auth/AuthContext';
-import { captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
+import { applyServerGraphBindings, captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
 import TaskGraphImportStatus from './components/TaskGraphImportStatus';
 import useTaskGraphImportActions from './useTaskGraphImportActions';
 import useTaskGraphImportJournal from './useTaskGraphImportJournal';
+import useTaskGraphJsonInput from './useTaskGraphJsonInput';
 import { isImportPending } from './courseTaskGraphOperation';
 import { navigateToCourseEditor } from './courseMapNavigation';
 const EMPTY_LIST = Object.freeze([]);
@@ -241,10 +241,8 @@ export default function CourseAssignmentsPage() {
   const [jsonExportDialogOpen, setJsonExportDialogOpen] = useState(false);
   const [jsonDocsOpen, setJsonDocsOpen] = useState(false);
   const [createBusyType, setCreateBusyType] = useState('');
-  const [jsonImportText, setJsonImportText] = useState('');
   const [jsonImportBusy, setJsonImportBusy] = useState(false);
   const [jsonExportBusy, setJsonExportBusy] = useState(false);
-  const [jsonImportPreview, setJsonImportPreview] = useState('пусто');
   const [jsonImportDiffOpen, setJsonImportDiffOpen] = useState(false);
   const [jsonImportDiff, setJsonImportDiff] = useState(null);
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
@@ -262,6 +260,25 @@ export default function CourseAssignmentsPage() {
   useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
   const jsonPreviewSequenceRef = useRef(0);
   const jsonPreviewMapVersionRef = useRef(null);
+  const {
+    text: jsonImportText, source: jsonImportSource, preview: jsonImportPreview,
+    loading: jsonInputBusy, onTextChange: handleJsonImportTextChange,
+    onPaste: handleJsonImportPaste, onFile: handleJsonFile,
+  } = useTaskGraphJsonInput({
+    notify,
+    onChange: () => {
+      setJsonImportOptions((current) => (current.allowDeletes || current.allowConnectionDeletes || current.allowDuplicates)
+        ? { ...current, allowDeletes: false, allowConnectionDeletes: false, allowDuplicates: false }
+        : current);
+      setJsonImportApplyError(null);
+      jsonPreviewSequenceRef.current += 1;
+      setJsonImportParsed(null);
+      setJsonImportDiff(null);
+      setJsonImportCurrentExport(null);
+      setJsonImportDiffOpen(false);
+      setJsonMapRecovery(false);
+    },
+  });
   useEffect(() => {
     if (importJournal.operation?.state === 'stopped') {
       setGraphImportRequest(null); setImportReloadKey((n) => n + 1);
@@ -847,22 +864,6 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const handleJsonImportTextChange = (value) => {
-    setJsonImportText(value);
-    setJsonImportOptions((current) => current.allowDeletes ? { ...current, allowDeletes: false } : current);
-    setJsonImportApplyError(null);
-    if (!String(value || "").trim()) {
-      setJsonImportPreview("пусто");
-      return;
-    }
-    try {
-      const parsed = JSON.parse(value);
-      setJsonImportPreview(summarizeTaskGraphPayload(parsed));
-    } catch {
-      setJsonImportPreview("JSON не читается");
-    }
-  };
-
   const handleUseJsonExample = (example) => {
     handleJsonImportTextChange(taskGraphExampleToText(example));
     notify.info(`В редактор вставлен пример: ${example.title}`);
@@ -886,17 +887,6 @@ export default function CourseAssignmentsPage() {
     }
   };
 
-  const handleJsonFile = async (file) => {
-    if (!file) return;
-    try {
-      const text = await file.text();
-      handleJsonImportTextChange(text);
-      notify.info(`JSON загружен: ${file.name}`);
-    } catch (e) {
-      notify.error("Не удалось прочитать JSON-файл");
-    }
-  };
-
   const { installImportedGraph, applyJsonImport, handleGraphImportComplete, prepareMapRecovery, resumeImport } = useTaskGraphImportActions({
     courseId, importContextRef, importJournal, jsonImportDiff, jsonImportOptions, lastImportDiffRef, jsonPreviewMapVersionRef,
     reloadAssignments, reloadCourseData, notify, setContentLayout, setGraphImportRequest,
@@ -905,6 +895,7 @@ export default function CourseAssignmentsPage() {
   });
 
   const handlePrepareJsonImportDiff = async () => {
+    if (jsonInputBusy) return;
     setJsonMapRecovery(false);
     if (!ensureCanManageAssignments("импортировать JSON")) return;
     if (!String(jsonImportText || "").trim()) {
@@ -931,15 +922,20 @@ export default function CourseAssignmentsPage() {
       const { currentExport, mapVersion } = snapshot;
       if (sequence !== jsonPreviewSequenceRef.current) return;
       jsonPreviewMapVersionRef.current = mapVersion;
-      const diff = buildTaskGraphImportDiff(parsed, currentExport, jsonImportOptions, preflight);
+      const prepared = applyServerGraphBindings(parsed, preflight);
+      const diff = buildTaskGraphImportDiff(prepared, currentExport, jsonImportOptions, preflight);
       setJsonImportCurrentExport(currentExport);
-      setJsonImportParsed(parsed);
+      setJsonImportParsed(prepared);
       setJsonImportDiff(diff);
       setJsonImportDiffOpen(true);
       if (!diff.hasImportWork) notify.warn("В JSON нет данных, которые можно применить");
       if (diff.validationErrorCount > 0) notify.warn(`В JSON есть ошибки: ${diff.validationErrorCount}`);
     } catch (e) {
-      handleApiError(e, notify, "Не удалось подготовить дифф импорта");
+      if (e?.response?.status === 413) {
+        notify.error('Сервер отклонил размер JSON (HTTP 413). Разделите импорт на меньшие пакеты; содержимое не применено.');
+      } else {
+        handleApiError(e, notify, "Не удалось подготовить дифф импорта");
+      }
     } finally {
       setJsonImportBusy(false);
     }
@@ -1176,9 +1172,10 @@ export default function CourseAssignmentsPage() {
 
       <JsonTaskGraphImportDialog
         open={jsonImportDialogOpen}
-        busy={jsonImportBusy || Boolean(createBusyType)}
+        busy={jsonImportBusy || jsonInputBusy || Boolean(createBusyType)}
         preview={jsonImportPreview}
         text={jsonImportText}
+        source={jsonImportSource}
         docsOpen={jsonDocsOpen}
         onClose={() => setJsonImportDialogOpen(false)}
         onFile={handleJsonFile}
@@ -1199,6 +1196,8 @@ export default function CourseAssignmentsPage() {
         }}
         onToggleDocs={() => setJsonDocsOpen((value) => !value)}
         onTextChange={handleJsonImportTextChange}
+        onPaste={handleJsonImportPaste}
+        onClear={() => handleJsonImportTextChange('')}
         onCopyAiPrompt={handleCopyJsonAiPrompt}
         onCopyExample={handleCopyJsonExample}
         onUseExample={handleUseJsonExample}

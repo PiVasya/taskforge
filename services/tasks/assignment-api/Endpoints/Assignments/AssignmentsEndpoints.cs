@@ -44,7 +44,7 @@ internal static partial class AssignmentApiEndpoints
             ReadOption(options, "updateConnectionAccess", true),
             ReadOption(options, "updateLayout", true),
             ReadOption(options, "allowDeletes", false),
-            options.TryGetProperty("connectionMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() == "merge" ? "merge" : "replace");
+            options.TryGetProperty("connectionMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() == "replace" ? "replace" : "merge");
     }
 
     private static JsonElement ReadGraphImportPayload(JsonElement payload)

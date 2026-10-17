@@ -41,7 +41,7 @@ function graphApplyOptions(taskGraph) {
     connections: apply.connections !== false,
     connectionAccess: apply.connectionAccess !== false,
     layout: apply.layout !== false,
-    connectionMode: apply.connectionMode === 'merge' ? 'merge' : 'replace',
+    connectionMode: apply.connectionMode === 'replace' ? 'replace' : 'merge',
   };
 }
 

@@ -200,8 +200,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           <div className="mt-3 rounded-xl border border-amber-400/60 p-3">
             <ImportOption checked={Boolean(importOptions.allowDuplicates)} disabled={busy}
               onChange={(value) => onImportOptionChange?.('allowDuplicates', value)}
-              label={`Создать новые задания несмотря на ${diff.duplicateTitleCount} совпадений названий`}
-              hint="key не заменяет UUID. Совпадение названия не объединяет задания." />
+              label={`Разрешить создание объектов при ${diff.duplicateTitleCount} совпадениях названий`}
+              hint="Проверьте UUID существующих заданий и курсов. Название не объединяет разные объекты." />
           </div>
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
@@ -222,11 +222,37 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           {diff.connectionAccessChangedCount > 0 ? <Badge variant="outline">Изменятся эффекты: {diff.connectionAccessChangedCount}</Badge> : null}
           {diff.unplacedCount > 0 ? <Badge intent="warning">Вне карты: {diff.unplacedCount}</Badge> : null}
           {diff.legacy ? <Badge intent="warning">Без графа</Badge> : null}
+          {diff.repeatedTitleInBatchCount > 0 ? <Badge intent="warning">Повторяющихся названий в JSON: {diff.repeatedTitleInBatchCount}</Badge> : null}
           {diff.courseCreateCount > 0 ? <Badge variant="outline">Создастся курсов: {diff.courseCreateCount}</Badge> : null}
           {diff.courseExistingCount > 0 ? <Badge variant="outline">Существующих курсов: {diff.courseExistingCount}</Badge> : null}
           {diff.layoutPositionCount > 0 ? <Badge variant="outline">Позиций: {diff.layoutPositionCount}</Badge> : null}
           {diff.deleteMissingCount > 0 ? <Badge intent="warning">Уже отсутствует: {diff.deleteMissingCount}</Badge> : null}
         </div>
+
+        {diff.courseRows?.length ? (
+          <details className="mt-3 rounded-xl border border-[rgba(var(--border)/0.7)] p-3 text-sm" open>
+            <summary className="cursor-pointer font-semibold">Курсы и связи из JSON · {diff.courseRows.length}</summary>
+            <div className="mt-3 max-h-72 space-y-2 overflow-auto">
+              {diff.courseRows.map((course) => (
+                <div key={course.key} className="rounded-xl border border-[rgba(var(--border)/0.6)] p-3">
+                  <div className="break-words font-semibold">{course.title} <code className="text-xs font-normal">({course.key})</code></div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    <span>Заданий в пакете: {course.taskCount}</span>
+                    <span>{course.reachableFromRoot ? 'Курс доступен от корня' : 'Нет пути от корня до курса'}</span>
+                    <span>Новых: {course.createCount}</span>
+                    <span>Существующих: {course.existingCount}</span>
+                    <span>Прямых связей с задачами: {course.directLinkCount}</span>
+                    <span>Достижимых через стрелки: {course.reachableCount}/{course.taskCount}</span>
+                  </div>
+                  {course.unreachableKeys.length ? (
+                    <div className="mt-2 break-all text-xs text-amber-700 dark:text-amber-200">Без пути от курса: {course.unreachableKeys.join(', ')}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-neutral-500">Это связи, заявленные в JSON и рассчитанные до применения. Фактическое сохранение подтверждается после импорта и перезагрузки карты.</p>
+          </details>
+        ) : null}
 
         {diff.warnings?.length ? (
           <div className="mt-3 rounded-xl border border-amber-400/60 p-3 text-sm">
@@ -295,6 +321,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
                     </Badge>
                     <Badge variant="outline">{row.type}</Badge>
                     {row.duplicateTitle ? <Badge intent="danger">возможный дубль</Badge> : null}
+                    {row.repeatedTitleInBatch ? <Badge intent="warning">название повторяется в JSON</Badge> : null}
                   </div>
                   <div className="mt-2 break-words font-semibold">{row.title}</div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 break-all text-xs text-neutral-500">

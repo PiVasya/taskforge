@@ -37,6 +37,34 @@ public sealed class TaskGraphJournalTests
         Assert.False(raw.GetProperty("tasks")[0].TryGetProperty("id", out _));
     }
 
+    [Fact]
+    public void KeyedCanonicalIdsRemainStableAcrossDifferentOperationsAndBatches()
+    {
+        var root = Guid.Parse("11111111-1111-4111-8111-111111111111");
+        var graphA = ImportJsonIdentity.Read("{\"schemaVersion\":5,\"format\":\"taskforge-task-graph\",\"scopes\":[\"content\"],\"courses\":[{\"key\":\"contest\"}],\"tasks\":[{\"key\":\"a\"}]}");
+        var graphB = ImportJsonIdentity.Read("{\"schemaVersion\":5,\"format\":\"taskforge-task-graph\",\"scopes\":[\"content\"],\"courses\":[{\"key\":\"contest\"}],\"tasks\":[{\"key\":\"b\"}]}");
+        var first = ImportJsonIdentity.ReserveMissingIds(graphA, root);
+        var repeated = ImportJsonIdentity.ReserveMissingIds(graphA, root);
+        var otherBatch = ImportJsonIdentity.ReserveMissingIds(graphB, root);
+        Assert.Equal(ImportJsonIdentity.Hash(first), ImportJsonIdentity.Hash(repeated));
+        Assert.Equal(first.GetProperty("courses")[0].GetProperty("id").GetString(), otherBatch.GetProperty("courses")[0].GetProperty("id").GetString());
+        Assert.NotEqual(first.GetProperty("tasks")[0].GetProperty("id").GetString(), otherBatch.GetProperty("tasks")[0].GetProperty("id").GetString());
+        Assert.NotEqual(first.GetProperty("tasks")[0].GetProperty("id").GetString(),
+            ImportJsonIdentity.ReserveMissingIds(graphA, Guid.NewGuid()).GetProperty("tasks")[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public void ExplicitIdsNeverChangeAndCourseKeysCannotCollideWithTaskKeys()
+    {
+        var root = Guid.Parse("11111111-1111-4111-8111-111111111111");
+        var id = Guid.Parse("33333333-3333-4333-8333-333333333333");
+        var graph = ImportJsonIdentity.Read($"{{\"schemaVersion\":5,\"courses\":[{{\"key\":\"shared\"}}],\"tasks\":[{{\"key\":\"other\",\"id\":\"{id:D}\"}}]}}");
+        var fixedGraph = ImportJsonIdentity.ReserveMissingIds(graph, root);
+        Assert.Equal(id.ToString("D"), fixedGraph.GetProperty("tasks")[0].GetProperty("id").GetString());
+        Assert.NotEqual(ImportJsonIdentity.StableGraphEntityId(root, "course", "shared"),
+            ImportJsonIdentity.StableGraphEntityId(root, "task", "shared"));
+    }
+
     [Theory]
     [InlineData("[{\"title\":\"A\"}]")]
     [InlineData("{\"assignments\":[{\"title\":\"A\"}]}")]
@@ -62,6 +90,47 @@ public sealed class TaskGraphJournalTests
     {
         var raw = ImportJsonIdentity.Read("{\"schemaVersion\":5,\"tasks\":[{\"key\":\"a\",\"id\":\"invalid\"}]}");
         Assert.Equal("invalid", ImportJsonIdentity.ReserveMissingIds(raw).GetProperty("tasks")[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public void MapIntegrityDetectsMissingLinksBeforePersistingAReceipt()
+    {
+        var root = Guid.Parse("11111111-1111-4111-8111-111111111111");
+        var task = Guid.Parse("33333333-3333-4333-8333-333333333333");
+        var course = Guid.Parse("22222222-2222-4222-8222-222222222222");
+        var receipt = ImportJsonIdentity.Read($$$"""
+            {"taskGraph":{"apply":{"connections":true},"courses":[{"key":"contest","id":"{{{course:D}}}"}],
+              "tasks":[{"key":"task-a","assignmentId":"{{{task:D}}}"}],
+              "connections":[{"from":"$course","to":"contest"},{"from":"contest","to":"task-a"}]}}
+            """);
+        var incomplete = ImportJsonIdentity.Read($$$"""
+            {"nodes":[{"id":"root","entityId":"{{{root:D}}}"},
+                      {"id":"course","entityId":"{{{course:D}}}"},
+                      {"id":"assignment","entityId":"{{{task:D}}}"}],
+             "edges":[{"source":"root","target":"course"}]}
+            """);
+        var missing = TaskGraphMapIntegrity.MissingConnections(receipt, incomplete, root);
+        Assert.Single(missing);
+        Assert.Equal("contest -> task-a", missing[0]);
+        var complete = ImportJsonIdentity.Read($$$"""
+            {"nodes":[{"id":"root","entityId":"{{{root:D}}}"},
+                      {"id":"course","entityId":"{{{course:D}}}"},
+                      {"id":"assignment","entityId":"{{{task:D}}}"}],
+             "edges":[{"source":"root","target":"course"},{"source":"course","target":"assignment"}]}
+            """);
+        Assert.Empty(TaskGraphMapIntegrity.MissingConnections(receipt, complete, root));
+    }
+
+    [Fact]
+    public void CompletedMapRequiresItsExactDocumentAndAdvancedVersion()
+    {
+        var request = ImportJsonIdentity.Read("{\"expectedVersion\":2,\"document\":{\"nodes\":[{\"id\":\"a\"}],\"edges\":[]}}");
+        Assert.True(TaskGraphMapIntegrity.MatchesSavedDocument(request,
+            ImportJsonIdentity.Read("{\"version\":3,\"document\":{\"edges\":[],\"nodes\":[{\"id\":\"a\"}]}}"), 2));
+        Assert.False(TaskGraphMapIntegrity.MatchesSavedDocument(request,
+            ImportJsonIdentity.Read("{\"version\":3,\"document\":{\"nodes\":[],\"edges\":[]}}"), 2));
+        Assert.False(TaskGraphMapIntegrity.MatchesSavedDocument(request,
+            ImportJsonIdentity.Read("{\"version\":2,\"document\":{\"nodes\":[{\"id\":\"a\"}],\"edges\":[]}}"), 2));
     }
 
     [Fact]
