@@ -10,6 +10,7 @@ using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Sql;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
+using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService;
 using HttpResults = Microsoft.AspNetCore.Http.Results;
 
@@ -61,7 +62,9 @@ internal static partial class AssignmentApiEndpoints
         IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
     {
         if (!await CanReadImportJournal(courseId, http, cfg, clients, ct)) return CourseEditForbidden();
-        var userId = RequireUser(http, cfg);
+        var requestedUserId = RequireUser(http, cfg);
+        if (!requestedUserId.HasValue) return HttpResults.Unauthorized();
+        var userId = requestedUserId.Value;
         var operationId = Guid.NewGuid();
         if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("operationId", out var idValue)
             && (idValue.ValueKind != JsonValueKind.String || !Guid.TryParse(idValue.GetString(), out operationId) || operationId == Guid.Empty))

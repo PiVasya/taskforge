@@ -99,6 +99,45 @@ public static class TaskForgeRequestSecurity
         });
     }
 
+    // Cookie credentials are ambient. Unsafe API calls require a non-simple
+    // header; browser-origin checks also protect WebSocket/SSE handshakes.
+    // The gateway preserves Host and overwrites X-Forwarded-Proto.
+    public static bool IsBrowserRequestAllowed(HttpRequest request)
+    {
+        var authEndpoint = request.Path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase);
+        var hub = request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase);
+        var socket = string.Equals(request.Headers["Upgrade"].ToString(), "websocket", StringComparison.OrdinalIgnoreCase);
+        var cookie = request.Cookies.ContainsKey("tf_at") || request.Cookies.ContainsKey("tf_rt");
+        if (!cookie && !authEndpoint && !(socket && request.Headers.ContainsKey("Cookie"))) return true;
+        if (HttpMethods.IsOptions(request.Method)) return true;
+        var safe = HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method);
+        if (safe && !hub && !socket) return true;
+
+        var fetchSite = request.Headers["Sec-Fetch-Site"].ToString();
+        if (fetchSite.Length > 0 && fetchSite != "same-origin" && fetchSite != "none") return false;
+        var originText = request.Headers["Origin"].ToString();
+        var sameOrigin = false;
+        if (originText.Length > 0)
+        {
+            var scheme = request.Headers["X-Forwarded-Proto"].ToString();
+            if (scheme != "https" && scheme != "http") scheme = request.Scheme;
+            if (!Uri.TryCreate(originText, UriKind.Absolute, out var origin)
+                || !Uri.TryCreate($"{scheme}://{request.Host}", UriKind.Absolute, out var target)
+                || (origin.Scheme != "https" && origin.Scheme != "http")
+                || origin.UserInfo.Length > 0 || origin.AbsolutePath != "/"
+                || origin.Query.Length > 0 || origin.Fragment.Length > 0
+                || !string.Equals(origin.Scheme, target.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(origin.IdnHost, target.IdnHost, StringComparison.OrdinalIgnoreCase)
+                || origin.Port != target.Port) return false;
+            sameOrigin = true;
+        }
+
+        var hasHeader = request.Headers["X-TaskForge-CSRF"].ToString() == "1";
+        // Browser WebSocket and EventSource APIs cannot attach custom headers.
+        if (safe && (hub || socket)) return sameOrigin || fetchSite == "same-origin" || hasHeader;
+        return hasHeader;
+    }
+
     internal static Requirement GetRequirement(string service, string method, string path)
     {
         if (path is "" or "/" || path.StartsWith("/health") || path.StartsWith("/swagger")) return Requirement.Public;

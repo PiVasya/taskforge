@@ -46,14 +46,14 @@ public sealed class IdentityAccessTests
         context.Request.Scheme = "https";
         var access = IdentityApiCommonService.IssueLoginSession(context, user, BuildConfig(), ["User"], rememberMe);
         var cookies = context.Response.Headers["Set-Cookie"].Select(value => value ?? string.Empty).ToArray();
-        var accessCookie = Assert.Single(cookies.Where(value => value.StartsWith("tf_at=", StringComparison.Ordinal)));
+        var accessCookie = Assert.Single(cookies, value => value.StartsWith("tf_at=", StringComparison.Ordinal));
         Assert.Contains(access, accessCookie);
         Assert.True(accessCookie.Contains("httponly", StringComparison.OrdinalIgnoreCase));
         Assert.True(accessCookie.Contains("secure", StringComparison.OrdinalIgnoreCase));
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(access);
         Assert.Equal("access", jwt.Claims.Single(c => c.Type == "token_type").Value);
 
-        var refreshCookie = Assert.Single(cookies.Where(value => value.StartsWith("tf_rt=", StringComparison.Ordinal)));
+        var refreshCookie = Assert.Single(cookies, value => value.StartsWith("tf_rt=", StringComparison.Ordinal));
         if (rememberMe)
         {
             var token = refreshCookie.Split(';')[0]["tf_rt=".Length..];
@@ -66,7 +66,7 @@ public sealed class IdentityAccessTests
         else
         {
             // Only an expired deletion cookie is sent, never a signed refresh JWT.
-            Assert.True(refreshCookie.StartsWith("tf_rt=;", StringComparison.Ordinal));
+            Assert.StartsWith("tf_rt=;", refreshCookie, StringComparison.Ordinal);
         }
     }
 
@@ -79,7 +79,7 @@ public sealed class IdentityAccessTests
         IdentityApiCommonService.ClearRefreshCookie(context);
         var cookies = context.Response.Headers["Set-Cookie"].ToArray();
         Assert.Contains(cookies, cookie => cookie!.StartsWith("tf_at=access-jwt", StringComparison.Ordinal));
-        Assert.True(cookies.Last()!.StartsWith("tf_rt=;", StringComparison.Ordinal));
+        Assert.StartsWith("tf_rt=;", cookies.Last()!, StringComparison.Ordinal);
     }
 
     [Fact]

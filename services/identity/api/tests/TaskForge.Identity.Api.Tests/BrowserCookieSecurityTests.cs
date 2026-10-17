@@ -118,7 +118,7 @@ public sealed class BrowserCookieSecurityTests
         await app.Build()(context);
         Assert.False(called);
         Assert.Equal(403, context.Response.StatusCode);
-        Assert.Empty(context.Response.Headers.SetCookie);
+        Assert.Equal(0, context.Response.Headers.SetCookie.Count);
         Assert.Equal("no-store", context.Response.Headers.CacheControl.ToString());
     }
 
