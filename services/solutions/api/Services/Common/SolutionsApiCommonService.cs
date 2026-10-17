@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
@@ -20,10 +20,32 @@ namespace TaskForge.Solutions.Api.Services.Common;
 
 internal static class SolutionsApiCommonService
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> QuotaLocks = new(StringComparer.Ordinal);
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> LeaderboardViewLocks = new(StringComparer.Ordinal);
-    private static readonly ConcurrentDictionary<string, DateTimeOffset> LeaderboardViewFallback = new(StringComparer.Ordinal);
-    private static long LeaderboardViewFallbackSweepCounter;
+    // Fixed lock stripes avoid retaining one SemaphoreSlim for every user ever seen.
+    // Each key always maps to the same stripe while the process is running; no lock
+    // can be evicted while an operation is waiting for or holding it.
+    private static readonly SemaphoreSlim[] QuotaGates = CreateGates();
+    private static readonly SemaphoreSlim[] LeaderboardViewGates = CreateGates();
+    private static readonly MemoryCache LeaderboardViewFallback = new(new MemoryCacheOptions
+    {
+        SizeLimit = 8192,
+        CompactionPercentage = 0.25
+    });
+
+    private static SemaphoreSlim[] CreateGates()
+        => Enumerable.Range(0, 256).Select(static _ => new SemaphoreSlim(1, 1)).ToArray();
+
+    private static SemaphoreSlim QuotaGate(Guid userId, string bucket)
+        => QuotaGates[(int)((uint)HashCode.Combine(userId, bucket) % (uint)QuotaGates.Length)];
+
+    private static SemaphoreSlim LeaderboardViewGate(Guid userId)
+        => LeaderboardViewGates[(int)((uint)userId.GetHashCode() % (uint)LeaderboardViewGates.Length)];
+
+    private static void RememberLeaderboardView(string key, DateTimeOffset expiresAt)
+        => LeaderboardViewFallback.Set(key, expiresAt, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpiration = expiresAt,
+            Size = 1
+        });
     internal static IResult? CheckUserRateLimit(HttpContext http, IConfiguration cfg, string bucket)
     {
         if (HasUnlimitedTaskRateLimit(http, cfg))
@@ -192,25 +214,37 @@ internal static class SolutionsApiCommonService
 
     internal static string UserSummaryHaystack(UserSummaryDto? user, Guid id) => NormalizeSearch($"{id} {user?.Login} {user?.MaskedEmail} {user?.DisplayName} {user?.FirstName} {user?.LastName}");
 
-    internal static int Levenshtein(string a, string b)
+    internal static int Levenshtein(string a, string b, int maxDistance = int.MaxValue)
     {
         if (a == b) return 0;
         if (a.Length == 0) return b.Length;
         if (b.Length == 0) return a.Length;
+        // Admin search only accepts distances up to four. Do not spend O(n*m)
+        // CPU on very different names or attacker-controlled long strings.
+        var bounded = maxDistance != int.MaxValue;
+        if (bounded && System.Math.Abs(a.Length - b.Length) > maxDistance)
+            return maxDistance + 1;
+        var infinity = bounded ? maxDistance + 1 : int.MaxValue;
         var prev = new int[b.Length + 1];
         var cur = new int[b.Length + 1];
         for (var j = 0; j <= b.Length; j++) prev[j] = j;
         for (var i = 1; i <= a.Length; i++)
         {
+            if (bounded) Array.Fill(cur, infinity);
             cur[0] = i;
-            for (var j = 1; j <= b.Length; j++)
+            var lower = bounded ? System.Math.Max(1, i - maxDistance) : 1;
+            var upper = bounded ? System.Math.Min(b.Length, i + maxDistance) : b.Length;
+            var rowMin = cur[0];
+            for (var j = lower; j <= upper; j++)
             {
                 var cost = a[i - 1] == b[j - 1] ? 0 : 1;
                 cur[j] = System.Math.Min(System.Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                rowMin = System.Math.Min(rowMin, cur[j]);
             }
+            if (bounded && rowMin > maxDistance) return maxDistance + 1;
             (prev, cur) = (cur, prev);
         }
-        return prev[b.Length];
+        return bounded && prev[b.Length] > maxDistance ? maxDistance + 1 : prev[b.Length];
     }
 
     internal static (int Capacity, TimeSpan Interval) QuotaPolicy(IConfiguration cfg, string bucket)
@@ -237,7 +271,7 @@ internal static class SolutionsApiCommonService
     internal static async Task<QuotaView> StatusFor(SolutionsDbContext db, Guid userId, string bucket, int capacity, TimeSpan interval, CancellationToken ct = default)
     {
         var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
-        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        var gate = QuotaGate(userId, normalized);
         await gate.WaitAsync(ct);
         try
         {
@@ -288,20 +322,19 @@ internal static class SolutionsApiCommonService
         var ttlSeconds = System.Math.Clamp(cfg.GetValue("Quotas:Top:ViewSessionSeconds", 7200), 60, 86400);
         var expiresAt = DateTimeOffset.UtcNow.AddSeconds(ttlSeconds);
         var key = TaskForgeCache.Key("leaderboard-view", userId, viewId.Value);
-        var gate = LeaderboardViewLocks.GetOrAdd($"{userId:N}:top-view", static _ => new SemaphoreSlim(1, 1));
+        var gate = LeaderboardViewGate(userId);
         await gate.WaitAsync(ct);
         try
         {
             var now = DateTimeOffset.UtcNow;
-            PruneLeaderboardViewFallback(now);
-            if (LeaderboardViewFallback.TryGetValue(key, out var localExpiry))
+            if (LeaderboardViewFallback.TryGetValue(key, out DateTimeOffset localExpiry))
             {
                 if (localExpiry > now)
                 {
                     var current = await StatusFor(db, userId, "top", policy.Capacity, policy.Interval, ct);
                     return new QuotaMutationResult(true, current);
                 }
-                LeaderboardViewFallback.TryRemove(key, out _);
+                LeaderboardViewFallback.Remove(key);
             }
 
             try
@@ -309,7 +342,7 @@ internal static class SolutionsApiCommonService
                 var cached = await cache.GetStringAsync(key, ct);
                 if (!string.IsNullOrWhiteSpace(cached))
                 {
-                    LeaderboardViewFallback[key] = expiresAt;
+                    RememberLeaderboardView(key, expiresAt);
                     var current = await StatusFor(db, userId, "top", policy.Capacity, policy.Interval, ct);
                     return new QuotaMutationResult(true, current);
                 }
@@ -323,7 +356,7 @@ internal static class SolutionsApiCommonService
             var consumed = await ConsumeQuotaAsync(db, userId, "top", policy.Capacity, policy.Interval, 1, ct);
             if (!consumed.consumed) return consumed;
 
-            LeaderboardViewFallback[key] = expiresAt;
+            RememberLeaderboardView(key, expiresAt);
             try
             {
                 await cache.SetStringAsync(
@@ -357,7 +390,7 @@ internal static class SolutionsApiCommonService
     {
         var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
         amount = System.Math.Clamp(amount, 1, capacity);
-        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        var gate = QuotaGate(userId, normalized);
         await gate.WaitAsync(ct);
         try
         {
@@ -415,7 +448,7 @@ internal static class SolutionsApiCommonService
     {
         var normalized = string.Equals(bucket, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "tasks";
         amount = System.Math.Clamp(amount, 1, capacity);
-        var gate = QuotaLocks.GetOrAdd($"{userId:N}:{normalized}", static _ => new SemaphoreSlim(1, 1));
+        var gate = QuotaGate(userId, normalized);
         await gate.WaitAsync(ct);
         try
         {
@@ -478,15 +511,6 @@ internal static class SolutionsApiCommonService
             retryAfterSeconds = quota.retryAfterSeconds,
             nextRefillAtUtc = quota.nextRefillAtUtc
         }, statusCode: StatusCodes.Status429TooManyRequests);
-    }
-
-    private static void PruneLeaderboardViewFallback(DateTimeOffset now)
-    {
-        if ((Interlocked.Increment(ref LeaderboardViewFallbackSweepCounter) & 255) != 0) return;
-        foreach (var item in LeaderboardViewFallback)
-        {
-            if (item.Value <= now) LeaderboardViewFallback.TryRemove(item.Key, out _);
-        }
     }
 
     private static bool ApplyQuotaRefill(UserQuotaBucket row, int capacity, TimeSpan interval, DateTimeOffset now)

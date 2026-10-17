@@ -82,7 +82,7 @@ internal static partial class SolutionsApiEndpoints
                     ("assignment", sub.AssignmentId),
                     ("previousVerdict", previous),
                     ("incomingVerdict", incomingVerdict));
-                return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
+                return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = sub.Id, status = sub.Status, score = sub.Score, applied = false });
             }
 
             var previousScore = sub.Score;
@@ -110,7 +110,7 @@ internal static partial class SolutionsApiEndpoints
                 ("verdict", sub.Status),
                 ("score", sub.Score),
                 ("accepted", string.Equals(sub.Status, "Accepted", StringComparison.OrdinalIgnoreCase)));
-            return Microsoft.AspNetCore.Http.Results.Ok(ToDto(sub, includeSensitiveResult: true));
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = sub.Id, status = sub.Status, score = sub.Score, applied = true });
         });
 
 
@@ -132,14 +132,21 @@ internal static partial class SolutionsApiEndpoints
             var imageCount = await imageQuery.CountAsync(ct);
             var passedImageCount = await imageQuery.CountAsync(x => x.Passed, ct);
 
+            // Only project fields consumed by the summary. Materializing the
+            // complete entities would also load potentially enormous ResultJson
+            // blobs left by prior judge runs, even though they are not returned.
             var codeRows = await codeQuery
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(500)
+                .Select(x => new { x.Id, x.UserId, x.AssignmentId, x.Language, x.Status,
+                    x.Score, x.CreatedAt, x.ExecutionTarget, x.SqlSpecVersionId, x.Code })
                 .ToListAsync(ct);
 
             var imageRows = await imageQuery
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(500)
+                .Select(x => new { x.Id, x.UserId, x.AssignmentId, x.Language,
+                    x.Passed, x.SimilarityPercent, x.CreatedAt, x.Code })
                 .ToListAsync(ct);
 
             var codeAttempts = codeRows.Select(x => new
@@ -218,11 +225,18 @@ internal static partial class SolutionsApiEndpoints
             var to = toUtc ?? DateTimeOffset.UtcNow;
             var from = fromUtc ?? to.AddDays(-days);
 
+            // A statistics query must not materialize Code or ResultJson for
+            // every submission in the date range. Large historical judge
+            // results can be many megabytes each.
             var codeRows = await db.Submissions.AsNoTracking()
                 .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .Select(x => new { x.AssignmentId, x.UserId, x.Language, x.Status,
+                    x.Score, x.CreatedAt })
                 .ToListAsync(ct);
             var imageRows = await db.ImageSolutions.AsNoTracking()
                 .Where(x => x.CreatedAt >= from && x.CreatedAt <= to)
+                .Select(x => new { x.AssignmentId, x.UserId, x.Language,
+                    x.Passed, x.SimilarityPercent, x.CreatedAt })
                 .ToListAsync(ct);
 
             var attempts = codeRows.Select(x => new SolutionAnalyticsAttemptRow

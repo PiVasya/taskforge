@@ -18,12 +18,34 @@ public sealed partial class Worker
     private sealed record CompleteExecutionJobRequest(string Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result);
     private sealed record SolutionVerdictRequest(string Verdict, int Score, string Message, JsonElement? Result);
 
+    // Go runner success payloads normally contain only { "results": [...] }.
+    // The caller already receives both public result aliases (results/cases),
+    // so embedding the same array a third time under raw is redundant.
+    internal static bool RawDuplicatesResults(JsonElement? raw, JsonElement? results)
+    {
+        if (!raw.HasValue || raw.Value.ValueKind != JsonValueKind.Object
+            || !results.HasValue || results.Value.ValueKind != JsonValueKind.Array)
+            return false;
+
+        var hasArray = false;
+        foreach (var property in raw.Value.EnumerateObject())
+        {
+            if (!property.NameEquals("results") && !property.NameEquals("cases") && !property.NameEquals("testCases"))
+                return false;
+            if (property.Value.ValueKind != JsonValueKind.Array) return false;
+            hasArray = true;
+        }
+        return hasArray;
+    }
+
     private sealed record RunnerResult(string Verdict, int Score, bool Passed, JsonElement? Raw, JsonElement? Results, string? Stdout, string? Stderr, int? ExitCode, bool CompileError)
     {
         public string Message => Verdict switch
         {
             "Accepted" => "Все тесты пройдены.",
             "CompileError" => "Ошибка компиляции.",
+            "OutputLimitExceeded" => "Программа превысила допустимый объём вывода.",
+            "TimeLimitExceeded" => "Программа превысила лимит времени выполнения.",
             "PolicyFailed" => string.IsNullOrWhiteSpace(Stderr) ? "Код не соответствует правилам задания." : Stderr,
             "NoTestsConfigured" => "Для задания не настроены тесты.",
             "JudgeUnavailable" => "Judge pipeline временно недоступен.",
@@ -42,7 +64,7 @@ public sealed partial class Worker
                 message = Message,
                 results = Results,
                 cases = Results,
-                raw = Raw
+                raw = RawDuplicatesResults(Raw, Results) ? null : Raw
             }, JsonOptions));
         }
 

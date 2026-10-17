@@ -58,13 +58,17 @@ internal static partial class SolutionsApiEndpoints
             }
 
             var since = days.HasValue && days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-days.Value) : (DateTimeOffset?)null;
+            // A leaderboard never needs source code, test output or ResultJson.
+            // Project before materializing to avoid allocating historic large verdicts.
             var codeRows = await db.Submissions.AsNoTracking()
                 .Where(x => x.UserId.HasValue && x.Status == "Accepted")
                 .Where(x => !since.HasValue || x.CreatedAt >= since.Value)
+                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
                 .ToListAsync(ct);
             var imageRows = await db.ImageSolutions.AsNoTracking()
                 .Where(x => x.Passed)
                 .Where(x => !since.HasValue || x.CreatedAt >= since.Value)
+                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
                 .ToListAsync(ct);
 
             if (groupUserIds is { Length: > 0 })
@@ -75,8 +79,8 @@ internal static partial class SolutionsApiEndpoints
             }
             else if (groupId.HasValue)
             {
-                codeRows = new List<SolutionSubmission>();
-                imageRows = new List<UserImageTaskSolution>();
+                codeRows = [];
+                imageRows = [];
             }
 
             var assignmentIds = codeRows.Select(x => x.AssignmentId).Concat(imageRows.Select(x => x.AssignmentId)).Distinct().ToArray();
@@ -126,7 +130,7 @@ internal static partial class SolutionsApiEndpoints
 
             var users = await LoadUserSummariesAsync(aggregated.Select(x => x.UserId), cfg, httpFactory, ct);
             var badges = await LoadBadgeMapAsync(db, aggregated.Select(x => x.UserId), ct);
-            var search = NormalizeSearch(q);
+            var search = NormalizeSearch(q is { Length: > 128 } ? q[..128] : q);
 
             var filtered = aggregated
                 .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })

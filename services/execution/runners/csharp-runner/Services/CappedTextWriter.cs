@@ -2,6 +2,11 @@ using System.Text;
 
 namespace Runner.Services;
 
+internal sealed class OutputLimitExceededException : IOException
+{
+    public OutputLimitExceededException() : base("Output limit exceeded") { }
+}
+
 internal sealed class CappedTextWriter : TextWriter
 {
     private readonly StringBuilder _buffer;
@@ -14,13 +19,22 @@ internal sealed class CappedTextWriter : TextWriter
     }
 
     public override Encoding Encoding => Encoding.UTF8;
+    public bool LimitExceeded { get; private set; }
+
+    private void SignalOutputLimit()
+    {
+        LimitExceeded = true;
+        throw new OutputLimitExceededException();
+    }
 
     public override void Write(char value)
     {
-        if (_buffer.Length < _maxChars)
+        if (_buffer.Length >= _maxChars)
         {
-            _buffer.Append(value);
+            SignalOutputLimit();
+            return;
         }
+        _buffer.Append(value);
     }
 
     public override void Write(char[] buffer, int index, int count)
@@ -30,10 +44,8 @@ internal sealed class CappedTextWriter : TextWriter
             throw new ArgumentNullException(nameof(buffer));
         }
         var available = _maxChars - _buffer.Length;
-        if (available > 0)
-        {
-            _buffer.Append(buffer, index, Math.Min(count, available));
-        }
+        if (available > 0) _buffer.Append(buffer, index, Math.Min(count, available));
+        if (count > available) SignalOutputLimit();
     }
 
     public override void Write(string? value)
@@ -43,10 +55,8 @@ internal sealed class CappedTextWriter : TextWriter
             return;
         }
         var available = _maxChars - _buffer.Length;
-        if (available > 0)
-        {
-            _buffer.Append(value, 0, Math.Min(value.Length, available));
-        }
+        if (available > 0) _buffer.Append(value, 0, Math.Min(value.Length, available));
+        if (value.Length > available) SignalOutputLimit();
     }
 
     public override string ToString() => _buffer.ToString();

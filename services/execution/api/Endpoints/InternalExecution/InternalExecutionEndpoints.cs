@@ -41,7 +41,7 @@ internal static partial class ExecutionApiEndpoints
             };
             db.ExecutionJobs.Add(job);
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToJobDto(job));
+            return Microsoft.AspNetCore.Http.Results.Ok(new { id = job.Id, status = job.Status });
         });
 
         app.MapPost("/api/internal/execution/jobs/claim-next", async (ExecutionDbContext db, IConfiguration cfg, CancellationToken ct) =>
@@ -108,7 +108,7 @@ internal static partial class ExecutionApiEndpoints
             result.ResultJson = request.Result.HasValue ? request.Result.Value.GetRawText() : null;
 
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { job = ToJobDto(job), result });
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = job.Id, status = job.Status });
         });
 
         return app;

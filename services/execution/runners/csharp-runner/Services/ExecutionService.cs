@@ -100,19 +100,19 @@ public sealed class ExecutionService : IExecutionService
                 var stdoutTask = ReadLimitedAsync(process.StandardOutput, MaxProtocolChars, cancellationToken);
                 var stderrTask = ReadLimitedAsync(process.StandardError, MaxDiagnosticChars, cancellationToken);
 
-                await process.StandardInput.WriteAsync(json.AsMemory(), cancellationToken);
-                await process.StandardInput.FlushAsync(cancellationToken);
-                process.StandardInput.Close();
-
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(timeLimitMs + 2_000));
+                timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(timeLimitMs));
 
                 try
                 {
+                    await process.StandardInput.WriteAsync(json.AsMemory(), timeoutCts.Token);
+                    await process.StandardInput.FlushAsync(timeoutCts.Token);
+                    process.StandardInput.Close();
                     await process.WaitForExitAsync(timeoutCts.Token);
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
+                    Console.Error.WriteLine($"[TFJUDGE PROCESS TERMINATION] runner=csharp reason=time_limit pid={process.Id} timeout_ms={timeLimitMs}");
                     TryKill(process);
                     await WaitAfterKillAsync(process);
                     _ = await stdoutTask;
@@ -157,6 +157,10 @@ public sealed class ExecutionService : IExecutionService
                     return (false, "", "Empty exec response.", "runtime_error");
                 }
 
+                if (string.Equals(response.Error, "Output limit exceeded", StringComparison.Ordinal))
+                {
+                    return (false, Limit(response.Stdout, RunnerLimits.MaxTestResultPreviewChars), response.Error, "output_limit");
+                }
                 return response.Ok
                     ? (true, Limit(response.Stdout, RunnerLimits.MaxOutputChars), "", "ok")
                     : (false, Limit(response.Stdout, RunnerLimits.MaxOutputChars), Limit(response.Error, MaxDiagnosticChars), "runtime_error");

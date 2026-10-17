@@ -12,6 +12,18 @@ internal static class RunnerLimits
     public const int MaxTestsPerRequest = 128;
     public const int MaxTotalTestDataBytes = 12 * 1024 * 1024;
     public const int MaxOutputChars = 1_000_000;
+    public const int MaxTestResultPreviewChars = 8 * 1024;
+
+    public static int BatchTestResultPreviewChars(int testCount)
+    {
+        const int workerResponseBytes = 2 * 1024 * 1024;
+        const int responseOverheadBytes = 256 * 1024;
+        const int fieldsPerCase = 4;
+        const int worstCaseJsonEscaping = 6;
+        var tests = Math.Clamp(testCount, 1, MaxTestsPerRequest);
+        return Math.Min(MaxTestResultPreviewChars, (workerResponseBytes - responseOverheadBytes)
+            / (tests * fieldsPerCase * worstCaseJsonEscaping));
+    }
     public const int MinTimeLimitMs = 100;
     public const int MaxTimeLimitMs = 30_000;
     public const int MinMemoryLimitMb = 128;

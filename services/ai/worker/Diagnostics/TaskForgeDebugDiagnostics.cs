@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 internal static class TaskForgeDebugDiagnostics
 {
     internal const int MaxLoggedBodyChars = 4000;
+    internal const int MaxCapturedBodyBytes = 64 * 1024;
 
     internal static bool Enabled => IsTruthy(Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS"));
 
@@ -79,7 +80,7 @@ internal static class TaskForgeDebugDiagnostics
 
             var captureResponse = ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType);
             var originalBody = context.Response.Body;
-            var responseBuffer = captureResponse ? new MemoryStream() : null;
+            var responseBuffer = captureResponse ? new BoundedDebugResponseStream(originalBody, MaxCapturedBodyBytes) : null;
             if (captureResponse && responseBuffer is not null)
             {
                 context.Response.Body = responseBuffer;
@@ -105,9 +106,10 @@ internal static class TaskForgeDebugDiagnostics
                 {
                     responseBuffer.Position = 0;
                     responseText = await TryReadResponseBodyAsync(responseBuffer, context.Response.ContentType, context.RequestAborted);
-                    responseBuffer.Position = 0;
-                    await responseBuffer.CopyToAsync(originalBody, context.RequestAborted);
+                    await responseBuffer.CompleteAsync(context.RequestAborted);
                     context.Response.Body = originalBody;
+                    logger.LogInformation("TFDBG IN RESPONSE-SIZE trace={TraceId} service={Service} path={Path} bytes={TotalBytes} previewTruncated={PreviewTruncated}",
+                        traceId, serviceName, context.Request.Path.Value, responseBuffer.TotalBytes, responseBuffer.PreviewTruncated);
                     if (!string.IsNullOrWhiteSpace(responseText))
                     {
                         responseSummary = TaskForgeDebugPayloadSummary.FromJsonLike(responseText);
@@ -198,11 +200,12 @@ internal static class TaskForgeDebugDiagnostics
     private static async Task<string?> TryReadRequestBodyAsync(HttpRequest request, CancellationToken ct)
     {
         if (request.ContentLength is null or <= 0 || request.Body is null) return null;
+        if (request.ContentLength > MaxCapturedBodyBytes) return $"<request body length={request.ContentLength} preview=omitted>";
         if (request.ContentType?.Contains("multipart", StringComparison.OrdinalIgnoreCase) == true) return $"<multipart contentLength={request.ContentLength}>";
         if (request.ContentType?.Contains("octet-stream", StringComparison.OrdinalIgnoreCase) == true) return $"<binary contentLength={request.ContentLength}>";
         try
         {
-            request.EnableBuffering(bufferThreshold: 64 * 1024, bufferLimit: 8 * 1024 * 1024);
+            request.EnableBuffering(bufferThreshold: 64 * 1024, bufferLimit: MaxCapturedBodyBytes);
             using var reader = new StreamReader(request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
             var text = await reader.ReadToEndAsync(ct);
             request.Body.Position = 0;
@@ -230,6 +233,109 @@ internal static class TaskForgeDebugDiagnostics
             return $"<response-read-failed {ex.GetType().Name}: {ex.Message}>";
         }
     }
+    // A debug preview must never retain an unbounded API response on the managed heap.
+    // Small JSON responses preserve the old capture-then-forward behavior; large
+    // responses switch to direct delivery as soon as the bounded preview fills.
+    private sealed class BoundedDebugResponseStream : MemoryStream
+    {
+        private readonly Stream _destination;
+        private readonly int _maxBytes;
+        private bool _forwarding;
+
+        internal BoundedDebugResponseStream(Stream destination, int maxBytes)
+        {
+            _destination = destination;
+            _maxBytes = maxBytes;
+        }
+
+        internal long TotalBytes { get; private set; }
+        internal bool PreviewTruncated => TotalBytes > Length;
+
+        public override void Write(byte[] buffer, int offset, int count)
+            => Write(buffer.AsSpan(offset, count));
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            TotalBytes += buffer.Length;
+            if (_forwarding)
+            {
+                _destination.Write(buffer);
+                return;
+            }
+
+            var available = _maxBytes - (int)Length;
+            if (buffer.Length <= available)
+            {
+                base.Write(buffer);
+                return;
+            }
+
+            if (available > 0) base.Write(buffer[..available]);
+            _forwarding = true;
+            Position = 0;
+            base.CopyTo(_destination);
+            _destination.Write(buffer[available..]);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            TotalBytes += buffer.Length;
+            if (_forwarding)
+            {
+                await _destination.WriteAsync(buffer, cancellationToken);
+                return;
+            }
+
+            var available = _maxBytes - (int)Length;
+            if (buffer.Length <= available)
+            {
+                base.Write(buffer.Span);
+                return;
+            }
+
+            if (available > 0) base.Write(buffer.Span[..available]);
+            _forwarding = true;
+            Position = 0;
+            await base.CopyToAsync(_destination, cancellationToken);
+            await _destination.WriteAsync(buffer[available..], cancellationToken);
+        }
+
+        public override void WriteByte(byte value) => Write(new[] { value }, 0, 1);
+        public override void Flush()
+        {
+            if (!_forwarding)
+            {
+                _forwarding = true;
+                Position = 0;
+                base.CopyTo(_destination);
+            }
+            _destination.Flush();
+        }
+
+        public override async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            if (!_forwarding)
+            {
+                _forwarding = true;
+                Position = 0;
+                await base.CopyToAsync(_destination, cancellationToken);
+            }
+            await _destination.FlushAsync(cancellationToken);
+        }
+
+        internal async Task CompleteAsync(CancellationToken cancellationToken)
+        {
+            if (!_forwarding)
+            {
+                Position = 0;
+                await base.CopyToAsync(_destination, cancellationToken);
+            }
+        }
+    }
+
 }
 
 internal sealed record TaskForgeDebugServiceName(string Value);
@@ -369,9 +475,18 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
         {
             return $"<{media} length={content.Headers.ContentLength?.ToString() ?? "unknown"}>";
         }
+        // A streaming/unknown-length HttpContent must never be probed by the
+        // diagnostic middleware: probing can consume a non-replayable payload.
+        if (content.Headers.ContentLength is not long contentLength
+            || contentLength > TaskForgeDebugDiagnostics.MaxCapturedBodyBytes)
+            return $"<content length={content.Headers.ContentLength?.ToString() ?? "unknown"} preview=omitted>";
+        // HttpClient response streams and JsonContent requests may be non-replayable.
+        // Diagnostics may only inspect an already materialized, bounded byte array;
+        // probing a live HTTP stream can consume it before the actual caller does.
+        if (content is not ByteArrayContent)
+            return $"<content length={content.Headers.ContentLength?.ToString() ?? "unknown"} preview=omitted-unbuffered>";
         try
         {
-            await content.LoadIntoBufferAsync(8 * 1024 * 1024);
             var text = await content.ReadAsStringAsync(ct);
             return TaskForgeDebugDiagnostics.Redact(text);
         }

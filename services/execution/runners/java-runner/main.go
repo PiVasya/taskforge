@@ -21,19 +21,20 @@ import (
 )
 
 const (
-	maxOutLen              = 1_000_000
-	maxRequestBytes        = 16 << 20
-	maxCodeBytes           = 1 << 20
-	maxInputBytes          = 1 << 20
-	maxExpectedOutputBytes = 1 << 20
-	maxTestsPerRequest     = 128
-	maxTotalTestDataBytes  = 12 << 20
-	minTimeLimitMs         = 100
-	maxTimeLimitMs         = 30_000
-	minMemoryLimitMb       = 32
-	maxMemoryLimitMb       = 512
-	maxBatchDuration       = 40 * time.Second
-	prSetDumpable          = 4
+	maxOutLen                 = 1_000_000
+	maxTestResultPreviewBytes = 8 * 1024
+	maxRequestBytes           = 16 << 20
+	maxCodeBytes              = 1 << 20
+	maxInputBytes             = 1 << 20
+	maxExpectedOutputBytes    = 1 << 20
+	maxTestsPerRequest        = 128
+	maxTotalTestDataBytes     = 12 << 20
+	minTimeLimitMs            = 100
+	maxTimeLimitMs            = 30_000
+	minMemoryLimitMb          = 32
+	maxMemoryLimitMb          = 512
+	maxBatchDuration          = 40 * time.Second
+	prSetDumpable             = 4
 )
 
 type runRequest struct {
@@ -86,8 +87,10 @@ func scrubHiddenResult(r testResult) testResult {
 }
 
 type limitedBuffer struct {
-	buf bytes.Buffer
-	max int
+	buf      bytes.Buffer
+	max      int
+	onLimit  func()
+	exceeded bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -102,6 +105,12 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 			_, _ = b.buf.Write(p)
 		}
 	}
+	if len(p) > left && !b.exceeded {
+		b.exceeded = true
+		if b.onLimit != nil {
+			b.onLimit()
+		}
+	}
 	return len(p), nil
 }
 
@@ -109,11 +118,60 @@ func (b *limitedBuffer) String() string {
 	return strings.ReplaceAll(b.buf.String(), "\r\n", "\n")
 }
 
+// Judge against the complete bounded stdout above; return only a small preview
+// in the result JSON to avoid multiplying megabytes across results/cases/raw.
+func previewCaseText(s string) string {
+	return previewCaseTextWithLimit(s, maxTestResultPreviewBytes)
+}
+
+// The worker accepts at most 2 MiB of runner JSON. At the maximum 128
+// tests, four independently escaped fields per result would exceed that
+// limit even though every individual field was correctly truncated.
+// Leave 256 KiB for JSON metadata and truncation markers. Six is the
+// maximum JSON expansion for one byte (e.g. a control character).
+func testBatchPreviewLimit(testCount int) int {
+	if testCount < 1 {
+		testCount = 1
+	}
+	const envelopeBytes = 2 * 1024 * 1024
+	const jsonOverheadBytes = 256 * 1024
+	const fieldsPerCase = 4
+	const worstCaseEscapeExpansion = 6
+	limit := (envelopeBytes - jsonOverheadBytes) / (testCount * fieldsPerCase * worstCaseEscapeExpansion)
+	if limit > maxTestResultPreviewBytes {
+		return maxTestResultPreviewBytes
+	}
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
+func previewCaseTextWithLimit(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	end := maxBytes
+	for end > 0 && (s[end]&0xc0) == 0x80 {
+		end--
+	}
+	return s[:end] + "...<preview truncated>"
+}
+
+func previewCompilerDiagnostic(s *string, maxBytes int) *string {
+	if s == nil {
+		return nil
+	}
+	preview := previewCaseTextWithLimit(*s, maxBytes)
+	return &preview
+}
+
 type commandResult struct {
-	ExitCode int
-	Stdout   string
-	Stderr   string
-	TimedOut bool
+	ExitCode      int
+	Stdout        string
+	Stderr        string
+	TimedOut      bool
+	OutputLimited bool
 }
 
 type preparedProgram struct {
@@ -356,8 +414,15 @@ func runCommandWithEnvContext(parent context.Context, name string, args []string
 	cmd.Stdin = strings.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 
-	stdout := &limitedBuffer{max: maxOutLen}
-	stderr := &limitedBuffer{max: maxOutLen}
+	outputLimit := make(chan struct{}, 1)
+	onOutputLimit := func() {
+		select {
+		case outputLimit <- struct{}{}:
+		default:
+		}
+	}
+	stdout := &limitedBuffer{max: maxOutLen, onLimit: onOutputLimit}
+	stderr := &limitedBuffer{max: maxOutLen, onLimit: onOutputLimit}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -365,14 +430,24 @@ func runCommandWithEnvContext(parent context.Context, name string, args []string
 		return commandResult{ExitCode: 127, Stderr: friendlyRunnerError(err.Error())}
 	}
 
+	processStarted := time.Now()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
 	var waitErr error
 	select {
 	case waitErr = <-done:
+	case <-outputLimit:
+		if cmd.Process != nil {
+			log.Printf("[TFJUDGE PROCESS TERMINATION] reason=output_limit pid=%d elapsed_ms=%d stdout_bytes=%d stderr_bytes=%d", cmd.Process.Pid, time.Since(processStarted).Milliseconds(), stdout.buf.Len(), stderr.buf.Len())
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = cmd.Process.Kill()
+		}
+		<-done
+		return commandResult{ExitCode: 125, Stdout: stdout.String(), Stderr: "Output limit exceeded", OutputLimited: true}
 	case <-ctx.Done():
 		if cmd.Process != nil {
+			log.Printf("[TFJUDGE PROCESS TERMINATION] reason=time_limit_or_cancel pid=%d elapsed_ms=%d timeout_ms=%d parent_cancelled=%t", cmd.Process.Pid, time.Since(processStarted).Milliseconds(), timeout.Milliseconds(), parent.Err() != nil)
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			_ = cmd.Process.Kill()
 		}
@@ -425,6 +500,19 @@ func nodeHeapMb(memMb int) int {
 	return heap
 }
 
+// Compiler and preflight timeouts are terminal time-limit verdicts, not
+// evidence of an invalid source. In particular a cancelled subprocess may
+// also carry stderr and a nonzero exit code.
+func compileTimedOutResult(command commandResult) *processResult {
+	if !command.TimedOut {
+		return nil
+	}
+	return &processResult{
+		Status: "time_limit", ExitCode: 124,
+		Stderr: "Compilation time limit exceeded",
+	}
+}
+
 func compileProgram(kind, code, cwd string, timeMs, memMb int) (*preparedProgram, *processResult) {
 	return compileProgramContext(context.Background(), kind, code, cwd, timeMs, memMb)
 }
@@ -438,6 +526,9 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 			return nil, &processResult{Status: "runtime_error", ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
 		res := runCommandContext(parent, "g++", []string{"-std=c++17", "-O2", "-pipe", "-static-libgcc", "-static-libstdc++", "main.cpp", "-o", "a.out"}, cwd, "", timeoutDuration(timeMs))
+		if timedOut := compileTimedOutResult(res); timedOut != nil {
+			return nil, timedOut
+		}
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
@@ -457,6 +548,9 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
 		res := runCommandContext(parent, "javac", []string{"-encoding", "UTF-8", "-g:none", "-proc:none", "Main.java"}, cwd, "", timeoutDuration(timeMs))
+		if timedOut := compileTimedOutResult(res); timedOut != nil {
+			return nil, timedOut
+		}
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
@@ -488,6 +582,9 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
 		res := runCommandContext(parent, "python3", []string{"-I", "-B", "-m", "py_compile", "main.py"}, cwd, "", timeoutDuration(timeMs))
+		if timedOut := compileTimedOutResult(res); timedOut != nil {
+			return nil, timedOut
+		}
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
@@ -505,6 +602,9 @@ func compileProgramContext(parent context.Context, kind, code, cwd string, timeM
 			return nil, &processResult{ExitCode: 1, Stderr: sanitizeRunnerText(err.Error()), CompileStderr: nil}
 		}
 		res := runCommandContext(parent, "fpc", []string{"main.pas", "-O2", "-vw", "-omain"}, cwd, "", timeoutDuration(timeMs))
+		if timedOut := compileTimedOutResult(res); timedOut != nil {
+			return nil, timedOut
+		}
 		if res.ExitCode != 0 {
 			msg := strings.TrimSpace(res.Stdout + res.Stderr)
 			if msg == "" {
@@ -533,9 +633,11 @@ func executeProgramContext(parent context.Context, kind string, p *preparedProgr
 		return processResult{Status: "policy_error", ExitCode: 126, Stdout: "", Stderr: "Решение отклонено системой безопасности.", CompileStderr: nil}
 	}
 	extraEnv = append(extraEnv, p.Env...)
-	res := runCommandWithEnvContext(parent, p.Cmd, p.Args, p.Cwd, input, timeoutDuration(timeMs), extraEnv)
+	res := runCommandWithEnvContext(parent, p.Cmd, p.Args, p.Cwd, input, time.Duration(timeMs)*time.Millisecond, extraEnv)
 	status := "ok"
-	if res.TimedOut || res.ExitCode == 124 {
+	if res.OutputLimited {
+		status = "output_limit"
+	} else if res.TimedOut || res.ExitCode == 124 {
 		status = "time_limit"
 	} else if res.ExitCode != 0 {
 		status = "runtime_error"
@@ -716,6 +818,8 @@ func main() {
 		withJobSlot(w, r, func() {
 			timeMs := boundedIntValue(req.TimeLimitMs, defaultTimeMs(kind), minTimeLimitMs, maxTimeLimitMs)
 			memMb := boundedIntValue(req.MemoryLimitMb, defaultMemoryMb(kind), minMemoryLimitMb, maxMemoryLimitMb)
+			log.Printf("[TFJUDGE BATCH START] trace=%s runner=%s tests=%d time_limit_ms=%d memory_limit_mb=%d", r.Header.Get("X-TaskForge-Trace-Id"), kind, len(req.Tests), timeMs, memMb)
+			batchStarted := time.Now()
 			dir, err := os.MkdirTemp("", "taskforge-"+kind+"-tests-")
 			if err != nil {
 				sendJSON(w, http.StatusInternalServerError, map[string]any{"message": sanitizeRunnerText(err.Error())})
@@ -724,6 +828,7 @@ func main() {
 			defer os.RemoveAll(dir)
 			program, compileErr := compileProgramContext(r.Context(), kind, req.Code, dir, timeMs, memMb)
 			results := make([]testResult, 0, len(req.Tests))
+			previewLimit := testBatchPreviewLimit(len(req.Tests))
 			if compileErr != nil {
 				compileErr = sanitizeProcessResult(compileErr)
 				given, expected, hidden := "", "", false
@@ -732,26 +837,29 @@ func main() {
 					expected = strValue(req.Tests[0].ExpectedOutput)
 					hidden = req.Tests[0].IsHidden
 				}
-				results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: compileErr.Stdout, Passed: false, Status: compileErr.Status, ExitCode: compileErr.ExitCode, Stderr: compileErr.Stderr, CompileStderr: compileErr.CompileStderr, Hidden: hidden}))
+				results = append(results, scrubHiddenResult(testResult{Input: previewCaseTextWithLimit(given, previewLimit), ExpectedOutput: previewCaseTextWithLimit(expected, previewLimit), ActualOutput: previewCaseTextWithLimit(compileErr.Stdout, previewLimit), Passed: false, Status: compileErr.Status, ExitCode: compileErr.ExitCode, Stderr: previewCaseTextWithLimit(compileErr.Stderr, previewLimit), CompileStderr: previewCompilerDiagnostic(compileErr.CompileStderr, previewLimit), Hidden: hidden}))
 				sendJSON(w, http.StatusOK, map[string]any{"results": results})
 				return
 			}
 			batchContext, cancelBatch := context.WithTimeout(r.Context(), maxBatchDuration)
 			defer cancelBatch()
-			for _, t := range req.Tests {
+			for testIndex, t := range req.Tests {
 				given := strValue(t.Input)
 				expected := strValue(t.ExpectedOutput)
 				if batchContext.Err() != nil {
-					results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: "", Passed: false, Status: "time_limit", ExitCode: 124, Stderr: "Batch time limit exceeded", CompileStderr: nil, Hidden: t.IsHidden}))
+					results = append(results, scrubHiddenResult(testResult{Input: previewCaseTextWithLimit(given, previewLimit), ExpectedOutput: previewCaseTextWithLimit(expected, previewLimit), ActualOutput: "", Passed: false, Status: "time_limit", ExitCode: 124, Stderr: "Batch time limit exceeded", CompileStderr: nil, Hidden: t.IsHidden}))
 					break
 				}
+				caseStarted := time.Now()
 				run := executeProgramContext(batchContext, kind, program, given, timeMs)
 				passed := run.ExitCode == 0 && normalizeOutputForComparison(run.Stdout) == normalizeOutputForComparison(expected)
-				results = append(results, scrubHiddenResult(testResult{Input: given, ExpectedOutput: expected, ActualOutput: run.Stdout, Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: run.Stderr, CompileStderr: run.CompileStderr, Hidden: t.IsHidden}))
+				results = append(results, scrubHiddenResult(testResult{Input: previewCaseTextWithLimit(given, previewLimit), ExpectedOutput: previewCaseTextWithLimit(expected, previewLimit), ActualOutput: previewCaseTextWithLimit(run.Stdout, previewLimit), Passed: passed, Status: run.Status, ExitCode: run.ExitCode, Stderr: previewCaseTextWithLimit(run.Stderr, previewLimit), CompileStderr: run.CompileStderr, Hidden: t.IsHidden}))
+				log.Printf("[TFJUDGE CASE END] trace=%s runner=%s test_index=%d status=%s exit_code=%d duration_ms=%d stdout_bytes=%d stderr_bytes=%d passed=%t", r.Header.Get("X-TaskForge-Trace-Id"), kind, testIndex, run.Status, run.ExitCode, time.Since(caseStarted).Milliseconds(), len(run.Stdout), len(run.Stderr), passed)
 				if batchContext.Err() != nil {
 					break
 				}
 			}
+			log.Printf("[TFJUDGE BATCH END] trace=%s runner=%s completed_tests=%d requested_tests=%d duration_ms=%d cancelled=%t", r.Header.Get("X-TaskForge-Trace-Id"), kind, len(results), len(req.Tests), time.Since(batchStarted).Milliseconds(), batchContext.Err() != nil)
 			sendJSON(w, http.StatusOK, map[string]any{"results": results})
 		})
 	}

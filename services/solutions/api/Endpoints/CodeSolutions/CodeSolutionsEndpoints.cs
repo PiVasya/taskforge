@@ -32,9 +32,9 @@ internal static partial class SolutionsApiEndpoints
                 var since = DateTimeOffset.UtcNow.AddDays(-days.Value);
                 q = q.Where(x => x.CreatedAt >= since);
             }
-            var rows = await q.OrderByDescending(x => x.CreatedAt).Skip(System.Math.Max(0, skip)).Take(System.Math.Clamp(take, 1, 200)).ToListAsync(ct);
-            var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, IsEditor(http, cfg), metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            var ordered = q.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id);
+            return StreamSolutionHistory(ordered, System.Math.Max(0, skip),
+                System.Math.Clamp(take, 1, 200), false, IsEditor(http, cfg), cfg, httpFactory, ct);
         });
 
         app.MapGet("/api/code-solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
@@ -59,12 +59,35 @@ internal static partial class SolutionsApiEndpoints
 
             var limit = System.Math.Clamp(top, 1, 100);
             var canViewCode = isEditor || await db.Submissions.AsNoTracking().AnyAsync(x => x.AssignmentId == assignmentId && x.UserId == uid.Value && x.Status == "Accepted" && x.SqlSpecVersionId == null, ct);
-            var rows = await db.Submissions.AsNoTracking()
+            var ordered = db.Submissions.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted" && x.SqlSpecVersionId == null)
-                .OrderByDescending(x => x.Score).ThenBy(x => x.CreatedAt).Take(limit).ToListAsync(ct);
-            var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, ct);
-            var users = await LoadUserSummariesAsync(rows.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToTopSolutionDto(x, canViewCode || x.UserId == uid.Value, metadata.GetValueOrDefault(x.AssignmentId), x.UserId.HasValue ? users.GetValueOrDefault(x.UserId.Value) : null)).ToList());
+                .OrderByDescending(x => x.Score).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id);
+            return Microsoft.AspNetCore.Http.Results.Stream(async stream =>
+            {
+                using var writer = new Utf8JsonWriter(stream);
+                writer.WriteStartArray();
+                var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, ct);
+                for (var offset = 0; offset < limit; offset += 16)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var wanted = System.Math.Min(16, limit - offset);
+                    var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(ct);
+                    if (batch.Count == 0) break;
+                    var users = await LoadUserSummariesAsync(
+                        batch.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, ct);
+                    foreach (var row in batch)
+                    {
+                        var dto = ToTopSolutionDto(row, canViewCode || row.UserId == uid.Value,
+                            metadata.GetValueOrDefault(row.AssignmentId),
+                            row.UserId.HasValue ? users.GetValueOrDefault(row.UserId.Value) : null);
+                        JsonSerializer.Serialize(writer, dto, JsonOptions());
+                    }
+                    await writer.FlushAsync(ct);
+                    if (batch.Count < wanted) break;
+                }
+                writer.WriteEndArray();
+                await writer.FlushAsync(ct);
+            }, "application/json; charset=utf-8");
         });
 
         return app;

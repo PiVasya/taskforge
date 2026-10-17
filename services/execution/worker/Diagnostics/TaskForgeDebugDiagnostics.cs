@@ -116,9 +116,15 @@ internal sealed class TaskForgeDebugHttpHandler : DelegatingHandler
         {
             return $"<{media} length={content.Headers.ContentLength?.ToString() ?? "unknown"}>";
         }
+        // A non-replayable stream must never be consumed by diagnostic code.
+        // Logging the response metadata is safe even when it is arbitrarily large.
+        const int maxPreviewBytes = 64 * 1024;
+        if (content is not ByteArrayContent
+            || content.Headers.ContentLength is not long bodyLength
+            || bodyLength > maxPreviewBytes)
+            return $"<content length={content.Headers.ContentLength?.ToString() ?? "unknown"} preview=omitted-unbuffered>";
         try
         {
-            await content.LoadIntoBufferAsync(8 * 1024 * 1024);
             return TaskForgeDebugDiagnostics.Redact(await content.ReadAsStringAsync(ct));
         }
         catch (Exception ex)

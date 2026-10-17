@@ -30,17 +30,63 @@ internal static class TaskForgeApiRateLimiters
 
 internal sealed class SlidingWindowRateLimiter
 {
-    private readonly ConcurrentDictionary<string, Queue<long>> _hits = new();
+    // Once the table is full, unknown identities are rejected, not admitted
+    // without rate limiting. Existing identities retain their counters.
+    private const int DefaultMaxKeys = 8192;
+    private readonly object _sync = new();
+    private sealed class WindowHits(long durationMilliseconds)
+    {
+        internal readonly Queue<long> Times = new();
+        internal long DurationMilliseconds = durationMilliseconds;
+    }
+
+    private readonly Dictionary<string, WindowHits> _hits = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
+    private readonly int _maxKeys;
+    private long _nextFullSweepAt;
+
+    internal SlidingWindowRateLimiter(int maxKeys = DefaultMaxKeys, TimeProvider? time = null)
+    {
+        if (maxKeys < 1) throw new ArgumentOutOfRangeException(nameof(maxKeys));
+        _maxKeys = maxKeys;
+        _time = time ?? TimeProvider.System;
+    }
+
     public bool Allow(string key, int limit, TimeSpan window)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (string.IsNullOrEmpty(key) || key.Length > 512 || limit <= 0 || window <= TimeSpan.Zero)
+            return false;
+
+        var now = _time.GetUtcNow().ToUnixTimeMilliseconds();
         var min = now - (long)window.TotalMilliseconds;
-        var queue = _hits.GetOrAdd(key, _ => new Queue<long>());
-        lock (queue)
+        lock (_sync)
         {
-            while (queue.Count > 0 && queue.Peek() < min) queue.Dequeue();
-            if (queue.Count >= limit) return false;
-            queue.Enqueue(now);
+            if (!_hits.TryGetValue(key, out var queue))
+            {
+                if (_hits.Count >= _maxKeys)
+                {
+                    // Sweep at most once per second even during sustained abuse.
+                    if (now >= _nextFullSweepAt)
+                    {
+                        foreach (var entry in _hits.ToArray())
+                        {
+                            var oldestAllowed = now - entry.Value.DurationMilliseconds;
+                            while (entry.Value.Times.Count > 0 && entry.Value.Times.Peek() < oldestAllowed)
+                                entry.Value.Times.Dequeue();
+                            if (entry.Value.Times.Count == 0) _hits.Remove(entry.Key);
+                        }
+                        _nextFullSweepAt = now + 1000;
+                    }
+                    if (_hits.Count >= _maxKeys) return false;
+                }
+                queue = new WindowHits((long)window.TotalMilliseconds);
+                _hits.Add(key, queue);
+            }
+
+            queue.DurationMilliseconds = (long)window.TotalMilliseconds;
+            while (queue.Times.Count > 0 && queue.Times.Peek() < min) queue.Times.Dequeue();
+            if (queue.Times.Count >= limit) return false;
+            queue.Times.Enqueue(now);
             return true;
         }
     }

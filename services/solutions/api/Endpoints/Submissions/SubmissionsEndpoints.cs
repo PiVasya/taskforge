@@ -37,15 +37,9 @@ internal static partial class SolutionsApiEndpoints
                 q = q.Where(x => x.CreatedAt >= since);
             }
 
-            var rows = await q
-                .OrderByDescending(x => x.CreatedAt)
-                .ThenByDescending(x => x.Id)
-                .Skip(System.Math.Max(0, skip))
-                .Take(System.Math.Clamp(take, 1, 200))
-                .ToListAsync(ct);
-            var includeHiddenDetails = IsEditor(http, cfg);
-            var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToDto(x, includeHiddenDetails, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            var ordered = q.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id);
+            return StreamSolutionHistory(ordered, System.Math.Max(0, skip),
+                System.Math.Clamp(take, 1, 200), false, IsEditor(http, cfg), cfg, httpFactory, ct);
         });
 
         app.MapGet("/api/me/solutions/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
@@ -93,10 +87,9 @@ internal static partial class SolutionsApiEndpoints
             http.Response.Headers["X-Total-Count"] = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
             http.Response.Headers["X-Result-User-Id"] = userId.ToString("D");
 
-            // Restore the historical admin contract: a period request meant
-            // "load the whole matching history". The microservice split lost
-            // that branch and silently applied Take(50) after the date filter.
-            // all=true also makes the intent explicit for the current UI.
+            // Keep the historical all=true/period response shape, but stream
+            // it page by page. Old stored verdicts can contain megabytes of test
+            // output; ToListAsync() of the entire history exhausts RAM.
             var loadAll = ShouldLoadAllAdminHistory(all, days, take);
             var ordered = q
                 .OrderByDescending(x => x.CreatedAt)
@@ -113,15 +106,8 @@ internal static partial class SolutionsApiEndpoints
                     SqlSpecVersionId = x.SqlSpecVersionId,
                     CreatedAt = x.CreatedAt
                 });
-            var rows = loadAll
-                ? await ordered.ToListAsync(ct)
-                : await ordered
-                    .Skip(System.Math.Max(0, skip))
-                    .Take(System.Math.Clamp(take, 1, 200))
-                    .ToListAsync(ct);
-
-            var metadata = await LoadAssignmentMetadataAsync(rows.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(x => ToAdminHistoryDto(x, metadata.GetValueOrDefault(x.AssignmentId))).ToList());
+            return StreamSolutionHistory(ordered, loadAll ? 0 : System.Math.Max(0, skip),
+                loadAll ? null : System.Math.Clamp(take, 1, 200), true, false, cfg, httpFactory, ct);
         });
 
         app.MapDelete("/api/admin/users/{userId:guid}/solutions", async (Guid userId, SolutionsDbContext db, Guid? assignmentId, int? days, string? kind, CancellationToken ct) =>
@@ -205,7 +191,7 @@ internal static partial class SolutionsApiEndpoints
 
             var ids = aggregated.Select(x => x.UserId).Distinct().Take(2000).ToArray();
             var users = await LoadUserSummariesAsync(ids, cfg, httpFactory, ct);
-            var search = NormalizeSearch(q);
+            var search = NormalizeSearch(q is { Length: > 128 } ? q[..128] : q);
             var rows = aggregated
                 .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
                 .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))

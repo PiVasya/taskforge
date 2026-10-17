@@ -139,12 +139,56 @@ internal static class SolutionsApiMappingService
         return "Пользователь";
     }
 
+    // JSON array on the wire is unchanged. No request materializes its entire
+    // history, and old oversized results are processed in bounded DB batches.
+    internal static IResult StreamSolutionHistory(
+        IQueryable<SolutionSubmission> ordered,
+        int skip,
+        int? take,
+        bool adminHistory,
+        bool includeSensitiveResult,
+        IConfiguration cfg,
+        IHttpClientFactory httpFactory,
+        CancellationToken ct)
+    {
+        return Results.Stream(async stream =>
+        {
+            using var writer = new Utf8JsonWriter(stream);
+            writer.WriteStartArray();
+            var offset = skip;
+            var remaining = take ?? int.MaxValue;
+            const int batchSize = 16;
+            while (remaining > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                var wanted = System.Math.Min(batchSize, remaining);
+                var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(ct);
+                if (batch.Count == 0) break;
+                var metadata = await LoadAssignmentMetadataAsync(
+                    batch.Select(x => x.AssignmentId), cfg, httpFactory, ct);
+                foreach (var row in batch)
+                {
+                    var dto = adminHistory
+                        ? ToAdminHistoryDto(row, metadata.GetValueOrDefault(row.AssignmentId))
+                        : ToDto(row, includeSensitiveResult, metadata.GetValueOrDefault(row.AssignmentId));
+                    JsonSerializer.Serialize(writer, dto, JsonOptions());
+                }
+                await writer.FlushAsync(ct);
+                offset += batch.Count;
+                remaining -= batch.Count;
+                if (batch.Count < wanted) break;
+            }
+            writer.WriteEndArray();
+            await writer.FlushAsync(ct);
+        }, "application/json; charset=utf-8");
+    }
+
     internal static bool ShouldLoadAllAdminHistory(bool all, int? days, int take)
         => all || days.HasValue || take > 999;
 
     internal static object ToAdminHistoryDto(SolutionSubmission x, AssignmentMetadata? metadata = null)
     {
-        var counts = CountCases(ParseJsonElement(x.ResultJson));
+        var counts = CountCasesFromRawJson(x.ResultJson);
         var acceptedStatus = string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase);
         var accepted = acceptedStatus && (counts.total == 0 || counts.failed == 0);
         return new
@@ -213,6 +257,20 @@ internal static class SolutionsApiMappingService
             createdAtUtc = x.CreatedAt,
             submittedAt = x.CreatedAt
         };
+    }
+
+    internal static (int passed, int failed, int total) CountCasesFromRawJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return (0, 0, 0);
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return CountCases(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return (0, 0, 0);
+        }
     }
 
     internal static (int passed, int failed, int total) CountCases(JsonElement? element)

@@ -11,6 +11,8 @@ const STATUS_LABELS = {
   failed: 'Не принято',
   wronganswer: 'Неверный ответ',
   runtimeerror: 'Ошибка выполнения',
+  timelimitexceeded: 'Лимит времени',
+  outputlimitexceeded: 'Лимит вывода',
   timeexceeded: 'Превышено время',
   memoryexceeded: 'Превышена память',
   compileerror: 'Ошибка компиляции',
@@ -27,6 +29,8 @@ const ACCEPTED_STATUSES = new Set(['accepted', 'passed', 'success']);
 const DANGER_STATUSES = new Set([
   'wronganswer',
   'runtimeerror',
+  'timelimitexceeded',
+  'outputlimitexceeded',
   'timeexceeded',
   'memoryexceeded',
   'compileerror',
@@ -410,6 +414,8 @@ export function getSolutionFailureCategory(solution) {
   if (key === 'judgeunavailable') return 'Инфраструктура проверки';
   if (key === 'runtimeerror') return 'Выполнение';
   if (key === 'timeexceeded') return 'Лимит времени';
+  if (key === 'timelimitexceeded') return 'Лимит времени';
+  if (key === 'outputlimitexceeded') return 'Лимит вывода';
   if (key === 'memoryexceeded') return 'Лимит памяти';
   if (key === 'notestsconfigured') return 'Настройка задания';
   if (key === 'languagenotallowed') return 'Настройка языка';

@@ -101,6 +101,35 @@ public sealed partial class Worker
         return null;
     }
 
+    // Scoring must use the requested test count, not just cases returned before
+    // a terminal timeout or compilation failure.
+    internal static int ComputeRunnerScore(int passed, int requested)
+        => requested <= 0 ? 0 : (int)System.Math.Round(
+            System.Math.Clamp(passed, 0, requested) * 100.0 / requested,
+            MidpointRounding.AwayFromZero);
+
+    // A runner that stops after an ordinary wrong answer has not completed
+    // the requested batch. The result must not be published as a final grade.
+    // Compilation, policy, time and output limit failures are terminal: the
+    // remaining cases are intentionally not executed in those situations.
+    internal static bool IsIncompleteRunnerBatch(JsonElement root, JsonElement? results, int requestedTests)
+    {
+        if (requestedTests <= 0) return false;
+        // No result array is a malformed runner reply, not a student failure.
+        if (!results.HasValue || results.Value.ValueKind != JsonValueKind.Array)
+            return !IsTimeLimitRoot(root) && !IsCompileErrorRoot(root) && !IsPolicyErrorRoot(root);
+        var cases = results.Value;
+        if (cases.GetArrayLength() == requestedTests) return false;
+        if (cases.GetArrayLength() > requestedTests) return true;
+        if (IsTimeLimitRoot(root) || IsCompileErrorRoot(root) || IsPolicyErrorRoot(root)) return false;
+        foreach (var item in cases.EnumerateArray())
+        {
+            if (IsTimeLimitResult(item) || IsCompileErrorResult(item) || IsPolicyErrorResult(item)
+                || IsOutputLimitResult(item)) return false;
+        }
+        return true;
+    }
+
     private static bool IsPassedResult(JsonElement item)
     {
         if (item.ValueKind != JsonValueKind.Object) return false;
@@ -109,17 +138,42 @@ public sealed partial class Worker
         return false;
     }
 
-    private static bool IsCompileErrorResult(JsonElement item)
+    internal static bool IsTimeLimitResult(JsonElement item)
     {
         if (item.ValueKind != JsonValueKind.Object) return false;
+        return item.TryGetProperty("status", out var status) && IsTimeLimitStatus(status.ToString());
+    }
+
+    internal static bool IsTimeLimitRoot(JsonElement root)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("status", out var status)
+            && IsTimeLimitStatus(status.ToString());
+
+    private static bool IsTimeLimitStatus(string? status)
+        => string.Equals(status, "time_limit", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "time_limit_exceeded", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "TimeLimitExceeded", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsOutputLimitResult(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return false;
+        return item.TryGetProperty("status", out var status)
+            && string.Equals(status.ToString(), "output_limit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool IsCompileErrorResult(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return false;
+        if (IsTimeLimitResult(item)) return false;
         if (item.TryGetProperty("status", out var status) && string.Equals(status.ToString(), "compile_error", StringComparison.OrdinalIgnoreCase)) return true;
         if (item.TryGetProperty("compileStderr", out var compileStderr) && !string.IsNullOrWhiteSpace(compileStderr.ToString())) return true;
         return false;
     }
 
-    private static bool IsCompileErrorRoot(JsonElement root)
+    internal static bool IsCompileErrorRoot(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return false;
+        if (IsTimeLimitRoot(root)) return false;
         if (root.TryGetProperty("status", out var status))
         {
             var value = status.ToString();

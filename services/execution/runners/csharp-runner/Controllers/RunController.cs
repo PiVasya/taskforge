@@ -126,7 +126,7 @@ public sealed class RunController : ControllerBase
                 Status = status,
                 Stdout = stdout,
                 Stderr = ran ? "" : FriendlyRunnerError(error),
-                ExitCode = ran ? 0 : status == "policy_error" ? 126 : status == "time_limit" ? 124 : 1,
+                ExitCode = ran ? 0 : status == "policy_error" ? 126 : status == "time_limit" ? 124 : status == "output_limit" ? 125 : 1,
                 Error = ran ? "" : FriendlyRunnerError(error)
             });
         }
@@ -173,6 +173,7 @@ public sealed class RunController : ControllerBase
             entered = true;
 
             var tests = request.Tests ?? [];
+            var previewLimit = RunnerLimits.BatchTestResultPreviewChars(tests.Count);
             RoslynCompilationResult compileResult;
             using (var compilationCts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted))
             {
@@ -190,8 +191,8 @@ public sealed class RunController : ControllerBase
                         [
                             new TestResult
                             {
-                                Input = first?.Input ?? "",
-                                ExpectedOutput = first?.ExpectedOutput ?? "",
+                                Input = PreviewCaseText(first?.Input, previewLimit),
+                                ExpectedOutput = PreviewCaseText(first?.ExpectedOutput, previewLimit),
                                 ActualOutput = "",
                                 Passed = false,
                                 Status = "time_limit",
@@ -216,8 +217,8 @@ public sealed class RunController : ControllerBase
                     [
                         new TestResult
                         {
-                            Input = first?.Input ?? "",
-                            ExpectedOutput = first?.ExpectedOutput ?? "",
+                            Input = PreviewCaseText(first?.Input, previewLimit),
+                            ExpectedOutput = PreviewCaseText(first?.ExpectedOutput, previewLimit),
                             ActualOutput = "",
                             Passed = false,
                             Status = infrastructureFailure ? "judge_unavailable" : policyFailure ? "policy_error" : "compile_error",
@@ -225,7 +226,7 @@ public sealed class RunController : ControllerBase
                             Stderr = infrastructureFailure
                                 ? "Runner compiler resources are temporarily unavailable."
                                 : policyFailure ? "Решение отклонено системой безопасности." : "",
-                            CompileStderr = policyFailure || infrastructureFailure ? null : SanitizeRunnerText(compileResult.Error),
+                            CompileStderr = policyFailure || infrastructureFailure ? null : PreviewCaseText(SanitizeRunnerText(compileResult.Error), previewLimit),
                             Hidden = first?.IsHidden ?? false
                         }
                     ]
@@ -244,7 +245,7 @@ public sealed class RunController : ControllerBase
                 HttpContext.RequestAborted.ThrowIfCancellationRequested();
                 if (batchCts.IsCancellationRequested)
                 {
-                    results.Add(BatchTimeoutResult(test));
+                    results.Add(BatchTimeoutResult(test, previewLimit));
                     break;
                 }
 
@@ -262,7 +263,7 @@ public sealed class RunController : ControllerBase
                 }
                 catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
                 {
-                    results.Add(BatchTimeoutResult(test));
+                    results.Add(BatchTimeoutResult(test, previewLimit));
                     break;
                 }
 
@@ -280,13 +281,13 @@ public sealed class RunController : ControllerBase
 
                 results.Add(new TestResult
                 {
-                    Input = test.Input ?? "",
-                    ExpectedOutput = test.ExpectedOutput ?? "",
-                    ActualOutput = actual,
+                    Input = PreviewCaseText(test.Input, previewLimit),
+                    ExpectedOutput = PreviewCaseText(test.ExpectedOutput, previewLimit),
+                    ActualOutput = PreviewCaseText(actual, previewLimit),
                     Passed = passed,
                     Status = passed ? "ok" : ran ? "wrong_answer" : status,
-                    ExitCode = ran ? 0 : status == "policy_error" ? 126 : status == "time_limit" ? 124 : 1,
-                    Stderr = ran ? "" : FriendlyRunnerError(error),
+                    ExitCode = ran ? 0 : status == "policy_error" ? 126 : status == "time_limit" ? 124 : status == "output_limit" ? 125 : 1,
+                    Stderr = ran ? "" : PreviewCaseText(FriendlyRunnerError(error), previewLimit),
                     CompileStderr = null,
                     Hidden = test.IsHidden
                 });
@@ -310,11 +311,11 @@ public sealed class RunController : ControllerBase
         }
     }
 
-    private static TestResult BatchTimeoutResult(TestCase test)
+    private static TestResult BatchTimeoutResult(TestCase test, int previewLimit)
         => new()
         {
-            Input = test.Input ?? "",
-            ExpectedOutput = test.ExpectedOutput ?? "",
+            Input = PreviewCaseText(test.Input, previewLimit),
+            ExpectedOutput = PreviewCaseText(test.ExpectedOutput, previewLimit),
             ActualOutput = "",
             Passed = false,
             Status = "time_limit",
@@ -323,6 +324,15 @@ public sealed class RunController : ControllerBase
             CompileStderr = null,
             Hidden = test.IsHidden
         };
+
+    private static string PreviewCaseText(string? text, int previewLimit)
+    {
+        var value = text ?? string.Empty;
+        if (value.Length <= previewLimit) return value;
+        var end = previewLimit;
+        if (end > 0 && char.IsHighSurrogate(value[end - 1])) end--;
+        return value[..end] + "...<preview truncated>";
+    }
 
     private static string NormalizeOutput(string value)
     {

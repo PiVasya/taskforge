@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
@@ -10,7 +9,13 @@ public sealed class CourseMapPresenceStore
 {
     private sealed record PresenceState(string ConnectionId, Guid UserId, string DisplayName, string? AvatarUrl, bool IsDirty, DateTimeOffset LastSeenAt);
 
-    private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, PresenceState>> Local = new();
+    // Local fallback is used only when Redis is unavailable. Expire inactive
+    // rooms globally, not just when that exact course is accessed again.
+    private static readonly object LocalSync = new();
+    private static readonly Dictionary<Guid, Dictionary<string, PresenceState>> Local = new();
+    private const int MaxLocalRooms = 512;
+    private const int MaxLocalEntriesPerRoom = 256;
+    private static DateTimeOffset _nextSweepAt;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan PresenceTtl = TimeSpan.FromSeconds(45);
     private readonly IServiceProvider _services;
@@ -49,10 +54,21 @@ public sealed class CourseMapPresenceStore
             }
         }
 
-        var room = Local.GetOrAdd(rootCourseId, _ => new ConcurrentDictionary<string, PresenceState>());
-        room[connectionId] = state;
-        PruneLocal(room, now);
-        return Collapse(room.Values);
+        lock (LocalSync)
+        {
+            PruneLocal(now);
+            if (!Local.TryGetValue(rootCourseId, out var room))
+            {
+                if (Local.Count >= MaxLocalRooms)
+                    return new[] { new CourseMapPresenceDto(userId, state.DisplayName, state.AvatarUrl, state.IsDirty, state.LastSeenAt) };
+                room = new Dictionary<string, PresenceState>(StringComparer.Ordinal);
+                Local.Add(rootCourseId, room);
+            }
+            PruneRoom(room, now);
+            if (room.ContainsKey(connectionId) || room.Count < MaxLocalEntriesPerRoom)
+                room[connectionId] = state;
+            return Collapse(room.Values);
+        }
     }
 
     public async Task<IReadOnlyList<CourseMapPresenceDto>> RemoveAsync(Guid rootCourseId, string connectionId)
@@ -72,11 +88,16 @@ public sealed class CourseMapPresenceStore
             }
         }
 
-        if (!Local.TryGetValue(rootCourseId, out var room)) return Array.Empty<CourseMapPresenceDto>();
-        room.TryRemove(connectionId, out _);
-        PruneLocal(room, DateTimeOffset.UtcNow);
-        if (room.IsEmpty) Local.TryRemove(rootCourseId, out _);
-        return Collapse(room.Values);
+        lock (LocalSync)
+        {
+            var now = DateTimeOffset.UtcNow;
+            PruneLocal(now);
+            if (!Local.TryGetValue(rootCourseId, out var room)) return Array.Empty<CourseMapPresenceDto>();
+            PruneRoom(room, now);
+            room.Remove(connectionId);
+            if (room.Count == 0) Local.Remove(rootCourseId);
+            return Collapse(room.Values);
+        }
     }
 
     public async Task<IReadOnlyList<CourseMapPresenceDto>> GetAsync(Guid rootCourseId)
@@ -93,9 +114,19 @@ public sealed class CourseMapPresenceStore
             }
         }
 
-        if (!Local.TryGetValue(rootCourseId, out var room)) return Array.Empty<CourseMapPresenceDto>();
-        PruneLocal(room, DateTimeOffset.UtcNow);
-        return Collapse(room.Values);
+        lock (LocalSync)
+        {
+            var now = DateTimeOffset.UtcNow;
+            PruneLocal(now);
+            if (!Local.TryGetValue(rootCourseId, out var room)) return Array.Empty<CourseMapPresenceDto>();
+            PruneRoom(room, now);
+            if (room.Count == 0)
+            {
+                Local.Remove(rootCourseId);
+                return Array.Empty<CourseMapPresenceDto>();
+            }
+            return Collapse(room.Values);
+        }
     }
 
     private static async Task<IReadOnlyList<CourseMapPresenceDto>> ReadRedisAsync(IDatabase db, Guid rootCourseId, DateTimeOffset now)
@@ -103,7 +134,9 @@ public sealed class CourseMapPresenceStore
         var setKey = SetKey(rootCourseId);
         var cutoff = now.Subtract(PresenceTtl).ToUnixTimeMilliseconds();
         await db.SortedSetRemoveRangeByScoreAsync(setKey, double.NegativeInfinity, cutoff);
-        var members = await db.SortedSetRangeByRankAsync(setKey, 0, -1, Order.Ascending);
+        // The newest presence entries are most useful to editors; never
+        // materialize an unbounded Redis set in one HTTP response.
+        var members = await db.SortedSetRangeByRankAsync(setKey, -MaxLocalEntriesPerRoom, -1, Order.Ascending);
         if (members.Length == 0) return Array.Empty<CourseMapPresenceDto>();
 
         var keys = members.Select(x => (RedisKey)ItemKey(rootCourseId, x.ToString())).ToArray();
@@ -131,12 +164,24 @@ public sealed class CourseMapPresenceStore
         return Collapse(states);
     }
 
-    private static void PruneLocal(ConcurrentDictionary<string, PresenceState> room, DateTimeOffset now)
+    // Caller holds LocalSync. Scan at most once per 15 seconds, or whenever
+    // the room table is full, and drop expired entries as well as empty rooms.
+    private static void PruneLocal(DateTimeOffset now)
     {
-        foreach (var pair in room)
+        if (now < _nextSweepAt && Local.Count < MaxLocalRooms) return;
+        _nextSweepAt = now.AddSeconds(15);
+        foreach (var root in Local.Keys.ToArray())
         {
-            if (now - pair.Value.LastSeenAt > PresenceTtl) room.TryRemove(pair.Key, out _);
+            var room = Local[root];
+            PruneRoom(room, now);
+            if (room.Count == 0) Local.Remove(root);
         }
+    }
+
+    private static void PruneRoom(Dictionary<string, PresenceState> room, DateTimeOffset now)
+    {
+        foreach (var entry in room.ToArray())
+            if (now - entry.Value.LastSeenAt > PresenceTtl) room.Remove(entry.Key);
     }
 
     private static IReadOnlyList<CourseMapPresenceDto> Collapse(IEnumerable<PresenceState> states)

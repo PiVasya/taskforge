@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -200,7 +201,7 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             ? new PascalAbcRunnerTestsRequest(job.Code ?? string.Empty, "pascalabc", tests, job.TimeLimitMs, job.MemoryLimitMb, attestation)
             : new RunnerTestsRequest(job.Code ?? string.Empty, tests, job.TimeLimitMs, job.MemoryLimitMb, attestation);
         var client = httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 45), 5, 180));
+        client.Timeout = TimeSpan.FromSeconds(System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 90), 80, 180));
         var attempts = System.Math.Clamp(configuration.GetValue("Judge:RunnerAttempts", 3), 1, 5);
 
         for (var attempt = 1; attempt <= attempts; attempt++)
@@ -211,8 +212,13 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                     "Dispatching execution job {JobId} to {Language} runner at {RunnerUrl} with {TestCount} tests (attempt {Attempt}/{Attempts}).",
                     job.Id, language, baseUrl, tests.Length, attempt, attempts);
 
-                using var response = await client.PostAsJsonAsync($"{baseUrl}/run-tests", payload, JsonOptions, ct);
-                var text = await response.Content.ReadAsStringAsync(ct);
+                var runnerStarted = Stopwatch.GetTimestamp();
+                using var runnerRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/run-tests")
+                {
+                    Content = JsonContent.Create(payload, options: JsonOptions)
+                };
+                using var response = await client.SendAsync(runnerRequest, HttpCompletionOption.ResponseHeadersRead, ct);
+                var text = await ReadBoundedRunnerResponseAsync(response.Content, ct);
                 if (!response.IsSuccessStatusCode)
                 {
                     var safeText = SanitizeRunnerText(text);
@@ -238,12 +244,10 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 var allPassed = total > 0 && passed == total;
                 var judgeUnavailable = IsJudgeUnavailableRoot(root)
                     || (hasResults && results!.Value.EnumerateArray().Any(IsJudgeUnavailableResult));
-                var incompleteSuccessfulBatch = hasResults
-                    && total > 0
-                    && passed == total
-                    && total < tests.Length;
+                var incompleteSuccessfulBatch = hasResults && total > 0 && passed == total && total < tests.Length;
+                var incompleteOrMalformedBatch = IsIncompleteRunnerBatch(root, results, tests.Length);
 
-                if (judgeUnavailable || incompleteSuccessfulBatch)
+                if (judgeUnavailable || incompleteSuccessfulBatch || incompleteOrMalformedBatch)
                 {
                     logger.LogWarning(
                         "Runner for job {JobId} reported an infrastructure or incomplete-batch failure on attempt {Attempt}/{Attempts}; the submission will not be classified as Rejected.",
@@ -262,14 +266,30 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                     || (hasResults && results!.Value.EnumerateArray().Any(IsPolicyErrorResult));
                 var compileError = !policyError && (IsCompileErrorRoot(root)
                     || (hasResults && results!.Value.EnumerateArray().Any(IsCompileErrorResult)));
-                var verdict = allPassed ? "Accepted" : policyError ? "PolicyFailed" : compileError ? "CompileError" : "Rejected";
-                var score = total <= 0 ? 0 : (int)System.Math.Round(passed * 100.0 / total, MidpointRounding.AwayFromZero);
+                var timeLimit = IsTimeLimitRoot(root)
+                    || (hasResults && results!.Value.EnumerateArray().Any(IsTimeLimitResult));
+                var outputLimit = hasResults && results!.Value.EnumerateArray().Any(IsOutputLimitResult);
+                // An explicit runner failure outranks a vacuous all-passed summary.
+                var verdict = policyError ? "PolicyFailed" : timeLimit ? "TimeLimitExceeded" : outputLimit ? "OutputLimitExceeded" : compileError ? "CompileError" : allPassed ? "Accepted" : "Rejected";
+                logger.LogInformation(
+                    "[TFJUDGE OUTCOME] job={JobId} submission={SubmissionId} language={Language} attempt={Attempt} requested_tests={RequestedTests} completed_tests={CompletedTests} passed_tests={PassedTests} runner_duration_ms={RunnerDurationMs} configured_time_limit_ms={TimeLimitMs} configured_memory_limit_mb={MemoryLimitMb} response_bytes={ResponseBytes} verdict={Verdict} case_statuses={CaseStatuses}",
+                    job.Id, job.SubmissionId, language, attempt, tests.Length, total, passed,
+                    Stopwatch.GetElapsedTime(runnerStarted).TotalMilliseconds, job.TimeLimitMs, job.MemoryLimitMb,
+                    Encoding.UTF8.GetByteCount(text), verdict, RunnerCaseStatusSummary(results));
+                var score = ComputeRunnerScore(passed, tests.Length);
                 var policyMessage = policyError ? "\u0420\u0435\u0448\u0435\u043d\u0438\u0435 \u043e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e \u0441\u0438\u0441\u0442\u0435\u043c\u043e\u0439 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438." : null;
                 return new RunnerResult(verdict, score, allPassed, root, results, null, policyMessage, null, compileError);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (InvalidDataException ex)
+            {
+                logger.LogError(ex,
+                    "[TFJUDGE OVERSIZED RESPONSE] job={JobId} language={Language} limit_bytes={LimitBytes}; no retry because the response violates the runner contract.",
+                    job.Id, language, MaxRunnerResponseBytes);
+                return RunnerResult.Error("JudgeUnavailable", "Runner returned a response larger than the safe limit.");
             }
             catch (Exception ex)
             {
@@ -295,6 +315,44 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         return RunnerResult.Error("JudgeUnavailable", "Runner temporarily unavailable.");
     }
 
+    internal const int MaxRunnerResponseBytes = 2 * 1024 * 1024;
+
+    internal static async Task<string> ReadBoundedRunnerResponseAsync(HttpContent content, CancellationToken ct)
+    {
+        if (content.Headers.ContentLength is > MaxRunnerResponseBytes)
+            throw new InvalidDataException("Runner response exceeds configured size limit.");
+
+        await using var source = await content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[32 * 1024];
+        int read;
+        while ((read = await source.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > MaxRunnerResponseBytes)
+                throw new InvalidDataException("Runner response exceeds configured size limit.");
+            buffer.Write(chunk, 0, read);
+        }
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+    }
+
+    internal static string RunnerCaseStatusSummary(JsonElement? results)
+    {
+        if (!results.HasValue || results.Value.ValueKind != JsonValueKind.Array) return "none";
+        var cases = new List<string>();
+        var index = 0;
+        foreach (var test in results.Value.EnumerateArray())
+        {
+            if (index >= 16) { cases.Add("more"); break; }
+            var status = test.ValueKind == JsonValueKind.Object
+                && test.TryGetProperty("status", out var value)
+                ? value.ToString() : "unknown";
+            if (status.Length > 30) status = status[..30];
+            cases.Add($"{index}:{status}");
+            index++;
+        }
+        return string.Join(",", cases);
+    }
+
     internal static bool IsTransientRunnerStatus(System.Net.HttpStatusCode statusCode)
     {
         var code = (int)statusCode;
@@ -303,6 +361,22 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
     private static Task DelayRunnerRetryAsync(int attempt, CancellationToken ct)
         => Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+
+    internal const int MaxInternalErrorResponseBytes = 4 * 1024;
+
+    internal static async Task<string> ReadInternalErrorPreviewAsync(HttpContent content, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        var preview = new byte[MaxInternalErrorResponseBytes];
+        var count = 0;
+        while (count < preview.Length)
+        {
+            var read = await stream.ReadAsync(preview.AsMemory(count), ct);
+            if (read == 0) break;
+            count += read;
+        }
+        return Encoding.UTF8.GetString(preview, 0, count);
+    }
 
     private async Task CompleteJobAsync(Guid jobId, CompleteExecutionJobRequest requestBody, CancellationToken ct)
     {
@@ -321,9 +395,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
             try
             {
-                using var response = await client.SendAsync(request, ct);
-                lastBody = await response.Content.ReadAsStringAsync(ct);
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 if (response.IsSuccessStatusCode) return;
+                lastBody = await ReadInternalErrorPreviewAsync(response.Content, ct);
 
                 logger.LogWarning(
                     "Completing execution job {JobId} failed on attempt {Attempt}/{Attempts} with status {StatusCode}: {Body}",
@@ -361,9 +435,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
             try
             {
-                using var response = await client.SendAsync(request, ct);
-                lastBody = await response.Content.ReadAsStringAsync(ct);
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 if (response.IsSuccessStatusCode) return;
+                lastBody = await ReadInternalErrorPreviewAsync(response.Content, ct);
                 logger.LogWarning("Publishing verdict for submission {SubmissionId} failed on attempt {Attempt}/{Attempts} with status {StatusCode}: {Body}", submissionId, attempt, attempts, response.StatusCode, Truncate(lastBody, 500));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

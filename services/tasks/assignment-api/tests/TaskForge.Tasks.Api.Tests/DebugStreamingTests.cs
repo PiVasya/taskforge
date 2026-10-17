@@ -17,7 +17,7 @@ public sealed class DebugStreamingTests
     }
 
     [Fact]
-    public async Task OrdinaryJson_IsStillCapturedUntilRequestCompletes()
+    public async Task OrdinaryJsonFlushedMidRequest_IsVisibleImmediately()
     {
         var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
         Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
@@ -46,7 +46,7 @@ public sealed class DebugStreamingTests
 
             var pipelineTask = app.Build()(http);
             await frameWritten.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Equal(0, clientBody.Length);
+            Assert.True(clientBody.Length > 0, "Explicit flush must deliver bytes before endpoint completion");
 
             release.TrySetResult(true);
             await pipelineTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -91,6 +91,48 @@ public sealed class DebugStreamingTests
 
             release.TrySetResult(true);
             await pipelineTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", previous);
+        }
+    }
+
+    [Fact]
+    public async Task LargeJson_StreamsBeforeRequestCompletionAndPreservesEveryByte()
+    {
+        var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
+        Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
+        try
+        {
+            using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+            var app = new ApplicationBuilder(services);
+            var written = NewSignal();
+            var release = NewSignal();
+            var payload = new string('x', 256 * 1024);
+
+            global::TaskForgeDebugDiagnostics.UseTaskForgeDebugRequestLogging(app, "large-json-test");
+            app.Run(async context =>
+            {
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(payload);
+                await context.Response.Body.FlushAsync();
+                written.TrySetResult(true);
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            });
+
+            var http = new DefaultHttpContext { RequestServices = services };
+            http.Request.Path = "/api/large-response";
+            var clientBody = new MemoryStream();
+            http.Response.Body = clientBody;
+
+            var pipeline = app.Build()(http);
+            await written.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(payload.Length, clientBody.Length);
+
+            release.TrySetResult(true);
+            await pipeline.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(payload, System.Text.Encoding.UTF8.GetString(clientBody.ToArray()));
         }
         finally
         {

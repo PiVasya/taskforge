@@ -195,6 +195,11 @@ static class ExecMode
             }
             finally
             {
+                if (outputWriter.LimitExceeded || errorWriter.LimitExceeded)
+                {
+                    response.Ok = false;
+                    response.Error = "Output limit exceeded";
+                }
                 response.Stdout = outputWriter.ToString();
                 Console.SetIn(originalIn);
                 Console.SetOut(originalOut);

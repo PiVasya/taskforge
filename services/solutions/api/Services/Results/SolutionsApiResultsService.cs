@@ -95,17 +95,23 @@ internal static class SolutionsApiResultsService
     internal static int UserSummarySearchScore(UserSummaryDto? user, Guid id, string query)
     {
         var values = new[] { id.ToString(), user?.Login, user?.MaskedEmail, user?.DisplayName, user?.FirstName, user?.LastName }
-            .Select(NormalizeSearch)
+            .Select(x => NormalizeSearch(x is { Length: > 512 } ? x[..512] : x))
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToArray();
         if (values.Any(x => x.Contains(query, StringComparison.OrdinalIgnoreCase))) return 0;
-        var best = int.MaxValue;
+        var distanceCap = System.Math.Max(1, System.Math.Min(4, query.Length / 3));
+        var best = distanceCap + 1;
         foreach (var value in values)
         {
-            best = System.Math.Min(best, Levenshtein(value, query));
-            foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) best = System.Math.Min(best, Levenshtein(token, query));
+            best = System.Math.Min(best, Levenshtein(value, query, distanceCap));
+            if (best == 0) return 0;
+            foreach (var token in value.Split(new[] { ' ', '@', '.', '_', '-', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                best = System.Math.Min(best, Levenshtein(token, query, distanceCap));
+                if (best == 0) return 0;
+            }
         }
-        return best == int.MaxValue ? 999 : best;
+        return best;
     }
 
     internal static bool IsTerminalVerdict(string? value) => value is not null && new[]
