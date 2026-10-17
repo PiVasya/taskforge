@@ -151,7 +151,7 @@ internal static class SolutionsApiMappingService
         IHttpClientFactory httpFactory,
         CancellationToken ct)
     {
-        return Results.Stream(async stream =>
+        return Microsoft.AspNetCore.Http.Results.Stream(async stream =>
         {
             using var writer = new Utf8JsonWriter(stream);
             writer.WriteStartArray();

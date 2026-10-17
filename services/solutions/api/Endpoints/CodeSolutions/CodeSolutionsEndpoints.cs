@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using TaskForge.Realtime;
 using TaskForge.Solutions.Api.Contracts;
 using TaskForge.Solutions.Api.Data;
@@ -7,6 +8,7 @@ using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
 using static TaskForge.Solutions.Api.Services.Common.SolutionsApiCommonService;
 using static TaskForge.Solutions.Api.Services.Mapping.SolutionsApiMappingService;
 using static TaskForge.Solutions.Api.Services.Results.SolutionsApiResultsService;
+using static TaskForge.Solutions.Api.Services.Serialization.SolutionsApiSerializationService;
 
 namespace TaskForge.Solutions.Api.Endpoints;
 
