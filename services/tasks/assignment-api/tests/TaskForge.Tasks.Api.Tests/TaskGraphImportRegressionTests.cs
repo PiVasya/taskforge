@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Serialization;
@@ -119,14 +120,53 @@ public sealed class TaskGraphImportRegressionTests
     [Fact]
     public void NoStoredMap_ExportDoesNotInventSequentialConnections()
     {
+        var (tree, assignments) = ExportSample();
+        var assignmentDtos = new Dictionary<Guid, JsonObject>
+        {
+            [Task] = new()
+            {
+                ["id"] = Task.ToString("D"),
+                ["type"] = "code-test",
+                ["title"] = "Draft",
+                ["description"] = string.Empty,
+                ["tags"] = string.Empty,
+                ["rating"] = 1,
+                ["isVisible"] = true,
+                ["language"] = "csharp",
+                ["allowedLanguages"] = JsonSerializer.SerializeToNode(new[] { "csharp" }),
+                ["starterCode"] = string.Empty,
+                ["testCases"] = new JsonArray(),
+                ["codeForbiddenCalls"] = new JsonArray(),
+                ["codeRequiredCalls"] = new JsonArray()
+            }
+        };
+
+        var exported = BuildExport(Root, assignments, tree, new CourseMapInternalResponse(),
+            new GraphExportOptions(), assignmentDtos: assignmentDtos);
+        Assert.Empty(exported["connections"]!.AsArray());
+        var task = Assert.Single(exported["tasks"]!.AsArray());
+        Assert.Equal(Task.ToString("D"), task!["id"]!.GetValue<string>());
+        Assert.Equal("Draft", task["title"]!.GetValue<string>());
+        Assert.False(exported.ContainsKey("layout"));
+        Assert.NotNull(exported["guide"]!["expectedBehavior"]);
+    }
+
+    [Fact]
+    public void ExportWithoutTypedDto_RejectsIncompleteAssignment()
+    {
+        var (tree, assignments) = ExportSample();
+        var error = Assert.Throws<InvalidOperationException>(() => BuildExport(
+            Root, assignments, tree, new CourseMapInternalResponse(), new GraphExportOptions(),
+            assignmentDtos: new Dictionary<Guid, JsonObject>()));
+        Assert.Equal($"DATA_INTEGRITY_ERROR: export DTO missing for assignment {Task:D}.", error.Message);
+    }
+
+    private static (CourseTreeResponse Tree, Assignment[] Assignments) ExportSample()
+    {
         var tree = new CourseTreeResponse { CourseIds = [Root, Sub], Courses = [
             new CourseTreeCourseDto { Id = Root, Title = "Root" },
             new CourseTreeCourseDto { Id = Sub, ParentCourseId = Root, Title = "Subcourse" }] };
         var assignments = new[] { new Assignment { Id = Task, CourseId = Root, Title = "Draft", Type = "code-test" } };
-        var exported = BuildExport(Root, assignments, tree, new CourseMapInternalResponse(), new GraphExportOptions());
-        Assert.Empty(exported["connections"]!.AsArray());
-        Assert.Single(exported["tasks"]!.AsArray());
-        Assert.False(exported.ContainsKey("layout"));
-        Assert.NotNull(exported["guide"]!["expectedBehavior"]);
+        return (tree, assignments);
     }
 }
