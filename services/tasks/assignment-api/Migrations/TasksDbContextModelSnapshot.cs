@@ -1079,6 +1079,64 @@ namespace TaskForge.Tasks.Api.Migrations
                     b.ToTable("TaskAttempts", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TaskGraphImportOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AuditJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("CourseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastErrorJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("MapRequestJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("MapResponseJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("PreparedPayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CourseId", "UserId", "UpdatedAt");
+
+                    b.ToTable("TaskGraphImportOperations", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TestAssignmentSpec", b =>
                 {
                     b.Property<Guid>("AssignmentId")

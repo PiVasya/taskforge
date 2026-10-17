@@ -105,6 +105,37 @@ namespace TaskForge.Education.Api.Migrations
                     b.ToTable("CourseMaps", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Education.Api.Domain.CourseMapImportReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("RootCourseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RootCourseId", "CreatedAt");
+
+                    b.ToTable("CourseMapImportReceipts", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Education.Api.Domain.Group", b =>
                 {
                     b.Property<Guid>("Id")
@@ -204,6 +235,15 @@ namespace TaskForge.Education.Api.Migrations
                     b.HasOne("TaskForge.Education.Api.Domain.Course", null)
                         .WithOne()
                         .HasForeignKey("TaskForge.Education.Api.Domain.CourseMap", "RootCourseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskForge.Education.Api.Domain.CourseMapImportReceipt", b =>
+                {
+                    b.HasOne("TaskForge.Education.Api.Domain.Course", null)
+                        .WithMany()
+                        .HasForeignKey("RootCourseId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
