@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text;
+using System.Text.Json;
+using TaskForge.Solutions.Api.Services.Mapping;
 using Xunit;
 
 namespace TaskForge.Solutions.Api.Tests;
@@ -130,6 +133,99 @@ public sealed class DebugStreamingTests
         {
             Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", previous);
         }
+    }
+
+    [Theory]
+    [InlineData("/api/me/solutions")]
+    [InlineData("/api/admin/users/00000000-0000-0000-0000-000000000001/solutions")]
+    [InlineData("/api/code-solutions/top")]
+    public async Task StreamedSolutionJson_UsesOnlyAsyncIoEvenWithDebugCapture(string path)
+    {
+        var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
+        Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
+        try
+        {
+            using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+            var app = new ApplicationBuilder(services);
+            var firstItemFlushed = NewSignal();
+            var release = NewSignal();
+
+            global::TaskForgeDebugDiagnostics.UseTaskForgeDebugRequestLogging(app, "solutions-api");
+            app.Run(async context =>
+            {
+                context.Response.ContentType = "application/json; charset=utf-8";
+                await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(context.Response.Body, async (writer, cancellationToken) =>
+                {
+                    JsonSerializer.Serialize(writer, new { id = "first" });
+                    await writer.FlushAsync(cancellationToken);
+                    firstItemFlushed.TrySetResult(true);
+                    await release.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    JsonSerializer.Serialize(writer, new { id = "second" });
+                }, context.RequestAborted);
+            });
+
+            var http = new DefaultHttpContext { RequestServices = services };
+            http.Request.Path = path;
+            http.Request.Headers.Accept = "application/json";
+            // Kestrel disables synchronous response writes/flushes by default.
+            // A MemoryStream alone would hide the old Utf8JsonWriter.Dispose() crash.
+            var clientBody = new AsyncOnlyResponseStream();
+            http.Response.Body = clientBody;
+
+            var pipelineTask = app.Build()(http);
+            await firstItemFlushed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var firstFrame = Encoding.UTF8.GetString(clientBody.GetWrittenBytes());
+            Assert.StartsWith("[", firstFrame);
+            Assert.Contains("first", firstFrame);
+            Assert.False(pipelineTask.IsCompleted, "Streaming must send the first item before all batches complete");
+
+            release.TrySetResult(true);
+            await pipelineTask.WaitAsync(TimeSpan.FromSeconds(5));
+            using var result = JsonDocument.Parse(clientBody.GetWrittenBytes());
+            Assert.Equal(JsonValueKind.Array, result.RootElement.ValueKind);
+            Assert.Equal(2, result.RootElement.GetArrayLength());
+            Assert.Equal("first", result.RootElement[0].GetProperty("id").GetString());
+            Assert.Equal("second", result.RootElement[1].GetProperty("id").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", previous);
+        }
+    }
+
+    [Fact]
+    public async Task EmptyStreamedSolutionJson_DoesNotSynchronouslyFlushOnDispose()
+    {
+        var clientBody = new AsyncOnlyResponseStream();
+        await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(
+            clientBody, (_, _) => Task.CompletedTask, CancellationToken.None);
+        Assert.Equal("[]", Encoding.UTF8.GetString(clientBody.GetWrittenBytes()));
+    }
+
+    private sealed class AsyncOnlyResponseStream : Stream
+    {
+        private readonly MemoryStream _inner = new();
+        internal byte[] GetWrittenBytes() => _inner.ToArray();
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() => throw new InvalidOperationException("Synchronous operations are disallowed");
+        public override void Write(byte[] buffer, int offset, int count) => throw new InvalidOperationException("Synchronous operations are disallowed");
+        public override void Write(ReadOnlySpan<byte> buffer) => throw new InvalidOperationException("Synchronous operations are disallowed");
+        public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => _inner.WriteAsync(buffer, offset, count, cancellationToken);
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            => _inner.WriteAsync(buffer, cancellationToken);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     private static TaskCompletionSource<bool> NewSignal()

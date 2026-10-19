@@ -64,32 +64,30 @@ internal static partial class SolutionsApiEndpoints
             var ordered = db.Submissions.AsNoTracking()
                 .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted" && x.SqlSpecVersionId == null)
                 .OrderByDescending(x => x.Score).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id);
-            return Microsoft.AspNetCore.Http.Results.Stream(async stream =>
-            {
-                using var writer = new Utf8JsonWriter(stream);
-                writer.WriteStartArray();
-                var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, ct);
-                for (var offset = 0; offset < limit; offset += 16)
+            return Microsoft.AspNetCore.Http.Results.Stream(
+                stream => WriteStreamingJsonArrayAsync(stream, async (writer, cancellationToken) =>
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var wanted = System.Math.Min(16, limit - offset);
-                    var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(ct);
-                    if (batch.Count == 0) break;
-                    var users = await LoadUserSummariesAsync(
-                        batch.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, ct);
-                    foreach (var row in batch)
+                    var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, cancellationToken);
+                    for (var offset = 0; offset < limit; offset += 16)
                     {
-                        var dto = ToTopSolutionDto(row, canViewCode || row.UserId == uid.Value,
-                            metadata.GetValueOrDefault(row.AssignmentId),
-                            row.UserId.HasValue ? users.GetValueOrDefault(row.UserId.Value) : null);
-                        JsonSerializer.Serialize(writer, dto, JsonOptions());
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var wanted = System.Math.Min(16, limit - offset);
+                        var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(cancellationToken);
+                        if (batch.Count == 0) break;
+                        var users = await LoadUserSummariesAsync(
+                            batch.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value), cfg, httpFactory, cancellationToken);
+                        foreach (var row in batch)
+                        {
+                            var dto = ToTopSolutionDto(row, canViewCode || row.UserId == uid.Value,
+                                metadata.GetValueOrDefault(row.AssignmentId),
+                                row.UserId.HasValue ? users.GetValueOrDefault(row.UserId.Value) : null);
+                            JsonSerializer.Serialize(writer, dto, JsonOptions());
+                        }
+                        await writer.FlushAsync(cancellationToken);
+                        if (batch.Count < wanted) break;
                     }
-                    await writer.FlushAsync(ct);
-                    if (batch.Count < wanted) break;
-                }
-                writer.WriteEndArray();
-                await writer.FlushAsync(ct);
-            }, "application/json; charset=utf-8");
+                }, ct),
+                "application/json; charset=utf-8");
         });
 
         return app;

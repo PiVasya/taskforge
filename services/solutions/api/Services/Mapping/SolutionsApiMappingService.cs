@@ -139,6 +139,21 @@ internal static class SolutionsApiMappingService
         return "Пользователь";
     }
 
+    // Keep JSON arrays streamed and never dispose Utf8JsonWriter synchronously:
+    // Dispose() calls Stream.Flush(), which Kestrel rejects when synchronous I/O is disabled.
+    // Both paginated histories and top solutions use this helper to guarantee async disposal.
+    internal static async Task WriteStreamingJsonArrayAsync(
+        Stream stream,
+        Func<Utf8JsonWriter, CancellationToken, Task> writeItemsAsync,
+        CancellationToken ct)
+    {
+        await using var writer = new Utf8JsonWriter(stream);
+        writer.WriteStartArray();
+        await writeItemsAsync(writer, ct);
+        writer.WriteEndArray();
+        await writer.FlushAsync(ct);
+    }
+
     // JSON array on the wire is unchanged. No request materializes its entire
     // history, and old oversized results are processed in bounded DB batches.
     internal static IResult StreamSolutionHistory(
@@ -151,36 +166,34 @@ internal static class SolutionsApiMappingService
         IHttpClientFactory httpFactory,
         CancellationToken ct)
     {
-        return Microsoft.AspNetCore.Http.Results.Stream(async stream =>
-        {
-            using var writer = new Utf8JsonWriter(stream);
-            writer.WriteStartArray();
-            var offset = skip;
-            var remaining = take ?? int.MaxValue;
-            const int batchSize = 16;
-            while (remaining > 0)
+        return Microsoft.AspNetCore.Http.Results.Stream(
+            stream => WriteStreamingJsonArrayAsync(stream, async (writer, cancellationToken) =>
             {
-                ct.ThrowIfCancellationRequested();
-                var wanted = System.Math.Min(batchSize, remaining);
-                var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(ct);
-                if (batch.Count == 0) break;
-                var metadata = await LoadAssignmentMetadataAsync(
-                    batch.Select(x => x.AssignmentId), cfg, httpFactory, ct);
-                foreach (var row in batch)
+                var offset = skip;
+                var remaining = take ?? int.MaxValue;
+                const int batchSize = 16;
+                while (remaining > 0)
                 {
-                    var dto = adminHistory
-                        ? ToAdminHistoryDto(row, metadata.GetValueOrDefault(row.AssignmentId))
-                        : ToDto(row, includeSensitiveResult, metadata.GetValueOrDefault(row.AssignmentId));
-                    JsonSerializer.Serialize(writer, dto, JsonOptions());
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var wanted = System.Math.Min(batchSize, remaining);
+                    var batch = await ordered.Skip(offset).Take(wanted).ToListAsync(cancellationToken);
+                    if (batch.Count == 0) break;
+                    var metadata = await LoadAssignmentMetadataAsync(
+                        batch.Select(x => x.AssignmentId), cfg, httpFactory, cancellationToken);
+                    foreach (var row in batch)
+                    {
+                        var dto = adminHistory
+                            ? ToAdminHistoryDto(row, metadata.GetValueOrDefault(row.AssignmentId))
+                            : ToDto(row, includeSensitiveResult, metadata.GetValueOrDefault(row.AssignmentId));
+                        JsonSerializer.Serialize(writer, dto, JsonOptions());
+                    }
+                    await writer.FlushAsync(cancellationToken);
+                    offset += batch.Count;
+                    remaining -= batch.Count;
+                    if (batch.Count < wanted) break;
                 }
-                await writer.FlushAsync(ct);
-                offset += batch.Count;
-                remaining -= batch.Count;
-                if (batch.Count < wanted) break;
-            }
-            writer.WriteEndArray();
-            await writer.FlushAsync(ct);
-        }, "application/json; charset=utf-8");
+            }, ct),
+            "application/json; charset=utf-8");
     }
 
     internal static bool ShouldLoadAllAdminHistory(bool all, int? days, int take)
