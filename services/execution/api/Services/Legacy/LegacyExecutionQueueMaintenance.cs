@@ -16,15 +16,28 @@ internal sealed class LegacyExecutionQueueMaintenance(
     ILogger<LegacyExecutionQueueMaintenance> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private DateTimeOffset _nextSnapshot = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextReconciliationWarning = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogInformation("[TFQUEUE] WATCHDOG_START api={ApiInstance} maxAttempts={MaxAttempts} runningTimeoutMinutes={RunningTimeoutMinutes} queuedTimeoutMinutes={QueuedTimeoutMinutes} deliveryTimeoutSeconds={DeliveryTimeoutSeconds} snapshotIntervalSeconds={SnapshotIntervalSeconds}",
+            CodeQueueTrace.ApiInstance, Math.Clamp(cfg.GetValue("ExecutionQueue:MaxAttempts", 3), 1, 10),
+            Math.Clamp(cfg.GetValue("ExecutionQueue:RunningTimeoutMinutes", 5), 1, 60),
+            Math.Clamp(cfg.GetValue("ExecutionQueue:QueuedTimeoutMinutes", 30), 5, 1440),
+            Math.Clamp(cfg.GetValue("ExecutionQueue:DeliveryTimeoutSeconds", 5), 2, 30),
+            Math.Clamp(cfg.GetValue("ExecutionQueue:DiagnosticsIntervalSeconds", 60), 15, 300));
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await ExpireJobsAsync(stoppingToken);
                 await DeliverResultsAsync(stoppingToken);
+                if (DateTimeOffset.UtcNow >= _nextSnapshot)
+                {
+                    _nextSnapshot = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(cfg.GetValue("ExecutionQueue:DiagnosticsIntervalSeconds", 60), 15, 300));
+                    await SnapshotAsync(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -69,14 +82,22 @@ internal sealed class LegacyExecutionQueueMaintenance(
             if (job is null) { await transaction.RollbackAsync(ct); continue; }
 
             var action = LegacyQueuePolicy.Expiration(job, DateTimeOffset.UtcNow, maxAttempts, runningTimeout, queuedTimeout);
+            var originalStatus = job.Status;
+            var originalStart = job.StartedAt;
+            if (action != LegacyExpirationAction.None)
+                logger.LogWarning("[TFQUEUE] WATCHDOG_DECISION api={ApiInstance} job={JobId} submission={SubmissionId} language={Language} action={Action} previousStatus={PreviousStatus} attempt={Attempt} maxAttempts={MaxAttempts} createdAt={CreatedAt:O} heartbeatAt={HeartbeatAt:O} ageSeconds={AgeSeconds} heartbeatAgeSeconds={HeartbeatAgeSeconds}",
+                    CodeQueueTrace.ApiInstance, job.Id, job.SubmissionId, job.Language, action, originalStatus,
+                    job.AttemptCount, maxAttempts, job.CreatedAt, originalStart,
+                    CodeQueueTrace.AgeSeconds(DateTimeOffset.UtcNow, job.CreatedAt),
+                    CodeQueueTrace.AgeSeconds(DateTimeOffset.UtcNow, originalStart ?? job.CreatedAt));
             if (action == LegacyExpirationAction.Requeue)
             {
                 job.Status = "queued";
                 job.StartedAt = null;
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
-                logger.LogWarning("Requeued stalled code execution job {JobId}; attempt {Attempt}/{Max}.",
-                    job.Id, job.AttemptCount, maxAttempts);
+                logger.LogWarning("[TFQUEUE] WATCHDOG_REQUEUED api={ApiInstance} job={JobId} submission={SubmissionId} previousAttempt={Attempt} maxAttempts={MaxAttempts} previousHeartbeatAt={PreviousHeartbeatAt:O}",
+                    CodeQueueTrace.ApiInstance, job.Id, job.SubmissionId, job.AttemptCount, maxAttempts, originalStart);
             }
             else if (action == LegacyExpirationAction.Fail)
             {
@@ -106,11 +127,14 @@ internal sealed class LegacyExecutionQueueMaintenance(
                 job.CompletedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
-                logger.LogWarning("Code execution job {JobId} expired; submission={SubmissionId} status={Status} attempts={Attempt}.",
-                    job.Id, job.SubmissionId, job.Status, job.AttemptCount);
+                logger.LogWarning("[TFQUEUE] WATCHDOG_EXPIRED api={ApiInstance} job={JobId} submission={SubmissionId} status={Status} attempts={Attempt} cause={Cause} recoveredPersistedResult={RecoveredPersistedResult}",
+                    CodeQueueTrace.ApiInstance, job.Id, job.SubmissionId, job.Status, job.AttemptCount,
+                    originalStatus == "queued" ? "queued_timeout_or_attempt_budget" : "running_timeout_or_attempt_budget", existing is not null);
             }
             else
             {
+                logger.LogDebug("[TFQUEUE] WATCHDOG_SKIPPED api={ApiInstance} job={JobId} status={Status} attempt={Attempt}",
+                    CodeQueueTrace.ApiInstance, job.Id, job.Status, job.AttemptCount);
                 await transaction.RollbackAsync(ct);
             }
             db.ChangeTracker.Clear();
@@ -123,7 +147,16 @@ internal sealed class LegacyExecutionQueueMaintenance(
         // could overwrite real verdicts during a staggered service rollout.
         // Delivery begins only after the receiving API advertises this contract.
         var url = (cfg["Services:SolutionsApi"] ?? cfg["ServiceUrls:SolutionsApi"] ?? "http://solutions-api:8080").TrimEnd('/');
-        if (!await ReconciliationAvailableAsync(url, ct)) return;
+        if (!await ReconciliationAvailableAsync(url, ct))
+        {
+            if (DateTimeOffset.UtcNow >= _nextReconciliationWarning)
+            {
+                _nextReconciliationWarning = DateTimeOffset.UtcNow.AddMinutes(1);
+                logger.LogWarning("[TFQUEUE] DELIVERY_PAUSED api={ApiInstance} reason=reconciliation_contract_unavailable target={Target}",
+                    CodeQueueTrace.ApiInstance, new Uri(url).Host);
+            }
+            return;
+        }
 
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ExecutionDbContext>();
@@ -135,6 +168,9 @@ internal sealed class LegacyExecutionQueueMaintenance(
             select new { job.Id, job.SubmissionId, JobStatus = job.Status, job.CompletedAt,
                 result.Score, result.Passed, result.ResultJson, Verdict = result.Status }).Take(24).ToArrayAsync(ct);
 
+        if (deliveries.Length > 0)
+            logger.LogInformation("[TFQUEUE] DELIVERY_BATCH api={ApiInstance} count={Count} firstJob={FirstJob} lastJob={LastJob}",
+                CodeQueueTrace.ApiInstance, deliveries.Length, deliveries[0].Id, deliveries[^1].Id);
         await Parallel.ForEachAsync(deliveries,
             new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (delivery, token) =>
         {
@@ -158,16 +194,26 @@ internal sealed class LegacyExecutionQueueMaintenance(
                             onlyIfPending = true
                         }, options: JsonOptions)
                     };
+                    request.Headers.TryAddWithoutValidation(CodeQueueTrace.JobHeader, delivery.Id.ToString("D"));
+                    request.Headers.TryAddWithoutValidation(CodeQueueTrace.WorkerHeader, $"reconciliation/{CodeQueueTrace.ApiInstance}");
                     AddInternalKey(request);
+                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
                     using var response = await httpClients.CreateClient().SendAsync(request, deadline.Token);
                     succeeded = response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
-                    if (!succeeded)
-                        logger.LogWarning("Verdict delivery failed for code job {JobId}: HTTP {StatusCode}.", delivery.Id, (int)response.StatusCode);
+                    if (succeeded)
+                        logger.LogInformation("[TFQUEUE] DELIVERY_ACK api={ApiInstance} job={JobId} submission={SubmissionId} verdict={Verdict} httpStatus={HttpStatus} elapsedMs={ElapsedMs:F1} missingSubmission={MissingSubmission}",
+                            CodeQueueTrace.ApiInstance, delivery.Id, delivery.SubmissionId, delivery.Verdict, (int)response.StatusCode,
+                            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, response.StatusCode == HttpStatusCode.NotFound);
+                    else
+                        logger.LogWarning("[TFQUEUE] DELIVERY_HTTP_ERROR api={ApiInstance} job={JobId} submission={SubmissionId} verdict={Verdict} httpStatus={HttpStatus} elapsedMs={ElapsedMs:F1}",
+                            CodeQueueTrace.ApiInstance, delivery.Id, delivery.SubmissionId, delivery.Verdict, (int)response.StatusCode,
+                            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
-                    logger.LogWarning("Verdict delivery deferred for code job {JobId}: {Error}.", delivery.Id, ex.GetType().Name);
+                    logger.LogWarning(ex, "[TFQUEUE] DELIVERY_EXCEPTION api={ApiInstance} job={JobId} submission={SubmissionId} errorType={ErrorType}",
+                        CodeQueueTrace.ApiInstance, delivery.Id, delivery.SubmissionId, ex.GetType().Name);
                 }
             }
 
@@ -178,9 +224,58 @@ internal sealed class LegacyExecutionQueueMaintenance(
                 .Where(x => x.Id == delivery.Id && x.Status == delivery.JobStatus && x.CompletedAt == delivery.CompletedAt)
                 .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "delivered"), token);
             if (count > 0)
-                logger.LogInformation("Delivered legacy code verdict for job {JobId}, submission={SubmissionId}, verdict={Verdict}.",
-                    delivery.Id, delivery.SubmissionId, delivery.Verdict);
+                logger.LogInformation("[TFQUEUE] DELIVERY_FINALIZED api={ApiInstance} job={JobId} submission={SubmissionId} verdict={Verdict}",
+                    CodeQueueTrace.ApiInstance, delivery.Id, delivery.SubmissionId, delivery.Verdict);
+            else
+                logger.LogWarning("[TFQUEUE] DELIVERY_STATUS_CHANGED api={ApiInstance} job={JobId} submission={SubmissionId} expectedStatus={ExpectedStatus}",
+                    CodeQueueTrace.ApiInstance, delivery.Id, delivery.SubmissionId, delivery.JobStatus);
         });
+    }
+
+    private async Task SnapshotAsync(CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ExecutionDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var pending = db.ExecutionJobs.AsNoTracking().Where(x => x.Kind == ExecutionJobKinds.Legacy &&
+            x.CompletedAt == null && (x.Status == "queued" || x.Status == "running"));
+        var groups = await pending.GroupBy(x => new { x.Status, x.AttemptCount })
+            .Select(g => new { g.Key.Status, g.Key.AttemptCount, Count = g.Count(), FirstCreated = g.Min(x => x.CreatedAt) })
+            .ToArrayAsync(ct);
+        var queued = groups.Where(x => x.Status == "queued").ToArray();
+        var running = groups.Where(x => x.Status == "running").ToArray();
+        var queuedCount = queued.Sum(x => x.Count);
+        var runningCount = running.Sum(x => x.Count);
+        var oldestQueuedSeconds = queued.Length == 0 ? 0 : CodeQueueTrace.AgeSeconds(now, queued.Min(x => x.FirstCreated));
+        var oldestRunningSeconds = running.Length == 0 ? 0 : CodeQueueTrace.AgeSeconds(now, running.Min(x => x.FirstCreated));
+        var maxAttempts = Math.Clamp(cfg.GetValue("ExecutionQueue:MaxAttempts", 3), 1, 10);
+        var stuck = queuedCount > 0 && oldestQueuedSeconds >= 60;
+        var oldestQueued = await pending.Where(x => x.Status == "queued").OrderBy(x => x.CreatedAt).Take(4)
+            .Select(x => new { x.Id, x.SubmissionId, x.Language, x.Status, x.AttemptCount, x.CreatedAt, x.StartedAt })
+            .ToArrayAsync(ct);
+        var oldestRunning = await pending.Where(x => x.Status == "running").OrderBy(x => x.StartedAt ?? x.CreatedAt).Take(4)
+            .Select(x => new { x.Id, x.SubmissionId, x.Language, x.Status, x.AttemptCount, x.CreatedAt, x.StartedAt })
+            .ToArrayAsync(ct);
+        var oldest = oldestQueued.Concat(oldestRunning).OrderBy(x => x.CreatedAt).ToArray();
+        var staleBefore = now.AddSeconds(-75);
+        var staleHeartbeats = await pending.CountAsync(x => x.Status == "running" &&
+            ((x.StartedAt != null && x.StartedAt < staleBefore) ||
+             (x.StartedAt == null && x.CreatedAt < staleBefore)), ct);
+        var pendingDeliveries = await db.ExecutionJobs.AsNoTracking().CountAsync(x => x.Kind == ExecutionJobKinds.Legacy &&
+            x.CompletedAt != null && x.Status != "delivered", ct);
+        var breakdown = string.Join(",", groups.OrderBy(x => x.Status).ThenBy(x => x.AttemptCount)
+            .Select(x => $"{x.Status}:{x.AttemptCount}={x.Count}"));
+        // Each entry is bounded and contains only identifiers and timings, never code or test data.
+        var samples = string.Join(" | ", oldest.Select(x =>
+            $"job={x.Id};sub={x.SubmissionId};lang={x.Language};status={x.Status};attempt={x.AttemptCount};ageSec={CodeQueueTrace.AgeSeconds(now, x.CreatedAt)};heartbeatAgeSec={CodeQueueTrace.AgeSeconds(now, x.StartedAt ?? x.CreatedAt)}"));
+        if (stuck || staleHeartbeats > 0 || queued.Any(x => x.AttemptCount >= maxAttempts) || pendingDeliveries >= 16)
+            logger.LogWarning("[TFQUEUE] SNAPSHOT_ALERT api={ApiInstance} queued={Queued} running={Running} oldestQueuedSec={OldestQueuedSeconds} oldestRunningSec={OldestRunningSeconds} staleRunning={StaleRunning} pendingDelivery={PendingDelivery} attemptBreakdown={AttemptBreakdown} samples={Samples}",
+                CodeQueueTrace.ApiInstance, queuedCount, runningCount, oldestQueuedSeconds, oldestRunningSeconds,
+                staleHeartbeats, pendingDeliveries, breakdown, samples);
+        else
+            logger.LogInformation("[TFQUEUE] SNAPSHOT api={ApiInstance} queued={Queued} running={Running} oldestQueuedSec={OldestQueuedSeconds} oldestRunningSec={OldestRunningSeconds} staleRunning={StaleRunning} pendingDelivery={PendingDelivery} attemptBreakdown={AttemptBreakdown} samples={Samples}",
+                CodeQueueTrace.ApiInstance, queuedCount, runningCount, oldestQueuedSeconds, oldestRunningSeconds,
+                staleHeartbeats, pendingDeliveries, breakdown, samples);
     }
 
     private async Task<bool> ReconciliationAvailableAsync(string baseUrl, CancellationToken ct)

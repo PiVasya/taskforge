@@ -27,6 +27,7 @@ internal static partial class ExecutionApiEndpoints
         {
             Console.WriteLine($"[SQL] CREATE START kind={request.Kind} user={request.UserId} submission={request.SubmissionId} assignment={request.Payload?.AssignmentId}");
             SqlQueueService.Validate(request);
+            var payload = request.Payload ?? throw new ArgumentException("SQL payload is required.");
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(704638912)", ct);
             var existing = await db.ExecutionJobs.AsNoTracking().FirstOrDefaultAsync(x => x.DeduplicationKey == request.DeduplicationKey, ct);
@@ -34,8 +35,8 @@ internal static partial class ExecutionApiEndpoints
             {
                 var old = JsonSerializer.Deserialize<SqlJobPayload>(existing.PayloadJson!, SqlWire.Json)!;
                 if (existing.Kind != request.Kind || existing.UserId != request.UserId || existing.SubmissionId != request.SubmissionId
-                    || old.SpecVersionId != request.Payload.SpecVersionId || old.Profile.Id != request.Payload.Profile.Id
-                    || old.Source != request.Payload.Source || old.ValidationRunId != request.Payload.ValidationRunId)
+                    || old.SpecVersionId != payload.SpecVersionId || old.Profile.Id != payload.Profile.Id
+                    || old.Source != payload.Source || old.ValidationRunId != payload.ValidationRunId)
                     return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_REQUEST_ID_REUSED", message = "Request id is already bound to different SQL input." });
                 return Microsoft.AspNetCore.Http.Results.Ok(SqlQueueService.View(existing));
             }
@@ -46,9 +47,9 @@ internal static partial class ExecutionApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Json(new { code = "SQL_USER_BUSY", message = "Too many pending SQL attempts for this user." }, statusCode: 429);
             var job = new ExecutionJob
             {
-                Kind = request.Kind, Target = request.Payload.Profile.Fingerprint, PayloadVersion = SqlWire.Version,
-                PayloadJson = SqlWire.Serialize(request.Payload), DeduplicationKey = request.DeduplicationKey,
-                SubmissionId = request.SubmissionId, AssignmentId = request.Payload.AssignmentId, UserId = request.UserId,
+                Kind = request.Kind, Target = payload.Profile.Fingerprint, PayloadVersion = SqlWire.Version,
+                PayloadJson = SqlWire.Serialize(payload), DeduplicationKey = request.DeduplicationKey,
+                SubmissionId = request.SubmissionId, AssignmentId = payload.AssignmentId, UserId = request.UserId,
                 Code = string.Empty, Language = string.Empty, Status = "queued"
             };
             db.ExecutionJobs.Add(job); await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);

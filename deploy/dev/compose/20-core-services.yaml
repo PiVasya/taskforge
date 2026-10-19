@@ -289,6 +289,7 @@ services:
       dockerfile: services/solutions/api/Dockerfile
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      TASKFORGE_NODE_LABEL: ${TASKFORGE_NODE_LABEL:-unlabeled}
       AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
       AiAccounts__UnlimitedTaskRateLimit: ${AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT:-true}
       AiAccounts__UnlimitedTaskAttempts: ${AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS:-true}
@@ -309,6 +310,7 @@ services:
       Services__ExecutionApi: http://execution-api:8080
       ExecutionQueue__PreparingTimeoutMinutes: ${EXECUTION_QUEUE_PREPARING_TIMEOUT_MINUTES:-15}
       ExecutionQueue__PendingTimeoutMinutes: ${EXECUTION_QUEUE_PENDING_TIMEOUT_MINUTES:-90}
+      ExecutionQueue__DiagnosticsIntervalSeconds: ${EXECUTION_QUEUE_DIAGNOSTICS_INTERVAL_SECONDS:-60}
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
       Database__EnsureCreated: ${ENSURE_CREATED:-false}
       Jwt__Key: ${JWT_SIGNING_KEY:-dev_change_me_please_change_me_please_32_chars}

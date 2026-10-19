@@ -15,9 +15,38 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         PropertyNameCaseInsensitive = true
     };
 
+    // Unique per process restart; the container hostname disambiguates cluster instances.
+    private readonly string _workerInstance = BuildWorkerInstance();
+    private DateTimeOffset _lastIdleReport = DateTimeOffset.MinValue;
+    private int _emptyClaims;
+
+    internal static string BuildWorkerInstance()
+    {
+        var configured = Environment.GetEnvironmentVariable("TASKFORGE_NODE_LABEL") ?? "unlabeled";
+        var label = configured.Length is > 0 and <= 32 && configured.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')
+            ? configured : "unlabeled";
+        var host = Environment.MachineName;
+        if (host.Length > 40) host = host[..40];
+        return $"{label}/{host}/{Guid.NewGuid():N}";
+    }
+
+    private void AddWorkerHeaders(HttpRequestMessage request, ExecutionJobDto? job = null)
+    {
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Execution-Worker", _workerInstance);
+        if (job is null) return;
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Execution-Job", job.Id.ToString("D"));
+        request.Headers.TryAddWithoutValidation("X-TaskForge-Execution-Attempt", job.AttemptCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Execution worker started. It claims queued jobs from execution-api and dispatches them to language runners.");
+        logger.LogInformation("[TFQUEUE] WORKER_START worker={Worker} maxAttempts={MaxAttempts} runnerRetries={RunnerRetries} analyzerTimeoutSeconds={AnalyzerTimeoutSeconds} runnerTimeoutSeconds={RunnerTimeoutSeconds} completionRetries={CompletionRetries} verdictRetries={VerdictRetries}",
+            _workerInstance, System.Math.Clamp(configuration.GetValue("ExecutionQueue:MaxAttempts", 3), 1, 10),
+            System.Math.Clamp(configuration.GetValue("Judge:RunnerAttempts", 3), 1, 5),
+            System.Math.Clamp(configuration.GetValue("CodeAnalyzer:TimeoutSeconds", 8), 2, 60),
+            System.Math.Clamp(configuration.GetValue("Judge:TimeoutSeconds", 90), 80, 180),
+            System.Math.Clamp(configuration.GetValue("Judge:CompletionAttempts", 5), 1, 10),
+            System.Math.Clamp(configuration.GetValue("Judge:VerdictPublishAttempts", 5), 1, 10));
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -26,19 +55,36 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 var job = await ClaimNextJobAsync(stoppingToken);
                 if (job is null)
                 {
+                    _emptyClaims++;
+                    if (DateTimeOffset.UtcNow >= _lastIdleReport.AddSeconds(60))
+                    {
+                        _lastIdleReport = DateTimeOffset.UtcNow;
+                        logger.LogInformation("[TFQUEUE] WORKER_IDLE worker={Worker} emptyClaimsSincePreviousReport={EmptyClaims} pollIntervalSeconds=2",
+                            _workerInstance, _emptyClaims);
+                        _emptyClaims = 0;
+                    }
                     await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
                     continue;
                 }
 
+                _emptyClaims = 0;
                 await ProcessJobAsync(job, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
             }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("[TFQUEUE] WORKER_ATTEMPT_CANCELLED worker={Worker}; polling again", _workerInstance);
+            }
+            catch (ExecutionClaimLostException)
+            {
+                logger.LogWarning("[TFQUEUE] WORKER_ATTEMPT_EXPIRED worker={Worker}; polling again", _workerInstance);
+            }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Execution worker loop failed.");
+                logger.LogError(ex, "[TFQUEUE] WORKER_LOOP_FAILED worker={Worker} errorType={ErrorType}", _workerInstance, ex.GetType().Name);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
@@ -49,18 +95,22 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         var client = httpClientFactory.CreateClient();
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{ServiceUrl("ExecutionApi", "http://execution-api:8080")}/api/internal/execution/jobs/claim-next");
         AddInternalKey(request);
+        AddWorkerHeaders(request);
+        var claimStarted = Stopwatch.GetTimestamp();
         using var response = await client.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogWarning("Execution job claim failed with status {StatusCode}.", response.StatusCode);
+            logger.LogWarning("[TFQUEUE] CLAIM_HTTP_ERROR worker={Worker} status={StatusCode} elapsedMs={ElapsedMs:F1}",
+                _workerInstance, (int)response.StatusCode, Stopwatch.GetElapsedTime(claimStarted).TotalMilliseconds);
             return null;
         }
 
         var payload = await response.Content.ReadFromJsonAsync<ClaimNextResponse>(JsonOptions, ct);
         if (payload?.Job is not null)
         {
-            logger.LogInformation("Claimed execution job {JobId} for submission {SubmissionId}, language {Language}.", payload.Job.Id, payload.Job.SubmissionId, payload.Job.Language);
-            Console.WriteLine($"[EXECUTION] JOB CLAIMED job={payload.Job.Id} submission={payload.Job.SubmissionId} language={payload.Job.Language}");
+            logger.LogInformation("[TFQUEUE] CLAIM_ACK worker={Worker} job={JobId} submission={SubmissionId} language={Language} attempt={Attempt} queueHttpMs={ClaimHttpMs:F1}",
+                _workerInstance, payload.Job.Id, payload.Job.SubmissionId, payload.Job.Language,
+                payload.Job.AttemptCount, Stopwatch.GetElapsedTime(claimStarted).TotalMilliseconds);
         }
         return payload?.Job;
     }
@@ -68,27 +118,41 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
     private async Task ProcessJobAsync(ExecutionJobDto job, CancellationToken ct)
     {
         using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var heartbeat = KeepClaimAliveAsync(job, work, ct);
+        var started = Stopwatch.StartNew();
+        var stage = "prepare";
+        var heartbeat = KeepClaimAliveAsync(job, work, ct, () => stage, started);
+        logger.LogInformation("[TFQUEUE] WORK_START worker={Worker} job={JobId} submission={SubmissionId} assignment={AssignmentId} attempt={Attempt} language={Language}",
+            _workerInstance, job.Id, job.SubmissionId, job.AssignmentId, job.AttemptCount, job.Language);
         try
         {
-            var started = Stopwatch.StartNew();
             var tests = ParseTests(job.TestsJson);
             RunnerResult runnerResult;
-
+            logger.LogInformation("[TFQUEUE] TESTS_READY worker={Worker} job={JobId} attempt={Attempt} testCount={TestCount}",
+                _workerInstance, job.Id, job.AttemptCount, tests.Length);
             if (tests.Length == 0)
             {
                 runnerResult = RunnerResult.NoTests();
             }
             else
             {
+                stage = "analyze";
+                var analyzerStarted = Stopwatch.GetTimestamp();
+                logger.LogInformation("[TFQUEUE] ANALYZER_START worker={Worker} job={JobId} attempt={Attempt} language={Language}",
+                    _workerInstance, job.Id, job.AttemptCount, job.Language);
                 var policy = await AnalyzePolicyAsync(job, work.Token);
+                logger.LogInformation("[TFQUEUE] ANALYZER_DONE worker={Worker} job={JobId} attempt={Attempt} durationMs={DurationMs:F1} attested={Attested} blockedVerdict={BlockedVerdict}",
+                    _workerInstance, job.Id, job.AttemptCount, Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds,
+                    policy.Attestation.HasValue, policy.Block?.Verdict ?? "none");
+                stage = "runner";
                 runnerResult = policy.Block
                     ?? (policy.Attestation.HasValue
                         ? await RunTestsAsync(job, tests, policy.Attestation.Value, work.Token)
                         : RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода не выдал обязательную подпись безопасности."));
             }
 
-            started.Stop();
+            stage = "claim-confirm";
+            logger.LogInformation("[TFQUEUE] WORK_RESULT worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} verdict={Verdict} score={Score} elapsedMs={ElapsedMs}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, runnerResult.Verdict, runnerResult.Score, started.ElapsedMilliseconds);
             var complete = new CompleteExecutionJobRequest(
                 Status: runnerResult.Verdict,
                 Stdout: runnerResult.Stdout,
@@ -100,23 +164,51 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 Result: runnerResult.ToSolutionJson(),
                 AttemptCount: job.AttemptCount);
 
-            // A previous claim must not publish a late result after watchdog
-            // expiry and assignment to a different worker attempt.
+            // Do not publish a late verdict after the job has been reassigned.
             await RenewClaimAsync(job, work.Token, requireConfirmation: true);
             work.Token.ThrowIfCancellationRequested();
-            await PublishVerdictAsync(job.SubmissionId, runnerResult, work.Token);
-            await CompleteJobAsync(job.Id, complete, work.Token);
-            logger.LogInformation("Execution job {JobId} completed with verdict {Verdict}, score {Score}.", job.Id, runnerResult.Verdict, runnerResult.Score);
+            stage = "verdict-publish";
+            logger.LogInformation("[TFQUEUE] VERDICT_SEND worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} verdict={Verdict}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, runnerResult.Verdict);
+            await PublishVerdictAsync(job, runnerResult, work.Token);
+            stage = "job-complete";
+            logger.LogInformation("[TFQUEUE] COMPLETE_SEND worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount);
+            await CompleteJobAsync(job, complete, work.Token);
+            stage = "finished";
+            logger.LogInformation("[TFQUEUE] WORK_FINISHED worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} verdict={Verdict} score={Score} elapsedMs={ElapsedMs}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, runnerResult.Verdict, runnerResult.Score, started.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException) when (work.IsCancellationRequested || ct.IsCancellationRequested)
+        {
+            logger.LogWarning("[TFQUEUE] WORK_CANCELLED worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} stage={Stage} elapsedMs={ElapsedMs} shuttingDown={ShuttingDown}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, stage, started.ElapsedMilliseconds, ct.IsCancellationRequested);
+            throw;
+        }
+        catch (ExecutionClaimLostException)
+        {
+            logger.LogWarning("[TFQUEUE] WORK_CLAIM_LOST worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} stage={Stage} elapsedMs={ElapsedMs}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, stage, started.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[TFQUEUE] WORK_FAILED worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} stage={Stage} elapsedMs={ElapsedMs} errorType={ErrorType}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, stage, started.ElapsedMilliseconds, ex.GetType().Name);
+            throw;
         }
         finally
         {
             await work.CancelAsync();
             try { await heartbeat; }
             catch (OperationCanceledException) when (work.IsCancellationRequested) { }
+            logger.LogInformation("[TFQUEUE] WORK_EXIT worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} lastStage={Stage} elapsedMs={ElapsedMs}",
+                _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, stage, started.ElapsedMilliseconds);
         }
     }
 
-    private async Task KeepClaimAliveAsync(ExecutionJobDto job, CancellationTokenSource work, CancellationToken stoppingToken)
+    private async Task KeepClaimAliveAsync(ExecutionJobDto job, CancellationTokenSource work, CancellationToken stoppingToken,
+        Func<string> currentStage, Stopwatch started)
     {
         while (!work.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
         {
@@ -124,11 +216,14 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             {
                 await Task.Delay(TimeSpan.FromSeconds(20), work.Token);
                 await RenewClaimAsync(job, work.Token, requireConfirmation: false);
+                logger.LogInformation("[TFQUEUE] WORK_PROGRESS worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} stage={Stage} elapsedSeconds={ElapsedSeconds}",
+                    _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, currentStage(), (long)started.Elapsed.TotalSeconds);
             }
             catch (OperationCanceledException) when (work.IsCancellationRequested || stoppingToken.IsCancellationRequested) { break; }
             catch (ExecutionClaimLostException)
             {
-                logger.LogWarning("Execution job {JobId} lost its claim on attempt {Attempt}; aborting stale runner.", job.Id, job.AttemptCount);
+                logger.LogWarning("[TFQUEUE] HEARTBEAT_CLAIM_LOST worker={Worker} job={JobId} attempt={Attempt}; stopping stale attempt",
+                    _workerInstance, job.Id, job.AttemptCount);
                 await work.CancelAsync();
                 break;
             }
@@ -136,7 +231,8 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             {
                 // A transient heartbeat error is not proof of lease loss; the
                 // worker must still confirm ownership before publishing.
-                logger.LogWarning(ex, "Execution job heartbeat failed for {JobId}.", job.Id);
+                logger.LogWarning(ex, "[TFQUEUE] HEARTBEAT_EXCEPTION worker={Worker} job={JobId} attempt={Attempt} errorType={ErrorType}",
+                    _workerInstance, job.Id, job.AttemptCount, ex.GetType().Name);
             }
         }
     }
@@ -151,17 +247,32 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             Content = JsonContent.Create(new { attemptCount = job.AttemptCount }, options: JsonOptions)
         };
         AddInternalKey(request);
+        AddWorkerHeaders(request, job);
+        var started = Stopwatch.GetTimestamp();
         using var response = await client.SendAsync(request, ct);
         if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            logger.LogWarning("[TFQUEUE] HEARTBEAT_CONFLICT worker={Worker} job={JobId} attempt={Attempt} status=409",
+                _workerInstance, job.Id, job.AttemptCount);
             throw new ExecutionClaimLostException();
+        }
         // During rolling updates, the old execution-api does not yet have a
         // heartbeat route. Its legacy claim timeout still protects the queue.
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            if (requireConfirmation)
+                logger.LogWarning("[TFQUEUE] HEARTBEAT_LEGACY_FALLBACK worker={Worker} job={JobId} attempt={Attempt} apiHasNoHeartbeat=true",
+                    _workerInstance, job.Id, job.AttemptCount);
             return;
+        }
+        if (response.IsSuccessStatusCode)
+            logger.LogDebug("[TFQUEUE] HEARTBEAT_ACK worker={Worker} job={JobId} attempt={Attempt} confirm={Confirm} elapsedMs={ElapsedMs:F1}",
+                _workerInstance, job.Id, job.AttemptCount, requireConfirmation, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         if (!response.IsSuccessStatusCode)
         {
             if (requireConfirmation) response.EnsureSuccessStatusCode();
-            logger.LogWarning("Execution job heartbeat for {JobId} returned HTTP {Status}.", job.Id, (int)response.StatusCode);
+            logger.LogWarning("[TFQUEUE] HEARTBEAT_HTTP_ERROR worker={Worker} job={JobId} attempt={Attempt} httpStatus={Status} confirm={Confirm}",
+                _workerInstance, job.Id, job.AttemptCount, (int)response.StatusCode, requireConfirmation);
         }
     }
 
@@ -281,6 +392,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 };
                 using var response = await client.SendAsync(runnerRequest, HttpCompletionOption.ResponseHeadersRead, ct);
                 var text = await ReadBoundedRunnerResponseAsync(response.Content, ct);
+                logger.LogInformation("[TFQUEUE] RUNNER_HTTP worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} runnerAttempt={RunnerAttempt} language={Language} httpStatus={HttpStatus} elapsedMs={ElapsedMs:F1} responseBytes={ResponseBytes}",
+                    _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, attempt, language,
+                    (int)response.StatusCode, Stopwatch.GetElapsedTime(runnerStarted).TotalMilliseconds, Encoding.UTF8.GetByteCount(text));
                 if (!response.IsSuccessStatusCode)
                 {
                     var safeText = SanitizeRunnerText(text);
@@ -356,10 +470,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             catch (Exception ex)
             {
                 var safeMessage = FriendlyRunnerText(ex.Message);
-                logger.LogWarning(
-                    ex,
-                    "Runner request for job {JobId} failed on attempt {Attempt}/{Attempts}.",
-                    job.Id, attempt, attempts);
+                logger.LogWarning(ex,
+                    "[TFQUEUE] RUNNER_EXCEPTION worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} runnerAttempt={RunnerAttempt} runnerAttempts={RunnerAttempts} language={Language} errorType={ErrorType}",
+                    _workerInstance, job.Id, job.SubmissionId, job.AttemptCount, attempt, attempts, language, ex.GetType().Name);
 
                 if (attempt < attempts)
                 {
@@ -440,8 +553,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
         return Encoding.UTF8.GetString(preview, 0, count);
     }
 
-    private async Task CompleteJobAsync(Guid jobId, CompleteExecutionJobRequest requestBody, CancellationToken ct)
+    private async Task CompleteJobAsync(ExecutionJobDto job, CompleteExecutionJobRequest requestBody, CancellationToken ct)
     {
+        var jobId = job.Id;
         var attempts = System.Math.Clamp(configuration.GetValue("Judge:CompletionAttempts", 5), 1, 10);
         Exception? lastException = null;
         string? lastBody = null;
@@ -454,11 +568,19 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 Content = JsonContent.Create(requestBody, options: JsonOptions)
             };
             AddInternalKey(request);
+            AddWorkerHeaders(request, job);
 
             try
             {
+                var sentAt = Stopwatch.GetTimestamp();
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                if (response.IsSuccessStatusCode) return;
+                if (response.IsSuccessStatusCode)
+                {
+                    logger.LogInformation("[TFQUEUE] COMPLETE_ACK worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} httpStatus={HttpStatus} sendAttempt={SendAttempt} durationMs={DurationMs:F1}",
+                        _workerInstance, jobId, job.SubmissionId, job.AttemptCount, (int)response.StatusCode, attempt,
+                        Stopwatch.GetElapsedTime(sentAt).TotalMilliseconds);
+                    return;
+                }
                 lastBody = await ReadInternalErrorPreviewAsync(response.Content, ct);
 
                 logger.LogWarning(
@@ -479,8 +601,9 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
             lastException);
     }
 
-    private async Task PublishVerdictAsync(Guid submissionId, RunnerResult result, CancellationToken ct)
+    private async Task PublishVerdictAsync(ExecutionJobDto job, RunnerResult result, CancellationToken ct)
     {
+        var submissionId = job.SubmissionId;
         var attempts = System.Math.Clamp(configuration.GetValue("Judge:VerdictPublishAttempts", 5), 1, 10);
         var payload = new SolutionVerdictRequest(result.Verdict, result.Score, result.Message, result.ToSolutionJson());
         Exception? lastException = null;
@@ -494,11 +617,19 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
                 Content = JsonContent.Create(payload, options: JsonOptions)
             };
             AddInternalKey(request);
+            AddWorkerHeaders(request, job);
 
             try
             {
+                var sentAt = Stopwatch.GetTimestamp();
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                if (response.IsSuccessStatusCode) return;
+                if (response.IsSuccessStatusCode)
+                {
+                    logger.LogInformation("[TFQUEUE] VERDICT_ACK worker={Worker} job={JobId} submission={SubmissionId} attempt={Attempt} verdict={Verdict} httpStatus={HttpStatus} sendAttempt={SendAttempt} durationMs={DurationMs:F1}",
+                        _workerInstance, job.Id, submissionId, job.AttemptCount, result.Verdict,
+                        (int)response.StatusCode, attempt, Stopwatch.GetElapsedTime(sentAt).TotalMilliseconds);
+                    return;
+                }
                 lastBody = await ReadInternalErrorPreviewAsync(response.Content, ct);
                 logger.LogWarning("Publishing verdict for submission {SubmissionId} failed on attempt {Attempt}/{Attempts} with status {StatusCode}: {Body}", submissionId, attempt, attempts, response.StatusCode, Truncate(lastBody, 500));
             }

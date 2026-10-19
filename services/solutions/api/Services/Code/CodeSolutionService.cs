@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Realtime;
@@ -25,6 +26,7 @@ internal static class CodeSolutionService
         AdminSolutionEventPublisher live,
         CancellationToken ct)
     {
+        var queueLogger = http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TaskForge.CodeQueue");
         if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
         var userId = CurrentUserId(http, cfg);
         if (userId == null) return Unauthorized();
@@ -62,6 +64,8 @@ internal static class CodeSolutionService
         };
         db.Submissions.Add(sub);
         await db.SaveChangesAsync(ct);
+        queueLogger.LogInformation("[TFQUEUE] SUBMISSION_CREATED submission={SubmissionId} assignment={AssignmentId} language={Language} status={Status} createdAt={CreatedAt:O}",
+            sub.Id, assignmentId, language, sub.Status, sub.CreatedAt);
         await live.PublishAsync("code", sub.Id, userId.Value, assignmentId, sub.Status, null);
         TaskForgeDebugTrace.Map("SUBMISSION_CREATED",
             ("submission", sub.Id),
@@ -74,6 +78,8 @@ internal static class CodeSolutionService
 
         if (!IsAllowedLanguage(language, spec))
         {
+            queueLogger.LogInformation("[TFQUEUE] SUBMISSION_LOCAL_VERDICT submission={SubmissionId} reason=language_not_allowed language={Language}",
+                sub.Id, language);
             ApplyLocalVerdict(sub, new JudgeRunResult(
                 "LanguageNotAllowed", 0, false, false,
                 $"Язык {language} не разрешён для этого задания.",
@@ -87,6 +93,8 @@ internal static class CodeSolutionService
         var tests = ExtractTests(spec);
         if (tests.Length == 0)
         {
+            queueLogger.LogWarning("[TFQUEUE] SUBMISSION_LOCAL_VERDICT submission={SubmissionId} reason=no_tests language={Language}",
+                sub.Id, language);
             ApplyLocalVerdict(sub, new JudgeRunResult(
                 "NoTestsConfigured", 0, false, false,
                 "Для задания не настроены тесты, поэтому решение не может быть зачтено автоматически.",
@@ -108,7 +116,12 @@ internal static class CodeSolutionService
             }
         }
 
+        var enqueueStarted = Stopwatch.GetTimestamp();
+        queueLogger.LogInformation("[TFQUEUE] ENQUEUE_START submission={SubmissionId} assignment={AssignmentId} language={Language} testCount={TestCount}",
+            sub.Id, assignmentId, language, tests.Length);
         var enqueue = await EnqueueExecutionJobAsync(sub.Id, assignmentId, userId.Value, language, code, request.Input, tests, spec, cfg, httpFactory, ct);
+        queueLogger.LogInformation("[TFQUEUE] ENQUEUE_RESULT submission={SubmissionId} job={JobId} created={Created} durationMs={DurationMs:F1}",
+            sub.Id, enqueue.JobId, enqueue.Created, Stopwatch.GetElapsedTime(enqueueStarted).TotalMilliseconds);
         TaskForgeDebugTrace.Map("SUBMISSION_ENQUEUE",
             ("submission", sub.Id),
             ("user", userId.Value),
@@ -118,6 +131,8 @@ internal static class CodeSolutionService
             ("message", enqueue.Message));
         if (!enqueue.Created)
         {
+            queueLogger.LogWarning("[TFQUEUE] ENQUEUE_FAILED submission={SubmissionId} assignment={AssignmentId} durationMs={DurationMs:F1} outcome={Outcome}",
+                sub.Id, assignmentId, Stopwatch.GetElapsedTime(enqueueStarted).TotalMilliseconds, enqueue.Message);
             if (!unlimitedTaskEnergy)
             {
                 var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
@@ -151,15 +166,21 @@ internal static class CodeSolutionService
         }, JsonOptions());
         // The worker may publish its terminal verdict immediately after enqueue.
         // A tracked entity SaveChanges here would overwrite that verdict with Queued.
-        await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
+        var pendingChanged = await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.Status, "Queued")
                 .SetProperty(x => x.Score, 0)
                 .SetProperty(x => x.ResultJson, queuedPayload), ct);
+        queueLogger.LogInformation("[TFQUEUE] SUBMISSION_QUEUED submission={SubmissionId} job={JobId} changed={Changed} alreadyTerminal={AlreadyTerminal}",
+            sub.Id, enqueue.JobId, pendingChanged, pendingChanged == 0);
         db.Entry(sub).State = EntityState.Detached;
 
+        var waitStarted = Stopwatch.GetTimestamp();
         var final = await WaitForTerminalSubmissionAsync(db, sub.Id, cfg, ct);
         var returned = final ?? await db.Submissions.AsNoTracking().SingleAsync(x => x.Id == sub.Id, ct);
+        queueLogger.LogInformation("[TFQUEUE] SUBMISSION_RETURN submission={SubmissionId} job={JobId} status={Status} score={Score} terminal={Terminal} waitedMs={WaitedMs:F1} ageSec={AgeSec}",
+            sub.Id, enqueue.JobId, returned.Status, returned.Score, IsTerminalVerdict(returned.Status),
+            Stopwatch.GetElapsedTime(waitStarted).TotalMilliseconds, Math.Max(0, (long)(DateTimeOffset.UtcNow - returned.CreatedAt).TotalSeconds));
         TaskForgeDebugTrace.Map("SUBMISSION_RETURN",
             ("submission", sub.Id),
             ("user", userId.Value),

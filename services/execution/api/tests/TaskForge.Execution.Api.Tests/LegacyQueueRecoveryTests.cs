@@ -11,14 +11,14 @@ public sealed class LegacyQueueRecoveryTests
     private static readonly TimeSpan QueuedLimit = TimeSpan.FromMinutes(30);
 
     [Theory]
-    [InlineData("running", 1, 3, 8, LegacyExpirationAction.Requeue)]
-    [InlineData("running", 3, 3, 8, LegacyExpirationAction.Fail)]
-    [InlineData("running", 2, 3, 1, LegacyExpirationAction.None)]
-    [InlineData("queued", 0, 3, 31, LegacyExpirationAction.Fail)]
-    [InlineData("queued", 3, 3, 1, LegacyExpirationAction.Fail)]
-    [InlineData("queued", 1, 3, 1, LegacyExpirationAction.None)]
+    [InlineData("running", 1, 3, 8, "Requeue")]
+    [InlineData("running", 3, 3, 8, "Fail")]
+    [InlineData("running", 2, 3, 1, "None")]
+    [InlineData("queued", 0, 3, 31, "Fail")]
+    [InlineData("queued", 3, 3, 1, "Fail")]
+    [InlineData("queued", 1, 3, 1, "None")]
     public void ExpirationOnlyRequeuesLiveAttemptsWithinBudget(
-        string status, int attempts, int maxAttempts, int ageMinutes, LegacyExpirationAction expected)
+        string status, int attempts, int maxAttempts, int ageMinutes, string expected)
     {
         var job = new ExecutionJob
         {
@@ -28,7 +28,7 @@ public sealed class LegacyQueueRecoveryTests
             StartedAt = Now.AddMinutes(-ageMinutes),
             CreatedAt = Now.AddMinutes(-ageMinutes)
         };
-        Assert.Equal(expected, LegacyQueuePolicy.Expiration(job, Now, maxAttempts, RunningLimit, QueuedLimit));
+        Assert.Equal(expected, LegacyQueuePolicy.Expiration(job, Now, maxAttempts, RunningLimit, QueuedLimit).ToString());
     }
 
     [Fact]

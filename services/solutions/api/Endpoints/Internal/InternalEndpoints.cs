@@ -57,8 +57,12 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, refunded = true, quota, request.Reason });
         });
 
-        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, CancellationToken ct) =>
+        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, HttpContext http, ILoggerFactory logs, CancellationToken ct) =>
         {
+            var worker = QueueWorkerLabel(http.Request.Headers["X-TaskForge-Execution-Worker"].ToString());
+            Guid? jobId = Guid.TryParse(http.Request.Headers["X-TaskForge-Execution-Job"].ToString(), out var parsedJobId)
+                ? parsedJobId : null;
+            var queueLogger = logs.CreateLogger("TaskForge.CodeQueue");
             // Serialize competing worker/reconciliation verdicts for one immutable submission.
             // Otherwise two readers can both observe Queued and the late writer can downgrade Accepted.
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -67,6 +71,8 @@ internal static partial class SolutionsApiEndpoints
                 .SingleOrDefaultAsync(ct);
             if (sub == null)
             {
+                queueLogger.LogWarning("[TFQUEUE] VERDICT_SUBMISSION_MISSING submission={SubmissionId} job={JobId} worker={Worker} incoming={IncomingVerdict} reconciliation={Reconciliation}",
+                    submissionId, jobId, worker, request.Verdict, request.OnlyIfPending);
                 TaskForgeDebugTrace.Map("VERDICT_MISS", ("submission", submissionId));
                 return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Решение не найдено.", code = "SOLUTION_NOT_FOUND" });
             }
@@ -74,6 +80,9 @@ internal static partial class SolutionsApiEndpoints
             if (sub.SqlSpecVersionId.HasValue) return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_VERDICT_REQUIRES_BINDING" });
             var previous = sub.Status;
             var incomingVerdict = CleanVerdict(request.Verdict);
+            queueLogger.LogInformation("[TFQUEUE] VERDICT_RECEIVED submission={SubmissionId} job={JobId} worker={Worker} previous={PreviousVerdict} incoming={IncomingVerdict} score={Score} reconciliation={Reconciliation} ageSeconds={AgeSeconds}",
+                submissionId, jobId, worker, previous, incomingVerdict, request.Score, request.OnlyIfPending,
+                Math.Max(0, (long)(DateTimeOffset.UtcNow - sub.CreatedAt).TotalSeconds));
             TaskForgeDebugTrace.Map("VERDICT_RECEIVED",
                 ("submission", submissionId),
                 ("user", sub.UserId),
@@ -85,10 +94,16 @@ internal static partial class SolutionsApiEndpoints
             // Replay from execution-api is reconciliation, not a second judge run.
             // Never replace already graded submissions or richer worker results.
             if (request.OnlyIfPending && !ShouldApplyReplayedVerdict(previous, incomingVerdict))
+            {
+                queueLogger.LogInformation("[TFQUEUE] VERDICT_SKIPPED submission={SubmissionId} job={JobId} worker={Worker} reason=reconciliation_precedence previous={PreviousVerdict} incoming={IncomingVerdict}",
+                    submissionId, jobId, worker, previous, incomingVerdict);
                 return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = sub.Id, status = sub.Status, score = sub.Score, applied = false });
+            }
 
             if (!ShouldApplyIncomingVerdict(previous, incomingVerdict))
             {
+                queueLogger.LogInformation("[TFQUEUE] VERDICT_SKIPPED submission={SubmissionId} job={JobId} worker={Worker} reason=terminal_precedence previous={PreviousVerdict} incoming={IncomingVerdict}",
+                    submissionId, jobId, worker, previous, incomingVerdict);
                 TaskForgeDebugTrace.Map("VERDICT_IGNORED",
                     ("submission", submissionId),
                     ("user", sub.UserId),
@@ -115,6 +130,8 @@ internal static partial class SolutionsApiEndpoints
 
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            queueLogger.LogInformation("[TFQUEUE] VERDICT_COMMITTED submission={SubmissionId} job={JobId} worker={Worker} previous={PreviousVerdict} verdict={Verdict} score={Score} reconciliation={Reconciliation} createdAt={CreatedAt:O}",
+                submissionId, jobId, worker, previous, sub.Status, sub.Score, request.OnlyIfPending, sub.CreatedAt);
             if (sub.UserId.HasValue)
                 await live.PublishAsync("code", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
             TaskForgeDebugTrace.Map("VERDICT_SAVED",
@@ -472,6 +489,14 @@ internal static partial class SolutionsApiEndpoints
 
 
         return app;
+    }
+
+    private static string QueueWorkerLabel(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "unknown-pre-upgrade-worker";
+        if (value.Length > 120 || value.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_' or '.' or ':' or '/')))
+            return "invalid-worker-label";
+        return value;
     }
 
     private sealed class SolutionAnalyticsAttemptRow

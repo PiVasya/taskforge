@@ -19,6 +19,7 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      TASKFORGE_NODE_LABEL: ${TASKFORGE_NODE_LABEL:-unlabeled}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
@@ -54,6 +55,7 @@ services:
       ExecutionQueue__RunningTimeoutMinutes: ${EXECUTION_QUEUE_RUNNING_TIMEOUT_MINUTES:-5}
       ExecutionQueue__QueuedTimeoutMinutes: ${EXECUTION_QUEUE_QUEUED_TIMEOUT_MINUTES:-30}
       ExecutionQueue__DeliveryTimeoutSeconds: ${EXECUTION_QUEUE_DELIVERY_TIMEOUT_SECONDS:-5}
+      ExecutionQueue__DiagnosticsIntervalSeconds: ${EXECUTION_QUEUE_DIAGNOSTICS_INTERVAL_SECONDS:-60}
     expose:
     - '8080'
     depends_on:
@@ -91,6 +93,7 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      TASKFORGE_NODE_LABEL: ${TASKFORGE_NODE_LABEL:-unlabeled}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:?set TASKFORGE_INTERNAL_KEY}

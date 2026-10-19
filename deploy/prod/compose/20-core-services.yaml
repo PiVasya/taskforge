@@ -317,6 +317,7 @@ services:
     restart: unless-stopped
     environment:
       TASKFORGE_DEBUG_LOGS: ${TASKFORGE_DEBUG_LOGS:-1}
+      TASKFORGE_NODE_LABEL: ${TASKFORGE_NODE_LABEL:-unlabeled}
       AiAccounts__UnlimitedTaskEnergy: ${AI_ACCOUNTS_UNLIMITED_TASK_ENERGY:-true}
       AiAccounts__UnlimitedTaskRateLimit: ${AI_ACCOUNTS_UNLIMITED_TASK_RATE_LIMIT:-true}
       AiAccounts__UnlimitedTaskAttempts: ${AI_ACCOUNTS_UNLIMITED_TASK_ATTEMPTS:-true}
@@ -343,6 +344,7 @@ services:
       Services__ExecutionApi: http://execution-api:8080
       ExecutionQueue__PreparingTimeoutMinutes: ${EXECUTION_QUEUE_PREPARING_TIMEOUT_MINUTES:-15}
       ExecutionQueue__PendingTimeoutMinutes: ${EXECUTION_QUEUE_PENDING_TIMEOUT_MINUTES:-90}
+      ExecutionQueue__DiagnosticsIntervalSeconds: ${EXECUTION_QUEUE_DIAGNOSTICS_INTERVAL_SECONDS:-60}
       RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-taskforge}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS}
       S3__Endpoint: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
