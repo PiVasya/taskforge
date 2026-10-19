@@ -84,7 +84,12 @@ internal static class TaskForgeDebugDiagnostics
                 }
             }
 
-            var captureResponse = !suppressBodyLogging && ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType, context.Request.Headers.Accept.ToString());
+            // Streaming JSON arrays must reach the client directly on every batch flush.
+            // The diagnostic preview is intended for ordinary bounded responses, not for
+            // streamed histories (which may also contain sensitive solution contents).
+            var streamingJsonGet = HttpMethods.IsGet(context.Request.Method) && IsStreamingSolutionJsonPath(context.Request.Path.Value);
+            var captureResponse = !suppressBodyLogging && !streamingJsonGet
+                && ShouldCaptureResponse(context.Request.Path.Value, context.Request.ContentType, context.Request.Headers.Accept.ToString());
             var originalBody = context.Response.Body;
             var responseBuffer = captureResponse ? new BoundedDebugResponseStream(originalBody, MaxCapturedBodyBytes) : null;
             if (captureResponse && responseBuffer is not null)
@@ -198,6 +203,21 @@ internal static class TaskForgeDebugDiagnostics
         var p = path ?? string.Empty;
         return p.StartsWith("/api/internal/agent/", StringComparison.OrdinalIgnoreCase)
             || p.StartsWith("/api/admin/ai/investigation", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStreamingSolutionJsonPath(string? path)
+    {
+        var p = (path ?? string.Empty).TrimEnd('/');
+        if (p.Equals("/api/me/solutions", StringComparison.OrdinalIgnoreCase)
+            || p.Equals("/api/code-solutions/top", StringComparison.OrdinalIgnoreCase)) return true;
+
+        const string adminPrefix = "/api/admin/users/";
+        const string adminSuffix = "/solutions";
+        if (p.Length <= adminPrefix.Length + adminSuffix.Length
+            || !p.StartsWith(adminPrefix, StringComparison.OrdinalIgnoreCase)
+            || !p.EndsWith(adminSuffix, StringComparison.OrdinalIgnoreCase)) return false;
+        var userId = p[adminPrefix.Length..^adminSuffix.Length];
+        return Guid.TryParse(userId, out _);
     }
 
     private static bool ShouldCaptureResponse(string? path, string? contentType, string? accept)

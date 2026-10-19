@@ -139,7 +139,7 @@ public sealed class DebugStreamingTests
     [InlineData("/api/me/solutions")]
     [InlineData("/api/admin/users/00000000-0000-0000-0000-000000000001/solutions")]
     [InlineData("/api/code-solutions/top")]
-    public async Task StreamedSolutionJson_UsesOnlyAsyncIoEvenWithDebugCapture(string path)
+    public async Task StreamedSolutionJson_UsesOnlyAsyncIoWithDebugLogging(string path)
     {
         var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
         Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
@@ -159,7 +159,9 @@ public sealed class DebugStreamingTests
                     JsonSerializer.Serialize(writer, new { id = "first" });
                     await writer.FlushAsync(cancellationToken);
                     firstItemFlushed.TrySetResult(true);
-                    await release.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    // The test controls completion: do not race a 5-second timer
+                    // against a loaded CI runner after the first flush.
+                    await release.Task;
                     JsonSerializer.Serialize(writer, new { id = "second" });
                 }, context.RequestAborted);
             });
@@ -173,19 +175,67 @@ public sealed class DebugStreamingTests
             http.Response.Body = clientBody;
 
             var pipelineTask = app.Build()(http);
-            await firstItemFlushed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var firstFrame = Encoding.UTF8.GetString(clientBody.GetWrittenBytes());
-            Assert.StartsWith("[", firstFrame);
-            Assert.Contains("first", firstFrame);
-            Assert.False(pipelineTask.IsCompleted, "Streaming must send the first item before all batches complete");
+            try
+            {
+                // If middleware or the writer throws before the first flush, surface
+                // the original pipeline exception instead of hiding it behind a timeout.
+                await Task.WhenAny(firstItemFlushed.Task, pipelineTask).WaitAsync(TimeSpan.FromSeconds(5));
+                if (pipelineTask.IsCompleted)
+                {
+                    await pipelineTask;
+                    Assert.Fail("The HTTP pipeline completed before streaming the first item");
+                }
+                await firstItemFlushed.Task;
+                var firstFrame = Encoding.UTF8.GetString(clientBody.GetWrittenBytes());
+                Assert.StartsWith("[", firstFrame);
+                Assert.Contains("first", firstFrame);
+                Assert.False(pipelineTask.IsCompleted, "Streaming must send the first item before all batches complete");
 
-            release.TrySetResult(true);
-            await pipelineTask.WaitAsync(TimeSpan.FromSeconds(5));
-            using var result = JsonDocument.Parse(clientBody.GetWrittenBytes());
-            Assert.Equal(JsonValueKind.Array, result.RootElement.ValueKind);
-            Assert.Equal(2, result.RootElement.GetArrayLength());
-            Assert.Equal("first", result.RootElement[0].GetProperty("id").GetString());
-            Assert.Equal("second", result.RootElement[1].GetProperty("id").GetString());
+                release.TrySetResult(true);
+                await pipelineTask.WaitAsync(TimeSpan.FromSeconds(5));
+                using var result = JsonDocument.Parse(clientBody.GetWrittenBytes());
+                Assert.Equal(JsonValueKind.Array, result.RootElement.ValueKind);
+                Assert.Equal(2, result.RootElement.GetArrayLength());
+                Assert.Equal("first", result.RootElement[0].GetProperty("id").GetString());
+                Assert.Equal("second", result.RootElement[1].GetProperty("id").GetString());
+            }
+            finally
+            {
+                // Never leave a request stuck on the test's gate after an assertion.
+                release.TrySetResult(true);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", previous);
+        }
+    }
+
+    [Fact]
+    public async Task DebugCapture_ForOrdinaryJson_DoesNotRequireSynchronousIo()
+    {
+        var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
+        Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
+        try
+        {
+            using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+            var app = new ApplicationBuilder(services);
+            global::TaskForgeDebugDiagnostics.UseTaskForgeDebugRequestLogging(app, "solutions-api");
+            app.Run(async context =>
+            {
+                context.Response.ContentType = "application/json";
+                await context.Response.Body.WriteAsync(Encoding.UTF8.GetBytes("{\"ok\":true}"), context.RequestAborted);
+                await context.Response.Body.FlushAsync(context.RequestAborted);
+            });
+
+            var http = new DefaultHttpContext { RequestServices = services };
+            http.Request.Path = "/api/ordinary-json-test";
+            http.Request.Headers.Accept = "application/json";
+            var clientBody = new AsyncOnlyResponseStream();
+            http.Response.Body = clientBody;
+
+            await app.Build()(http).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal("{\"ok\":true}", Encoding.UTF8.GetString(clientBody.GetWrittenBytes()));
         }
         finally
         {
