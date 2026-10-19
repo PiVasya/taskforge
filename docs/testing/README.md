@@ -110,6 +110,29 @@ This layer checks things that are intentionally static: workflow/Docker matrix a
 
 ## CI ownership
 
+Both GitHub Actions workflows end with an independent `ci-error-summary` job. It
+waits for the validation gates **and** image builds (or their skips), inspects
+failed job logs with read-only Actions permissions, and combines every uploaded
+.NET TRX report and build log into a single GitHub Actions step summary. The
+original gates still fail and still prevent invalid image deployment; the
+reporter does not suppress failures or force unrelated tests to run.
+
+Downloadable `.NET` error evidence is attached to each behavior-test job as a
+`taskforge-dotnet-*` artifact. For a complete local run of all available
+families, use `bash scripts/tests/all.sh`; it continues across suites and
+summarizes failures at the end. A host without .NET, Node dependencies or
+Docker cannot claim that every gate passed.
+
+For a production server diagnostics archive, build a separate inventory of
+HTTP 5xx, service exceptions, agent timeouts, and lower-priority client errors:
+
+```bash
+python3 scripts/diagnostics/error-inventory.py /path/to/taskforge_diagnostics.tar.gz all-errors.txt
+```
+
+The archive report does not include browser DevTools errors or logs from nodes
+absent from the uploaded archive.
+
 The normal and full-rebuild workflows keep separate jobs for repository boundaries, .NET production build + behavior tests, frontend behavior/build, OJ security, Browser security, SQL runtime/integration and Compose validation. Docker image builds depend on all of them, so a C# compile failure is reported before image build/push jobs start.
 
 `scripts/ci/check-csharp-source-invariants.py` and `scripts/ci/check-authoring-regressions.py` remain only as compatibility entrypoints for old local commands/source-retention. Active CI does not use either as a source-grep policy engine.

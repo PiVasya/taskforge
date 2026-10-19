@@ -41,7 +41,17 @@ done
 printf '\nRunning %d .NET test project(s)\n' "${#test_projects[@]}"
 for project in "${test_projects[@]}"; do
   printf '\n========== DOTNET TEST: %s ==========\n' "$project"
-  if dotnet test "$project" -c Release --nologo --verbosity minimal; then
+  if [ -n "${TASKFORGE_CI_RESULTS_DIR:-}" ]; then
+    mkdir -p "$TASKFORGE_CI_RESULTS_DIR"
+    report="$(basename "${project%.csproj}").trx"
+    if dotnet test "$project" -c Release --nologo --verbosity minimal \
+       --logger "trx;LogFileName=$report" --results-directory "$TASKFORGE_CI_RESULTS_DIR"; then
+      printf 'PASS TEST: %s\n' "$project"
+    else
+      test_failures+=("$project")
+      printf 'FAIL TEST: %s\n' "$project" >&2
+    fi
+  elif dotnet test "$project" -c Release --nologo --verbosity minimal; then
     printf 'PASS TEST: %s\n' "$project"
   else
     test_failures+=("$project")

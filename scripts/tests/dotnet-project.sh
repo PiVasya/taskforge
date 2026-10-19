@@ -34,10 +34,32 @@ fi
 # Every retained test project has a ProjectReference to its production service.
 # dotnet test therefore compiles the service and the tests in one graph; a separate
 # dotnet build here would only compile the same service twice.
+failures=()
 for test_project in "${tests[@]}"; do
   printf '========== DOTNET TEST + BUILD: %s ==========\n' "$test_project"
-  dotnet test "$test_project" -c Release --nologo --verbosity minimal
+  if [ -n "${TASKFORGE_CI_RESULTS_DIR:-}" ]; then
+    mkdir -p "$TASKFORGE_CI_RESULTS_DIR"
+    report="$(basename "${test_project%.csproj}").trx"
+    if dotnet test "$test_project" -c Release --nologo --verbosity minimal \
+       --logger "trx;LogFileName=$report" --results-directory "$TASKFORGE_CI_RESULTS_DIR"; then
+      printf 'PASS TEST: %s\n' "$test_project"
+    else
+      failures+=("$test_project")
+      printf 'FAIL TEST: %s\n' "$test_project" >&2
+    fi
+  elif dotnet test "$test_project" -c Release --nologo --verbosity minimal; then
+    printf 'PASS TEST: %s\n' "$test_project"
+  else
+    failures+=("$test_project")
+    printf 'FAIL TEST: %s\n' "$test_project" >&2
+  fi
   printf '\n'
 done
+
+if [ "${#failures[@]}" -gt 0 ]; then
+  printf 'FAIL: %d/%d test projects failed for %s\n' "${#failures[@]}" "${#tests[@]}" "$project" >&2
+  printf '  - %s\n' "${failures[@]}" >&2
+  exit 1
+fi
 
 printf 'PASS: %s validated through %d colocated test project(s).\n' "$project" "${#tests[@]}"

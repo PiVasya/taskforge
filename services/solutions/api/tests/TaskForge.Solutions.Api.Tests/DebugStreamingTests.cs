@@ -136,10 +136,11 @@ public sealed class DebugStreamingTests
     }
 
     [Theory]
-    [InlineData("/api/me/solutions")]
-    [InlineData("/api/admin/users/00000000-0000-0000-0000-000000000001/solutions")]
-    [InlineData("/api/code-solutions/top")]
-    public async Task StreamedSolutionJson_UsesOnlyAsyncIoWithDebugLogging(string path)
+    [InlineData("GET", "/api/me/solutions")]
+    [InlineData("GET", "/api/admin/users/00000000-0000-0000-0000-000000000001/solutions")]
+    [InlineData("GET", "/api/code-solutions/top")]
+    [InlineData("POST", "/api/me/solutions")]
+    public async Task StreamedSolutionJson_UsesOnlyAsyncIoWithDebugLogging(string method, string path)
     {
         var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
         Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
@@ -154,10 +155,10 @@ public sealed class DebugStreamingTests
             app.Run(async context =>
             {
                 context.Response.ContentType = "application/json; charset=utf-8";
-                await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(context.Response.Body, async (writer, cancellationToken) =>
+                await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(context.Response.Body, async (writer, flushBatchAsync, cancellationToken) =>
                 {
                     JsonSerializer.Serialize(writer, new { id = "first" });
-                    await writer.FlushAsync(cancellationToken);
+                    await flushBatchAsync(cancellationToken);
                     firstItemFlushed.TrySetResult(true);
                     // The test controls completion: do not race a 5-second timer
                     // against a loaded CI runner after the first flush.
@@ -168,6 +169,7 @@ public sealed class DebugStreamingTests
 
             var http = new DefaultHttpContext { RequestServices = services };
             http.Request.Path = path;
+            http.Request.Method = method;
             http.Request.Headers.Accept = "application/json";
             // Kestrel disables synchronous response writes/flushes by default.
             // A MemoryStream alone would hide the old Utf8JsonWriter.Dispose() crash.
@@ -204,6 +206,51 @@ public sealed class DebugStreamingTests
                 // Never leave a request stuck on the test's gate after an assertion.
                 release.TrySetResult(true);
             }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", previous);
+        }
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/me/solutions")]
+    [InlineData("POST", "/api/captured-large-json")]
+    public async Task OversizedStreamedJson_NeverPerformsSynchronousIo(string method, string path)
+    {
+        var previous = Environment.GetEnvironmentVariable("TASKFORGE_DEBUG_LOGS");
+        Environment.SetEnvironmentVariable("TASKFORGE_DEBUG_LOGS", "1");
+        try
+        {
+            using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+            var app = new ApplicationBuilder(services);
+            var payload = new string('x', 96 * 1024);
+            global::TaskForgeDebugDiagnostics.UseTaskForgeDebugRequestLogging(app, "solutions-api");
+            app.Run(async context =>
+            {
+                context.Response.ContentType = "application/json";
+                await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(
+                    context.Response.Body,
+                    async (writer, flushBatchAsync, cancellationToken) =>
+                    {
+                        JsonSerializer.Serialize(writer, new { id = 1, payload });
+                        await flushBatchAsync(cancellationToken);
+                        JsonSerializer.Serialize(writer, new { id = 2, payload = "ok" });
+                    }, context.RequestAborted);
+            });
+
+            var http = new DefaultHttpContext { RequestServices = services };
+            http.Request.Method = method;
+            http.Request.Path = path;
+            http.Request.Headers.Accept = "application/json";
+            var destination = new AsyncOnlyResponseStream();
+            http.Response.Body = destination;
+
+            await app.Build()(http).WaitAsync(TimeSpan.FromSeconds(10));
+            using var json = JsonDocument.Parse(destination.GetWrittenBytes());
+            Assert.Equal(2, json.RootElement.GetArrayLength());
+            Assert.Equal(payload, json.RootElement[0].GetProperty("payload").GetString());
+            Assert.Equal("ok", json.RootElement[1].GetProperty("payload").GetString());
         }
         finally
         {
@@ -248,7 +295,7 @@ public sealed class DebugStreamingTests
     {
         var clientBody = new AsyncOnlyResponseStream();
         await SolutionsApiMappingService.WriteStreamingJsonArrayAsync(
-            clientBody, (_, _) => Task.CompletedTask, CancellationToken.None);
+            clientBody, (_, _, _) => Task.CompletedTask, CancellationToken.None);
         Assert.Equal("[]", Encoding.UTF8.GetString(clientBody.GetWrittenBytes()));
     }
 

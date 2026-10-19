@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO.Pipelines;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
@@ -139,19 +140,34 @@ internal static class SolutionsApiMappingService
         return "Пользователь";
     }
 
-    // Keep JSON arrays streamed and never dispose Utf8JsonWriter synchronously:
-    // Dispose() calls Stream.Flush(), which Kestrel rejects when synchronous I/O is disabled.
-    // Both paginated histories and top solutions use this helper to guarantee async disposal.
+    // A Stream-backed Utf8JsonWriter may call Stream.Flush() synchronously from
+    // JsonSerializer.Serialize, even if the caller later awaits FlushAsync().
+    // PipeWriter keeps the serializer's synchronous flush in memory; only the
+    // explicit batch flush writes to the HTTP response, asynchronously.
     internal static async Task WriteStreamingJsonArrayAsync(
         Stream stream,
-        Func<Utf8JsonWriter, CancellationToken, Task> writeItemsAsync,
+        Func<Utf8JsonWriter, Func<CancellationToken, ValueTask>, CancellationToken, Task> writeItemsAsync,
         CancellationToken ct)
     {
-        await using var writer = new Utf8JsonWriter(stream);
-        writer.WriteStartArray();
-        await writeItemsAsync(writer, ct);
-        writer.WriteEndArray();
-        await writer.FlushAsync(ct);
+        var pipe = PipeWriter.Create(stream, new StreamPipeWriterOptions(leaveOpen: true));
+        try
+        {
+            using var writer = new Utf8JsonWriter(pipe);
+            async ValueTask FlushBatchAsync(CancellationToken cancellationToken)
+            {
+                writer.Flush();
+                await pipe.FlushAsync(cancellationToken);
+            }
+
+            writer.WriteStartArray();
+            await writeItemsAsync(writer, FlushBatchAsync, ct);
+            writer.WriteEndArray();
+            await FlushBatchAsync(ct);
+        }
+        finally
+        {
+            await pipe.CompleteAsync();
+        }
     }
 
     // JSON array on the wire is unchanged. No request materializes its entire
@@ -167,7 +183,7 @@ internal static class SolutionsApiMappingService
         CancellationToken ct)
     {
         return Microsoft.AspNetCore.Http.Results.Stream(
-            stream => WriteStreamingJsonArrayAsync(stream, async (writer, cancellationToken) =>
+            stream => WriteStreamingJsonArrayAsync(stream, async (writer, flushBatchAsync, cancellationToken) =>
             {
                 var offset = skip;
                 var remaining = take ?? int.MaxValue;
@@ -187,7 +203,7 @@ internal static class SolutionsApiMappingService
                             : ToDto(row, includeSensitiveResult, metadata.GetValueOrDefault(row.AssignmentId));
                         JsonSerializer.Serialize(writer, dto, JsonOptions());
                     }
-                    await writer.FlushAsync(cancellationToken);
+                    await flushBatchAsync(cancellationToken);
                     offset += batch.Count;
                     remaining -= batch.Count;
                     if (batch.Count < wanted) break;

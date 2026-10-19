@@ -65,7 +65,7 @@ internal static partial class SolutionsApiEndpoints
                 .Where(x => x.AssignmentId == assignmentId && x.Status == "Accepted" && x.SqlSpecVersionId == null)
                 .OrderByDescending(x => x.Score).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id);
             return Microsoft.AspNetCore.Http.Results.Stream(
-                stream => WriteStreamingJsonArrayAsync(stream, async (writer, cancellationToken) =>
+                stream => WriteStreamingJsonArrayAsync(stream, async (writer, flushBatchAsync, cancellationToken) =>
                 {
                     var metadata = await LoadAssignmentMetadataAsync(new[] { assignmentId }, cfg, httpFactory, cancellationToken);
                     for (var offset = 0; offset < limit; offset += 16)
@@ -83,7 +83,7 @@ internal static partial class SolutionsApiEndpoints
                                 row.UserId.HasValue ? users.GetValueOrDefault(row.UserId.Value) : null);
                             JsonSerializer.Serialize(writer, dto, JsonOptions());
                         }
-                        await writer.FlushAsync(cancellationToken);
+                        await flushBatchAsync(cancellationToken);
                         if (batch.Count < wanted) break;
                     }
                 }, ct),

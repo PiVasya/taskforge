@@ -61,7 +61,20 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Build all production .NET projects and run behavior tests
-        run: bash scripts/tests/dotnet.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          export TASKFORGE_CI_RESULTS_DIR="$RUNNER_TEMP/taskforge-ci-results"
+          mkdir -p "$TASKFORGE_CI_RESULTS_DIR"
+          bash scripts/tests/dotnet.sh 2>&1 | tee "$TASKFORGE_CI_RESULTS_DIR/console.log"
+      - name: Preserve all .NET test and build errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskforge-dotnet-full-rebuild
+          path: ${{ runner.temp }}/taskforge-ci-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -142,6 +155,27 @@ jobs:
       - uses: actions/checkout@v5
       - name: Validate Compose configuration
         run: bash scripts/tests/compose.sh
+
+  ci-error-summary:
+    needs: [build, compose-check, workflow-integrity, migration-safety, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Collect .NET test and build diagnostics
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: taskforge-dotnet-*
+          path: ${{ runner.temp }}/taskforge-ci-results
+      - name: Summarize all validation failures together
+        env:
+          TASKFORGE_CI_NEEDS_JSON: ${{ toJson(needs) }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/summarize-ci-failures.py "$RUNNER_TEMP/taskforge-ci-results"
 
   build:
     needs: [compose-check, workflow-integrity, migration-safety, dotnet-behavior-tests, frontend-tests, minecraft-link-invariants, oj-security-invariants, browser-security-invariants, sql-runtime-check]
