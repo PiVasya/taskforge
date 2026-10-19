@@ -1,4 +1,7 @@
+import { getFrontendDiagnosticsConfig, logFrontendEvent } from '../../devtools/frontendDiagnostics';
+
 const PREFIX = '[TFDBG MAP]';
+const TRACE_REVISION = 'map-dev-diagnostics-314-r1';
 const MAX_IDS = 24;
 
 function compactIds(values) {
@@ -22,20 +25,22 @@ export function summarizeCourseMapGraph(nodes = [], edges = []) {
   };
 }
 
+export function isCourseMapDiagnosticsEnabled() {
+  return getFrontendDiagnosticsConfig().enabled;
+}
+
 export function courseMapConsole(event, details = {}, level = 'info') {
-  const method = typeof console?.[level] === 'function' ? level : 'info';
-  try {
-    console[method](PREFIX, event, {
-      at: new Date().toISOString(),
-      ...details,
-    });
-  } catch {
-    try { console.log(PREFIX, event); } catch {}
-  }
+  if (!getFrontendDiagnosticsConfig().enabled) return false;
+  return logFrontendEvent('course-map', String(event || ''), {
+    marker: PREFIX,
+    traceRevision: TRACE_REVISION,
+    ...details,
+  }, level === 'error' || level === 'warn' ? level : 'info');
 }
 
 export function courseMapConsoleGraph(event, { nodes = [], edges = [], ...details } = {}, level = 'info') {
-  courseMapConsole(event, {
+  if (!getFrontendDiagnosticsConfig().enabled) return false;
+  return courseMapConsole(event, {
     ...details,
     ...summarizeCourseMapGraph(nodes, edges),
   }, level);

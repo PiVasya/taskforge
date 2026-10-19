@@ -1,3 +1,5 @@
+import { courseMapConsole } from './courseMapDebug';
+
 const mapState = new Map();
 
 function clean(value) {
@@ -56,6 +58,15 @@ export function setCourseMapSessionState(courseId, value, options = {}) {
     projectionRevision: numericRevision(value?.projectionRevision),
   };
   for (const id of ids) mapState.set(stateKey(id, options), nextValue);
+  if (nextValue.sourceMode === 'editor') courseMapConsole('SESSION_MEMORY_WRITE', {
+    courseId: rootId,
+    version: Number(nextValue.version || 0),
+    dirty: nextValue.dirty === true,
+    aliases: ids.size,
+    nodes: Array.isArray(nextValue.document?.nodes) ? nextValue.document.nodes.length : 0,
+    edges: Array.isArray(nextValue.document?.edges) ? nextValue.document.edges.length : 0,
+    source: nextValue.source || 'unknown',
+  });
 }
 
 export function clearCourseMapSessionState(courseId, options = {}) {
@@ -63,6 +74,13 @@ export function clearCourseMapSessionState(courseId, options = {}) {
   const ids = new Set([clean(courseId), clean(options.rootCourseId), ...(options.aliases || []).map(clean)].filter(Boolean));
   if (value?.aliases) value.aliases.forEach((id) => ids.add(clean(id)));
   for (const id of ids) mapState.delete(stateKey(id, options));
+  if ((clean(options.scope) || 'editor') === 'editor') courseMapConsole('SESSION_MEMORY_CLEAR', {
+    courseId: clean(courseId),
+    versionBefore: Number(value?.version || 0),
+    dirtyBefore: value?.dirty === true,
+    hadDocument: Boolean(value?.document),
+    aliases: ids.size,
+  });
 }
 
 export function clearLearnerCourseMapSessionStates(userId = '') {

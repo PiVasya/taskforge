@@ -6,6 +6,7 @@ import {
   describeDiagnosticTarget,
   sanitizeDiagnosticUrl,
   sanitizeDiagnosticValue,
+  isCourseMapDiagnosticEvent,
 } from './frontendDiagnosticsModel';
 
 const DB_NAME = 'taskforge-frontend-diagnostics';
@@ -562,9 +563,10 @@ function triggerDownload(blob, fileName) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-function exportHeader(stats) {
+function exportHeader(stats, scope = 'all') {
   return JSON.stringify({
     type: 'taskforge-frontend-diagnostics',
+    scope,
     exportedAt: new Date().toISOString(),
     sessionId: SESSION_ID,
     stats,
@@ -572,44 +574,59 @@ function exportHeader(stats) {
   }) + '\n';
 }
 
-export async function downloadFrontendDiagnostics() {
+export async function downloadFrontendDiagnostics({ scope = 'all' } = {}) {
   await flushFrontendDiagnostics();
   const stats = await getFrontendDiagnosticsStats();
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const encoder = new TextEncoder();
+  const focused = scope === 'course-map';
+  const prefix = focused ? 'taskforge-course-map-logs' : 'taskforge-frontend-logs';
+  let exportedCount = 0;
+  const pickRecords = (rows) => focused ? rows.filter(isCourseMapDiagnosticEvent) : rows;
 
   if (typeof CompressionStream !== 'undefined') {
     const compression = new CompressionStream('gzip');
     const writer = compression.writable.getWriter();
     const blobPromise = new Response(compression.readable, { headers: { 'Content-Type': 'application/gzip' } }).blob();
-    await writer.write(encoder.encode(exportHeader(stats)));
+    await writer.write(encoder.encode(exportHeader(stats, scope)));
     let afterId = null;
     while (true) {
       const rows = await readEventBatch(afterId, 1000);
       if (!rows.length) break;
-      const text = rows.map((row) => JSON.stringify(row)).join('\n') + '\n';
-      await writer.write(encoder.encode(text));
+      const selected = pickRecords(rows);
+      exportedCount += selected.length;
+      if (selected.length) {
+        const text = selected.map((row) => JSON.stringify(row)).join('\n') + '\n';
+        await writer.write(encoder.encode(text));
+      }
       afterId = rows[rows.length - 1].id;
       if (rows.length < 1000) break;
     }
     await writer.close();
     const blob = await blobPromise;
-    triggerDownload(blob, `taskforge-frontend-logs-${stamp}.jsonl.gz`);
-    logFrontendEvent('diagnostics', 'logs-downloaded', { count: stats.count, bytes: stats.bytes, compressed: true });
-    return { ...stats, fileName: `taskforge-frontend-logs-${stamp}.jsonl.gz`, compressed: true };
+    triggerDownload(blob, `${prefix}-${stamp}.jsonl.gz`);
+    logFrontendEvent('diagnostics', 'logs-downloaded', { scope, count: exportedCount, bytes: blob.size, compressed: true });
+    return { ...stats, count: exportedCount, allCount: stats.count, fileName: `${prefix}-${stamp}.jsonl.gz`, compressed: true };
   }
 
-  const parts = [new Blob([exportHeader(stats)], { type: 'application/x-ndjson' })];
+  const parts = [new Blob([exportHeader(stats, scope)], { type: 'application/x-ndjson' })];
   let afterId = null;
   while (true) {
     const rows = await readEventBatch(afterId, 1000);
     if (!rows.length) break;
-    parts.push(new Blob([rows.map((row) => JSON.stringify(row)).join('\n'), '\n'], { type: 'application/x-ndjson' }));
+    const selected = pickRecords(rows);
+    exportedCount += selected.length;
+    if (selected.length) parts.push(new Blob([selected.map((row) => JSON.stringify(row)).join('\n'), '\n'], { type: 'application/x-ndjson' }));
     afterId = rows[rows.length - 1].id;
     if (rows.length < 1000) break;
   }
   const blob = new Blob(parts, { type: 'application/x-ndjson' });
-  triggerDownload(blob, `taskforge-frontend-logs-${stamp}.jsonl`);
-  logFrontendEvent('diagnostics', 'logs-downloaded', { count: stats.count, bytes: stats.bytes, compressed: false });
-  return { ...stats, fileName: `taskforge-frontend-logs-${stamp}.jsonl`, compressed: false };
+  triggerDownload(blob, `${prefix}-${stamp}.jsonl`);
+  logFrontendEvent('diagnostics', 'logs-downloaded', { scope, count: exportedCount, bytes: blob.size, compressed: false });
+  return { ...stats, count: exportedCount, allCount: stats.count, fileName: `${prefix}-${stamp}.jsonl`, compressed: false };
+}
+
+
+export async function downloadCourseMapDiagnostics() {
+  return downloadFrontendDiagnostics({ scope: 'course-map' });
 }

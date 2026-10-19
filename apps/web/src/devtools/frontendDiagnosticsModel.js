@@ -126,3 +126,17 @@ export function approximateDiagnosticBytes(record) {
     try { return JSON.stringify(record).length * 2 + 1; } catch { return 256; }
   }
 }
+
+
+// A focused export keeps the map state timeline alongside relevant HTTP,
+// navigation and UI errors, without exporting unrelated application activity.
+export function isCourseMapDiagnosticEvent(record) {
+  const category = String(record?.category || '');
+  if (['course-map', 'navigation', 'runtime', 'react', 'stream', 'diagnostics'].includes(category)) return true;
+  if (category === 'interaction') return ['click', 'submit'].includes(String(record?.event || ''));
+  if (category === 'console') return ['warn', 'error'].includes(String(record?.event || ''));
+  if (category === 'realtime') return String(record?.detail?.hub || '') === 'course-map';
+  if (category !== 'api' && category !== 'fetch') return false;
+  const url = String(record?.detail?.url || '').toLowerCase();
+  return /\/api\/(?:courses|assignments|task-graph|imports|taskgraph)(?:\/|\?|$)/.test(url);
+}

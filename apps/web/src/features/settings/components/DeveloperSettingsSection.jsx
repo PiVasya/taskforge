@@ -3,6 +3,7 @@ import { Button, Card } from '../../../components/ui';
 import {
   clearFrontendDiagnostics,
   downloadFrontendDiagnostics,
+  downloadCourseMapDiagnostics,
   getFrontendDiagnosticsConfig,
   getFrontendDiagnosticsStats,
   setFrontendDiagnosticsEnabled,
@@ -90,6 +91,19 @@ export default function DeveloperSettingsSection({ notify }) {
     }
   }, [notify, refreshStats]);
 
+  const downloadMap = useCallback(async () => {
+    try {
+      setBusy('map-download');
+      const result = await downloadCourseMapDiagnostics();
+      notify?.success?.(`Событий карты: ${result.count || 0}`);
+      await refreshStats();
+    } catch (error) {
+      notify?.error?.(error?.message || 'Не удалось скачать логи карты');
+    } finally {
+      setBusy('');
+    }
+  }, [notify, refreshStats]);
+
   const clear = useCallback(async () => {
     if (!window.confirm('Очистить все локальные логи фронтенда на этом устройстве?')) return;
     try {
@@ -168,6 +182,9 @@ export default function DeveloperSettingsSection({ notify }) {
           <Button type="button" onClick={download} disabled={busy !== '' || Number(stats.count || 0) === 0}>
             {busy === 'download' ? 'Подготовка…' : 'Скачать все логи фронтенда'}
           </Button>
+          <Button type="button" variant="outline" onClick={downloadMap} disabled={busy !== '' || (Number(stats.count || 0) === 0 && Number(stats.queued || 0) === 0)}>
+            {busy === 'map-download' ? 'Подготовка…' : 'Скачать логи карты'}
+          </Button>
           <Button type="button" variant="outline" onClick={clear} disabled={busy !== '' || (Number(stats.count || 0) === 0 && !stats.queued)}>
             {busy === 'clear' ? 'Очистка…' : 'Очистить логи'}
           </Button>
@@ -176,6 +193,7 @@ export default function DeveloperSettingsSection({ notify }) {
 
       <Card className="p-4 space-y-2 text-sm text-neutral-600 dark:text-neutral-300">
         <div className="font-semibold text-[rgb(var(--text))]">Что попадает в лог</div>
+        <div>Для карты: включите режим, откройте курс, повторите ошибку и скачайте «Скачать логи карты».</div>
         <div>Переходы между страницами, API-запросы и ответы, ошибки, query-cache, realtime-подключения, клики и формы, долгие задачи браузера, медленные ресурсы и доступные метрики памяти.</div>
         <div>Пароли, токены, cookies, email/телефон, исходный код решений и ответы заданий автоматически вырезаются.</div>
       </Card>

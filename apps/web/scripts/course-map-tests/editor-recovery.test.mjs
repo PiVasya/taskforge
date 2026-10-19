@@ -83,7 +83,8 @@ globalThis.window = { localStorage: {
 } };
 globalThis.indexedDB = indexedDbMock();
 
-const cacheSource = await fs.readFile(new URL('courseMapLocalCache.js', srcRoot), 'utf8');
+const cacheSource = (await fs.readFile(new URL('courseMapLocalCache.js', srcRoot), 'utf8'))
+  .replace("import { courseMapConsole } from './courseMapDebug';",     'const courseMapConsole = (...args) => { (globalThis.__cacheDiagnostics ||= []).push(args); };');
 let importCounter = 0;
 async function importCache() {
   // Independent module instance simulates a tab reopened with an empty memory cache.
@@ -166,4 +167,23 @@ test('stale server response does not discard a newer editor state', async () => 
   });
   assert.equal(result, false);
   assert.deepEqual(trace, []);
+});
+
+
+test('draft cache diagnostics record write, ordered clear and successful IndexedDB commit', async () => {
+  globalThis.__cacheDiagnostics = [];
+  const cache = await importCache();
+  await cache.writeCourseMapLocalCache({ ...args, mapRecord: map(80, 709), dirty: true });
+  await cache.clearCourseMapLocalCache(args);
+  const events = globalThis.__cacheDiagnostics;
+  const write = events.find(([event]) => event === 'CACHE_WRITE');
+  const clear = events.find(([event]) => event === 'CACHE_CLEAR_BEGIN');
+  const completed = events.filter(([event]) => event === 'CACHE_IDB_COMPLETE');
+  assert.equal(write[1].version, 80);
+  assert.equal(write[1].dirty, true);
+  assert.equal(write[1].nodes, 709);
+  assert.ok(clear);
+  assert.equal(completed.at(-1)[1].committed, true);
+  assert.ok(events.findIndex(([event]) => event === 'CACHE_WRITE') < events.findIndex(([event]) => event === 'CACHE_CLEAR_BEGIN'));
+  assert.equal(JSON.stringify(events).includes('description'), false);
 });

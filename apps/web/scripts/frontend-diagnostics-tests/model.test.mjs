@@ -74,3 +74,19 @@ test('diagnostic flood limiter records a bounded sample and reports suppressed b
   assert.equal(nextWindow.state.count, 1);
   assert.equal(nextWindow.state.suppressed, 0);
 });
+
+
+test('focused course map export keeps map events and related requests but drops unrelated activity', () => {
+  const entry = (category, event, detail = {}) => ({ category, event, detail });
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('course-map', 'DIRTY_SET', { version: 80 })), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('api', 'response', { url: '/api/courses/olympiad/map', status: 409 })), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('fetch', 'request', { url: '/api/courses/olympiad/learning-map/stream' })), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('navigation', 'route')), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('runtime', 'window-error')), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('interaction', 'click')), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('interaction', 'key')), false);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('api', 'response', { url: '/api/admin/cluster/stats' })), false);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('realtime', 'connected', { hub: 'support' })), false);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('realtime', 'reconnecting', { hub: 'course-map' })), true);
+  assert.equal(model.isCourseMapDiagnosticEvent(entry('console', 'warn', { args: ['unrelated'] })), true);
+});

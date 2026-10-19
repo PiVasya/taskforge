@@ -75,6 +75,7 @@ import useTaskGraphImportJournal from './useTaskGraphImportJournal';
 import useTaskGraphJsonInput from './useTaskGraphJsonInput';
 import { isImportPending } from './courseTaskGraphOperation';
 import { navigateToCourseEditor } from './courseMapNavigation';
+import { courseMapConsole } from './courseMapDebug';
 const EMPTY_LIST = Object.freeze([]);
 const EMPTY_COURSE_BUNDLE = Object.freeze({
   course: null,
@@ -363,13 +364,29 @@ export default function CourseAssignmentsPage() {
   }, [courseCanEdit, isEditorMode]);
 
   const openJsonImportDialog = React.useCallback(() => {
-    if (graphImportRequest || (isImportPending(importJournal.operation) && importJournal.operation.state !== 'missing')) { notify.warn('Сначала завершите сохранение карты предыдущего импорта.'); return; }
+    const pendingOperation = isImportPending(importJournal.operation) && importJournal.operation.state !== 'missing';
+    courseMapConsole('IMPORT_MODAL_OPEN_ATTEMPT', {
+      courseId, graphImportRequest: Boolean(graphImportRequest),
+      operationPending: pendingOperation, mapEditorMode, courseCanEdit,
+      currentlyOpen: jsonImportDialogOpen,
+    });
+    if (graphImportRequest || pendingOperation) {
+      courseMapConsole('IMPORT_MODAL_BLOCKED', {
+        courseId, reason: 'pending-import-operation',
+        graphImportRequest: Boolean(graphImportRequest), operationPending: pendingOperation,
+      }, 'warn');
+      notify.warn('Сначала завершите сохранение карты предыдущего импорта.'); return; }
     closeContextMenu();
     closeCreateMenu();
     setJsonDocsOpen(false);
     setJsonImportOptions((current) => ({ ...current, allowDeletes: false, allowConnectionDeletes: false, allowDuplicates: false }));
     setJsonImportDialogOpen(true);
-  }, [closeContextMenu, closeCreateMenu, graphImportRequest, importJournal.operation, notify]);
+    courseMapConsole('IMPORT_MODAL_OPEN_DISPATCHED', { courseId });
+  }, [closeContextMenu, closeCreateMenu, courseCanEdit, courseId, graphImportRequest, importJournal.operation, jsonImportDialogOpen, mapEditorMode, notify]);
+
+  useEffect(() => {
+    courseMapConsole('IMPORT_MODAL_STATE', { courseId, open: jsonImportDialogOpen });
+  }, [courseId, jsonImportDialogOpen]);
 
   const openJsonExportDialog = React.useCallback(() => {
     closeContextMenu();

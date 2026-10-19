@@ -53,7 +53,7 @@ import {
   isAssignmentProgressionConfirmed,
   listPendingCourseProgressionChanges,
 } from '../courseProgressionFreshness';
-import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
+import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts, isCourseMapDiagnosticsEnabled } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { prepareTaskGraphImport } from '../courseTaskGraphImport';
 import { hasIntentionalNodeChanges, loadFreshEditorMap } from '../courseMapEditorChanges';
@@ -358,6 +358,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const assignmentsRef = React.useRef([]);
   const recordRef = React.useRef(record);
   const dirtyRef = React.useRef(dirty);
+  const nodeChangeTraceCountRef = React.useRef(0);
   const sceneReadyRef = React.useRef(false);
   const serverReloadingRef = React.useRef(false);
   const nodeDraggingRef = React.useRef(false);
@@ -510,6 +511,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     });
 
     previousViewRef.current = viewKey;
+    nodeChangeTraceCountRef.current = 0;
     sceneReadyRef.current = false;
     setSceneReady(false);
     modeTransitionRef.current = true;
@@ -547,6 +549,17 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
   React.useEffect(() => { recordRef.current = record; }, [record]);
   React.useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  React.useEffect(() => {
+    if (!editorMode || !rootId) return;
+    courseMapConsole('EDITOR_STATE_RENDER', {
+      viewKey, dirty, dirtyRef: dirtyRef.current, serverChanged,
+      loading, sceneReady, modeTransition: modeTransitionRef.current,
+      serverReloading: serverReloadingRef.current,
+      version: Number(record?.version || 0),
+      graphSource: graphSourceRef.current,
+      nodeCount: nodesRef.current.length, edgeCount: edgesRef.current.length,
+    });
+  }, [dirty, editorMode, loading, record?.version, rootId, sceneReady, serverChanged, viewKey]);
   React.useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   React.useEffect(() => { edgesRef.current = edges; }, [edges]);
   React.useEffect(() => { assignmentsRef.current = assignments; }, [assignments]);
@@ -681,7 +694,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const expectedViewKey = String(options?.expectedViewKey || viewKey);
     const source = graphSourceRef.current;
 
-    if (serverReloadingRef.current) return false;
+    if (serverReloadingRef.current) {
+      courseMapConsole('SESSION_SKIP', { reason, skip: 'server-reloading', viewKey, dirty: nextDirty });
+      return false;
+    }
     if (!rootId || !nodesRef.current.length) {
       courseMapConsole('SESSION_SKIP', { reason, skip: 'empty-graph', expectedViewKey, activeView: activeViewRef.current, mode: modeName });
       return false;
@@ -985,6 +1001,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const localIsDirty = editorMode && Boolean(localState?.dirty);
     const localMatchesServer = Boolean(localState?.document) && localVersion === serverVersion;
     const keepDirtyAcrossConflict = Boolean(localState?.document) && localIsDirty && localVersion !== serverVersion;
+    if (editorMode) courseMapConsole('EDITOR_DOCUMENT_CHOICE', {
+      viewKey, source: sourceLabel, fromCache, preferSession,
+      sessionPresent: Boolean(session?.document), sessionDirty: Boolean(session?.dirty),
+      cachePresent: Boolean(cachedState?.mapRecord), cacheDirty: Boolean(cachedState?.dirty),
+      cachedDraftPresent: Boolean(persistedDraft?.document),
+      localSource: localState?.source || null, localVersion, serverVersion,
+      localIsDirty, localMatchesServer, keepDirtyAcrossConflict,
+      selected: localMatchesServer || keepDirtyAcrossConflict ? 'local' : 'server',
+      serverNodes: mapRecord?.document?.nodes?.length || 0,
+      serverEdges: mapRecord?.document?.edges?.length || 0,
+      localNodes: localState?.document?.nodes?.length || 0,
+      localEdges: localState?.document?.edges?.length || 0,
+    }, keepDirtyAcrossConflict ? 'warn' : 'info');
     const graphDocumentShape = (value) => {
       const nodeIds = new Set((Array.isArray(value?.nodes) ? value.nodes : []).map((item) => String(item?.id || '')).filter(Boolean));
       const edgeIds = new Set((Array.isArray(value?.edges) ? value.edges : []).map((item) => String(item?.id || '')).filter(Boolean));
@@ -1060,17 +1089,33 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       if (!document) {
         document = buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
         isDirty = Boolean(editorMode && (document.nodes.length || document.edges.length));
+        courseMapConsole('EDITOR_DEFAULT_GRAPH_CREATED', {
+          viewKey, source: sourceLabel, version: Number(mapRecord?.version || 0),
+          editorMode, dirty: isDirty,
+          nodes: document.nodes.length, edges: document.edges.length,
+          serverHadDocument: Boolean(mapRecord?.document),
+        }, isDirty ? 'warn' : 'info');
       }
     } else {
       document = normalizeForView(document, localState?.document === document ? 'local-dirty-document' : 'local-document')
         || buildDefaultCourseMap(rootId, nextCourses, nextAssignments);
     }
 
+    const dirtyBeforeApply = dirtyRef.current;
+    const versionBeforeApply = Number(recordRef.current?.version || 0);
     setAssignments(nextAssignments);
     setRecord(expectedRecord);
     recordRef.current = expectedRecord;
     setDirty(isDirty);
     dirtyRef.current = isDirty;
+    if (editorMode) courseMapConsole('DIRTY_STATE_APPLIED', {
+      viewKey, source: sourceLabel,
+      previousDirty: dirtyBeforeApply, nextDirty: isDirty,
+      previousVersion: versionBeforeApply,
+      nextVersion: Number(expectedRecord.version || 0),
+      serverVersion: Number(mapRecord?.version || 0),
+      changedOnServer,
+    }, isDirty ? 'warn' : 'info');
     setServerChanged(changedOnServer);
     viewportRef.current = document.viewport || { x: 0, y: 0, zoom: 1 };
 
@@ -2043,18 +2088,38 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const fetchSnapshot = () => Promise.all([mapPromise, fetchEditorTree('editor-map-load')]);
       const isCurrent = () => requestId === loadRequestRef.current
         && activeViewRef.current === viewKey && activeModeRef.current === 'editor';
-      const applySnapshot = ([mapRecord, treeAssignments]) => applyMapPayload(mapRecord, treeAssignments, {
-        preferSession: replaceLocalDraft ? false : preferSession,
-        fromCache: false,
-        source: 'editor-server',
-      });
+      const applySnapshot = ([mapRecord, treeAssignments]) => {
+        courseMapConsole('EDITOR_SNAPSHOT_APPLY_BEGIN', {
+          requestId, viewKey, version: Number(mapRecord?.version || 0),
+          nodes: mapRecord?.document?.nodes?.length || 0,
+          edges: mapRecord?.document?.edges?.length || 0,
+          assignments: treeAssignments?.length || 0,
+          replaceLocalDraft,
+        });
+        const applied = applyMapPayload(mapRecord, treeAssignments, {
+          preferSession: replaceLocalDraft ? false : preferSession,
+          fromCache: false,
+          source: 'editor-server',
+        });
+        courseMapConsole('EDITOR_SNAPSHOT_APPLY_END', {
+          requestId, viewKey, applied: applied === true,
+          version: Number(recordRef.current.version || 0),
+          dirty: dirtyRef.current, serverChanged: Boolean(dirtyRef.current && Number(recordRef.current.version || 0) !== Number(mapRecord?.version || 0)),
+          nodes: nodesRef.current.length, edges: edgesRef.current.length,
+        });
+        return applied;
+      };
       const applied = replaceLocalDraft
         ? await loadFreshEditorMap({
             fetchSnapshot,
             isCurrent,
             discardDraft: async () => {
+              courseMapConsole('EDITOR_DRAFT_DISCARD_BEGIN', { requestId, viewKey,
+                dirtyBefore: dirtyRef.current, versionBefore: Number(recordRef.current.version || 0),
+              });
               await clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
               clearCourseMapSessionState(rootId, sessionOptions);
+              courseMapConsole('EDITOR_DRAFT_DISCARD_COMPLETE', { requestId, viewKey });
             },
             applySnapshot,
           })
@@ -2259,6 +2324,13 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const handleMapSaved = (event) => {
       if (disposed) return;
       const by = String(event?.updatedBy || '');
+      courseMapConsole('PRESENCE_MAP_SAVED', {
+        viewKey, byCurrentUser: Boolean(by) && by === currentUserId,
+        senderPresent: Boolean(by), dirty: dirtyRef.current,
+        version: Number(recordRef.current.version || 0),
+        eventVersion: Number(event?.version || 0) || null,
+        reloading: serverReloadingRef.current,
+      });
       if (by && by === currentUserId) return;
       if (dirtyRef.current) {
         setServerChanged(true);
@@ -2293,11 +2365,25 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     connection?.invoke('Heartbeat', rootId, dirty, userDisplayName(user), userAvatar(user)).catch(() => {});
   }, [isAuthenticated, currentUserId, dirty, editorMode, rootId, user]);
 
-  const markDirty = React.useCallback(() => {
-    if (!editorMode || serverReloadingRef.current) return;
+  const markDirty = React.useCallback((reason = 'unknown', evidence = {}) => {
+    if (!editorMode || serverReloadingRef.current) {
+      courseMapConsole('DIRTY_MARK_SKIPPED', { reason, viewKey,
+        editorMode, serverReloading: serverReloadingRef.current,
+      });
+      return;
+    }
+    const wasDirty = dirtyRef.current;
     setDirty(true);
     dirtyRef.current = true;
-  }, [editorMode]);
+    if (!wasDirty) courseMapConsole('DIRTY_SET', {
+      reason, evidence, viewKey,
+      version: Number(recordRef.current.version || 0),
+      nodes: nodesRef.current.length, edges: edgesRef.current.length,
+      graphSource: graphSourceRef.current,
+      modeTransition: modeTransitionRef.current,
+      sceneReady: sceneReadyRef.current,
+    }, 'warn');
+  }, [editorMode, viewKey]);
 
   const removeEdges = React.useCallback((edgeIds) => {
     if (!editorMode) return false;
@@ -2308,7 +2394,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     if (next.length === existing.length) return false;
     edgesRef.current = next;
     setEdges(next);
-    markDirty();
+    markDirty('edge-remove', { removed: existing.length - next.length });
     setGraphRevision((value) => value + 1);
     return true;
   }, [editorMode, markDirty, setEdges]);
@@ -2345,38 +2431,64 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       if (!current?.edge || String(current.edge.id) !== String(edgeId)) return current;
       return { ...current, edge: buildUpdatedEdge(current.edge) };
     });
-    markDirty();
+    markDirty('edge-settings', { edgeId: String(edgeId) });
     setGraphRevision((value) => value + 1);
   }, [editorMode, markDirty, setEdges]);
 
   const onNodesChange = React.useCallback((changes) => {
+    const ready = sceneReadyRef.current && !modeTransitionRef.current;
+    const dragging = nodeDraggingRef.current;
+    const keyboardMove = Date.now() <= keyboardMoveUntilRef.current;
     const userEdited = editorMode && !serverReloadingRef.current && hasIntentionalNodeChanges(changes, nodesRef.current, {
-      ready: sceneReadyRef.current && !modeTransitionRef.current,
-      dragging: nodeDraggingRef.current,
-      keyboardMove: Date.now() <= keyboardMoveUntilRef.current,
+      ready, dragging, keyboardMove,
     });
+    const relevant = (Array.isArray(changes) ? changes : []).filter((change) => change?.type === 'position' || change?.type === 'remove');
+    if (editorMode && relevant.length && nodeChangeTraceCountRef.current < 24 && isCourseMapDiagnosticsEnabled()) {
+      const previousById = new Map(nodesRef.current.map((node) => [String(node.id), node]));
+      if (courseMapConsole('NODE_CHANGE_DECISION', {
+        viewKey, allowed: userEdited, ready, dragging, keyboardMove,
+        serverReloading: serverReloadingRef.current,
+        dirtyBefore: dirtyRef.current, changes: changes.length,
+        samples: relevant.slice(0, 4).map((change) => ({
+          type: change.type, id: String(change.id || ''),
+          dragging: change.dragging === true,
+          previous: previousById.get(String(change.id))?.position || null,
+          next: change.position || null,
+        })),
+      })) nodeChangeTraceCountRef.current += 1;
+    }
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
       nodesRef.current = next;
       return next;
     });
-    if (userEdited) markDirty();
-  }, [editorMode, markDirty, setNodes]);
+    if (userEdited) markDirty('node-change', {
+      changes: relevant.length,
+      types: [...new Set(relevant.map((change) => change.type))],
+    });
+  }, [editorMode, markDirty, setNodes, viewKey]);
 
   const onEdgesChange = React.useCallback((changes) => {
     if (!editorMode) return;
+    const removed = changes.filter((change) => change.type === 'remove');
     const removedUserEdge = sceneReadyRef.current && !serverReloadingRef.current
-      && changes.some((change) => change.type === 'remove' && edgesRef.current.some((edge) => String(edge.id) === String(change.id)));
+      && removed.some((change) => edgesRef.current.some((edge) => String(edge.id) === String(change.id)));
+    if (removed.length) courseMapConsole('EDGE_CHANGE_DECISION', {
+      viewKey, allowed: removedUserEdge, sceneReady: sceneReadyRef.current,
+      serverReloading: serverReloadingRef.current,
+      removed: removed.length, dirtyBefore: dirtyRef.current,
+      edgeCount: edgesRef.current.length,
+    });
     setEdges((current) => {
       const next = applyEdgeChanges(changes, current);
       edgesRef.current = next;
       return next;
     });
     if (removedUserEdge) {
-      markDirty();
+      markDirty('edge-change', { removed: removed.length });
       setGraphRevision((value) => value + 1);
     }
-  }, [editorMode, markDirty, setEdges]);
+  }, [editorMode, markDirty, setEdges, viewKey]);
 
   const onConnect = React.useCallback((connection) => {
     if (!editorMode) return;
@@ -2401,7 +2513,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       edgesRef.current = next;
       return next;
     });
-    markDirty();
+    markDirty('edge-connect', { source: String(connection.source || ''), target: String(connection.target || '') });
     setGraphRevision((value) => value + 1);
   }, [editorMode, markDirty, notify, setEdges]);
 
@@ -2450,7 +2562,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       }
       return next;
     });
-    markDirty();
+    markDirty('node-append', { nodeId: String(node?.id || '') });
     setGraphRevision((value) => value + 1);
   }, [cacheCourseIds, markDirty, rootId, sessionOptions, setNodes]);
 
@@ -2506,7 +2618,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       edgesRef.current = next;
       return next;
     });
-    markDirty();
+    markDirty('node-remove', { nodeId: String(node?.id || '') });
     setGraphRevision((value) => value + 1);
   }, [markDirty, notify, rootId, setEdges, setNodes]);
 
@@ -2523,7 +2635,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     edgesRef.current = nextEdges;
     setNodes(nextNodes);
     setEdges(nextEdges);
-    markDirty();
+    markDirty('entity-remove', { entityId: key, removedNodes: nodeIds.size });
     setGraphRevision((value) => value + 1);
   }, [markDirty, setEdges, setNodes]);
 
@@ -2566,12 +2678,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [courseDeleteBusy, courseDeleteTarget, notify, onRefreshCourseData, removeEntityFromMap]);
 
   const save = React.useCallback(async (options = {}) => {
+    courseMapConsole('SAVE_ATTEMPT', {
+      viewKey, editorMode, dirty: dirtyRef.current,
+      version: Number(recordRef.current.version || 0),
+      reloading: serverReloadingRef.current,
+      graphSource: graphSourceRef.current,
+      nodes: nodesRef.current.length, edges: edgesRef.current.length,
+      importOperation: Boolean(options?.importOperation),
+    });
     if (!editorMode || !rootId) return false;
     if (graphImportRequest?.operationId && !options?.importOperation) {
       notify.warn('Завершите сохранение через журнал импорта.');
       return false;
     }
-    if (!dirtyRef.current) return true;
+    if (!dirtyRef.current) {
+      courseMapConsole('SAVE_SKIP', { viewKey, reason: 'clean-map' });
+      return true;
+    }
     const quietSuccess = Boolean(options?.quietSuccess);
     const source = graphSourceRef.current;
     if (activeModeRef.current !== 'editor' || activeViewRef.current !== viewKey || modeTransitionRef.current || !sourceMatchesMode(source, 'editor', viewKey)) {
@@ -2613,8 +2736,14 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       const saved = operation?.operationId
         ? await saveTaskGraphImportMap(operation.courseId, operation.operationId, operation.expectedMapVersion ?? Number(recordRef.current.version || 0), document, operation.replaceConflicted === true)
         : await saveCourseMap(rootId, Number(recordRef.current.version || 0), document);
+      const savedFromVersion = Number(recordRef.current.version || 0);
       setRecord(saved);
       recordRef.current = saved;
+      courseMapConsole('DIRTY_STATE_SAVED', {
+        viewKey, previousDirty: dirtyRef.current,
+        previousVersion: savedFromVersion,
+        savedVersion: Number(saved.version || 0),
+      });
       setDirty(false);
       dirtyRef.current = false;
       setServerChanged(false);
@@ -2649,7 +2778,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       return true;
     } catch (error) {
       if (error?.response?.status === 409 && error?.response?.data?.code === 'COURSE_MAP_VERSION_CONFLICT') {
-        courseMapConsole('SAVE_FAIL', { viewKey, status: 409, reason: 'version-conflict', message: error?.message || String(error) }, 'error');
+        courseMapConsole('SAVE_FAIL', { viewKey, status: 409, reason: 'version-conflict', expectedVersion: Number(recordRef.current.version || 0), dirty: dirtyRef.current, serverVersion: error?.response?.data?.currentVersion || error?.response?.data?.version || null, message: error?.message || String(error) }, 'error');
         setServerChanged(true);
         notify.warn('Карту уже изменил другой редактор. Ваши локальные изменения сохранены на экране.');
         return false;
@@ -2723,7 +2852,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     setNodes(nextNodes);
     // Persist the requested viewport before the asynchronous visual animation.
     if (result.viewport) viewportRef.current = { ...result.viewport };
-    markDirty();
+    markDirty('graph-import-apply', { nodes: nextNodes.length, edges: nextEdges.length });
     setGraphRevision((value) => value + 1);
     persistSession(true);
 
@@ -2832,7 +2961,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
     setEdges(nextEdges);
-    markDirty();
+    markDirty('node-paste', { nodes: rawClones.length, edges: pastedEdges.length });
     setGraphRevision((value) => value + 1);
     persistSession(true);
     notify.success(`Вставлено узлов: ${rawClones.length}`);
@@ -2872,9 +3001,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [copySelection, editorMode, pasteSelection, removeEdges, save]);
 
   const reloadServerVersion = React.useCallback(async () => {
-    if (serverReloadingRef.current) return;
+    courseMapConsole('SERVER_RELOAD_CLICK', {
+      viewKey, dirty: dirtyRef.current, serverChanged,
+      loading, reloading: serverReloadingRef.current,
+      version: Number(recordRef.current.version || 0),
+      source: graphSourceRef.current,
+    });
+    if (serverReloadingRef.current) {
+      courseMapConsole('SERVER_RELOAD_BLOCKED', { viewKey, reason: 'already-loading' }, 'warn');
+      return;
+    }
     if (dirtyRef.current) {
       const ok = await notify.confirm({ title: 'Отбросить локальные изменения?', message: 'Будет загружена последняя сохранённая версия карты.', okText: 'Загрузить', cancelText: 'Оставить мои' });
+      courseMapConsole('SERVER_RELOAD_CONFIRM', { viewKey, accepted: Boolean(ok), version: Number(recordRef.current.version || 0) });
       if (!ok || serverReloadingRef.current) return;
     }
     serverReloadingRef.current = true;
@@ -2883,12 +3022,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     window.clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = null;
     try {
+      courseMapConsole('SERVER_RELOAD_START', { viewKey, requestIdBefore: loadRequestRef.current, versionBefore: Number(recordRef.current.version || 0) });
       const applied = await loadMap({ preferSession: false, quiet: false, replaceLocalDraft: true });
+      courseMapConsole('SERVER_RELOAD_FINISH', {
+        viewKey, applied: applied === true,
+        requestIdAfter: loadRequestRef.current,
+        versionAfter: Number(recordRef.current.version || 0),
+        dirtyAfter: dirtyRef.current,
+        sourceAfter: graphSourceRef.current,
+        nodesAfter: nodesRef.current.length,
+        edgesAfter: edgesRef.current.length,
+      }, applied ? 'info' : 'warn');
       if (applied) notify.success(`Загружена версия карты ${Number(recordRef.current.version || 0)}`);
+    } catch (error) {
+      courseMapConsole('SERVER_RELOAD_EXCEPTION', {
+        viewKey, message: error?.message || String(error),
+        version: Number(recordRef.current.version || 0),
+      }, 'error');
+      throw error;
     } finally {
       serverReloadingRef.current = false;
+      courseMapConsole('SERVER_RELOAD_UNLOCKED', { viewKey, dirty: dirtyRef.current, version: Number(recordRef.current.version || 0) });
     }
-  }, [loadMap, notify]);
+  }, [loadMap, loading, notify, serverChanged, viewKey]);
 
   const documentNow = React.useMemo(() => serializeCourseMap(nodes, edges, viewportRef.current), [edges, nodes]);
   const unplaced = React.useMemo(() => findUnplacedEntities(documentNow, visibleCourses, assignments), [assignments, documentNow, visibleCourses]);
@@ -3002,7 +3158,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const next = [...current, added];
     nodesRef.current = next;
     setNodes(next);
-    markDirty();
+    markDirty('unplaced-node-add', { nodeId: String(added.id || '') });
     setGraphRevision((value) => value + 1);
     persistSession(true);
     if (unplaced.length <= 1) setUnplacedOpen(false);
@@ -3144,7 +3300,22 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
           {editorMode && onShowGrid ? <button type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" onClick={onShowGrid}><LayoutGrid size={16} /></button> : null}
           {editorMode && onExportJson ? <button type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} onClick={onExportJson}><Download size={16} /></button> : null}
-          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={() => { if (dirtyRef.current) { notify.warn('Сначала сохраните или отмените локальные изменения карты.'); return; } onImportJson(); }}><FileJson size={16} /></button> : null}
+          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={() => {
+            courseMapConsole('IMPORT_BUTTON_CLICK', {
+              viewKey, dirty: dirtyRef.current, loading,
+              serverChanged, serverReloading: serverReloadingRef.current,
+              version: Number(recordRef.current.version || 0),
+              graphSource: graphSourceRef.current,
+              nodes: nodesRef.current.length, edges: edgesRef.current.length,
+            });
+            if (dirtyRef.current) {
+              courseMapConsole('IMPORT_BUTTON_BLOCKED', { viewKey, reason: 'local-unsaved-map', version: Number(recordRef.current.version || 0) }, 'warn');
+              notify.warn('Сначала сохраните или отмените локальные изменения карты.');
+              return;
+            }
+            courseMapConsole('IMPORT_DIALOG_DISPATCH', { viewKey });
+            onImportJson();
+          }}><FileJson size={16} /></button> : null}
           {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty} title="Сохранить карту (Ctrl+S)"><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
         </div>
       </div>
