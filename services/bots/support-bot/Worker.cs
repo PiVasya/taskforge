@@ -24,6 +24,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
     public async Task<bool> SendClusterEventAsync(ClusterEventNotification evt, CancellationToken ct)
     {
+        if (evt.Kind is "ha.container_start_failed" or "ha.container_recreate_failed" or "ha.container_reconcile_failed")
+            return true;
         if (_bot == null || _supportGroupId == 0) return false;
         var eventId = evt.Id?.Trim() ?? string.Empty;
         if (eventId.Length > 0 && _deliveredClusterEvents.ContainsKey(eventId)) return true;

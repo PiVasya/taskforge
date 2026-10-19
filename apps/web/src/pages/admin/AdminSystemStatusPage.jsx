@@ -6,6 +6,7 @@ import {
 import { getSystemStatus, switchClusterPrimary } from '../../api/systemStatus';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
+import ClusterResourceCharts from '../../features/cluster/ClusterResourceCharts';
 import ClusterMap from '../../features/cluster/ClusterMap';
 import ClusterNodeDetails from '../../features/cluster/ClusterNodeDetails';
 import PrimarySwitchDialog from '../../features/cluster/PrimarySwitchDialog';
@@ -298,6 +299,7 @@ export default function AdminSystemStatusPage() {
 
       {nodes.length > 0 ? <>
         <ClusterMap nodes={nodes} activeId={activeId} selectedId={selected?.id} onSelect={setSelectedId} storageKey={`taskforge.cluster.layout.v2:${data.cluster || 'default'}`} />
+        <ClusterResourceCharts nodes={nodes} now={clock} />
         <ClusterNodeDetails node={selected} nodes={nodes} onSelect={setSelectedId} onPromote={nodeId => openPrimarySwitch(nodeId)} primarySwitchDisabled={!!pendingSwitch} />
         <ContainerMatrix nodes={nodes} />
         <ImageMatrix nodes={nodes} />

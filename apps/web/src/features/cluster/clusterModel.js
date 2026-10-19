@@ -200,7 +200,7 @@ export const CONTAINER_GROUP_LABELS = {
   updater: 'Обновления', maintenance: 'Служебный', other: 'Другое',
 };
 export const CONTAINER_EXPECTED_LABELS = {
-  running: 'Должен работать', prepared: 'Должен быть подготовлен', hold: 'Без изменений',
+  running: 'Должен работать', stopped: 'Отключён штатно', prepared: 'Должен быть подготовлен', hold: 'Без изменений',
   'on-demand': 'По требованию', 'not-assigned': 'Не назначен', unknown: 'Не определено',
 };
 export function containerState(c) {
@@ -214,6 +214,8 @@ export function containerTone(c, node) {
   const expected = containerExpected(c);
   const health = String(c?.health || '').toLowerCase();
   if (!node?.online || node?.telemetryFresh === false) return 'muted';
+  if (expected === 'stopped' && ['created', 'exited', 'stopped', 'missing'].includes(state)) return 'muted';
+  if (expected === 'prepared' && ['created', 'exited', 'stopped'].includes(state)) return 'accent';
   if (c?.oomKilled || state === 'restarting' || state === 'dead' || health === 'unhealthy') return 'bad';
   if (state === 'missing') return ['on-demand', 'not-assigned', 'unknown'].includes(expected) ? 'muted' : 'bad';
   if (expected === 'running') {
@@ -237,6 +239,8 @@ export function containerStatusLabel(c, node) {
   const expected = containerExpected(c);
   const health = String(c?.health || '').toLowerCase();
   if (!node?.online || node?.telemetryFresh === false) return 'Последний снимок';
+  if (expected === 'stopped' && ['created', 'exited', 'stopped', 'missing'].includes(state)) return 'Отключён штатно';
+  if (expected === 'prepared' && ['created', 'exited', 'stopped'].includes(state)) return 'Подготовлен';
   if (c?.oomKilled) return 'OOM killed';
   if (state === 'running') {
     if (health === 'unhealthy') return 'Работает · unhealthy';

@@ -77,7 +77,10 @@ internal static class ClusterTelemetryNormalizer
         p["topology"] = topology;
 
         var originalHost = p["host"] as JsonObject;
-        var hostInfo = Pick(originalHost, "hostname", "kernel", "cpu_count", "cpu_percent", "load", "memory", "swap", "disk", "uptime_seconds", "temperature_c");
+        var hostInfo = Pick(originalHost, "hostname", "kernel", "cpu_count", "cpu_percent", "load", "memory", "swap", "disk", "uptime_seconds", "temperature_c", "sampled_at", "sample_interval_seconds", "iowait_percent", "steal_percent");
+        hostInfo["history"] = HostHistory(originalHost?["history"] as JsonArray);
+        hostInfo["temperature_sensors"] = new JsonArray((originalHost?["temperature_sensors"] as JsonArray ?? new()).OfType<JsonObject>().Take(32).Select(x => (JsonNode)Pick(x, "sensor", "c")).ToArray());
+        hostInfo["fans"] = new JsonArray((originalHost?["fans"] as JsonArray ?? new()).OfType<JsonObject>().Take(16).Select(x => (JsonNode)Pick(x, "sensor", "rpm")).ToArray());
         if (hostInfo["disk"] is null && Number(originalHost?["disk_root_total_bytes"]) is { } total && total > 0
             && Number(originalHost?["disk_root_free_bytes"]) is { } available && available >= 0 && available <= total)
             hostInfo["disk"] = new JsonObject { ["total"] = total, ["available"] = available, ["used"] = total - available, ["includes_reserved"] = true };
@@ -123,6 +126,34 @@ internal static class ClusterTelemetryNormalizer
         p["edge"] = PublicEdge(p["edge"] as JsonObject);
         return p;
     }
+    internal static JsonArray HostHistory(JsonArray? history)
+    {
+        var result = new JsonArray();
+        foreach (var row in (history ?? new()).OfType<JsonObject>().TakeLast(720))
+        {
+            if (!DateTimeOffset.TryParse(Text(row["at"]), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out var at)) continue;
+            double? Range(string key, double max)
+            {
+                var value = Number(row[key]);
+                return value is { } n && n >= 0 && n <= max ? n : null;
+            }
+            result.Add(new JsonObject
+            {
+                ["at"] = at.ToString("O"),
+                ["cpu_percent"] = Range("cpu_percent", 100),
+                ["iowait_percent"] = Range("iowait_percent", 100),
+                ["steal_percent"] = Range("steal_percent", 100),
+                ["memory_percent"] = Range("memory_percent", 100),
+                ["memory_used_bytes"] = Range("memory_used_bytes", 1e16),
+                ["memory_total_bytes"] = Range("memory_total_bytes", 1e16),
+                ["temperature_c"] = Range("temperature_c", 130),
+                ["fan_rpm"] = Range("fan_rpm", 50000),
+            });
+        }
+        return result;
+    }
+
     internal static JsonObject PublicEdge(JsonObject? edge)
     {
         var result = Pick(edge, "provider", "configured", "last_success_epoch");

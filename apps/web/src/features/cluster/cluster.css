@@ -533,3 +533,20 @@ html.neo-brutal .tf-cluster .tf-cluster-log-cleanup-node.is-selected { box-shado
   .tf-cluster-container-summary > span:nth-child(2n) { border-right: 0; }
   .tf-cluster-container-summary > span:last-child { border-bottom: 0; }
 }
+
+.tf-cluster-resource-node { padding: 14px 18px; border-bottom: 1px solid var(--cl-line); }
+.tf-cluster-resource-node:last-child { border-bottom: 0; }
+.tf-cluster-resource-node > header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.tf-cluster-resource-node > header > span:last-child { margin-left: auto; font-size: 11px; color: var(--cl-muted); }
+.tf-cluster-resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.tf-cluster-resource-chart { min-width: 0; }
+.tf-cluster-chart-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tf-cluster-chart-label span { display: inline-flex; align-items: center; gap: 6px; color: var(--cl-muted); font-size: 11px; }
+.tf-cluster-chart-label strong { font-size: 14px; }
+.tf-cluster-chart-empty { height: 132px; display: grid; place-content: center; color: var(--cl-muted); font-size: 12px; border-bottom: 1px dashed var(--cl-grid); }
+.tf-cluster-resource-node > footer { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--cl-muted); font-size: 10px; margin-top: 8px; }
+.tf-cluster-metrics-help { position: relative; font-size: 11px; color: var(--cl-muted); }
+.tf-cluster-metrics-help summary { cursor: pointer; }
+.tf-cluster-metrics-help p { position: absolute; z-index: 3; right: 0; width: min(300px, 75vw); padding: 12px; border: 1px solid var(--cl-line); background: var(--cl-surface); border-radius: 8px; }
+.tf-cluster-update-panel { grid-column: 1 / -1; }
+@media (max-width: 760px) { .tf-cluster-resource-grid { grid-template-columns: 1fr; gap: 14px; } }

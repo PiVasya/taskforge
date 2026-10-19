@@ -62,7 +62,7 @@ try
         ["ClusterTelemetry:LocalTelemetryPath"] = path,
         ["ClusterTelemetry:NotificationsEnabled"] = "false"
     }).Build();
-    var service = new ClusterTelemetryService(new NoHttp(), config, NullLogger<ClusterTelemetryService>.Instance);
+    var service = new ClusterTelemetryService(new NoHttp(), config, NullLogger<ClusterTelemetryService>.Instance, null!);
     var poll = typeof(ClusterTelemetryService).GetMethod("PollLocalTelemetryAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
     async Task Add(JsonObject fixture)
     {

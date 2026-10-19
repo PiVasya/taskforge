@@ -6,9 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../services/observability/api/TaskForge.Observability.Api.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <Compile Include="../../services/observability/api/Services/Cluster/ClusterTelemetryNormalizer.cs" Link="ClusterTelemetryNormalizer.cs" />
-    <Compile Include="../../services/observability/api/Services/Cluster/ClusterTelemetryService.cs" Link="ClusterTelemetryService.cs" />
     <Using Include="Microsoft.Extensions.Configuration" />
     <Using Include="Microsoft.Extensions.Hosting" />
     <Using Include="Microsoft.Extensions.Logging" />

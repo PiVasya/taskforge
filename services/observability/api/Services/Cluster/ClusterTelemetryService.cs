@@ -56,7 +56,7 @@ public sealed partial class ClusterTelemetryService(
     // Lightweight liveness stays frequent. Heavy /ha/telemetry is sampled much
     // less often and never decides whether a node is online.
     private int PollSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:PollSeconds", 5), 2, 60);
-    private int TelemetryPollSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:TelemetryPollSeconds", 30), 10, 300);
+    private int TelemetryPollSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:TelemetryPollSeconds", 10), 10, 300);
     private int DownAfterSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:DownAfterSeconds", 60), 30, 600);
     private int LiveTimeoutSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:LiveTimeoutSeconds", 2), 1, 10);
     private int TelemetryTimeoutSeconds => Math.Clamp(configuration.GetValue("ClusterTelemetry:TelemetryTimeoutSeconds", 8), 3, 30);
@@ -496,11 +496,13 @@ public sealed partial class ClusterTelemetryService(
     }
 
     private static bool ShouldNotify(string kind, string severity)
-        => kind is "update.activated" or "update.watchtower_failed" or "update.watchtower_recovered"
+        // Old agents emit a new raw Compose tail every reconciliation pass.
+        // Retain these in the UI, but never forward that repetitive output to TG.
+        => kind is not ("ha.container_start_failed" or "ha.container_recreate_failed" or "ha.container_reconcile_failed") && ( kind is "update.activated" or "update.watchtower_failed" or "update.watchtower_recovered"
            or "cluster.primary_switch_requested" or "cluster.leader_changed" or "cluster.failback_requested"
            or "cluster.node_down" or "cluster.node_recovered" or "edge.public_ready"
            || kind.StartsWith("failover.", StringComparison.OrdinalIgnoreCase)
-           || severity is "error";
+           || kind is "update.recovered" || severity is "error");
 
     private static string StableEventId(string? nodeId, JsonObject evt)
         => evt["id"]?.GetValue<string>()
@@ -776,6 +778,7 @@ public sealed partial class ClusterTelemetryService(
             var expected = c.GetValueOrDefault("expectedState")?.ToString()?.ToLowerInvariant() ?? string.Empty;
             var badState = stateValue is "dead" or "restarting" || c.GetValueOrDefault("oomKilled") is true
                 || string.Equals(c.GetValueOrDefault("health")?.ToString(), "unhealthy", StringComparison.OrdinalIgnoreCase);
+            if ((expected is "prepared" or "stopped" or "on-demand") && (stateValue is "created" or "exited" or "missing")) return false;
             if (badState) return true;
             if (stateValue == "missing") return expected is "running" or "prepared";
             if (expected == "running" && stateValue != "running") return true;
@@ -796,7 +799,8 @@ public sealed partial class ClusterTelemetryService(
         var postgresHealthy = p["postgres"]?["healthy"]?.GetValue<bool>() == true;
         var roleReachable = !string.Equals(role, "unreachable", StringComparison.OrdinalIgnoreCase);
         var watchtowerRunning = p["update"]?["watchtower_running"]?.GetValue<bool>() == true;
-        var updaterHasError = !string.IsNullOrWhiteSpace(p["update"]?["error"]?.GetValue<string>())
+        var updaterRunning = p["update"]?["running"]?.GetValue<bool>() ?? watchtowerRunning;
+        var updaterHasError = (ClusterTelemetryNormalizer.Number(p["update"]?["failed_count"]) ?? 0) > 0 || !string.IsNullOrWhiteSpace(p["update"]?["error"]?.GetValue<string>())
             || !string.IsNullOrWhiteSpace(p["update"]?["watchtower_error"]?.GetValue<string>());
         // A standby is only healthy for HA purposes when the application profile
         // assigned to it is actually hot-start ready. Otherwise the data node may
@@ -804,7 +808,7 @@ public sealed partial class ClusterTelemetryService(
         // pure voter/data node and has no application readiness/updater requirement.
         var noAppProfile = string.Equals(appProfile, "none", StringComparison.OrdinalIgnoreCase);
         var applicationReady = isActive ? trafficReady : noAppProfile || hotStartReady;
-        var updaterReady = noAppProfile || watchtowerRunning && !updaterHasError;
+        var updaterReady = noAppProfile || updaterRunning && !updaterHasError;
         var nodeHealthy = online && telemetryFresh && firewallActive && minioReady && postgresHealthy && roleReachable && applicationReady && updaterReady && (noAppProfile || !isActive || tlsReady);
 
         var reasons = new List<string>();
@@ -907,12 +911,34 @@ public sealed partial class ClusterTelemetryService(
         var changed = update["changed_services"] is JsonArray services
             ? services.Select(x => x?.GetValue<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray()
             : Array.Empty<string?>();
-        var hasError = !string.IsNullOrWhiteSpace(update["error"]?.GetValue<string>())
+        var hasError = (ClusterTelemetryNormalizer.Number(update["failed_count"]) ?? 0) > 0 || !string.IsNullOrWhiteSpace(update["error"]?.GetValue<string>())
             || !string.IsNullOrWhiteSpace(update["watchtower_error"]?.GetValue<string>());
         return new
         {
             mode = update["mode"]?.GetValue<string>() ?? "unknown",
             watchtowerRunning = update["watchtower_running"]?.GetValue<bool>() == true,
+            running = update["running"]?.GetValue<bool>() ?? (update["watchtower_running"]?.GetValue<bool>() == true),
+            currentService = ClusterTelemetryNormalizer.Text(update["current_service"]),
+            lastScanAt = ClusterTelemetryNormalizer.Text(update["last_scan_at"]),
+            nextScanAt = ClusterTelemetryNormalizer.Text(update["next_scan_at"]),
+            heartbeatAt = ClusterTelemetryNormalizer.Text(update["heartbeat_at"]),
+            failedCount = ClusterTelemetryNormalizer.Number(update["failed_count"]),
+            pendingCount = ClusterTelemetryNormalizer.Number(update["pending_count"]),
+            error = ClusterTelemetryNormalizer.Text(update["error"]),
+            services = (update["services"] as JsonArray ?? new()).OfType<JsonObject>().Take(128).Select(row => new
+            {
+                service = ClusterTelemetryNormalizer.Text(row["service"]),
+                status = ClusterTelemetryNormalizer.Text(row["status"]),
+                desiredState = ClusterTelemetryNormalizer.Text(row["desired_state"]),
+                currentImage = ClusterTelemetryNormalizer.Text(row["current_image"]),
+                targetImage = ClusterTelemetryNormalizer.Text(row["target_image"]),
+                lastGoodImage = ClusterTelemetryNormalizer.Text(row["last_good_image"]),
+                error = ClusterTelemetryNormalizer.Text(row["error"]),
+                pullError = ClusterTelemetryNormalizer.Text(row["pull_error"]),
+                pullStatus = ClusterTelemetryNormalizer.Text(row["pull_status"]),
+                lastCheckedAt = ClusterTelemetryNormalizer.Text(row["last_checked_at"]),
+                retryInSeconds = ClusterTelemetryNormalizer.Number(row["retry_in_seconds"]),
+            }).ToArray(),
             status = update["status"]?.GetValue<string>() ?? "unknown",
             startedAt = update["started_at"]?.GetValue<string>(),
             completedAt = update["completed_at"]?.GetValue<string>(),

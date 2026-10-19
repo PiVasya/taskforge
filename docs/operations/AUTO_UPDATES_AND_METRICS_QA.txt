@@ -1,0 +1,22 @@
+Release verification: TaskForge server v41.5.0 + application update/metrics integration
+
+PASS: 105 Python unittest cases (including original HA/SQL/diagnostics regressions).
+PASS: server tests/test-release.sh, exit 0, including fake-Docker migration/state/volume assertions.
+PASS: new updater tests for failing/slow image pulls, rollback, backoff, standby staging,
+      concurrent-role changes, exclusive ownership policy, persistent incident/recovery.
+PASS: real local Linux /proc sampling smoke (executed in the editing container, not on A/B/C).
+PASS: 59 JavaScript node:test cases (cluster + authentication).
+PASS: frontend architecture check and JSX/CSS parsing + relative import existence.
+PASS: application scripts/tests/repository.sh.
+PASS: 120 EF migration/ModelSnapshot/DbContext files byte-identical to the input source archive.
+PASS: archive structural integrity and server SHA-256 file manifest checked after packaging.
+
+NOT RUN: C#/.NET compile and the 10 newly added observability test cases (SDK unavailable).
+NOT RUN: full npm frontend production build; npm ci failed on registry DNS EAI_AGAIN.
+NOT RUN: live Docker Engine, GHCR publication/pull, A/B/C rollover, Telegram network delivery,
+         physical temperature sensors or real production HA/ACME/Cloudflare mutation.
+These limitations are not represented as passing integration tests.
+
+Input application archive: taskforge-develop-313-healthcheck-stackoverflow-fixed.zip
+Input server archive: taskforge-server-v41.4.0(1).tar.gz
+Existing runner/output limits and all earlier application memory/stack-overflow fixes retained.

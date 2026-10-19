@@ -9,8 +9,9 @@ Read `docs/sql/IMPLEMENTATION.md`, `docs/sql/DEPLOYMENT.md`
 and `docs/sql/QA_RUNTIME.md` first. This is a release candidate: the new .NET build,
 full frontend build and Docker PostgreSQL/MySQL/RabbitMQ gates still require execution.
 
-The authoritative A/B/C production package paired with this update is the independent v40-r73
-archive. Its entrypoint is `./cluster.sh`. A/B are full; C remains lite. Fresh production
+The authoritative A/B/C production package paired with this update is the independent v41.5.0
+archive (revision 410500). Read `docs/operations/AUTO_UPDATES_AND_METRICS.md` for
+the integrated Node Agent updater, persistent incidents and real host charts. Its entrypoint is `./cluster.sh`. A/B are full; C remains lite. Fresh production
 diagnostics proved that historical published MySQL assignments use the immutable MySQL 8.4.11
 OL9 runtime while r70 workers advertised only current/compatible 8.4.0 targets, causing a
 capability rejection before job creation. The matching r73 package retains the r72 exact published
