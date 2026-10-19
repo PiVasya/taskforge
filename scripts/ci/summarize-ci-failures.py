@@ -15,6 +15,56 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 
+DIAGNOSTIC_PATTERN = re.compile(
+    r'(?i)(?:##\[error\]|\berror\s+(?:CS|MSB|NETSDK|NU|TS)\d+\b|\berror:\s|'
+    r'\b(?:FAIL TEST|FAIL BUILD|Failed!|Failed to compile\.|\[FAIL\]|'
+    r'AssertionError:|Traceback \(most recent|\bpanic:|\bFATAL:)|'
+    r'\b[\w.]+(?:Exception|Error):|\bLine\s+\d+:\d+:\s+\S)'
+)
+SOURCE_PATH_PATTERN = re.compile(
+    r'(?i)(?:^|\s)((?:\.?/)?(?:src|apps|services|scripts)/[\w./-]+\.(?:jsx?|tsx?|cs|py|go))(?=\s|$)'
+)
+ANSI_PATTERN = re.compile(r'\x1b\[[0-9;]*m')
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Return the GitHub logs redirect without forwarding the API bearer token."""
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def extract_error_lines(lines, limit: int = 250) -> list[str]:
+    """Stream bounded, deduplicated errors, retaining ESLint source locations."""
+    errors: list[str] = []
+    seen: set[str] = set()
+    last_source = ''
+
+    def append(line: str) -> None:
+        text = line.strip()[:350]
+        if text and text not in seen and len(errors) < limit:
+            errors.append(text)
+            seen.add(text)
+
+    for raw_line in lines:
+        if isinstance(raw_line, bytes):
+            raw_line = raw_line.decode('utf-8', 'replace')
+        line = ANSI_PATTERN.sub('', raw_line).strip()
+        line = re.sub(r'(?i)(bearer\s+)\S+', r'\1[redacted]', line)
+        match = SOURCE_PATH_PATTERN.search(line)
+        if match:
+            last_source = match.group(1)
+        if not DIAGNOSTIC_PATTERN.search(line):
+            continue
+        if last_source and re.search(r'\bLine\s+\d+:\d+:', line):
+            append(last_source)
+        append(line)
+        if len(errors) >= limit:
+            errors.append(f'At least {limit} distinct diagnostics found; see the complete job log for more.')
+            break
+    return errors
+
+
 def load_gates() -> dict[str, str]:
     try:
         data = json.loads(os.environ.get('TASKFORGE_CI_NEEDS_JSON', '{}'))
@@ -55,17 +105,13 @@ def read_trx_errors(folder: Path) -> tuple[int, int, dict[str, list[str]]]:
 def read_build_errors(folder: Path) -> list[str]:
     errors: list[str] = []
     seen: set[str] = set()
-    indicator = re.compile(r'(?i)(?:\berror\s+(?:CS|MSB|NETSDK|NU|TS)\d+\s*:|\berror:\s|\bFAIL BUILD:|\bFAIL TEST:)')
     for path in sorted(folder.rglob('console.log')):
         try:
             with path.open(encoding='utf-8', errors='replace') as file:
-                for line in file:
-                    if not indicator.search(line):
-                        continue
-                    clean = re.sub(r'\x1b\[[0-9;]*m', '', line).strip()[:350]
-                    if clean not in seen:
-                        seen.add(clean)
-                        errors.append(clean)
+                for line in extract_error_lines(file):
+                    if line not in seen:
+                        seen.add(line)
+                        errors.append(line)
         except OSError:
             continue
     return errors
@@ -88,10 +134,6 @@ def collect_actions_job_errors() -> tuple[list[tuple[str, str, list[str]]], str 
     headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
                'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'TaskForge-CI-Report'}
 
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, request, fp, code, msg, newurl):
-            return None
-
     def get_api(path: str, redirect: bool = False):
         url = base + path
         request = urllib.request.Request(url, headers=headers)
@@ -100,31 +142,18 @@ def collect_actions_job_errors() -> tuple[list[tuple[str, str, list[str]]], str 
                 return response.read()
         opener = urllib.request.build_opener(NoRedirect())
         try:
-            opener.open(request, timeout=20).close()
-            return b''
+            with opener.open(request, timeout=20) as response:
+                return '\n'.join(extract_error_lines(response)).encode('utf-8')
         except urllib.error.HTTPError as ex:
             if ex.code not in (301, 302, 303, 307, 308):
                 raise
             location = ex.headers.get('Location', '')
-            if not location.startswith('https://'):
-                raise ValueError('GitHub job logs did not return an HTTPS redirect') from ex
+            target = urllib.parse.urlsplit(location)
+            if target.scheme != 'https' or not target.hostname or target.username or target.password:
+                raise ValueError('GitHub job logs did not return a safe HTTPS redirect') from ex
             unsigned = urllib.request.Request(location, headers={'User-Agent': 'TaskForge-CI-Report'})
             with urllib.request.urlopen(unsigned, timeout=30) as response:
-                # Scan the entire job log, not just its beginning. Retain only
-                # unique diagnostic lines so huge Docker builds stay bounded.
-                lines = []
-                seen = set()
-                for raw_line in response:
-                    line = raw_line.decode('utf-8', 'replace')
-                    if not failure_line.search(line):
-                        continue
-                    line = line.strip()[:400]
-                    if line not in seen:
-                        seen.add(line)
-                        lines.append(line)
-                    if len(lines) >= 250:
-                        break
-                return '\n'.join(lines).encode('utf-8')
+                return '\n'.join(extract_error_lines(response)).encode('utf-8')
 
     prefix = '/repos/' + urllib.parse.quote(repo, safe='/') + '/actions'
     jobs: list[dict] = []
@@ -135,39 +164,25 @@ def collect_actions_job_errors() -> tuple[list[tuple[str, str, list[str]]], str 
             jobs.extend(batch)
             if len(batch) < 100:
                 break
-    except (OSError, ValueError, urllib.error.URLError) as ex:
-        return [], f'GitHub job-list API unavailable: {type(ex).__name__}'
+    except Exception as ex:
+        return [], f'GitHub job-list API unavailable ({type(ex).__name__}); gate results remain below.'
 
-    failure_line = re.compile(
-        r'(?i)(?:##\[error\]|\berror\s+(?:CS|MSB|NETSDK|NU|TS)\d+\b|'
-        r'\b(?:FAIL TEST|FAIL BUILD|Failed!|\[FAIL\]|AssertionError:|Traceback \(most recent|'
-        r'System\.[\w.]+Exception:|\bError: Process completed|\bpanic:|\bFATAL:))'
-    )
     report = []
     for job in jobs:
         if job.get('conclusion') not in ('failure', 'timed_out', 'cancelled'):
             continue
         job_id = job.get('id')
         name = str(job.get('name', 'unknown job'))
-        failed_steps = ', '.join(str(step.get('name', 'step')) for step in job.get('steps', [])
+        failed_steps = ', '.join(str(step.get('name', 'step')) for step in (job.get('steps') or [])
                                  if step.get('conclusion') in ('failure', 'timed_out', 'cancelled'))
         evidence: list[str] = []
         try:
             content = get_api(f'{prefix}/jobs/{job_id}/logs', redirect=True).decode('utf-8', 'replace')
-            seen: set[str] = set()
-            for line in content.splitlines():
-                if not failure_line.search(line):
-                    continue
-                clean = re.sub(r'\x1b\[[0-9;]*m', '', line).strip()
-                clean = re.sub(r'(?i)(bearer\s+)\S+', r'\1[redacted]', clean)
-                # Never show arbitrary multi-line request bodies in a public summary.
-                clean = clean[:350]
-                if clean not in seen:
-                    seen.add(clean)
-                    evidence.append(clean)
-                if len(evidence) >= 60:
-                    break
-        except (OSError, ValueError, urllib.error.URLError) as ex:
+            all_evidence = content.splitlines()
+            evidence = all_evidence[:60]
+            if len(all_evidence) > 60:
+                evidence.append(f'{len(all_evidence) - 60} additional diagnostic lines; see the complete job log.')
+        except Exception as ex:
             evidence = [f'Log download unavailable ({type(ex).__name__}); open the job directly.']
         report.append((name, failed_steps, evidence))
     return report, None
@@ -208,15 +223,16 @@ def write_summary(folder: Path) -> str:
             if failed_steps:
                 lines.append(f'Failed step(s): {failed_steps}')
             if evidence:
-                lines += [''] + [f'- `{item.replace("`", "'")}`' for item in evidence[:60]]
+                lines += [''] + [f'- `{item.replace("`", "'")}`' for item in evidence]
             else:
                 lines.append('No error-pattern lines found; open the job log for full details.')
             lines.append('')
     if job_api_error:
         lines += [job_api_error, '']
-    if not test_errors and not build_errors and gates and not any(status == 'failure' for status in gates.values()):
+    failed_gates = any(status in ('failure', 'cancelled', 'timed_out') for status in gates.values())
+    if not test_errors and not build_errors and gates and not failed_gates:
         lines += ['No failed validation gates or .NET tests were found.', '']
-    if not test_errors and not build_errors and any(status == 'failure' for status in gates.values()):
+    if not test_errors and not build_errors and failed_gates:
         lines += ['Some gates failed without a .NET TRX report. Open those job logs; they are still listed above.', '']
     return '\n'.join(lines) + '\n'
 

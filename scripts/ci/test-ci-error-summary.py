@@ -84,3 +84,133 @@ with patch.dict(os.environ, {'GH_TOKEN': 'a-secret-token', 'GITHUB_REPOSITORY': 
         assert len(jobs) == 1 and 'CS1001' in jobs[0][2][0], jobs
         assert redirect_authorization == [None], redirect_authorization
 print('GitHub REST collector: failed job detection, log annotations and redirect-token isolation verified')
+
+# Exercise the actual Python HTTPRedirectHandler argument contract. The mock
+# redirect fixture above does not invoke redirect_request itself.
+redirect_handler = module.NoRedirect()
+assert redirect_handler.redirect_request(
+    Request('https://api.github.com/jobs/99/logs'), None, 302,
+    'Found', {'Location': 'https://signed.example/job99'}, 'https://signed.example/job99'
+) is None
+
+# The frontend build failure in CI is a file path + ESLint diagnostic, not a
+# C#/TS compiler error, and both lines must remain visible in the summary.
+with tempfile.TemporaryDirectory() as scratch:
+    frontend_log = Path(scratch) / 'frontend' / 'console.log'
+    frontend_log.parent.mkdir()
+    frontend_log.write_text('''Failed to compile.
+
+[eslint]
+src/features/course-assignments/components/CourseFlowEditor.jsx
+  Line 2360:6:  React Hook React.useEffect has a missing dependency: 'viewKey'.  react-hooks/exhaustive-deps
+Error: Process completed with exit code 1.
+''', encoding='utf-8')
+    build_errors = module.read_build_errors(Path(scratch))
+    assert 'Failed to compile.' in build_errors, build_errors
+    assert 'src/features/course-assignments/components/CourseFlowEditor.jsx' in build_errors, build_errors
+    assert any('Line 2360:6:' in error and 'viewKey' in error for error in build_errors), build_errors
+print('ESLint source location and React Hooks failure appear in the combined diagnostics')
+
+# Send a real HTTP 302 through urllib's NoRedirect handler, then verify that
+# the signed endpoint never receives the GitHub token. A separate failed job
+# must not prevent another job's evidence from being included.
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+import urllib.request
+
+api_authorization = []
+signed_authorization = []
+class GitHubFixture(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def do_GET(self):
+        api_authorization.append(self.headers.get('Authorization'))
+        if '/runs/123/jobs?' in self.path:
+            body = b'''{"jobs":[{"id":99,"name":"Frontend production build","conclusion":"failure","steps":[{"name":"Build","conclusion":"failure"}]},{"id":100,"name":"Restricted job","conclusion":"failure","steps":[{"name":"Test","conclusion":"failure"}]},{"id":101,"name":"Direct job log","conclusion":"failure","steps":[{"name":"Test","conclusion":"failure"}]}]}'''
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+        elif self.path.endswith('/jobs/99/logs'):
+            body = b''
+            self.send_response(302)
+            self.send_header('Location', 'https://signed.example/job99')
+        elif self.path.endswith('/jobs/100/logs'):
+            body = b'forbidden'
+            self.send_response(403)
+        elif self.path.endswith('/jobs/101/logs'):
+            body = b'System.InvalidOperationException: Synchronous operations are disallowed.\n'
+            self.send_response(200)
+        else:
+            body = b'not found'
+            self.send_response(404)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+real_urlopen = urllib.request.urlopen
+
+def fake_signed_urlopen(request, timeout=0):
+    if isinstance(request, Request) and request.full_url == 'https://signed.example/job99':
+        signed_authorization.append(request.get_header('Authorization'))
+        return MockResponse(b'''Failed to compile.
+[eslint]
+src/features/course-assignments/components/CourseFlowEditor.jsx
+  Line 2360:6: React Hook React.useEffect has a missing dependency: 'viewKey'. react-hooks/exhaustive-deps
+Error: Process completed with exit code 1.
+''')
+    return real_urlopen(request, timeout=timeout)
+
+with ThreadingHTTPServer(('127.0.0.1', 0), GitHubFixture) as server:
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with patch.dict(os.environ, {
+            'GH_TOKEN': 'secret-do-not-send-to-redirect',
+            'GITHUB_REPOSITORY': 'foo/bar',
+            'GITHUB_RUN_ID': '123',
+            'GITHUB_API_URL': f'http://127.0.0.1:{server.server_port}',
+        }):
+            with patch.object(module.urllib.request, 'urlopen', fake_signed_urlopen):
+                jobs, error = module.collect_actions_job_errors()
+                assert error is None, error
+                assert len(jobs) == 3, jobs
+                assert any('viewKey' in text for text in jobs[0][2]), jobs
+                assert any('CourseFlowEditor.jsx' in text for text in jobs[0][2]), jobs
+                assert 'HTTPError' in jobs[1][2][0], jobs
+                assert any('Synchronous operations' in text for text in jobs[2][2]), jobs
+                with tempfile.TemporaryDirectory() as scratch:
+                    summary = module.write_summary(Path(scratch))
+                    assert 'Frontend production build' in summary
+                    assert 'CourseFlowEditor.jsx' in summary and 'viewKey' in summary
+                    assert 'Log download unavailable (HTTPError)' in summary
+                    assert 'System.InvalidOperationException' in summary
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+assert api_authorization and all(value == 'Bearer secret-do-not-send-to-redirect' for value in api_authorization)
+assert signed_authorization == [None, None], signed_authorization
+print('Real HTTP 302, error isolation, direct 200 logs, ESLint context and token isolation verified')
+
+with patch.dict(os.environ, {'GH_TOKEN': 'token', 'GITHUB_REPOSITORY': 'foo/bar', 'GITHUB_RUN_ID': '123'}):
+    with patch.object(module.urllib.request, 'urlopen', side_effect=RuntimeError('simulated API outage')):
+        jobs, error = module.collect_actions_job_errors()
+        assert jobs == [] and 'RuntimeError' in error, (jobs, error)
+        with tempfile.TemporaryDirectory() as scratch:
+            report = module.write_summary(Path(scratch))
+            assert 'GitHub job-list API unavailable (RuntimeError)' in report, report
+print('GitHub API outage leaves a readable CI report instead of an exception')
+
+with patch.dict(os.environ, {
+    'TASKFORGE_CI_NEEDS_JSON': '{"frontend-tests":{"result":"cancelled"}}',
+    'GH_TOKEN': '',
+}):
+    with tempfile.TemporaryDirectory() as scratch:
+        report = module.write_summary(Path(scratch))
+        assert '**CANCELLED**' in report, report
+        assert 'Some gates failed without a .NET TRX report.' in report, report
+        assert 'No failed validation gates' not in report, report
+
+sample = [f'error CS{i:04d}: diagnostic {i}\n' for i in range(251)]
+truncated = module.extract_error_lines(sample, limit=60)
+assert len(truncated) == 61 and 'complete job log' in truncated[-1], truncated
+print('Cancelled gates and diagnostic truncation are explicitly reported')

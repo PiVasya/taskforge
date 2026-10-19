@@ -2357,7 +2357,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       connection.invoke('LeaveMap', rootId).catch(() => {});
       disposeCourseMapPresenceConnection(currentUserId, rootId).catch(() => {});
     };
-  }, [isAuthenticated, currentUserId, editorMode, notify, rootId, user]);
+  }, [isAuthenticated, currentUserId, editorMode, notify, rootId, user, viewKey]);
 
   React.useEffect(() => {
     if (!editorMode || !rootId) return;
