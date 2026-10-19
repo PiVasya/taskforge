@@ -50,3 +50,33 @@ export function solutionStatusLabel(status) {
   if (value === 'policyfailed' || value === 'policy_failed') return 'Отклонено';
   return status;
 }
+
+export function isPendingLiveStatus(status) {
+  return ['preparing', 'queued', 'running', 'pending', 'judging'].includes(String(status || '').trim().toLowerCase());
+}
+
+export function reconcileLiveDetail(item, detail) {
+  if (!item || !detail || !isPendingLiveStatus(item.status)) return item;
+  const status = detail.status || detail.verdict || null;
+  if (!status) return item;
+  return {
+    ...item,
+    detail,
+    status,
+    score: detail.score ?? detail.scorePercent ?? detail.similarityPercent ?? item.score ?? null,
+  };
+}
+
+// An SSE event can arrive after its HTTP detail request, or without the detail at all.
+// An immutable code submission cannot move back from a definitive verdict.
+export function mergeLiveEvent(existing, incoming) {
+  if (!existing || isPendingLiveStatus(existing.status)) return incoming;
+  const nextStatus = String(incoming.status || '').trim().toLowerCase();
+  const oldStatus = String(existing.status || '').trim().toLowerCase();
+  const oldIsCode = String(existing.kind || incoming.kind || '').toLowerCase() === 'code';
+  const weak = (value) => value === 'judgeunavailable' || value === 'judge_unavailable';
+  const preserveTerminal = !nextStatus || isPendingLiveStatus(nextStatus) ||
+    (oldIsCode && !weak(oldStatus) && oldStatus !== nextStatus);
+  if (!preserveTerminal) return incoming;
+  return { ...incoming, status: existing.status, score: existing.score, detail: existing.detail ?? incoming.detail };
+}

@@ -10,6 +10,19 @@ namespace TaskForge.Solutions.Api.Tests;
 public sealed class SolutionResultTests
 {
     [Theory]
+    [InlineData("Preparing", "Accepted", true)]
+    [InlineData("Queued", "Rejected", true)]
+    [InlineData("Running", "JudgeUnavailable", true)]
+    [InlineData("Accepted", "Rejected", false)]
+    [InlineData("JudgeUnavailable", "Accepted", true)]
+    [InlineData("JudgeUnavailable", "JudgeUnavailable", false)]
+    [InlineData("CompileError", "Accepted", false)]
+    public void ReplayOnlyUpgradesUnresolvedOrWeakInfrastructureVerdicts(string status, string incoming, bool expected)
+    {
+        Assert.Equal(expected, SolutionsApiResultsService.ShouldApplyReplayedVerdict(status, incoming));
+    }
+
+    [Theory]
     [InlineData("ok")]
     [InlineData("accepted")]
     [InlineData("passed")]

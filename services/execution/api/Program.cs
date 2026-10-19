@@ -22,6 +22,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<TaskForge.Execution.Api.Services.Sql.SqlWorkerDirectory>();
 builder.Services.AddSingleton<TaskForge.Execution.Api.Services.Sql.SqlWakeups>();
 builder.Services.AddHostedService<TaskForge.Execution.Api.Services.Sql.SqlQueueMaintenance>();
+builder.Services.AddHostedService<TaskForge.Execution.Api.Services.Legacy.LegacyExecutionQueueMaintenance>();
 builder.Services.AddHostedService<TaskForge.Execution.Api.Services.Sql.SqlRabbitWakeupPublisher>();
 builder.Services.AddSingleton<InteractiveSessionRegistry>();
 builder.Services.AddDbContext<ExecutionDbContext>(options =>

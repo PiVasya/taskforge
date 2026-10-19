@@ -52,7 +52,10 @@ internal static partial class ExecutionApiEndpoints
             var staleBefore = now.AddMinutes(-runningTimeoutMinutes);
 
             await db.ExecutionJobs
-                .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "running" && x.StartedAt != null && x.StartedAt < staleBefore && x.AttemptCount < maxAttempts)
+                .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "running" && x.CompletedAt == null &&
+                    ((x.StartedAt != null && x.StartedAt < staleBefore) ||
+                     (x.StartedAt == null && x.CreatedAt < staleBefore)) &&
+                    x.AttemptCount < maxAttempts)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(x => x.Status, "queued")
                     .SetProperty(x => x.StartedAt, (DateTimeOffset?)null), ct);
@@ -60,7 +63,7 @@ internal static partial class ExecutionApiEndpoints
             while (true)
             {
                 var candidateId = await db.ExecutionJobs
-                    .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "queued" && x.AttemptCount < maxAttempts)
+                    .Where(x => x.Kind == ExecutionJobKinds.Legacy && x.Status == "queued" && x.CompletedAt == null && x.AttemptCount < maxAttempts)
                     .OrderBy(x => x.CreatedAt)
                     .Select(x => x.Id)
                     .FirstOrDefaultAsync(ct);
@@ -68,7 +71,7 @@ internal static partial class ExecutionApiEndpoints
                 if (candidateId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.Ok(new { job = (object?)null });
 
                 var claimed = await db.ExecutionJobs
-                    .Where(x => x.Id == candidateId && x.Status == "queued")
+                    .Where(x => x.Id == candidateId && x.Status == "queued" && x.CompletedAt == null && x.AttemptCount < maxAttempts)
                     .ExecuteUpdateAsync(setters => setters
                         .SetProperty(x => x.Status, "running")
                         .SetProperty(x => x.StartedAt, now)
@@ -81,12 +84,37 @@ internal static partial class ExecutionApiEndpoints
             }
         });
 
+        app.MapPost("/api/internal/execution/jobs/{jobId:guid}/heartbeat", async (Guid jobId, ExecutionJobHeartbeatRequest request, ExecutionDbContext db, CancellationToken ct) =>
+        {
+            if (request.AttemptCount <= 0)
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "INVALID_EXECUTION_ATTEMPT" });
+
+            var updated = await db.ExecutionJobs
+                .Where(x => x.Id == jobId && x.Kind == ExecutionJobKinds.Legacy &&
+                    x.Status == "running" && x.AttemptCount == request.AttemptCount)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StartedAt, DateTimeOffset.UtcNow), ct);
+            return updated == 1
+                ? (IResult)Microsoft.AspNetCore.Http.Results.Ok(new { ok = true })
+                : Microsoft.AspNetCore.Http.Results.Conflict(new { code = "EXECUTION_ATTEMPT_EXPIRED" });
+        });
+
         app.MapPost("/api/internal/execution/jobs/{jobId:guid}/complete", async (Guid jobId, CompleteExecutionJobRequest request, ExecutionDbContext db, CancellationToken ct) =>
         {
-            var job = await db.ExecutionJobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var job = await db.ExecutionJobs
+                .FromSqlInterpolated($"SELECT * FROM \"ExecutionJobs\" WHERE \"Id\" = {jobId} FOR UPDATE")
+                .SingleOrDefaultAsync(ct);
             if (job == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Execution job not found", code = "EXECUTION_JOB_NOT_FOUND" });
-
             if (job.Kind != ExecutionJobKinds.Legacy) return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "EXECUTION_CAPABILITY_MISMATCH" });
+            if (request.AttemptCount.HasValue &&
+                (job.AttemptCount != request.AttemptCount.Value ||
+                 (job.Status != "running" && job.Status != request.Status && job.Status != "delivered")))
+                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "EXECUTION_ATTEMPT_EXPIRED" });
+
+            // Replayed completion from the same worker is harmless. The row lock
+            // serializes it with watchdog expiry and result creation.
+            if (request.AttemptCount.HasValue && job.Status is not "running")
+                return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = job.Id, status = job.Status });
 
             job.Status = string.IsNullOrWhiteSpace(request.Status) ? "completed" : request.Status.Trim();
             job.CompletedAt = DateTimeOffset.UtcNow;
@@ -108,6 +136,7 @@ internal static partial class ExecutionApiEndpoints
             result.ResultJson = request.Result.HasValue ? request.Result.Value.GetRawText() : null;
 
             await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = job.Id, status = job.Status });
         });
 

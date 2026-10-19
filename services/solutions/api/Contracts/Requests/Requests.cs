@@ -26,7 +26,7 @@ public sealed record SubmitRequest(string? Language, string? Code, string? Input
 
 public sealed record CodeSolutionSubmitRequest(Guid AssignmentId, string? Language, string? Code, string? Input);
 
-public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result);
+public sealed record SolutionVerdictRequest(string? Verdict, int Score, string? Message, JsonElement? Result, bool OnlyIfPending = false);
 
 public sealed record ImageSolutionSubmitRequest(Guid AssignmentId, string? Language, string? Code, string? Input, int? TimeoutSeconds);
 

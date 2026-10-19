@@ -45,6 +45,10 @@ services:
       CodeAnalyzer__Enabled: ${CODE_ANALYZER_ENABLED:-true}
       CodeAnalyzer__Url: http://code-analyzer:8080
       CodeAnalyzer__TimeoutSeconds: ${CODE_ANALYZER_TIMEOUT_SECONDS:-8}
+      ExecutionQueue__MaxAttempts: ${EXECUTION_QUEUE_MAX_ATTEMPTS:-3}
+      ExecutionQueue__RunningTimeoutMinutes: ${EXECUTION_QUEUE_RUNNING_TIMEOUT_MINUTES:-5}
+      ExecutionQueue__QueuedTimeoutMinutes: ${EXECUTION_QUEUE_QUEUED_TIMEOUT_MINUTES:-30}
+      ExecutionQueue__DeliveryTimeoutSeconds: ${EXECUTION_QUEUE_DELIVERY_TIMEOUT_SECONDS:-5}
     expose:
     - '8080'
     depends_on:

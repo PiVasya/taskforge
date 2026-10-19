@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TaskForge.Realtime;
 using TaskForge.Solutions.Api.Contracts;
 using TaskForge.Solutions.Api.Data;
@@ -122,17 +123,25 @@ internal static class CodeSolutionService
                 var refundedQuota = await RefundQuotaAsync(db, userId.Value, "tasks", taskPolicy.Capacity, taskPolicy.Interval, 1, ct);
                 WriteQuotaHeaders(http.Response, refundedQuota);
             }
-            ApplyLocalVerdict(sub, new JudgeRunResult(
+            var unavailableResult = new JudgeRunResult(
                 "JudgeUnavailable", 0, false, false,
                 enqueue.Message ?? "Execution pipeline временно недоступен.",
-                null, enqueue.Raw, false));
-            await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(sub, canRevealHidden));
+                null, enqueue.Raw, false);
+            // The execution API can accept a job but lose the enqueue response.
+            // Never overwrite a real verdict that arrived before the timeout.
+            var fallback = new SolutionSubmission();
+            ApplyLocalVerdict(fallback, unavailableResult);
+            await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, fallback.Status)
+                    .SetProperty(x => x.Score, fallback.Score)
+                    .SetProperty(x => x.ResultJson, fallback.ResultJson), ct);
+            db.Entry(sub).State = EntityState.Detached;
+            var latest = await db.Submissions.AsNoTracking().SingleAsync(x => x.Id == sub.Id, ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(latest, canRevealHidden));
         }
 
-        sub.Status = "Queued";
-        sub.Score = 0;
-        sub.ResultJson = JsonSerializer.Serialize(new
+        var queuedPayload = JsonSerializer.Serialize(new
         {
             verdict = "Queued",
             status = "Queued",
@@ -140,17 +149,24 @@ internal static class CodeSolutionService
             executionJobId = enqueue.JobId,
             message = "Решение поставлено в очередь проверки. Результат появится после обработки execution-worker."
         }, JsonOptions());
-        await db.SaveChangesAsync(ct);
+        // The worker may publish its terminal verdict immediately after enqueue.
+        // A tracked entity SaveChanges here would overwrite that verdict with Queued.
+        await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, "Queued")
+                .SetProperty(x => x.Score, 0)
+                .SetProperty(x => x.ResultJson, queuedPayload), ct);
+        db.Entry(sub).State = EntityState.Detached;
 
         var final = await WaitForTerminalSubmissionAsync(db, sub.Id, cfg, ct);
-        var returned = final ?? sub;
+        var returned = final ?? await db.Submissions.AsNoTracking().SingleAsync(x => x.Id == sub.Id, ct);
         TaskForgeDebugTrace.Map("SUBMISSION_RETURN",
             ("submission", sub.Id),
             ("user", userId.Value),
             ("assignment", assignmentId),
             ("status", returned.Status),
             ("score", returned.Score),
-            ("terminalObserved", final is not null));
+            ("terminalObserved", IsTerminalVerdict(final?.Status)));
         return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(returned, canRevealHidden));
     }
 }

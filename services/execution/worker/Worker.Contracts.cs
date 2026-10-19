@@ -15,7 +15,7 @@ public sealed partial class Worker
     private sealed record RunnerTestsRequest(string Code, JsonElement[] Tests, int? TimeLimitMs, int? MemoryLimitMb, JsonElement Attestation);
     private sealed record PascalAbcRunnerTestsRequest(string Code, string Runtime, JsonElement[] Tests, int? TimeLimitMs, int? MemoryLimitMb, JsonElement Attestation);
     private sealed record PolicyAnalysisResult(RunnerResult? Block, JsonElement? Attestation);
-    private sealed record CompleteExecutionJobRequest(string Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result);
+    private sealed record CompleteExecutionJobRequest(string Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result, int AttemptCount);
     private sealed record SolutionVerdictRequest(string Verdict, int Score, string Message, JsonElement? Result);
 
     // Go runner success payloads normally contain only { "results": [...] }.

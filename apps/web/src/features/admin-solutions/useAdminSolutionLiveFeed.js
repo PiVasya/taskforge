@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isPendingLiveStatus, mergeLiveEvent, reconcileLiveDetail } from './adminSolutionLiveModel';
 import {
   getAdminUser,
   loadAdminSolutionLiveDetail,
@@ -19,6 +20,10 @@ export default function useAdminSolutionLiveFeed() {
   const [state, setState] = useState('connecting');
   const userCache = useRef(new Map());
   const alive = useRef(true);
+  const itemsRef = useRef([]);
+  const pendingCursor = useRef(0);
+
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
     alive.current = true;
@@ -56,7 +61,7 @@ export default function useAdminSolutionLiveFeed() {
           setItems((current) => {
             const existing = current.find((item) => item.key === key);
             if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
-            const merged = [next, ...current.filter((item) => item.key !== key)];
+            const merged = [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== key)];
             merged.sort((a, b) => new Date(b.occurredAtUtc || 0) - new Date(a.occurredAtUtc || 0));
             return merged.slice(0, 120);
           });
@@ -71,7 +76,7 @@ export default function useAdminSolutionLiveFeed() {
           setItems((current) => {
             const existing = current.find((item) => item.key === key);
             if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
-            return [next, ...current.filter((item) => item.key !== key)].slice(0, 120);
+            return [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== key)].slice(0, 120);
           });
         }
       },
@@ -80,6 +85,42 @@ export default function useAdminSolutionLiveFeed() {
       alive.current = false;
       dispose();
     };
+  }, []);
+
+  // SSE is the primary source. Reconcile a bounded number of pending cards
+  // against stored verdicts when a terminal event was missed during reconnect.
+  useEffect(() => {
+    let refreshing = false;
+    const refreshPending = async () => {
+      if (!alive.current || refreshing) return;
+      const pending = itemsRef.current.filter((item) =>
+        (item.kind === 'code' || item.kind === 'sql') && isPendingLiveStatus(item.status));
+      if (!pending.length) return;
+
+      const start = pendingCursor.current % pending.length;
+      const batch = Array.from({ length: Math.min(10, pending.length) }, (_, index) =>
+        pending[(start + index) % pending.length]);
+      pendingCursor.current = (start + batch.length) % pending.length;
+      refreshing = true;
+      try {
+        const results = await Promise.allSettled(batch.map(async (item) => ({
+          key: item.key,
+          detail: await loadAdminSolutionLiveDetail(item),
+        })));
+        if (!alive.current) return;
+        const refreshed = new Map(results
+          .filter((result) => result.status === 'fulfilled' && result.value.detail)
+          .map((result) => [result.value.key, result.value.detail]));
+        if (refreshed.size) {
+          setItems((current) => current.map((item) =>
+            refreshed.has(item.key) ? reconcileLiveDetail(item, refreshed.get(item.key)) : item));
+        }
+      } finally {
+        refreshing = false;
+      }
+    };
+    const interval = setInterval(refreshPending, 12000);
+    return () => clearInterval(interval);
   }, []);
 
   return { items, state };

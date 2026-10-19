@@ -13,4 +13,5 @@ public sealed record CreateInteractiveCompilerSessionRequest(string? Language, s
 
 public sealed record CreateExecutionJobRequest(Guid SubmissionId, Guid? AssignmentId, Guid? UserId, string? Language, string? Code, string? Input, JsonElement? TestCases, JsonElement? Tests, string? TestsJson, int? TimeLimitMs, int? MemoryLimitMb, JsonElement? CodeForbiddenCalls, JsonElement? CodeRequiredCalls, List<string>? PolicyForbiddenCalls, List<string>? PolicyRequiredCalls);
 
-public sealed record CompleteExecutionJobRequest(string? Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result);
+public sealed record CompleteExecutionJobRequest(string? Status, string? Stdout, string? Stderr, int? ExitCode, long DurationMs, int Score, bool Passed, JsonElement? Result, int? AttemptCount = null);
+public sealed record ExecutionJobHeartbeatRequest(int AttemptCount);

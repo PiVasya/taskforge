@@ -67,43 +67,105 @@ public sealed partial class Worker(ILogger<Worker> logger, IHttpClientFactory ht
 
     private async Task ProcessJobAsync(ExecutionJobDto job, CancellationToken ct)
     {
-        var started = Stopwatch.StartNew();
-        var tests = ParseTests(job.TestsJson);
-        RunnerResult runnerResult;
-
-        if (tests.Length == 0)
+        using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var heartbeat = KeepClaimAliveAsync(job, work, ct);
+        try
         {
-            runnerResult = RunnerResult.NoTests();
+            var started = Stopwatch.StartNew();
+            var tests = ParseTests(job.TestsJson);
+            RunnerResult runnerResult;
+
+            if (tests.Length == 0)
+            {
+                runnerResult = RunnerResult.NoTests();
+            }
+            else
+            {
+                var policy = await AnalyzePolicyAsync(job, work.Token);
+                runnerResult = policy.Block
+                    ?? (policy.Attestation.HasValue
+                        ? await RunTestsAsync(job, tests, policy.Attestation.Value, work.Token)
+                        : RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода не выдал обязательную подпись безопасности."));
+            }
+
+            started.Stop();
+            var complete = new CompleteExecutionJobRequest(
+                Status: runnerResult.Verdict,
+                Stdout: runnerResult.Stdout,
+                Stderr: runnerResult.Stderr,
+                ExitCode: runnerResult.ExitCode,
+                DurationMs: started.ElapsedMilliseconds,
+                Score: runnerResult.Score,
+                Passed: runnerResult.Passed,
+                Result: runnerResult.ToSolutionJson(),
+                AttemptCount: job.AttemptCount);
+
+            // A previous claim must not publish a late result after watchdog
+            // expiry and assignment to a different worker attempt.
+            await RenewClaimAsync(job, work.Token, requireConfirmation: true);
+            work.Token.ThrowIfCancellationRequested();
+            await PublishVerdictAsync(job.SubmissionId, runnerResult, work.Token);
+            await CompleteJobAsync(job.Id, complete, work.Token);
+            logger.LogInformation("Execution job {JobId} completed with verdict {Verdict}, score {Score}.", job.Id, runnerResult.Verdict, runnerResult.Score);
         }
-        else
+        finally
         {
-            var policy = await AnalyzePolicyAsync(job, ct);
-            runnerResult = policy.Block
-                ?? (policy.Attestation.HasValue
-                    ? await RunTestsAsync(job, tests, policy.Attestation.Value, ct)
-                    : RunnerResult.Error("JudgeUnavailable", "Сервис анализа кода не выдал обязательную подпись безопасности."));
+            await work.CancelAsync();
+            try { await heartbeat; }
+            catch (OperationCanceledException) when (work.IsCancellationRequested) { }
         }
-
-        started.Stop();
-
-        var complete = new CompleteExecutionJobRequest(
-            Status: runnerResult.Verdict,
-            Stdout: runnerResult.Stdout,
-            Stderr: runnerResult.Stderr,
-            ExitCode: runnerResult.ExitCode,
-            DurationMs: started.ElapsedMilliseconds,
-            Score: runnerResult.Score,
-            Passed: runnerResult.Passed,
-            Result: runnerResult.Raw);
-
-        // Publish the verdict before marking the execution job completed. If the
-        // solutions-api call fails, the job stays running and will be re-queued by
-        // execution-api's stale-running watchdog instead of leaving the submission
-        // stuck in Queued/Running forever.
-        await PublishVerdictAsync(job.SubmissionId, runnerResult, ct);
-        await CompleteJobAsync(job.Id, complete, ct);
-        logger.LogInformation("Execution job {JobId} completed with verdict {Verdict}, score {Score}.", job.Id, runnerResult.Verdict, runnerResult.Score);
     }
+
+    private async Task KeepClaimAliveAsync(ExecutionJobDto job, CancellationTokenSource work, CancellationToken stoppingToken)
+    {
+        while (!work.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), work.Token);
+                await RenewClaimAsync(job, work.Token, requireConfirmation: false);
+            }
+            catch (OperationCanceledException) when (work.IsCancellationRequested || stoppingToken.IsCancellationRequested) { break; }
+            catch (ExecutionClaimLostException)
+            {
+                logger.LogWarning("Execution job {JobId} lost its claim on attempt {Attempt}; aborting stale runner.", job.Id, job.AttemptCount);
+                await work.CancelAsync();
+                break;
+            }
+            catch (Exception ex)
+            {
+                // A transient heartbeat error is not proof of lease loss; the
+                // worker must still confirm ownership before publishing.
+                logger.LogWarning(ex, "Execution job heartbeat failed for {JobId}.", job.Id);
+            }
+        }
+    }
+
+    private async Task RenewClaimAsync(ExecutionJobDto job, CancellationToken ct, bool requireConfirmation)
+    {
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(5);
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"{ServiceUrl("ExecutionApi", "http://execution-api:8080")}/api/internal/execution/jobs/{job.Id}/heartbeat")
+        {
+            Content = JsonContent.Create(new { attemptCount = job.AttemptCount }, options: JsonOptions)
+        };
+        AddInternalKey(request);
+        using var response = await client.SendAsync(request, ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            throw new ExecutionClaimLostException();
+        // During rolling updates, the old execution-api does not yet have a
+        // heartbeat route. Its legacy claim timeout still protects the queue.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return;
+        if (!response.IsSuccessStatusCode)
+        {
+            if (requireConfirmation) response.EnsureSuccessStatusCode();
+            logger.LogWarning("Execution job heartbeat for {JobId} returned HTTP {Status}.", job.Id, (int)response.StatusCode);
+        }
+    }
+
+    private sealed class ExecutionClaimLostException : Exception { }
 
     private async Task<PolicyAnalysisResult> AnalyzePolicyAsync(ExecutionJobDto job, CancellationToken ct)
     {

@@ -45,3 +45,46 @@ test('live labels are user-facing and stable', () => {
   assert.equal(model.solutionStatusLabel('Accepted'), 'Принято');
   assert.equal(model.solutionStatusLabel('RuntimeError'), 'Ошибка выполнения');
 });
+
+test('live feed recognizes only unresolved code verdicts as pending', () => {
+  assert.equal(model.isPendingLiveStatus('Preparing'), true);
+  assert.equal(model.isPendingLiveStatus('Queued'), true);
+  assert.equal(model.isPendingLiveStatus('Running'), true);
+  assert.equal(model.isPendingLiveStatus('Accepted'), false);
+  assert.equal(model.isPendingLiveStatus('JudgeUnavailable'), false);
+});
+
+test('a missed terminal SSE event can be reconciled from persisted solution detail', () => {
+  const old = { key: 'code:abc', status: 'Queued', score: 0 };
+  const detail = { status: 'Accepted', score: 100, submittedCode: 'print(3)' };
+  assert.deepEqual(model.reconcileLiveDetail(old, detail), { ...old, detail, status: 'Accepted', score: 100 });
+});
+
+test('late pending responses cannot downgrade an accepted card', () => {
+  const accepted = { key: 'code:abc', status: 'Accepted', score: 100 };
+  assert.strictEqual(model.reconcileLiveDetail(accepted, { status: 'Queued', score: 0 }), accepted);
+});
+
+test('pending SSE after a resolved card preserves the persisted verdict', () => {
+  const final = { key: 'code:abc', status: 'Accepted', score: 100, detail: { status: 'Accepted' } };
+  const delayed = { key: 'code:abc', status: 'Queued', score: 0, detail: { status: 'Queued' } };
+  assert.deepEqual(model.mergeLiveEvent(final, delayed), { ...delayed, status: 'Accepted', score: 100, detail: final.detail });
+});
+
+test('a delayed infrastructure failure does not downgrade a real code verdict', () => {
+  const final = { kind: 'code', key: 'code:abc', status: 'Accepted', score: 100, detail: { status: 'Accepted' } };
+  const stale = { kind: 'code', key: 'code:abc', status: 'JudgeUnavailable', score: 0 };
+  assert.deepEqual(model.mergeLiveEvent(final, stale), { ...stale, status: 'Accepted', score: 100, detail: final.detail });
+});
+
+test('a real verdict can upgrade an infrastructure failure', () => {
+  const weak = { kind: 'code', key: 'code:abc', status: 'JudgeUnavailable', score: 0 };
+  const final = { kind: 'code', key: 'code:abc', status: 'Accepted', score: 100 };
+  assert.deepEqual(model.mergeLiveEvent(weak, final), final);
+});
+
+test('a code terminal verdict cannot be overwritten by a stale conflicting terminal event', () => {
+  const final = { kind: 'code', key: 'code:abc', status: 'Accepted', score: 100 };
+  const stale = { kind: 'code', key: 'code:abc', status: 'CompileError', score: 0 };
+  assert.deepEqual(model.mergeLiveEvent(final, stale), { ...stale, status: 'Accepted', score: 100, detail: undefined });
+});

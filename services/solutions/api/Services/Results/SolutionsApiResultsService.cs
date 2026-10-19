@@ -122,6 +122,12 @@ internal static class SolutionsApiResultsService
 
     internal static bool IsPendingVerdict(string? value) => value is not null && (string.Equals(value, "Preparing", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Queued", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "Running", StringComparison.OrdinalIgnoreCase));
 
+    internal static bool ShouldApplyReplayedVerdict(string? current, string? incoming)
+        => IsPendingVerdict(current) ||
+            (string.Equals(current, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase) &&
+             IsTerminalVerdict(incoming) &&
+             !string.Equals(incoming, "JudgeUnavailable", StringComparison.OrdinalIgnoreCase));
+
     internal static string CleanVerdict(string? value) => string.IsNullOrWhiteSpace(value) ? "Rejected" : value.Trim();
 
     // A submission can be replayed when the worker already published a verdict but

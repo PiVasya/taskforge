@@ -25,6 +25,9 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapInternalEndpoints(WebApplication app)
     {
+        app.MapGet("/api/internal/solutions/code-verdict-reconciliation/ready", () =>
+            Microsoft.AspNetCore.Http.Results.Ok(new { supported = true }));
+
         app.MapPost("/api/internal/quotas/consume", async (QuotaMutationRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, CancellationToken ct) =>
         {
             if (request.UserId == Guid.Empty)
@@ -56,7 +59,12 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, CancellationToken ct) =>
         {
-            var sub = await db.Submissions.FirstOrDefaultAsync(x => x.Id == submissionId, ct);
+            // Serialize competing worker/reconciliation verdicts for one immutable submission.
+            // Otherwise two readers can both observe Queued and the late writer can downgrade Accepted.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var sub = await db.Submissions
+                .FromSqlInterpolated($"SELECT * FROM \"SolutionSubmissions\" WHERE \"Id\" = {submissionId} FOR UPDATE")
+                .SingleOrDefaultAsync(ct);
             if (sub == null)
             {
                 TaskForgeDebugTrace.Map("VERDICT_MISS", ("submission", submissionId));
@@ -74,6 +82,11 @@ internal static partial class SolutionsApiEndpoints
                 ("incomingVerdict", incomingVerdict),
                 ("previousScore", sub.Score),
                 ("incomingScore", request.Score));
+            // Replay from execution-api is reconciliation, not a second judge run.
+            // Never replace already graded submissions or richer worker results.
+            if (request.OnlyIfPending && !ShouldApplyReplayedVerdict(previous, incomingVerdict))
+                return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, id = sub.Id, status = sub.Status, score = sub.Score, applied = false });
+
             if (!ShouldApplyIncomingVerdict(previous, incomingVerdict))
             {
                 TaskForgeDebugTrace.Map("VERDICT_IGNORED",
@@ -101,6 +114,7 @@ internal static partial class SolutionsApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
             if (sub.UserId.HasValue)
                 await live.PublishAsync("code", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
             TaskForgeDebugTrace.Map("VERDICT_SAVED",

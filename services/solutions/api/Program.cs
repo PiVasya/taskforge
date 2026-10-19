@@ -31,6 +31,7 @@ builder.Services.AddSingleton<AdminSolutionEventBroker>();
 builder.Services.AddHostedService<AdminSolutionEventBroker>(sp => sp.GetRequiredService<AdminSolutionEventBroker>());
 builder.Services.AddDbContext<SolutionsDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddHostedService<TaskForge.Solutions.Api.Services.Sql.SqlSubmissionDispatcher>();
+builder.Services.AddHostedService<TaskForge.Solutions.Api.Services.Code.CodeSubmissionRecovery>();
 
 var app = builder.Build();
 
