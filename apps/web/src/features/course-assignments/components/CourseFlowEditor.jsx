@@ -56,6 +56,7 @@ import {
 import { courseMapConsole, courseMapConsoleGraph, hasLearnerSyntheticArtifacts } from '../courseMapDebug';
 import { navigateToCourseEditor } from '../courseMapNavigation';
 import { prepareTaskGraphImport } from '../courseTaskGraphImport';
+import { hasIntentionalNodeChanges, loadFreshEditorMap } from '../courseMapEditorChanges';
 import { buildCompletedCourseLearnerView, findCourseLearnerAssignmentAction } from '../courseMapLearnerViewModel';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
@@ -357,6 +358,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const assignmentsRef = React.useRef([]);
   const recordRef = React.useRef(record);
   const dirtyRef = React.useRef(dirty);
+  const sceneReadyRef = React.useRef(false);
+  const serverReloadingRef = React.useRef(false);
+  const nodeDraggingRef = React.useRef(false);
+  const keyboardMoveUntilRef = React.useRef(0);
   const presenceIdsRef = React.useRef(new Set());
   const focusedCourseRef = React.useRef('');
   const dataRevisionRef = React.useRef(dataRevision);
@@ -505,6 +510,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     });
 
     previousViewRef.current = viewKey;
+    sceneReadyRef.current = false;
     setSceneReady(false);
     modeTransitionRef.current = true;
     graphSourceRef.current = { mode: '', source: 'mode-transition', viewKey };
@@ -571,6 +577,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
         if (activeViewRef.current !== viewKey) return;
+        sceneReadyRef.current = true;
         setSceneReady(true);
         courseMapConsole('LAYOUT_READY', {
           viewKey,
@@ -674,6 +681,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     const expectedViewKey = String(options?.expectedViewKey || viewKey);
     const source = graphSourceRef.current;
 
+    if (serverReloadingRef.current) return false;
     if (!rootId || !nodesRef.current.length) {
       courseMapConsole('SESSION_SKIP', { reason, skip: 'empty-graph', expectedViewKey, activeView: activeViewRef.current, mode: modeName });
       return false;
@@ -1735,7 +1743,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     return promise;
   }, [rootId]);
 
-  const loadMap = React.useCallback(async ({ preferSession = true, quiet = false } = {}) => {
+  const loadMap = React.useCallback(async ({ preferSession = true, quiet = false, replaceLocalDraft = false } = {}) => {
     if (!rootId) return;
     const requestId = ++loadRequestRef.current;
     const initialForView = loadedViewRef.current !== viewKey;
@@ -1751,6 +1759,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       mode: modeName,
       preferSession: Boolean(preferSession),
       quiet: Boolean(quiet),
+      replaceLocalDraft: Boolean(replaceLocalDraft),
       initialForView,
       browserReload,
       sourceBefore: graphSourceRef.current,
@@ -1858,7 +1867,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
       });
     }
 
-    if (!quiet && initialForView && !restoredFromCache) setLoading(true);
+    if (replaceLocalDraft || (!quiet && initialForView && !restoredFromCache)) setLoading(true);
 
     if (!editorMode) {
       try {
@@ -2019,7 +2028,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
     try {
       const mapStarted = performance.now();
-      const mapPromise = getCourseMap(rootId).then((value) => {
+      const mapPromise = getCourseMap(rootId, { fresh: replaceLocalDraft }).then((value) => {
         courseMapConsole('EDITOR_MAP_END', {
           requestId,
           viewKey,
@@ -2031,19 +2040,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         return value;
       });
       courseMapConsole('EDITOR_MAP_BEGIN', { requestId, viewKey, rootCourseId: rootId });
-      const [mapRecord, treeAssignments] = await Promise.all([
-        mapPromise,
-        fetchEditorTree('editor-map-load'),
-      ]);
-      if (requestId !== loadRequestRef.current || activeViewRef.current !== viewKey || activeModeRef.current !== 'editor') {
-        courseMapConsole('EDITOR_LOAD_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
-        return;
-      }
-      applyMapPayload(mapRecord, treeAssignments, {
-        preferSession,
+      const fetchSnapshot = () => Promise.all([mapPromise, fetchEditorTree('editor-map-load')]);
+      const isCurrent = () => requestId === loadRequestRef.current
+        && activeViewRef.current === viewKey && activeModeRef.current === 'editor';
+      const applySnapshot = ([mapRecord, treeAssignments]) => applyMapPayload(mapRecord, treeAssignments, {
+        preferSession: replaceLocalDraft ? false : preferSession,
         fromCache: false,
         source: 'editor-server',
       });
+      const applied = replaceLocalDraft
+        ? await loadFreshEditorMap({
+            fetchSnapshot,
+            isCurrent,
+            discardDraft: async () => {
+              await clearCourseMapLocalCache({ courseId: rootId, editorMode: true, userId: currentUserId });
+              clearCourseMapSessionState(rootId, sessionOptions);
+            },
+            applySnapshot,
+          })
+        : await fetchSnapshot().then((snapshot) => isCurrent() && applySnapshot(snapshot));
+      if (!applied) {
+        courseMapConsole('EDITOR_LOAD_SKIP', { requestId, currentRequestId: loadRequestRef.current, viewKey, activeView: activeViewRef.current, activeMode: activeModeRef.current }, 'warn');
+        return false;
+      }
       courseMapConsole('LOAD_END', {
         requestId,
         viewKey,
@@ -2065,7 +2084,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         notify.error(getApiErrorMessage(error, 'Не удалось загрузить карту курса'));
       }
     } finally {
-      if (requestId === loadRequestRef.current && initialForView && !restoredFromCache) setLoading(false);
+      if (requestId === loadRequestRef.current && (replaceLocalDraft || (initialForView && !restoredFromCache))) setLoading(false);
     }
   }, [applyLearnerDelta, applyMapPayload, currentUserId, editorMode, fetchEditorTree, modeName, notify, persistLearnerGraph, resetProgressionRetry, rootId, scheduleProgressionRetry, sessionOptions, streamLearnerMap, updateLearnerProjectionRecord, viewKey]);
 
@@ -2130,7 +2149,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     let disposed = false;
     courseMapConsole('EDITOR_TREE_REVISION', { rootCourseId: rootId, viewKey, previousRevision, nextRevision: dataRevision });
     fetchEditorTree('data-revision').then((rows) => {
-      if (disposed || activeViewRef.current !== viewKey || activeModeRef.current !== 'editor') return;
+      if (disposed || serverReloadingRef.current || activeViewRef.current !== viewKey || activeModeRef.current !== 'editor') return;
       const nextAssignments = Array.isArray(rows) ? rows : [];
       assignmentsRef.current = nextAssignments;
       setAssignments(nextAssignments);
@@ -2275,7 +2294,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [isAuthenticated, currentUserId, dirty, editorMode, rootId, user]);
 
   const markDirty = React.useCallback(() => {
-    if (!editorMode) return;
+    if (!editorMode || serverReloadingRef.current) return;
     setDirty(true);
     dirtyRef.current = true;
   }, [editorMode]);
@@ -2331,22 +2350,29 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [editorMode, markDirty, setEdges]);
 
   const onNodesChange = React.useCallback((changes) => {
+    const userEdited = editorMode && !serverReloadingRef.current && hasIntentionalNodeChanges(changes, nodesRef.current, {
+      ready: sceneReadyRef.current && !modeTransitionRef.current,
+      dragging: nodeDraggingRef.current,
+      keyboardMove: Date.now() <= keyboardMoveUntilRef.current,
+    });
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
       nodesRef.current = next;
       return next;
     });
-    if (editorMode && changes.some((change) => change.type === 'position' || change.type === 'remove')) markDirty();
+    if (userEdited) markDirty();
   }, [editorMode, markDirty, setNodes]);
 
   const onEdgesChange = React.useCallback((changes) => {
     if (!editorMode) return;
+    const removedUserEdge = sceneReadyRef.current && !serverReloadingRef.current
+      && changes.some((change) => change.type === 'remove' && edgesRef.current.some((edge) => String(edge.id) === String(change.id)));
     setEdges((current) => {
       const next = applyEdgeChanges(changes, current);
       edgesRef.current = next;
       return next;
     });
-    if (changes.some((change) => change.type === 'remove')) {
+    if (removedUserEdge) {
       markDirty();
       setGraphRevision((value) => value + 1);
     }
@@ -2832,6 +2858,10 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         if (pasteSelection()) event.preventDefault();
         return;
       }
+      if (!mod && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)
+          && shellRef.current?.contains(event.target) && nodesRef.current.some((node) => node.selected)) {
+        keyboardMoveUntilRef.current = Date.now() + 150;
+      }
       if (!mod && (event.key === 'Delete' || event.key === 'Backspace')) {
         const selectedEdgeIds = new Set(edgesRef.current.filter((edge) => edge.selected).map((edge) => String(edge.id)));
         if (selectedEdgeIds.size && removeEdges(selectedEdgeIds)) event.preventDefault();
@@ -2842,14 +2872,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [copySelection, editorMode, pasteSelection, removeEdges, save]);
 
   const reloadServerVersion = React.useCallback(async () => {
+    if (serverReloadingRef.current) return;
     if (dirtyRef.current) {
       const ok = await notify.confirm({ title: 'Отбросить локальные изменения?', message: 'Будет загружена последняя сохранённая версия карты.', okText: 'Загрузить', cancelText: 'Оставить мои' });
-      if (!ok) return;
+      if (!ok || serverReloadingRef.current) return;
     }
-    clearCourseMapSessionState(rootId, sessionOptions);
-    clearCourseMapLocalCache({ courseId: rootId, editorMode, userId: currentUserId });
-    await loadMap({ preferSession: false });
-  }, [currentUserId, editorMode, loadMap, notify, rootId, sessionOptions]);
+    serverReloadingRef.current = true;
+    sceneReadyRef.current = false;
+    setSceneReady(false);
+    window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = null;
+    try {
+      const applied = await loadMap({ preferSession: false, quiet: false, replaceLocalDraft: true });
+      if (applied) notify.success(`Загружена версия карты ${Number(recordRef.current.version || 0)}`);
+    } finally {
+      serverReloadingRef.current = false;
+    }
+  }, [loadMap, notify]);
 
   const documentNow = React.useMemo(() => serializeCourseMap(nodes, edges, viewportRef.current), [edges, nodes]);
   const unplaced = React.useMemo(() => findUnplacedEntities(documentNow, visibleCourses, assignments), [assignments, documentNow, visibleCourses]);
@@ -3127,8 +3166,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
           onConnect={onConnect}
           onConnectStart={() => setInteracting(true)}
           onConnectEnd={() => setInteracting(false)}
-          onNodeDragStart={() => setInteracting(true)}
-          onNodeDragStop={() => { setInteracting(false); if (!editorMode) persistSession(false); }}
+          onNodeDragStart={() => { nodeDraggingRef.current = true; setInteracting(true); }}
+          onNodeDragStop={() => { nodeDraggingRef.current = false; setInteracting(false); if (!editorMode) persistSession(false); }}
           onEdgeDoubleClick={onEdgeDoubleClick}
           onEdgeContextMenu={onEdgeContextMenu}
           onPaneContextMenu={onPaneContextMenu}

@@ -28,7 +28,37 @@ function openIndexedDb() {
   return dbPromise;
 }
 
+// Serialize cache mutations: a delayed IndexedDB write must not restore a draft
+// after the user has explicitly selected a fresh server version.
+let idbMutationQueue = Promise.resolve();
+let cacheRevision = 0;
+
+function queueIdbMutation({ puts = [], deletes = [], clear = false } = {}) {
+  const mutate = async () => {
+    const db = await openIndexedDb();
+    if (!db) return;
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        if (clear) store.clear();
+        for (const cacheKey of deletes) store.delete(cacheKey);
+        for (const [cacheKey, value] of puts) store.put(value, cacheKey);
+        tx.oncomplete = resolve;
+        tx.onerror = resolve;
+        tx.onabort = resolve;
+      } catch {
+        resolve();
+      }
+    });
+  };
+  const pending = idbMutationQueue.then(mutate, mutate);
+  idbMutationQueue = pending.catch(() => {});
+  return pending;
+}
+
 async function idbGet(cacheKey) {
+  await idbMutationQueue;
   const db = await openIndexedDb();
   if (!db) return null;
   return new Promise((resolve) => {
@@ -39,54 +69,6 @@ async function idbGet(cacheKey) {
       request.onerror = () => resolve(null);
     } catch {
       resolve(null);
-    }
-  });
-}
-
-async function idbSet(cacheKey, value) {
-  const db = await openIndexedDb();
-  if (!db) return;
-  await new Promise((resolve) => {
-    try {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(value, cacheKey);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-      tx.onabort = () => resolve();
-    } catch {
-      resolve();
-    }
-  });
-}
-
-async function idbDelete(cacheKey) {
-  const db = await openIndexedDb();
-  if (!db) return;
-  await new Promise((resolve) => {
-    try {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).delete(cacheKey);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-      tx.onabort = () => resolve();
-    } catch {
-      resolve();
-    }
-  });
-}
-
-async function idbClear() {
-  const db = await openIndexedDb();
-  if (!db) return;
-  await new Promise((resolve) => {
-    try {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-      tx.onabort = () => resolve();
-    } catch {
-      resolve();
     }
   });
 }
@@ -203,12 +185,15 @@ export async function readCourseMapLocalCacheAsync({ courseId, editorMode = fals
   const immediate = readCourseMapLocalCache({ courseId, editorMode, userId });
   if (immediate) return immediate;
   const cacheKey = key(courseId, editorMode, userId);
+  const startingRevision = cacheRevision;
   try {
     let stored = await idbGet(cacheKey);
     if (stored?.schema === CACHE_SCHEMA && stored?.aliasTo) stored = await idbGet(key(stored.aliasTo, editorMode, userId));
+    // An async read begun before a clear/write cannot resurrect that old value.
+    if (cacheRevision !== startingRevision) return readCourseMapLocalCache({ courseId, editorMode, userId });
     const parsed = normalize(stored, modeKey(editorMode));
     if (!parsed) {
-      await idbDelete(cacheKey);
+      await queueIdbMutation({ deletes: [cacheKey] });
       return null;
     }
     for (const id of new Set([courseId, parsed.rootCourseId, ...(parsed.aliases || [])].map(clean).filter(Boolean))) {
@@ -292,19 +277,23 @@ export function writeCourseMapLocalCache({
     }
   }
 
-  void idbSet(primaryCacheKey, payload);
+  cacheRevision += 1;
+  const puts = [[primaryCacheKey, payload]];
   for (const id of aliasIds) {
     const aliasKey = key(id, editorMode, userId);
     if (aliasKey === primaryCacheKey) continue;
-    void idbSet(aliasKey, { schema: CACHE_SCHEMA, savedAt: payload.savedAt, aliasTo: primaryId });
+    puts.push([aliasKey, { schema: CACHE_SCHEMA, savedAt: payload.savedAt, aliasTo: primaryId }]);
   }
+  return queueIdbMutation({ puts });
 }
 
 export function clearCourseMapLocalCache({ courseId, editorMode, userId = '' } = {}) {
   const targetId = clean(courseId);
-  if (!targetId) return;
+  if (!targetId) return Promise.resolve();
   const modes = typeof editorMode === 'boolean' ? [editorMode] : [false, true];
   const target = storage();
+  const deletes = new Set();
+  cacheRevision += 1;
   for (const mode of modes) {
     const directKey = key(targetId, mode, userId);
     const cached = normalize(memory.get(directKey), modeKey(mode)) || readCourseMapLocalCache({ courseId: targetId, editorMode: mode, userId });
@@ -313,14 +302,16 @@ export function clearCourseMapLocalCache({ courseId, editorMode, userId = '' } =
       const cacheKey = key(id, mode, userId);
       memory.delete(cacheKey);
       try { target?.removeItem(cacheKey); } catch {}
-      void idbDelete(cacheKey);
+      deletes.add(cacheKey);
     }
   }
+  return queueIdbMutation({ deletes: [...deletes] });
 }
 
 export function clearAllCourseMapLocalCaches() {
   memory.clear();
-  void idbClear();
+  cacheRevision += 1;
+  void queueIdbMutation({ clear: true });
   const target = storage();
   if (!target) return;
   try {

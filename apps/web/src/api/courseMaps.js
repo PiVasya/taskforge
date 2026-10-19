@@ -1,8 +1,10 @@
 import api from './http';
 import { logFrontendEvent } from '../devtools/frontendDiagnostics';
 
-export async function getCourseMap(courseId) {
-  const res = await api.get(`/api/courses/${courseId}/map`);
+export async function getCourseMap(courseId, { fresh = false } = {}) {
+  const res = await api.get(`/api/courses/${courseId}/map`, fresh
+    ? { params: { _fresh: Date.now() }, headers: { 'Cache-Control': 'no-cache' } }
+    : undefined);
   return res.data;
 }
 
