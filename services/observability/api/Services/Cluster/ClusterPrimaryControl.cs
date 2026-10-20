@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace TaskForge.Observability.Api.Services.Cluster;
@@ -273,19 +273,33 @@ public sealed partial class ClusterTelemetryService
         var client = ClusterHttpClientFactory.CreateClient();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new { leader, candidate = target });
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildPatroniUri(host, port, "/switchover"))
         {
-            Content = JsonContent.Create(new { leader, candidate = target })
+            Content = new ByteArrayContent(payload)
         };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        request.Content.Headers.ContentLength = payload.Length;
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", basic);
+        ClusterLogger.LogInformation("Sending Patroni /switchover {Leader}->{Target} to {Host}:{Port}, JSON Content-Length={ContentLength}.",
+            leader, target, host, port, payload.Length);
         try
         {
             using var response = await client.SendAsync(request, timeout.Token);
-            if ((int)response.StatusCode is 200 or 202) return;
+            var patroniStatus = (int)response.StatusCode;
+            if (patroniStatus is 200 or 202) return;
             var detail = (await response.Content.ReadAsStringAsync(timeout.Token)).Trim();
             if (detail.Length > 400) detail = detail[..400];
-            ClusterLogger.LogWarning("Patroni rejected admin switchover {Leader}->{Target}: HTTP {Status} {Detail}", leader, target, (int)response.StatusCode, detail);
-            throw new ClusterPrimarySwitchException(StatusCodes.Status502BadGateway, "PATRONI_SWITCH_REJECTED", $"Patroni отклонил переключение {leader} → {target} (HTTP {(int)response.StatusCode}).");
+            ClusterLogger.LogWarning("Patroni rejected admin switchover {Leader}->{Target}: HTTP {Status} {Detail}", leader, target, patroniStatus, detail);
+            if (patroniStatus >= 500)
+                throw new ClusterPrimarySwitchException(StatusCodes.Status502BadGateway, "PATRONI_SWITCH_FAILED",
+                    $"Patroni /switchover вернул HTTP {patroniStatus}. Проверьте фактическую Primary перед повторной попыткой.");
+
+            var safeDetail = SafePatroniRejectionReason(detail);
+            var reason = patroniStatus == 411 ? ": требуется Content-Length"
+                : !string.IsNullOrEmpty(safeDetail) ? $": {safeDetail}" : string.Empty;
+            throw new ClusterPrimarySwitchException(StatusCodes.Status409Conflict, "PATRONI_SWITCH_REJECTED",
+                $"Patroni отклонил переключение {leader} → {target} (HTTP {patroniStatus}{reason}).");
         }
         catch (ClusterPrimarySwitchException) { throw; }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -297,6 +311,30 @@ public sealed partial class ClusterTelemetryService
             ClusterLogger.LogWarning(ex, "Patroni switchover request failed for {Leader}->{Target}", leader, target);
             throw new ClusterPrimarySwitchException(StatusCodes.Status502BadGateway, "PATRONI_SWITCH_FAILED", "Не удалось отправить запрос переключения Patroni. Обновите состояние перед повторной попыткой.");
         }
+    }
+
+    private static string SafePatroniRejectionReason(string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return string.Empty;
+        string? message = detail;
+        try
+        {
+            var parsed = JsonNode.Parse(detail);
+            if (parsed is JsonObject json)
+                message = ClusterTelemetryNormalizer.Text(json["error"]) ?? ClusterTelemetryNormalizer.Text(json["message"]);
+            else if (parsed is not null)
+                message = ClusterTelemetryNormalizer.Text(parsed);
+        }
+        catch (JsonException)
+        {
+            // Patroni also returns plain text; do not expose HTML error pages.
+        }
+
+        if (string.IsNullOrWhiteSpace(message) || message.Contains('<') || message.Contains('>')
+            || message.StartsWith('{') || message.StartsWith('['))
+            return string.Empty;
+        message = string.Join(' ', message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return message.Length > 200 ? message[..200] + "…" : message;
     }
 
     private static Uri BuildPatroniUri(string host, int port, string path)

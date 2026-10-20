@@ -421,6 +421,13 @@ export function primarySwitchComplete(nodes, activeId, targetId) {
     && String(state.target_node || '') === String(targetId);
 }
 
+export function primarySwitchFailureIsUncertain(error) {
+  const code = String(error?.code || '').trim();
+  if (code) return code === 'PATRONI_SWITCH_TIMEOUT' || code === 'PATRONI_SWITCH_FAILED';
+  const status = Number(error?.status) || 0;
+  return status === 0 || status >= 500;
+}
+
 
 export function primarySwitchProgress(nodes, activeId, pending, now = Date.now()) {
   const list = array(nodes);

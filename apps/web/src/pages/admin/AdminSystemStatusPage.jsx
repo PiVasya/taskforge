@@ -15,7 +15,7 @@ import ClusterLogCleanupDialog from '../../features/cluster/ClusterLogCleanupDia
 import { ClusterEvents, ContainerMatrix, ImageMatrix } from '../../features/cluster/ClusterTables';
 import { Empty, Tag } from '../../features/cluster/ClusterShared';
 import {
-  array, containerSummary, countPair, DASH, dateTime, logCleanupEligibility, PHASE_LABELS, primarySwitchComplete, primarySwitchProgress, REASONS,
+  array, containerSummary, countPair, DASH, dateTime, logCleanupEligibility, PHASE_LABELS, primarySwitchComplete, primarySwitchFailureIsUncertain, primarySwitchProgress, REASONS,
 } from '../../features/cluster/clusterModel';
 import '../../features/cluster/cluster.css';
 
@@ -103,6 +103,7 @@ export default function AdminSystemStatusPage() {
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchInitialTarget, setSwitchInitialTarget] = useState(null);
   const [switchBusy, setSwitchBusy] = useState(false);
+  const [switchFailure, setSwitchFailure] = useState(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [logCleanupOpen, setLogCleanupOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState(() => readPendingSwitch());
@@ -199,6 +200,7 @@ export default function AdminSystemStatusPage() {
   }, [pendingSwitch, data, nodes, activeId]);
 
   const openPrimarySwitch = useCallback((target = null) => {
+    setSwitchFailure(null);
     setSwitchInitialTarget(target);
     setSwitchOpen(true);
   }, []);
@@ -212,6 +214,7 @@ export default function AdminSystemStatusPage() {
     const from = data?.summary?.activeNode || null;
     if (!from || !target || switchBusy) return;
     setSwitchBusy(true);
+    setSwitchFailure(null);
     try {
       const result = await switchClusterPrimary(target);
       if (result?.changed === false) {
@@ -235,15 +238,7 @@ export default function AdminSystemStatusPage() {
       setTimeout(() => load(true), 400);
     } catch (e) {
       const parsed = handleApiError(e, false, 'Не удалось запросить смену Primary');
-      // A structured TaskForge error means the backend did answer. In particular,
-      // preflight failures such as PATRONI_CLUSTER_TIMEOUT happen before the
-      // switchover mutation and must be shown as the real error, not disguised as
-      // an uncertain/lost POST. Only transport/generic 5xx and failures that may
-      // happen while sending the Patroni mutation remain uncertain.
-      const uncertainCodes = new Set(['PATRONI_SWITCH_TIMEOUT', 'PATRONI_SWITCH_FAILED']);
-      const structuredFailure = Boolean(parsed?.code) && !uncertainCodes.has(parsed.code);
-      const uncertainResponse = !structuredFailure && (!parsed?.status || parsed.status >= 500);
-      if (uncertainResponse) {
+      if (primarySwitchFailureIsUncertain(parsed)) {
         const pending = { from, target, requestId: null, acceptedAt: Date.now(), uncertain: true };
         setPendingSwitch(pending);
         savePendingSwitch(pending);
@@ -252,6 +247,10 @@ export default function AdminSystemStatusPage() {
         notifyRef.current.warn('Результат запроса переключения не подтверждён. Запрос не повторяем: проверяем фактическое состояние кластера.', 10000);
         setTimeout(() => load(true), 800);
       } else {
+        setPendingSwitch(null);
+        savePendingSwitch(null);
+        setSwitchOpen(false);
+        setSwitchFailure({ code: parsed?.code || null, message: parsed?.primaryMessage || 'Переключение отклонено.' });
         handleApiError(e, notifyRef.current, 'Не удалось запросить смену Primary');
       }
     } finally {
@@ -279,6 +278,11 @@ export default function AdminSystemStatusPage() {
     </div>
 
     {pendingSwitch && <SwitchProgress pending={pendingSwitch} activeId={activeId} nodes={nodes} onDismiss={dismissPending} onRefresh={() => load(true)} refreshing={loading} />}
+    {switchFailure && <div role="alert" className="tf-cluster-callout is-bad">
+      <AlertTriangle size={18} />
+      <div><strong>Переключение Primary отклонено{switchFailure.code ? ` · ${switchFailure.code}` : ''}</strong><div>{switchFailure.message}</div></div>
+      <button type="button" className="tf-cluster-button" onClick={() => setSwitchFailure(null)}>Скрыть</button>
+    </div>}
     {error && <div role="alert" className="tf-cluster-callout is-warn"><AlertTriangle size={18} />{error}</div>}
     {data?.schemaVersion !== 2 && data && <div className="tf-cluster-callout"><AlertTriangle size={17} />API отдаёт сокращённые данные. Обновите образ observability-api вместе с фронтендом; Node Agent переустанавливать не нужно.</div>}
 

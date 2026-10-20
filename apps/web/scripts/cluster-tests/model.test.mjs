@@ -99,6 +99,22 @@ test('Primary switch client preflight only enables a fully ready standby', () =>
   assert.ok(result.reasons.includes('edge-not-configured'));
 });
 
+test('Patroni confirmed rejection never becomes an uncertain POST waiting state', () => {
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 409, code: 'PATRONI_SWITCH_REJECTED' }), false);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 502, code: 'PATRONI_SWITCH_REJECTED' }), false);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 504, code: 'PATRONI_CLUSTER_TIMEOUT' }), false);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 409, code: 'CONTROL_NOT_ON_PRIMARY' }), false);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 403, code: null }), false);
+});
+
+test('Patroni mutation uncertainty watches actual state without repeating POST', () => {
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 504, code: 'PATRONI_SWITCH_TIMEOUT' }), true);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 502, code: 'PATRONI_SWITCH_FAILED' }), true);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 502, code: null }), true);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: null, code: null }), true);
+  assert.equal(model.primarySwitchFailureIsUncertain({ status: 409, code: 'PATRONI_SWITCH_REJECTED' }), false);
+});
+
 test('Primary switch is complete only after target traffic and current Cloudflare HTTPS proof', () => {
   const target = {
     id: 'B', role: 'primary', trafficReady: true, edge: { configured: true, state: {
