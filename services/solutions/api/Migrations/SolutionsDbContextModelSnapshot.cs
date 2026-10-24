@@ -91,6 +91,41 @@ namespace TaskForge.Solutions.Api.Migrations
                     b.ToTable("LeaderboardEntries", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Solutions.Api.Domain.RatingAcceptedActivity", b =>
+                {
+                    b.Property<string>("SourceKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CourseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("SourceKind", "SourceId");
+
+                    b.HasIndex("SubmittedAt");
+
+                    b.HasIndex("CourseId", "SubmittedAt");
+
+                    b.HasIndex("UserId", "AssignmentId");
+
+                    b.ToTable("RatingAcceptedActivities", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Solutions.Api.Domain.RatingDirtyUser", b =>
                 {
                     b.Property<Guid>("UserId")
