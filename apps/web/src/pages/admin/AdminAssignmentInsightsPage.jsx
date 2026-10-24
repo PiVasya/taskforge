@@ -5,23 +5,19 @@ import { createAssignmentAnalyticsConnection, getAdminAssignmentInsights, getAdm
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
-import { ArrowLeft, BarChart3, Eye, FileCode2, RefreshCcw, Search, ShieldAlert, Users, X, Zap } from 'lucide-react';
-
-const typeLabels = {
-  code: 'Код',
-  'code-test': 'Код',
-  test: 'Тест',
-  math: 'Math/B-text',
-  image: 'Изображение',
-  'image-trial': 'Пробный image',
-};
+import { ArrowLeft, BarChart3, Eye, FileCode2, RefreshCcw, Search, ShieldAlert, Users, X } from 'lucide-react';
+import useAdminSolutionLiveFeed from '../../features/admin-solutions/useAdminSolutionLiveFeed';
+import AssignmentAnalyticsCharts from '../../features/assignment-analytics/AssignmentAnalyticsCharts';
+import AssignmentLiveFeed from '../../features/assignment-analytics/AssignmentLiveFeed';
+import { analyticsModeLabels, behaviorLabel, riskLabel, riskReasonLabel, statusLabel, typeLabel } from '../../features/assignment-analytics/assignmentInsightsModel';
 
 const tabs = [
-  { key: 'overview', label: 'Обзор' },
+  { key: 'overview', label: 'Обзор и графики' },
+  { key: 'live', label: 'Лента решений' },
   { key: 'users', label: 'Пользователи' },
-  { key: 'attempts', label: 'Попытки' },
-  { key: 'proctoring', label: 'Proctoring' },
-  { key: 'similarity', label: 'Похожесть' },
+  { key: 'attempts', label: 'История попыток' },
+  { key: 'proctoring', label: 'Контроль поведения' },
+  { key: 'similarity', label: 'Совпадения кода' },
 ];
 
 function fmtDate(v) {
@@ -60,7 +56,7 @@ function riskIntent(levelOrScore) {
 }
 
 function riskText(score, level) {
-  return `${Number(score || 0)} · ${level || (Number(score || 0) >= 75 ? 'critical' : Number(score || 0) >= 50 ? 'high' : Number(score || 0) >= 25 ? 'medium' : 'low')}`;
+  return `${Number(score || 0)} · ${riskLabel(level || (Number(score || 0) >= 75 ? 'critical' : Number(score || 0) >= 50 ? 'high' : Number(score || 0) >= 25 ? 'medium' : 'low'))}`;
 }
 
 function StatCard({ label, value, hint, icon: Icon }) {
@@ -89,9 +85,9 @@ function CodeModal({ activity, onClose }) {
             <div className="text-lg font-semibold">Код решения</div>
             <div className="text-sm opacity-70 mt-1">{activity.fullName || activity.displayName || activity.email || 'Пользователь'} · {activity.email || 'без email'}</div>
             <div className="flex flex-wrap gap-2 mt-3">
-              <Badge intent={activity.status === 'passed' ? 'success' : activity.status === 'failed' ? 'danger' : 'secondary'}>{activity.status || 'unknown'}</Badge>
+              <Badge intent={activity.status === 'passed' ? 'success' : activity.status === 'failed' ? 'danger' : 'secondary'}>{statusLabel(activity.status)}</Badge>
               {activity.language ? <Badge intent="outline">{activity.language}</Badge> : null}
-              <Badge intent="outline">{typeLabels[activity.sourceKind] || activity.sourceKind || activity.kind || 'activity'}</Badge>
+              <Badge intent="outline">{typeLabel(activity.sourceKind || activity.kind)}</Badge>
               <Badge intent="outline">{fmtDate(activity.createdAtUtc)}</Badge>
               {activity.codeLength ? <Badge intent="outline">{activity.codeLength} символов</Badge> : null}
             </div>
@@ -99,7 +95,7 @@ function CodeModal({ activity, onClose }) {
           <Button variant="ghost" onClick={onClose}><X size={18} /></Button>
         </div>
         <div className="p-6 overflow-auto max-h-[calc(90vh-110px)]">
-          <pre className="rounded-2xl border border-border bg-muted/40 p-4 text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-words font-mono">{code || 'Код решения отсутствует. Возможно, для задания выключено хранение кода/snapshot.'}</pre>
+          <pre className="rounded-2xl border border-border bg-muted/40 p-4 text-sm leading-6 overflow-x-auto whitespace-pre-wrap break-words font-mono">{code || 'Код решения отсутствует. Возможно, сохранение кода отключено в настройках задания.'}</pre>
         </div>
       </div>
     </div>
@@ -113,26 +109,26 @@ function TimelineModal({ user, rows, loading, onClose }) {
       <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div>
-            <div className="text-lg font-semibold">Timeline пользователя</div>
+            <div className="text-lg font-semibold">История действий пользователя</div>
             <div className="text-sm opacity-70 mt-1">{user.fullName || user.displayName || user.email || 'Пользователь'}</div>
           </div>
           <Button variant="ghost" onClick={onClose}><X size={18} /></Button>
         </div>
         <div className="p-6 overflow-auto max-h-[calc(90vh-100px)] space-y-2">
-          {loading ? <div className="text-sm opacity-60">Загрузка timeline…</div> : null}
+          {loading ? <div className="text-sm opacity-60">Загрузка истории действий…</div> : null}
           {!loading && !rows.length ? <div className="text-sm opacity-60">Событий пока нет.</div> : null}
           {rows.map((x, idx) => (
             <div key={`${x.id || idx}`} className="rounded-2xl border border-border px-4 py-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <b>{x.eventType}</b>
+                <b>{behaviorLabel(x.eventType)}</b>
                 <span className="text-xs opacity-60">{fmtDate(x.createdAt || x.createdAtUtc || x.clientTime)}</span>
               </div>
               <div className="mt-1 flex flex-wrap gap-2 text-xs opacity-70">
-                {x.codeLength != null ? <span>code {x.codeLength}</span> : null}
-                {x.codeDelta != null ? <span>delta {x.codeDelta}</span> : null}
-                {x.textLength != null ? <span>text {x.textLength}</span> : null}
+                {x.codeLength != null ? <span>длина кода: {x.codeLength}</span> : null}
+                {x.codeDelta != null ? <span>изменение кода: {x.codeDelta}</span> : null}
+                {x.textLength != null ? <span>символов: {x.textLength}</span> : null}
                 {x.language ? <span>{x.language}</span> : null}
-                {x.riskPoints ? <span>risk {x.riskPoints}: {x.riskReason}</span> : null}
+                {x.riskPoints ? <span>риск {x.riskPoints}: {riskReasonLabel(x.riskReason)}</span> : null}
               </div>
               {x.textSample ? <pre className="mt-2 rounded-xl bg-muted/40 p-2 whitespace-pre-wrap break-words text-xs">{x.textSample}</pre> : null}
             </div>
@@ -158,21 +154,30 @@ export default function AdminAssignmentInsightsPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [liveEvents, setLiveEvents] = useState([]);
   const [liveStatus, setLiveStatus] = useState('connecting');
+  const { items: solutionEvents, state: solutionState } = useAdminSolutionLiveFeed(assignmentId);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setData(await getAdminAssignmentInsights(assignmentId));
       setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить аналитику задания');
       setPageError(parsed);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [assignmentId, notify]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep graphs in sync with persisted verdicts without forcing a full
+  // analytics query for every SSE notification.
+  useEffect(() => {
+    if (solutionState !== 'live') return undefined;
+    const timer = setInterval(() => load(true), 60000);
+    return () => clearInterval(timer);
+  }, [load, solutionState]);
 
   useEffect(() => {
     setLiveStatus('connecting');
@@ -195,16 +200,6 @@ export default function AdminAssignmentInsightsPage() {
       avgReviewSeconds: data?.avgReviewSeconds ?? null,
       risk: data?.proctoringSummary?.maxRisk ?? 0,
     };
-  }, [data]);
-
-  const attemptBlocks = useMemo(() => {
-    if (!data) return [];
-    return [
-      { key: 'code', label: 'Code', total: data.codeAttempts ?? 0, passed: data.passedCodeAttempts ?? 0 },
-      { key: 'test', label: 'Test', total: data.testAttempts ?? 0, passed: data.passedTests ?? 0 },
-      { key: 'math', label: 'Math/B-text', total: data.mathAttempts ?? 0, passed: data.passedMath ?? 0 },
-      { key: 'image', label: 'Image', total: data.imageAttempts ?? 0, passed: data.passedImages ?? 0 },
-    ].filter(x => x.total > 0 || (data.type === x.key || (data.type === 'image-test' && x.key === 'image')));
   }, [data]);
 
   const filteredSolvers = useMemo(() => {
@@ -248,11 +243,11 @@ export default function AdminAssignmentInsightsPage() {
               <Link to={`/assignment/${assignmentId}`} className="btn-outline"><ArrowLeft size={16} /> <span className="ml-1">К заданию</span></Link>
             </div>
             <h1 className="text-2xl font-semibold flex items-center gap-2 mt-3"><BarChart3 size={22} /> {data?.title || 'Аналитика задания'}</h1>
-            <p className="text-sm text-muted-foreground mt-2">{data?.courseTitle || '—'} · тип: {data?.type || '—'} · режим: {data?.analyticsSettings?.mode || 'basic'} · рейтинг: {data?.rating ?? '—'}</p>
+            <p className="text-sm text-muted-foreground mt-2">{data?.courseTitle || '—'} · {typeLabel(data?.type)} · аналитика: {analyticsModeLabels[data?.analyticsSettings?.mode] || 'Базовая'} · рейтинг: {data?.rating ?? '—'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {liveEvents.length ? <Badge intent="danger"><Zap size={13} className="mr-1" /> live {liveEvents.length}</Badge> : <Badge intent={liveStatus === 'connected' ? 'success' : liveStatus === 'offline' ? 'warning' : 'outline'}>live: {liveStatus === 'connected' ? 'подключён' : liveStatus === 'reconnecting' ? 'переподключение' : liveStatus === 'offline' ? 'offline' : 'подключение'}</Badge>}
-            <Button onClick={load}><RefreshCcw size={16} /> <span className="ml-1">Обновить</span></Button>
+            <Badge intent={solutionState === 'live' ? 'success' : 'warning'}>SSE: {solutionState === 'live' ? 'подключено' : solutionState === 'reconnecting' ? 'переподключение' : 'подключение'}</Badge>
+            <Button onClick={() => load()}><RefreshCcw size={16} /> <span className="ml-1">Обновить</span></Button>
           </div>
         </div>
 
@@ -261,12 +256,12 @@ export default function AdminAssignmentInsightsPage() {
         {data && (
           <>
             <div className="grid sm:grid-cols-2 xl:grid-cols-6 gap-4">
-              <StatCard label="Открывали" value={cards.openedUsers} hint="по activity events" icon={Eye} />
-              <StatCard label="Участников" value={cards.uniqueUsers} hint="решения + события" icon={Users} />
+              <StatCard label="Открывали" value={cards.openedUsers} hint="по событиям просмотра" icon={Eye} />
+              <StatCard label="Участников" value={cards.uniqueUsers} hint="решения и действия" icon={Users} />
               <StatCard label="Попыток" value={cards.attempts} hint={`${cards.solved} успешных`} icon={FileCode2} />
               <StatCard label="Успешность" value={`${cards.successRate}%`} hint="по всем типам попыток" />
-              <StatCard label="Среднее время" value={cards.avgReviewSeconds == null ? '—' : fmtDuration(cards.avgReviewSeconds * 1000)} hint="test/math попытки" />
-              <StatCard label="Max risk" value={cards.risk} hint={`${proctoring.criticalSessions || 0} critical`} icon={ShieldAlert} />
+              <StatCard label="Среднее время" value={cards.avgReviewSeconds == null ? '—' : fmtDuration(cards.avgReviewSeconds * 1000)} hint="тесты и математика" />
+              <StatCard label="Макс. риск" value={cards.risk} hint={`${proctoring.criticalSessions || 0} критических сессий`} icon={ShieldAlert} />
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -278,50 +273,22 @@ export default function AdminAssignmentInsightsPage() {
             </div>
 
             {activeTab === 'overview' && (
-              <div className="grid xl:grid-cols-[1fr_1fr] gap-6">
+              <div className="space-y-6">
+                <AssignmentAnalyticsCharts data={data} />
+                <AssignmentLiveFeed assignmentId={assignmentId} data={data} liveItems={solutionEvents} liveState={solutionState} compact />
                 <Card>
-                  <div className="font-medium mb-3">Структура попыток</div>
-                  <div className="space-y-3">
-                    {attemptBlocks.map((x) => (
-                      <div key={x.key} className="rounded-2xl border px-4 py-3 text-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <span>{x.label}</span>
-                          <b>{x.total} / passed {x.passed}</b>
-                        </div>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${Math.min(100, pct(x.passed, x.total))}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                    {!attemptBlocks.length ? <div className="text-sm opacity-60">Попыток пока нет.</div> : null}
-                  </div>
-                </Card>
-
-                <Card>
-                  <div className="font-medium mb-3">Языки и статусы</div>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {(data.languages || []).length ? data.languages.map((x, idx) => <Badge key={`${x.label || idx}`} intent="outline">{x.label || 'unknown'}: {x.value ?? x.count ?? 0}</Badge>) : <span className="text-sm opacity-60">Данных по языкам пока нет</span>}
-                  </div>
-                  <div className="font-medium mb-3">Статусы</div>
+                  <div className="font-medium mb-3">Популярные языки программирования</div>
                   <div className="flex flex-wrap gap-2">
-                    {(data.statusStats || []).length ? data.statusStats.map((x, idx) => <Badge key={`${x.label || idx}`} intent="outline">{x.label}: {x.value}</Badge>) : <span className="text-sm opacity-60">Статусов пока нет</span>}
+                    {(data.languages || []).length ? data.languages.map((x, idx) => (
+                      <Badge key={`${x.label || idx}`} intent="outline">{x.label || 'Не указан'}: {x.value ?? x.count ?? 0}</Badge>
+                    )) : <span className="text-sm opacity-60">Данных по языкам пока нет.</span>}
                   </div>
-                </Card>
-
-                <Card className="xl:col-span-2">
-                  <div className="font-medium mb-3">Live события</div>
-                  {liveEvents.length ? (
-                    <div className="grid md:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
-                      {liveEvents.map((x, idx) => (
-                        <div key={`${x.eventId || idx}`} className="rounded-2xl border px-3 py-2 text-sm">
-                          <div className="flex items-center justify-between gap-2"><b>{x.eventType}</b><span className="text-xs opacity-60">{fmtDate(x.createdAtUtc)}</span></div>
-                          <div className="text-xs opacity-70 mt-1">risk {x.riskPoints || 0} {x.riskReason ? `· ${x.riskReason}` : ''}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : <div className="text-sm opacity-60">Новых live-событий после открытия страницы пока нет.</div>}
                 </Card>
               </div>
+            )}
+
+            {activeTab === 'live' && (
+              <AssignmentLiveFeed assignmentId={assignmentId} data={data} liveItems={solutionEvents} liveState={solutionState} />
             )}
 
             {activeTab === 'users' && (
@@ -336,7 +303,7 @@ export default function AdminAssignmentInsightsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="text-left opacity-60">
-                      <tr><th className="py-2">Пользователь</th><th>Статус</th><th>Попытки</th><th>Время</th><th>Поведение</th><th>Risk</th><th></th></tr>
+                      <tr><th className="py-2">Пользователь</th><th>Статус</th><th>Попытки</th><th>Время</th><th>Поведение</th><th>Риск</th><th></th></tr>
                     </thead>
                     <tbody>
                       {filteredSolvers.map((x) => (
@@ -344,10 +311,10 @@ export default function AdminAssignmentInsightsPage() {
                           <td className="py-3 pr-3"><div className="font-medium">{x.fullName || x.displayName || x.email || 'Пользователь'}</div><div className="text-xs opacity-60">{x.email || x.userId}</div></td>
                           <td className="py-3 pr-3"><Badge intent={(x.successfulAttempts || x.passed) ? 'success' : 'secondary'}>{(x.successfulAttempts || x.passed) ? 'есть успех' : 'без успеха'}</Badge><div className="text-xs opacity-60 mt-1">{x.language || '—'}</div></td>
                           <td className="py-3 pr-3">{x.totalAttempts ?? x.attempts ?? 0}<div className="text-xs opacity-60">успешных: {x.successfulAttempts ?? x.passed ?? 0}</div></td>
-                          <td className="py-3 pr-3">{fmtDuration(x.totalDurationMs)}<div className="text-xs opacity-60">active {fmtDuration(x.activeDurationMs)}</div></td>
-                          <td className="py-3 pr-3 text-xs opacity-80">paste {x.pasteCount || 0} · blur {x.blurCount || 0} · hidden {x.hiddenCount || 0} · full {x.fullscreenExitCount || 0}</td>
-                          <td className="py-3 pr-3"><Badge intent={riskIntent(x.riskScore)}>{riskText(x.riskScore, x.riskLevel)}</Badge>{(x.riskReasons || []).length ? <div className="text-xs opacity-60 mt-1">{x.riskReasons.slice(0, 2).join('; ')}</div> : null}</td>
-                          <td className="py-3 text-right"><Button variant="outline" onClick={() => openTimeline(x)}>Timeline</Button></td>
+                          <td className="py-3 pr-3">{fmtDuration(x.totalDurationMs)}<div className="text-xs opacity-60">активно: {fmtDuration(x.activeDurationMs)}</div></td>
+                          <td className="py-3 pr-3 text-xs opacity-80">вставок: {x.pasteCount || 0} · смен фокуса: {x.blurCount || 0} · скрытий: {x.hiddenCount || 0} · выходов из полного экрана: {x.fullscreenExitCount || 0}</td>
+                          <td className="py-3 pr-3"><Badge intent={riskIntent(x.riskScore)}>{riskText(x.riskScore, x.riskLevel)}</Badge>{(x.riskReasons || []).length ? <div className="text-xs opacity-60 mt-1">{x.riskReasons.slice(0, 2).map(riskReasonLabel).join('; ')}</div> : null}</td>
+                          <td className="py-3 text-right"><Button variant="outline" onClick={() => openTimeline(x)}>История</Button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -371,14 +338,14 @@ export default function AdminAssignmentInsightsPage() {
                     <div key={`${x.userId}-${x.createdAtUtc}-${idx}`} className="rounded-2xl border px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div><div className="font-medium">{x.fullName || x.displayName || x.email || 'Пользователь'}</div><div className="text-xs opacity-60 mt-1">{x.email}</div></div>
-                        <div className="text-right text-xs opacity-60 shrink-0"><div>{fmtDate(x.createdAtUtc)}</div><div className="mt-1">{typeLabels[x.sourceKind] || x.sourceKind}</div></div>
+                        <div className="text-right text-xs opacity-60 shrink-0"><div>{fmtDate(x.createdAtUtc)}</div><div className="mt-1">{typeLabel(x.sourceKind)}</div></div>
                       </div>
                       <div className="flex flex-wrap gap-2 mt-3">
-                        <Badge intent={x.status === 'passed' || x.passed ? 'success' : x.status === 'failed' ? 'danger' : 'secondary'}>{x.status || 'unknown'}</Badge>
+                        <Badge intent={x.status === 'passed' || x.passed ? 'success' : x.status === 'failed' ? 'danger' : 'secondary'}>{statusLabel(x.status, x.passed)}</Badge>
                         {x.language ? <Badge intent="outline">{x.language}</Badge> : null}
-                        {x.scorePercent != null ? <Badge intent="outline">score {x.scorePercent}%</Badge> : null}
-                        {x.durationSeconds != null ? <Badge intent="outline">{x.durationSeconds}s</Badge> : null}
-                        {x.codeLength ? <Badge intent="outline">code {x.codeLength}</Badge> : null}
+                        {x.scorePercent != null ? <Badge intent="outline">результат: {x.scorePercent}%</Badge> : null}
+                        {x.durationSeconds != null ? <Badge intent="outline">{x.durationSeconds} с</Badge> : null}
+                        {x.codeLength ? <Badge intent="outline">код: {x.codeLength} симв.</Badge> : null}
                       </div>
                       {x.hasCode ? <div className="mt-3"><Button variant="outline" onClick={() => setSelectedActivity(x)}>Показать код</Button></div> : null}
                     </div>
@@ -390,20 +357,33 @@ export default function AdminAssignmentInsightsPage() {
             {activeTab === 'proctoring' && (
               <div className="space-y-6">
                 <Card>
-                  <div className="flex items-center justify-between gap-3"><div><div className="font-medium">Proctoring / контроль поведения</div><div className="text-sm opacity-60 mt-1">Режим: {data.analyticsSettings?.mode || 'basic'}</div></div><Badge intent={riskIntent(proctoring.maxRisk || 0)}>max risk {proctoring.maxRisk || 0}</Badge></div>
+                  <div className="flex items-center justify-between gap-3"><div><div className="font-medium">Контроль поведения</div><div className="text-sm opacity-60 mt-1">Режим: {analyticsModeLabels[data.analyticsSettings?.mode] || 'Базовая'}</div></div><Badge intent={riskIntent(proctoring.maxRisk || 0)}>макс. риск: {proctoring.maxRisk || 0}</Badge></div>
                   <div className="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 text-sm">
                     <div className="rounded-2xl border px-3 py-2">Событий: <b>{proctoring.events || 0}</b></div>
                     <div className="rounded-2xl border px-3 py-2">Сессий: <b>{proctoring.sessions || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Paste: <b>{proctoring.pasteEvents || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Copy/Cut: <b>{(proctoring.copyEvents || 0) + (proctoring.cutEvents || 0)}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Blur: <b>{proctoring.blurEvents || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Hidden: <b>{proctoring.hiddenEvents || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Fullscreen: <b>{proctoring.fullscreenExitEvents || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Code jumps: <b>{proctoring.codeJumpEvents || 0}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Active: <b>{fmtDuration(proctoring.activeDurationMs)}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Hidden: <b>{fmtDuration(proctoring.hiddenDurationMs)}</b></div>
-                    <div className="rounded-2xl border px-3 py-2">Blur time: <b>{fmtDuration(proctoring.blurDurationMs)}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Вставок: <b>{proctoring.pasteEvents || 0}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Копирования/вырезания: <b>{(proctoring.copyEvents || 0) + (proctoring.cutEvents || 0)}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Потерь фокуса: <b>{proctoring.blurEvents || 0}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Скрытий: <b>{proctoring.hiddenEvents || 0}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Выходов из полного экрана: <b>{proctoring.fullscreenExitEvents || 0}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Резких изменений кода: <b>{proctoring.codeJumpEvents || 0}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Активное время: <b>{fmtDuration(proctoring.activeDurationMs)}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Скрытий: <b>{fmtDuration(proctoring.hiddenDurationMs)}</b></div>
+                    <div className="rounded-2xl border px-3 py-2">Время вне окна: <b>{fmtDuration(proctoring.blurDurationMs)}</b></div>
                   </div>
+                </Card>
+
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div><h2 className="font-semibold">События поведения в реальном времени</h2><p className="text-xs opacity-60 mt-1">Внутренний канал прокторинга; новые решения отображаются отдельно во вкладке «Лента решений».</p></div>
+                    <Badge intent={liveStatus === 'connected' ? 'success' : 'warning'}>{liveStatus === 'connected' ? 'На связи' : 'Подключение к событиям'}</Badge>
+                  </div>
+                  {liveEvents.length ? <div className="grid md:grid-cols-2 gap-2 max-h-80 overflow-y-auto">
+                    {liveEvents.map((x, idx) => <div key={x.eventId || `${x.createdAtUtc}-${idx}`} className="rounded-xl border border-border p-3 text-sm">
+                      <div className="flex justify-between gap-2"><b>{behaviorLabel(x.eventType)}</b><span className="text-xs opacity-60">{fmtDate(x.createdAtUtc)}</span></div>
+                      <div className="mt-1 text-xs opacity-70">Риск: {x.riskPoints || 0}{x.riskReason ? ` · ${riskReasonLabel(x.riskReason)}` : ''}</div>
+                    </div>)}
+                  </div> : <div className="text-sm opacity-60">Новых событий поведения после открытия страницы нет.</div>}
                 </Card>
 
                 <div className="grid xl:grid-cols-2 gap-6">
@@ -413,24 +393,24 @@ export default function AdminAssignmentInsightsPage() {
                       {(data.suspiciousSessions || []).length ? data.suspiciousSessions.map((x) => (
                         <div key={x.id || `${x.userId}-${x.sessionId}`} className="rounded-2xl border px-3 py-2 text-sm">
                           <div className="flex items-center justify-between gap-2"><b>{x.displayName || x.email || 'Пользователь'}</b><Badge intent={riskIntent(x.riskScore)}>{riskText(x.riskScore, x.riskLevel)}</Badge></div>
-                          <div className="text-xs opacity-70 mt-1">paste {x.pasteCount} · blur {x.blurCount} · hidden {x.hiddenCount} · submit {x.submitCount} · active {fmtDuration(x.activeDurationMs)}</div>
-                          {(x.riskReasons || []).length ? <div className="text-xs opacity-60 mt-1">{x.riskReasons.join('; ')}</div> : null}
+                          <div className="text-xs opacity-70 mt-1">вставок: {x.pasteCount} · смен фокуса: {x.blurCount} · скрытий: {x.hiddenCount} · отправок: {x.submitCount} · активно: {fmtDuration(x.activeDurationMs)}</div>
+                          {(x.riskReasons || []).length ? <div className="text-xs opacity-60 mt-1">{x.riskReasons.map(riskReasonLabel).join('; ')}</div> : null}
                         </div>
                       )) : <div className="text-sm opacity-60">Подозрительных сессий пока нет.</div>}
                     </div>
                   </Card>
 
                   <Card>
-                    <div className="font-medium mb-3">Risk events</div>
+                    <div className="font-medium mb-3">Подозрительные события</div>
                     <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                       {(data.suspiciousEvents || []).length ? data.suspiciousEvents.map((x, idx) => (
                         <div key={`${x.eventId || idx}`} className="rounded-2xl border border-amber-300/50 bg-amber-500/5 px-3 py-2 text-sm">
                           <div className="flex flex-wrap items-center justify-between gap-2"><b>{x.displayName || x.email || 'Пользователь'}</b><span className="text-xs opacity-60">{fmtDate(x.createdAtUtc)}</span></div>
-                          <div className="mt-1 opacity-80">{x.eventType} · risk {x.riskPoints}: {x.riskReason || 'подозрительное событие'}</div>
-                          {x.textLength ? <div className="text-xs opacity-60 mt-1">text length: {x.textLength}</div> : null}
+                          <div className="mt-1 opacity-80">{behaviorLabel(x.eventType)} · риск {x.riskPoints}: {riskReasonLabel(x.riskReason) || 'подозрительное событие'}</div>
+                          {x.textLength ? <div className="text-xs opacity-60 mt-1">длина текста: {x.textLength}</div> : null}
                           {x.textSample ? <pre className="mt-2 rounded-xl bg-muted/40 p-2 whitespace-pre-wrap break-words text-xs">{x.textSample}</pre> : null}
                         </div>
-                      )) : <div className="text-sm opacity-60">Risk-событий пока нет.</div>}
+                      )) : <div className="text-sm opacity-60">Подозрительных событий пока нет.</div>}
                     </div>
                   </Card>
                 </div>
@@ -439,18 +419,18 @@ export default function AdminAssignmentInsightsPage() {
 
             {activeTab === 'similarity' && (
               <Card>
-                <div className="font-medium mb-3">Похожие / одинаковые решения по hash</div>
+                <div className="font-medium mb-3">Совпадения кода по отпечатку</div>
                 {(data.similarHashes || []).length ? (
                   <div className="space-y-3">
                     {data.similarHashes.map((x) => (
                       <div key={x.codeHash} className="rounded-2xl border px-4 py-3 text-sm">
-                        <div className="flex flex-wrap items-center justify-between gap-2"><b>{x.users} пользователей · {x.snapshots} snapshots</b><Badge intent="danger">same hash</Badge></div>
-                        <div className="mt-2 text-xs opacity-70">{x.codeHash} · max code {x.maxCodeLength} · {fmtDate(x.firstSeenAt)} — {fmtDate(x.lastSeenAt)}</div>
+                        <div className="flex flex-wrap items-center justify-between gap-2"><b>{x.users} пользователей · {x.snapshots} сохранённых версий</b><Badge intent="danger">Одинаковый отпечаток</Badge></div>
+                        <div className="mt-2 text-xs opacity-70">{x.codeHash} · максимальная длина кода: {x.maxCodeLength} · {fmtDate(x.firstSeenAt)} — {fmtDate(x.lastSeenAt)}</div>
                         <div className="mt-2 flex flex-wrap gap-2">{(x.userNames || []).map((name, idx) => <Badge key={`${name}-${idx}`} intent="outline">{name || 'Пользователь'}</Badge>)}</div>
                       </div>
                     ))}
                   </div>
-                ) : <div className="text-sm opacity-60">Совпадений по hash пока нет. Для глубокой похожести нужно включить snapshots/hash в настройках задания.</div>}
+                ) : <div className="text-sm opacity-60">Совпадений пока нет. Для поиска похожего кода включите сохранение отпечатков и версий в настройках задания.</div>}
               </Card>
             )}
           </>

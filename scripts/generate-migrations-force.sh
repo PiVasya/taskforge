@@ -85,6 +85,11 @@ for item in "${SELECTED[@]}"; do
   echo "PROJECT: $project"
   echo "========================================"
 
+  # Even forced scaffolding must not reuse an uncommitted/mismatched snapshot
+  # or silently recreate an already-created table.
+  python3 scripts/ci/check-ef-migration-history.py \
+    --dir "$(dirname "$project")/$output_dir"
+
   dotnet restore "$project"
   dotnet build "$project" -c "$BUILD_CONFIGURATION" --no-restore
   dotnet ef dbcontext info \
@@ -99,6 +104,9 @@ for item in "${SELECTED[@]}"; do
     --context "$context" \
     --output-dir "$output_dir" \
     --no-build
+
+  python3 scripts/ci/check-ef-migration-history.py \
+    --dir "$(dirname "$project")/$output_dir"
 
   dotnet build "$project" -c "$BUILD_CONFIGURATION" --no-restore
 done

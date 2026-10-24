@@ -132,7 +132,7 @@ function LiveDetails({ kind, detail }) {
   return <CodeLiveDetails kind={value} detail={detail} />;
 }
 
-export default function AdminSolutionLiveCard({ item }) {
+export default function AdminSolutionLiveCard({ item, compact = false }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState(item?.detail || null);
   const [loading, setLoading] = useState(false);
@@ -175,18 +175,18 @@ export default function AdminSolutionLiveCard({ item }) {
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800/40 bg-[rgb(var(--card))] p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="font-medium truncate">{item?.assignmentTitle}</div>
+          <div className="font-medium truncate">{compact ? item?.userLabel : item?.assignmentTitle}</div>
           <div className="text-xs text-neutral-600 dark:text-neutral-400">
-            {item?.userLabel} • {formatDateTime(item?.occurredAtUtc)}{language ? ` • ${language}` : ''}
+            {compact ? `${formatDateTime(item?.occurredAtUtc)}${item?.language || language ? ` • ${item?.language || language}` : ''}` : `${item?.userLabel} • ${formatDateTime(item?.occurredAtUtc)}${language ? ` • ${language}` : ''}`}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge intent="secondary">{solutionKindLabel(item?.kind)}</Badge>
-          {statusLabel ? <Badge>{statusLabel}</Badge> : null}
+          {statusLabel ? <Badge intent={['accepted', 'passed', 'success'].includes(String(item?.status || '').toLowerCase()) ? 'success' : ['queued', 'running', 'pending', 'preparing', 'judging'].includes(String(item?.status || '').toLowerCase()) ? 'secondary' : 'danger'}>{statusLabel}</Badge> : null}
           {item?.score != null && Number.isFinite(Number(item.score)) ? (
             <Badge intent="secondary">{Number(item.score)}%</Badge>
           ) : null}
-          <AssignmentLinkButton assignmentId={item?.assignmentId} />
+          {!compact ? <AssignmentLinkButton assignmentId={item?.assignmentId} /> : null}
           <Button variant="outline" onClick={toggleDetails} disabled={loading}>
             {loading ? 'Загружаю…' : detailActionLabel(item?.kind, expanded)}
           </Button>

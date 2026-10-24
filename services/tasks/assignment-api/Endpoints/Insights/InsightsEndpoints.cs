@@ -26,6 +26,17 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var analyticsSettings = AssignmentAnalyticsSettingsService.FromJson(assignment.AnalyticsSettingsJson);
+            // Full lifetime totals are computed by PostgreSQL, not by the
+            // latest 1000 attempts retained for the detailed page display.
+            var taskTotals = await db.Attempts.AsNoTracking()
+                .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null)
+                .GroupBy(x => x.Kind)
+                .Select(g => new { kind = g.Key, total = g.Count(), passed = g.Count(x => x.Passed) })
+                .ToListAsync(ct);
+            var testTotals = taskTotals.Where(x => string.Equals(x.kind, "test", StringComparison.OrdinalIgnoreCase)).ToList();
+            var mathTotals = taskTotals.Where(x => string.Equals(x.kind, "math", StringComparison.OrdinalIgnoreCase)).ToList();
+            var fullTaskCount = taskTotals.Sum(x => x.total);
+            var fullTaskPassedCount = taskTotals.Sum(x => x.passed);
             var taskAttempts = await db.Attempts.AsNoTracking()
                 .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null)
                 .OrderByDescending(x => x.SubmittedAt)
@@ -51,8 +62,29 @@ internal static partial class AssignmentApiEndpoints
                 .Take(1000)
                 .ToListAsync(ct);
 
-            var testRows = taskAttempts.Where(x => string.Equals(x.Kind, "test", StringComparison.OrdinalIgnoreCase)).ToList();
-            var mathRows = taskAttempts.Where(x => string.Equals(x.Kind, "math", StringComparison.OrdinalIgnoreCase)).ToList();
+            // Aggregate every submitted test/math attempt for the same UTC
+            // period. The 1000-item display limit must never truncate charts.
+            var chartFrom = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-29), TimeSpan.Zero);
+            var taskDaily = await db.Attempts.AsNoTracking()
+                .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null && x.SubmittedAt >= chartFrom)
+                .GroupBy(x => x.SubmittedAt!.Value.Date)
+                .Select(g => new { dayUtc = g.Key, total = g.Count(), passed = g.Count(x => x.Passed) })
+                .ToListAsync(ct);
+            var dailyAttempts = taskDaily.Select(x => new { x.dayUtc, x.total, x.passed, pending = 0 })
+                .Concat((external.DailyAttempts ?? new List<AssignmentDailyAttemptDto>())
+                    .Select(x => new { dayUtc = x.DayUtc, total = x.Total, passed = x.Passed, pending = x.Pending }))
+                .GroupBy(x => x.dayUtc.Date)
+                .Select(g => new
+                {
+                    dayUtc = g.Key.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                    total = g.Sum(x => x.total),
+                    passed = g.Sum(x => x.passed),
+                    pending = g.Sum(x => x.pending),
+                    failed = g.Sum(x => x.total - x.passed - x.pending)
+                })
+                .OrderBy(x => x.dayUtc)
+                .ToArray();
+
             var allUserIds = taskAttempts.Select(x => x.UserId)
                 .Concat((external.UserIds ?? Array.Empty<Guid>()))
                 .Concat(activityRows.Select(x => x.UserId))
@@ -330,24 +362,26 @@ internal static partial class AssignmentApiEndpoints
                 type = assignment.Type,
                 language = assignment.Language,
                 rating = assignment.Rating,
-                attempts = taskAttempts.Count + external.CodeAttempts + external.ImageAttempts,
-                solved = taskAttempts.Count(x => x.Passed) + external.PassedCodeAttempts + external.PassedImages,
+                attempts = fullTaskCount + external.CodeAttempts + external.ImageAttempts,
+                solved = fullTaskPassedCount + external.PassedCodeAttempts + external.PassedImages,
                 averageScore = avgScore,
                 uniqueUsers,
                 successUsers,
                 openedUsers = activityRows.Where(x => x.EventType == "assignment_opened").Select(x => x.UserId).Distinct().Count(),
                 codeAttempts = external.CodeAttempts,
                 passedCodeAttempts = external.PassedCodeAttempts,
-                testAttempts = testRows.Count,
-                passedTests = testRows.Count(x => x.Passed),
+                pendingCodeAttempts = external.PendingCodeAttempts,
+                testAttempts = testTotals.Sum(x => x.total),
+                passedTests = testTotals.Sum(x => x.passed),
                 imageAttempts = external.ImageAttempts,
                 passedImages = external.PassedImages,
-                mathAttempts = mathRows.Count,
-                passedMath = mathRows.Count(x => x.Passed),
+                mathAttempts = mathTotals.Sum(x => x.total),
+                passedMath = mathTotals.Sum(x => x.passed),
                 avgReviewSeconds = taskAttempts.Count == 0 ? 0 : global::System.Math.Round(taskAttempts.Average(x => global::System.Math.Max(0, ((x.SubmittedAt ?? x.UpdatedAt) - x.StartedAt).TotalSeconds)), 1),
                 avgTestScore = avgScore,
                 languages = languageStats,
                 statusStats,
+                dailyAttempts,
                 eventStats,
                 analyticsSettings = AssignmentAnalyticsSettingsService.ToPublicDto(analyticsSettings),
                 proctoringSummary,

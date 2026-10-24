@@ -152,6 +152,11 @@ for item in "${SELECTED[@]}"; do
     exit 2
   fi
 
+  # A missing/stale snapshot causes EF to generate a duplicate CreateTable.
+  # Protect user-owned migrations before any scaffolding takes place.
+  python3 scripts/ci/check-ef-migration-history.py \
+    --dir "$(dirname "$project")/$output_dir"
+
   dotnet restore "$project"
   dotnet build "$project" -c "$BUILD_CONFIGURATION" --no-restore
 
@@ -198,6 +203,9 @@ for item in "${SELECTED[@]}"; do
     --context "$context" \
     --output-dir "$output_dir" \
     --no-build
+
+  python3 scripts/ci/check-ef-migration-history.py \
+    --dir "$(dirname "$project")/$output_dir"
 
   dotnet build "$project" -c "$BUILD_CONFIGURATION" --no-restore
   echo "DONE: $context"

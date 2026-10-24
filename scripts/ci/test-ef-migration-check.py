@@ -51,3 +51,54 @@ assert "database update" not in source
 assert 'GENERATOR = ROOT / "scripts/generate-migrations.sh"' in source
 
 print("ef migration drift checker invariants ok")
+
+# Regression: an incomplete ModelSnapshot must never be treated as a reason
+# to scaffold an identical table migration (incident 2026-10-24).
+import tempfile
+import textwrap
+import importlib.util
+
+history_path = ROOT / "scripts/ci/check-ef-migration-history.py"
+history_spec = importlib.util.spec_from_file_location("tf_ef_history_check", history_path)
+history = importlib.util.module_from_spec(history_spec)
+assert history_spec and history_spec.loader
+history_spec.loader.exec_module(history)
+
+model_new = '''#pragma warning disable 612, 618
+modelBuilder.Entity("Test.Rating", b => { b.ToTable("RatingAcceptedActivities"); });
+#pragma warning restore 612, 618
+'''
+model_old = '''#pragma warning disable 612, 618
+modelBuilder.Entity("Test.Old", b => { b.ToTable("OldTable"); });
+#pragma warning restore 612, 618
+'''
+with tempfile.TemporaryDirectory() as temp:
+    folder = Path(temp)
+    first = folder / "20261024153108_AddRatingAcceptedActivities.cs"
+    first.write_text('''protected override void Up(MigrationBuilder b) {
+migrationBuilder.CreateTable(name: "RatingAcceptedActivities");
+}
+protected override void Down(MigrationBuilder b) { migrationBuilder.DropTable(name: "RatingAcceptedActivities"); }
+''')
+    (folder / "20261024153108_AddRatingAcceptedActivities.Designer.cs").write_text(model_new)
+    snapshot = folder / "SolutionsDbContextModelSnapshot.cs"
+    snapshot.write_text(model_old)
+    assert any("stale/inconsistent" in error for error in history.inspect_migrations(folder))
+    snapshot.write_text(model_new)
+    assert not history.inspect_migrations(folder)
+    second = folder / "20261024160137_AddRatingAcceptedActivities2.cs"
+    second.write_text(first.read_text())
+    (folder / "20261024160137_AddRatingAcceptedActivities2.Designer.cs").write_text(model_new)
+    assert any("duplicate CREATE TABLE" in error for error in history.inspect_migrations(folder))
+    second.write_text('''protected override void Up(MigrationBuilder b) {
+migrationBuilder.DropTable(name: "RatingAcceptedActivities");
+migrationBuilder.CreateTable(name: "RatingAcceptedActivities");
+}
+''')
+    assert not history.inspect_migrations(folder)
+
+print("ef migration history guard regression tests ok")
+
+for generator_name in ("generate-migrations.sh", "generate-migrations-force.sh"):
+    generator_source = (ROOT / "scripts" / generator_name).read_text()
+    assert generator_source.count("check-ef-migration-history.py") == 2, generator_name

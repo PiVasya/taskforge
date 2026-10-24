@@ -222,6 +222,17 @@ def main() -> int:
         return 0
 
     selected = select_targets(all_targets, args.targets)
+    # Fail before restoring/building if a user migration was scaffolded twice or
+    # its ModelSnapshot was not committed together with the latest Designer.
+    history_check = ROOT / "scripts/ci/check-ef-migration-history.py"
+    for target in selected:
+        migration_dir = (ROOT / target.project).parent / target.output_dir
+        proc = subprocess.run(
+            [sys.executable, str(history_check), "--dir", str(migration_dir)],
+            cwd=ROOT, text=True, check=False,
+        )
+        if proc.returncode:
+            fail(f"EF migration history check failed for {target.alias}; no EF commands were run")
     ensure_tooling()
     configuration = os.environ.get("DOTNET_BUILD_CONFIGURATION", "Release")
 

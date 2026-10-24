@@ -111,6 +111,7 @@ public sealed class AssignmentSolutionsInsightsDto
     public Guid AssignmentId { get; set; }
     public int CodeAttempts { get; set; }
     public int PassedCodeAttempts { get; set; }
+    public int PendingCodeAttempts { get; set; }
     public int ImageAttempts { get; set; }
     public int PassedImages { get; set; }
     public int UniqueUsers { get; set; }
@@ -118,6 +119,15 @@ public sealed class AssignmentSolutionsInsightsDto
     public Guid[] UserIds { get; set; } = Array.Empty<Guid>();
     public List<AssignmentLanguageStatDto> Languages { get; set; } = new();
     public List<AssignmentExternalAttemptDto> RecentAttempts { get; set; } = new();
+    public List<AssignmentDailyAttemptDto> DailyAttempts { get; set; } = new();
+}
+
+public sealed class AssignmentDailyAttemptDto
+{
+    public DateTime DayUtc { get; set; }
+    public int Total { get; set; }
+    public int Passed { get; set; }
+    public int Pending { get; set; }
 }
 
 public sealed class AssignmentLanguageStatDto

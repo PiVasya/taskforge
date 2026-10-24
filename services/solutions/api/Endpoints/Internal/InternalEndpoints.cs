@@ -158,8 +158,31 @@ internal static partial class SolutionsApiEndpoints
 
             var codeQuery = db.Submissions.AsNoTracking().Where(x => x.AssignmentId == assignmentId);
             var imageQuery = db.ImageSolutions.AsNoTracking().Where(x => x.AssignmentId == assignmentId);
+            // Pending submissions must not be presented as failed checks.
+            // SQL-side daily aggregation: charts must not depend on the capped
+            // recentAttempts list or pull entire submissions/code blobs into RAM.
+            var chartFrom = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-29), TimeSpan.Zero);
+            var codeDaily = await codeQuery.Where(x => x.CreatedAt >= chartFrom)
+                .GroupBy(x => x.CreatedAt.Date)
+                .Select(g => new { dayUtc = g.Key, total = g.Count(), passed = g.Count(x => x.Status != null && x.Status.ToLower() == "accepted"),
+                    pending = g.Count(x => x.Status == null || x.Status.ToLower() == "preparing" || x.Status.ToLower() == "queued"
+                        || x.Status.ToLower() == "running" || x.Status.ToLower() == "pending" || x.Status.ToLower() == "judging") })
+                .ToListAsync(ct);
+            var imageDaily = await imageQuery.Where(x => x.CreatedAt >= chartFrom)
+                .GroupBy(x => x.CreatedAt.Date)
+                .Select(g => new { dayUtc = g.Key, total = g.Count(), passed = g.Count(x => x.Passed), pending = 0 })
+                .ToListAsync(ct);
+            var dailyAttempts = codeDaily.Concat(imageDaily)
+                .GroupBy(x => x.dayUtc.Date)
+                .Select(g => new { dayUtc = g.Key, total = g.Sum(x => x.total), passed = g.Sum(x => x.passed), pending = g.Sum(x => x.pending) })
+                .OrderBy(x => x.dayUtc)
+                .ToArray();
+
             var codeCount = await codeQuery.CountAsync(ct);
             var passedCodeCount = await codeQuery.CountAsync(x => x.Status != null && x.Status.ToLower() == "accepted", ct);
+            var pendingCodeCount = await codeQuery.CountAsync(x => x.Status == null || x.Status.ToLower() == "preparing"
+                || x.Status.ToLower() == "queued" || x.Status.ToLower() == "running" || x.Status.ToLower() == "pending"
+                || x.Status.ToLower() == "judging", ct);
             var imageCount = await imageQuery.CountAsync(ct);
             var passedImageCount = await imageQuery.CountAsync(x => x.Passed, ct);
 
@@ -237,12 +260,14 @@ internal static partial class SolutionsApiEndpoints
                 assignmentId,
                 codeAttempts = codeCount,
                 passedCodeAttempts = passedCodeCount,
+                pendingCodeAttempts = pendingCodeCount,
                 imageAttempts = imageCount,
                 passedImages = passedImageCount,
                 uniqueUsers = userIds.Length,
                 successUsers = successUserIds.Length,
                 userIds,
                 languages,
+                dailyAttempts,
                 recentAttempts = all
             });
         });

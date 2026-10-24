@@ -15,7 +15,7 @@ function assignmentTitle(detail, assignmentId) {
   return detail?.assignmentTitle || detail?.title || detail?.taskTitle || `Задание ${String(assignmentId || '').slice(0, 8)}`;
 }
 
-export default function useAdminSolutionLiveFeed() {
+export default function useAdminSolutionLiveFeed(assignmentId = null) {
   const [items, setItems] = useState([]);
   const [state, setState] = useState('connecting');
   const userCache = useRef(new Map());
@@ -26,13 +26,21 @@ export default function useAdminSolutionLiveFeed() {
   useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
+    let subscribed = true;
     alive.current = true;
+    itemsRef.current = [];
+    setItems([]);
+    setState('connecting');
     const dispose = subscribeAdminSolutionEvents({
-      onOpen: () => alive.current && setState('live'),
-      onError: () => alive.current && setState('reconnecting'),
+      onOpen: () => subscribed && setState('live'),
+      onError: () => subscribed && setState('reconnecting'),
       onEvent: async (event) => {
+        // In assignment analytics, skip unrelated submissions before calling
+        // user and attempt detail APIs. Admin global feed remains unchanged.
+        if (!subscribed) return;
+        if (assignmentId && String(event?.assignmentId || '').toLowerCase() !== String(assignmentId).toLowerCase()) return;
         const userId = String(event?.userId || '');
-        const key = `${String(event?.kind || '')}:${String(event?.itemId || '')}`;
+        const key = `${String(event?.kind || '').toLowerCase()}:${String(event?.itemId || '')}`;
         if (!userId || key === ':') return;
 
         try {
@@ -47,7 +55,7 @@ export default function useAdminSolutionLiveFeed() {
             userPromise,
             loadAdminSolutionLiveDetail(event),
           ]);
-          if (!alive.current) return;
+          if (!subscribed) return;
           const next = {
             ...event,
             key,
@@ -66,7 +74,7 @@ export default function useAdminSolutionLiveFeed() {
             return merged.slice(0, 120);
           });
         } catch {
-          if (!alive.current) return;
+          if (!subscribed) return;
           const next = {
             ...event,
             key,
@@ -82,10 +90,12 @@ export default function useAdminSolutionLiveFeed() {
       },
     });
     return () => {
+      subscribed = false;
       alive.current = false;
       dispose();
+      userCache.current.clear();
     };
-  }, []);
+  }, [assignmentId]);
 
   // SSE is the primary source. Reconcile a bounded number of pending cards
   // against stored verdicts when a terminal event was missed during reconnect.
