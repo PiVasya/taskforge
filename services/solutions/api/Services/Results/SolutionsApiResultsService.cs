@@ -38,11 +38,14 @@ internal static class SolutionsApiResultsService
     }
 
     internal static int MetadataRating(Dictionary<Guid, AssignmentMetadata> metadata, Guid assignmentId)
-        => metadata.TryGetValue(assignmentId, out var m) && m.Rating > 0 ? m.Rating : 1;
+        => metadata.TryGetValue(assignmentId, out var m) ? System.Math.Max(1, m.Rating) : 0;
 
     internal static async Task<List<LeaderboardActivityRow>> LoadTaskLeaderboardRowsAsync(Guid? courseId, int? days, Guid[]? userIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct, IReadOnlyCollection<Guid>? courseIds = null)
     {
-        var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard", new ActivityLeaderboardRequest(courseId, days, userIds, courseIds?.Where(x => x != Guid.Empty).Distinct().ToArray()), ct) ?? new List<TaskActivityRowDto>();
+        var rows = await PostInternalAsync<List<TaskActivityRowDto>>(httpFactory, cfg,
+            ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/activity/leaderboard",
+            new ActivityLeaderboardRequest(courseId, days, userIds, courseIds?.Where(x => x != Guid.Empty).Distinct().ToArray()), ct);
+        if (rows is null) throw new HttpRequestException("RATING_TASK_ACTIVITY_UNAVAILABLE");
         return rows.Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
             .Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, System.Math.Max(1, x.Rating), x.SubmittedAt, x.Kind ?? "task"))
             .ToList();

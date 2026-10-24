@@ -429,11 +429,12 @@ internal static partial class SolutionsApiEndpoints
                 .ToListAsync(ct);
 
             var solvedIds = codeSolvedIds.Concat(sqlSolvedIds).Concat(imageSolvedIds).Distinct().ToArray();
-            var metadata = await LoadAssignmentMetadataAsync(solvedIds, cfg, httpFactory, ct);
-            var score = solvedIds.Sum(id => MetadataRating(metadata, id));
+            var metadata = await LoadAssignmentMetadataAsync(solvedIds, cfg, httpFactory, ct, requireRatingSources: true);
+            var validSolvedIds = solvedIds.Where(metadata.ContainsKey).ToArray();
+            var score = validSolvedIds.Sum(id => MetadataRating(metadata, id));
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                solvedAssignments = solvedIds.Length,
+                solvedAssignments = validSolvedIds.Length,
                 totalAttempts = codeSolutions + sqlSolutions + imageSolutions,
                 codeSolutions,
                 sqlSolutions,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Net.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Education.Api.Data;
@@ -187,7 +188,7 @@ internal static partial class EducationApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(ToCourseDto(course, CanEditCourse(access, course)));
         });
 
-        app.MapDelete("/api/courses/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>
+        app.MapDelete("/api/courses/{id:guid}", async (Guid id, HttpContext http, IConfiguration cfg, EducationDbContext db, IHttpClientFactory clients, ILogger<Program> logger, CancellationToken ct) =>
         {
             var access = await ResolveAccessContext(http, cfg, db, ct);
             if (!access.UserId.HasValue) return Microsoft.AspNetCore.Http.Results.Unauthorized();
@@ -205,7 +206,27 @@ internal static partial class EducationApiEndpoints
 
             db.Courses.RemoveRange(subtree);
             await db.SaveChangesAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted", deletedCourses = subtree.Count });
+
+            // The live score ignores assignments whose parent course is gone.
+            // Also notify the stored rating projection so historical values heal.
+            var ratingRebuildQueued = false;
+            try
+            {
+                var target = (cfg["Services:SolutionsApi"] ?? cfg["ServiceUrls:SolutionsApi"] ?? "http://solutions-api:8080").TrimEnd('/');
+                using var message = new HttpRequestMessage(HttpMethod.Post, $"{target}/api/internal/rating/rebuild");
+                var key = cfg["InternalApi:Key"] ?? cfg["TaskForgeInternalApi:ApiKey"] ?? cfg["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+                if (!string.IsNullOrWhiteSpace(key)) message.Headers.TryAddWithoutValidation("X-Internal-Key", key);
+                using var response = await clients.CreateClient().SendAsync(message, ct);
+                ratingRebuildQueued = response.IsSuccessStatusCode;
+                if (!ratingRebuildQueued)
+                    logger.LogWarning("Rating rebuild enqueue failed after course deletion, HTTP {Status}", (int)response.StatusCode);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Rating rebuild enqueue failed after course deletion; scheduled full rebuild remains available");
+            }
+            return Microsoft.AspNetCore.Http.Results.Ok(new { message = "deleted", deletedCourses = subtree.Count, ratingRebuildQueued });
         });
 
         app.MapPatch("/api/courses/{courseId:guid}/sort", async (Guid courseId, CourseSortRequest request, HttpContext http, IConfiguration cfg, EducationDbContext db, CancellationToken ct) =>

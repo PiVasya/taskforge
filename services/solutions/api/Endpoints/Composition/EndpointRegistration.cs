@@ -31,6 +31,7 @@ internal static partial class SolutionsApiEndpoints
         MapAccountIntelligenceInternalEndpoints(app);
         MapAccountLifecycleInternalEndpoints(app);
         MapLeaderboardEndpoints(app);
+        MapRatingRepairEndpoints(app);
         MapQuotasEndpoints(app);
         MapBadgesEndpoints(app);
         MapImageSolutionsEndpoints(app);

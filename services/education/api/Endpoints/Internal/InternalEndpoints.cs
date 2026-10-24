@@ -40,13 +40,10 @@ internal static partial class EducationApiEndpoints
         {
             var ids = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(1000).OrderBy(x => x).ToArray();
             if (ids.Length == 0) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<CourseMetadataDto>());
-            var key = TaskForgeCache.Key("education:course-metadata:v2", ids);
-            var rows = await TaskForgeCache.GetOrSetAsync(cache, cfg, logger, key, TaskForgeCache.Ttl(cfg, "Metadata", 300), async token =>
-            {
-                var courses = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(token);
-                return courses.Select(x => new CourseMetadataDto(x.Id, x.Id, x.Title, x.Title, x.Description, x.IsPublic && !x.IsHiddenFromStudents)).ToList();
-            }, ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(rows);
+            var courses = await db.Courses.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(courses
+                .Select(x => new CourseMetadataDto(x.Id, x.Id, x.Title, x.Title, x.Description, x.IsPublic && !x.IsHiddenFromStudents))
+                .ToList());
         });
 
         app.MapGet("/api/internal/groups/{groupId:guid}/members", async (Guid groupId, EducationDbContext db, CancellationToken ct) =>

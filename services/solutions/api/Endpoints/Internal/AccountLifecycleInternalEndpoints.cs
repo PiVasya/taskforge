@@ -62,6 +62,7 @@ internal static partial class SolutionsApiEndpoints
                 }
             }
 
+            await db.RatingAcceptedActivities.Where(x => x.UserId == request.SourceUserId).ExecuteDeleteAsync(ct);
             var sourceRating = await db.UserRatings.FirstOrDefaultAsync(x => x.UserId == request.SourceUserId, ct);
             if (sourceRating != null) db.UserRatings.Remove(sourceRating);
             var sourceDirty = await db.RatingDirtyUsers.FirstOrDefaultAsync(x => x.UserId == request.SourceUserId, ct);
@@ -110,6 +111,7 @@ internal static partial class SolutionsApiEndpoints
             var images = await db.ImageSolutions.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var badges = await db.UserBadges.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var quotas = await db.UserQuotaBuckets.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
+            await db.RatingAcceptedActivities.Where(x => x.UserId == request.SourceUserId).ExecuteDeleteAsync(ct);
             var ratings = await db.UserRatings.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var dirty = await db.RatingDirtyUsers.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var leaderboard = await db.LeaderboardEntries.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);

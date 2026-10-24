@@ -1,3 +1,4 @@
+using TaskForge.Solutions.Api.Services.Results;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -132,72 +133,20 @@ internal static partial class SolutionsApiEndpoints
 
         app.MapGet("/api/admin/solution-users", async (SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, string? q, int take = 200, CancellationToken ct = default) =>
         {
-            var allCodeRows = await db.Submissions.AsNoTracking()
-                .Where(x => x.UserId.HasValue)
-                .Select(x => new { UserId = x.UserId!.Value, x.AssignmentId, x.CreatedAt, x.Status })
+            if (!await LeaderboardReadModelService.IsReadyAsync(db, ct))
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_PROJECTION_BUILDING" }, statusCode: 503);
+
+            var aggregated = await db.UserRatings.AsNoTracking()
+                .Where(x => x.SolvedCount > 0)
+                .OrderByDescending(x => x.TotalScore)
+                .ThenByDescending(x => x.SolvedCount)
+                .ThenByDescending(x => x.LastAcceptedAt)
                 .ToListAsync(ct);
-
-            var codeRows = allCodeRows
-                .Where(x => string.Equals(x.Status, "Accepted", StringComparison.OrdinalIgnoreCase))
-                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
-                .ToList();
-
-            var allImageRows = await db.ImageSolutions.AsNoTracking()
-                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt, x.Passed })
-                .ToListAsync(ct);
-
-            var imageRows = allImageRows
-                .Where(x => x.Passed)
-                .Select(x => new { x.UserId, x.AssignmentId, x.CreatedAt })
-                .ToList();
-
-            var assignmentIds = codeRows.Select(x => x.AssignmentId)
-                .Concat(imageRows.Select(x => x.AssignmentId))
-                .Where(x => x != Guid.Empty)
-                .Distinct()
-                .ToArray();
-            var metadata = await LoadAssignmentMetadataAsync(assignmentIds, cfg, httpFactory, ct);
-
-            var taskRows = await LoadTaskLeaderboardRowsAsync(null, null, null, cfg, httpFactory, ct);
-            var codeAttemptCounts = allCodeRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
-            var imageAttemptCounts = allImageRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
-            var taskAttemptCounts = taskRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key, g => g.Count());
-
-            var activityRows = new List<LeaderboardActivityRow>();
-            activityRows.AddRange(codeRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "code")));
-            activityRows.AddRange(imageRows.Select(x => new LeaderboardActivityRow(x.UserId, x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.CreatedAt, "image")));
-            activityRows.AddRange(taskRows);
-
-            var aggregated = activityRows
-                .Where(x => x.UserId != Guid.Empty && x.AssignmentId != Guid.Empty)
-                .GroupBy(x => x.UserId)
-                .Select(g =>
-                {
-                    var distinct = g.GroupBy(x => x.AssignmentId)
-                        .Select(a => new { Rating = a.Max(z => z.Rating), Last = a.Max(z => z.SubmittedAt) })
-                        .ToList();
-                    var attempts = codeAttemptCounts.GetValueOrDefault(g.Key) + imageAttemptCounts.GetValueOrDefault(g.Key) + taskAttemptCounts.GetValueOrDefault(g.Key);
-                    return new
-                    {
-                        UserId = g.Key,
-                        SolvedAssignments = distinct.Count,
-                        Score = distinct.Sum(x => x.Rating),
-                        TotalAttempts = attempts,
-                        LastSubmitAt = distinct.Count == 0 ? (DateTimeOffset?)null : distinct.Max(x => x.Last)
-                    };
-                })
-                .Where(x => x.SolvedAssignments > 0)
-                .ToList();
-
-            var ids = aggregated.Select(x => x.UserId).Distinct().Take(2000).ToArray();
-            var users = await LoadUserSummariesAsync(ids, cfg, httpFactory, ct);
+            var users = await LoadLeaderboardUserSummariesAsync(aggregated.Select(x => x.UserId), cfg, httpFactory, ct);
             var search = NormalizeSearch(q is { Length: > 128 } ? q[..128] : q);
             var rows = aggregated
                 .Select(x => new { Row = x, User = users.GetValueOrDefault(x.UserId) })
                 .Where(x => string.IsNullOrWhiteSpace(search) || UserSummarySearchScore(x.User, x.Row.UserId, search) <= System.Math.Max(1, System.Math.Min(4, search.Length / 3)) || UserSummaryHaystack(x.User, x.Row.UserId).Contains(search, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(x => x.Row.Score)
-                .ThenByDescending(x => x.Row.SolvedAssignments)
-                .ThenBy(x => UserLabel(x.User))
                 .Take(System.Math.Clamp(take, 1, 2000))
                 .Select(x => new
                 {
@@ -210,13 +159,13 @@ internal static partial class SolutionsApiEndpoints
                     fullName = UserLabel(x.User),
                     firstName = x.User?.FirstName,
                     lastName = x.User?.LastName,
-                    score = x.Row.Score,
-                    rating = x.Row.Score,
-                    totalScore = x.Row.Score,
-                    solved = x.Row.SolvedAssignments,
-                    solvedCount = x.Row.SolvedAssignments,
-                    totalAttempts = x.Row.TotalAttempts,
-                    lastSubmitAt = x.Row.LastSubmitAt
+                    score = x.Row.TotalScore,
+                    rating = x.Row.TotalScore,
+                    totalScore = x.Row.TotalScore,
+                    solved = x.Row.SolvedCount,
+                    solvedCount = x.Row.SolvedCount,
+                    totalAttempts = x.Row.AttemptsCount,
+                    lastSubmitAt = x.Row.LastAcceptedAt
                 })
                 .ToList();
             return Microsoft.AspNetCore.Http.Results.Ok(rows);

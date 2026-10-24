@@ -12,6 +12,17 @@ public sealed class UserRating
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+public sealed class RatingAcceptedActivity
+{
+    public string SourceKind { get; set; } = string.Empty;
+    public Guid SourceId { get; set; }
+    public Guid UserId { get; set; }
+    public Guid AssignmentId { get; set; }
+    public Guid CourseId { get; set; }
+    public int Rating { get; set; }
+    public DateTimeOffset SubmittedAt { get; set; }
+}
+
 public sealed class LeaderboardEntry
 {
     public Guid Id { get; set; } = Guid.NewGuid();

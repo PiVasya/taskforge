@@ -197,7 +197,7 @@ internal static partial class AssignmentApiEndpoints
             });
         });
 
-        app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILogger<Program> logger, CancellationToken ct) =>
+        app.MapPost("/api/internal/assignments/summaries", async (AssignmentIdsRequest request, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, IHttpClientFactory clients, ILogger<Program> logger, CancellationToken ct) =>
         {
             var ids = (request.AssignmentIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().Take(2000).OrderBy(x => x).ToArray();
             if (ids.Length == 0) return Microsoft.AspNetCore.Http.Results.Ok(Array.Empty<AssignmentSummaryDto>());
@@ -205,34 +205,39 @@ internal static partial class AssignmentApiEndpoints
             // Assignment metadata is used for rating calculations. Do not cache it here:
             // an admin can change assignment.rating and the user's displayed rating must update immediately.
             var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(assignments.Select(ToAssignmentSummaryDto).ToList());
+            var existingCourses = await LoadRatingCourseIdsAsync(assignments.Select(x => x.CourseId), clients, cfg, ct);
+            if (existingCourses is null)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_COURSE_CATALOG_UNAVAILABLE" }, statusCode: 503);
+            return Microsoft.AspNetCore.Http.Results.Ok(assignments
+                .Where(x => existingCourses.Contains(x.CourseId))
+                .Select(ToAssignmentSummaryDto).ToList());
         });
 
-        app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
-            var testAttempts = await db.Attempts.AsNoTracking()
-                .CountAsync(x => x.UserId == userId && x.Kind == "test", ct);
-            var mathAttempts = await db.Attempts.AsNoTracking()
-                .CountAsync(x => x.UserId == userId && x.Kind == "math", ct);
-
-            var solvedIds = await db.Attempts.AsNoTracking()
-                .Where(x => x.UserId == userId
-                    && x.Passed
-                    && x.TaskAssignmentId != Guid.Empty
-                    && (x.Kind == "test" || x.Kind == "math"))
-                .Select(x => x.TaskAssignmentId)
-                .Distinct()
+            var attempts = await db.Attempts.AsNoTracking()
+                .Where(x => x.UserId == userId && (x.Kind == "test" || x.Kind == "math"))
+                .Join(db.Assignments.AsNoTracking(), a => a.TaskAssignmentId, assignment => assignment.Id,
+                    (a, assignment) => new
+                    {
+                        a.Kind, a.Passed, a.TaskAssignmentId, assignment.CourseId, assignment.Rating
+                    })
                 .ToListAsync(ct);
-            var ratings = solvedIds.Count == 0
-                ? new List<int>()
-                : await db.Assignments.AsNoTracking()
-                    .Where(x => solvedIds.Contains(x.Id))
-                    .Select(x => x.Rating)
-                    .ToListAsync(ct);
-            var score = ratings.Sum(x => System.Math.Max(1, x));
+            var existingCourses = await LoadRatingCourseIdsAsync(attempts.Select(x => x.CourseId), clients, cfg, ct);
+            if (existingCourses is null)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_COURSE_CATALOG_UNAVAILABLE" }, statusCode: 503);
+
+            var validAttempts = attempts.Where(x => existingCourses.Contains(x.CourseId)).ToList();
+            var solved = validAttempts.Where(x => x.Passed)
+                .GroupBy(x => x.TaskAssignmentId)
+                .Select(g => System.Math.Max(1, g.Max(x => x.Rating)))
+                .ToArray();
+            var score = solved.Sum();
+            var testAttempts = validAttempts.Count(x => x.Kind == "test");
+            var mathAttempts = validAttempts.Count(x => x.Kind == "math");
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
-                solvedAssignments = solvedIds.Count,
+                solvedAssignments = solved.Length,
                 totalAttempts = testAttempts + mathAttempts,
                 codeSolutions = 0,
                 sqlSolutions = 0,
@@ -334,7 +339,7 @@ internal static partial class AssignmentApiEndpoints
             });
         });
 
-        app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequest request, TasksDbContext db, CancellationToken ct) =>
+        app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var since = request.Days.HasValue && request.Days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-request.Days.Value) : (DateTimeOffset?)null;
             var userFilter = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
@@ -350,13 +355,21 @@ internal static partial class AssignmentApiEndpoints
                 .Select(x => new
                 {
                     userId = x.Attempt.UserId,
+                    attemptId = x.Attempt.Id,
                     assignmentId = x.Attempt.TaskAssignmentId,
+                    courseId = x.Assignment.CourseId,
                     rating = x.Assignment.Rating,
                     submittedAt = x.Attempt.SubmittedAt ?? x.Attempt.CreatedAt,
                     kind = x.Attempt.Kind
                 })
                 .ToListAsync(ct);
-            return Microsoft.AspNetCore.Http.Results.Ok(joined);
+            var existingCourses = await LoadRatingCourseIdsAsync(joined.Select(x => x.courseId), clients, cfg, ct);
+            if (existingCourses is null)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_COURSE_CATALOG_UNAVAILABLE" }, statusCode: 503);
+            return Microsoft.AspNetCore.Http.Results.Ok(joined
+                .Where(x => existingCourses.Contains(x.courseId))
+                .Select(x => new { x.userId, x.attemptId, x.assignmentId, x.courseId, x.rating, x.submittedAt, x.kind })
+                .ToList());
         });
 
         return app;

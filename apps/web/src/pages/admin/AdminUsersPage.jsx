@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
 import { getAdminUsers } from '../../api/adminUsers';
 import { getAdminMinecraftLinks } from '../../api/adminMinecraftLinks';
-import { searchUsersOnce } from '../../api/admin';
+import { searchUsersOnce, requestAdminRatingRebuild, getAdminRatingRebuildStatus } from '../../api/admin';
 import { handleApiError } from '../../utils/handleApiError';
 import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
@@ -77,6 +77,8 @@ export default function AdminUsersPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ratingRebuild, setRatingRebuild] = useState(null);
+  const [ratingRebuildBusy, setRatingRebuildBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('');
   const [accountType, setAccountType] = useState('');
@@ -131,6 +133,7 @@ export default function AdminUsersPage() {
       });
 
       setItems(mergedItems);
+      setRatingRebuild(await getAdminRatingRebuildStatus().catch(() => null));
       setPageError(null);
     } catch (e) {
       const parsed = handleApiError(e, notify, 'Не удалось загрузить пользователей');
@@ -141,6 +144,26 @@ export default function AdminUsersPage() {
   }, [notify]);
 
   useEffect(() => { load(); }, [load]);
+
+  const recalculateRatings = useCallback(async () => {
+    const accepted = await notify.confirm({
+      title: 'Пересчитать рейтинг всех пользователей?',
+      message: 'Действие поставит полный пересчёт в очередь rating-worker. История решений и траты Minecraft не удаляются.',
+      okText: 'Пересчитать',
+      cancelText: 'Отмена',
+    });
+    if (!accepted) return;
+    setRatingRebuildBusy(true);
+    try {
+      await requestAdminRatingRebuild();
+      setRatingRebuild(await getAdminRatingRebuildStatus());
+      notify.success('Полный пересчёт рейтинга поставлен в очередь');
+    } catch (error) {
+      handleApiError(error, notify, 'Не удалось поставить пересчёт в очередь');
+    } finally {
+      setRatingRebuildBusy(false);
+    }
+  }, [notify]);
 
   const filteredItems = useMemo(() => {
     const search = normalize(query);
@@ -219,7 +242,13 @@ export default function AdminUsersPage() {
           <h1 className="flex items-center gap-2 text-xl font-semibold sm:text-2xl"><UserCog size={22} /> Управление пользователями</h1>
           <p className="mt-2 text-sm text-neutral-500">Актуальные аккаунты, блокировки, Telegram и все активные Minecraft-профили. Изменения выполняются в карточке пользователя.</p>
         </div>
-        <Button onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {ratingRebuild?.pending ? <Badge intent="outline">Пересчёт в очереди</Badge> : null}
+          <Button variant="outline" disabled={ratingRebuildBusy} onClick={recalculateRatings}>
+            <RefreshCcw size={16} /><span className="ml-1">Пересчитать рейтинг</span>
+          </Button>
+          <Button onClick={load}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button>
+        </div>
       </div>
 
       {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}

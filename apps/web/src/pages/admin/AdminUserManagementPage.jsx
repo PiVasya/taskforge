@@ -15,7 +15,7 @@ import {
   unlinkAdminMinecraftLink,
   unlinkAllAdminMinecraftLinks,
 } from '../../api/adminMinecraftLinks';
-import { deleteUserSolutions, getAdminUserGroupIds, getUserImageSolutions, getUserSolutions, searchUsersOnce } from '../../api/admin';
+import { deleteUserSolutions, getAdminUserGroupIds, getUserImageSolutions, getUserSolutions, searchUsersOnce, getAdminRatingAudit } from '../../api/admin';
 import { assignFeatureRole, getFeatureRoles, removeFeatureRole } from '../../api/featureRoles';
 import { addGroupMember, getAdminGroups, removeGroupMember } from '../../api/groups';
 import { getUserMathAttempts } from '../../api/mathTaskAttempts';
@@ -92,6 +92,8 @@ export default function AdminUserManagementPage() {
   const [user, setUser] = useState(null);
   const [form, setForm] = useState(null);
   const [rating, setRating] = useState(null);
+  const [ratingAudit, setRatingAudit] = useState(null);
+  const [ratingAuditBusy, setRatingAuditBusy] = useState(false);
   const [groups, setGroups] = useState([]);
   const [groupIds, setGroupIds] = useState(new Set());
   const [featureRoles, setFeatureRoles] = useState([]);
@@ -263,6 +265,17 @@ export default function AdminUserManagementPage() {
     if (operation) navigate('/admin/ai/account-manager?tab=operations');
   };
 
+  const showRatingAudit = async () => {
+    setRatingAuditBusy(true);
+    try {
+      setRatingAudit(await getAdminRatingAudit(userId));
+    } catch (error) {
+      handleApiError(error, notify, 'Не удалось получить разбивку рейтинга');
+    } finally {
+      setRatingAuditBusy(false);
+    }
+  };
+
   const score = numeric(rating?.score ?? rating?.rating ?? rating?.totalScore);
   const solved = numeric(rating?.solved ?? rating?.solvedCount);
   const attempts = numeric(rating?.totalAttempts);
@@ -293,6 +306,30 @@ export default function AdminUserManagementPage() {
         <MetricCard label="Попыток" value={attemptsShown} hint="Последняя доступная статистика" />
         <MetricCard label="Групп" value={groupIds.size} hint="Текущие учебные группы" />
       </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="font-semibold">Источники рейтинга</div>
+          <Button variant="outline" disabled={ratingAuditBusy} onClick={showRatingAudit}>
+            <RefreshCcw size={16} /><span className="ml-1">Проверить начисления</span>
+          </Button>
+        </div>
+        {ratingAudit ? (
+          <div className="mt-3 space-y-2 text-sm">
+            <div className="text-neutral-500">
+              Подтверждённый рейтинг: {ratingAudit.totalScore} · заданий: {ratingAudit.solvedCount}
+              {ratingAudit.ignoredDeletedAssignmentCount > 0 ? ` · исключено удалённых: ${ratingAudit.ignoredDeletedAssignmentCount}` : ''}
+            </div>
+            {(ratingAudit.topAssignments || []).map((item) => (
+              <div key={item.assignmentId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[rgb(var(--border))] px-3 py-2">
+                <div className="min-w-0"><div className="font-medium">{item.title}</div><div className="break-all text-xs text-neutral-500">{item.assignmentId}</div></div>
+                <Badge intent="outline">+{item.rating}</Badge>
+              </div>
+            ))}
+            {ratingAudit.totalAssignments > 50 ? <div className="text-xs text-neutral-500">Показаны 50 заданий с наибольшим вкладом</div> : null}
+          </div>
+        ) : <div className="mt-2 text-xs text-neutral-500">Показывает, какие действующие задания дают очки и сколько решений удалённых заданий исключено.</div>}
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr,0.9fr] sm:gap-6">
         <Card>

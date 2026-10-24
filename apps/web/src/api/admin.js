@@ -21,6 +21,21 @@ export async function searchUsersOnce(q = '', take = 20) {
 }
 
 
+export async function requestAdminRatingRebuild() {
+  const { data } = await api.post('/api/admin/rating/rebuild');
+  return data;
+}
+
+export async function getAdminRatingRebuildStatus() {
+  const { data } = await api.get('/api/admin/rating/rebuild');
+  return data;
+}
+
+export async function getAdminRatingAudit(userId) {
+  const { data } = await api.get(`/api/admin/rating/users/${userId}/audit`);
+  return data;
+}
+
 export async function getUserSolutionsPage(userId, { courseId, assignmentId, skip = 0, take = 50, days = null, kind } = {}) {
   const response = await api.get(`/api/admin/users/${userId}/solutions`, {
     params: { courseId, assignmentId, skip, take, days, kind },

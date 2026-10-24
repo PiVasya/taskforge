@@ -216,14 +216,16 @@ internal static class MinecraftApiCommonService
             "http://solutions-api:8080",
             cfg,
             httpFactory,
-            ct) ?? new UserActivitySummaryDto();
+            ct);
         var tasks = await ReadActivitySummaryAsync(
             userId,
             "TasksApi",
             "http://tasks-api:8080",
             cfg,
             httpFactory,
-            ct) ?? new UserActivitySummaryDto();
+            ct);
+        if (solutions is null || tasks is null)
+            throw new HttpRequestException("RATING_ACTIVITY_SOURCE_UNAVAILABLE");
         return MergeActivitySummaries(solutions, tasks);
     }
 

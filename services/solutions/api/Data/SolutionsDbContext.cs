@@ -9,6 +9,7 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<UserRating> UserRatings => Set<UserRating>();
     public DbSet<LeaderboardEntry> LeaderboardEntries => Set<LeaderboardEntry>();
+    public DbSet<RatingAcceptedActivity> RatingAcceptedActivities => Set<RatingAcceptedActivity>();
     public DbSet<RatingDirtyUser> RatingDirtyUsers => Set<RatingDirtyUser>();
     public DbSet<RatingProjectionCheckpoint> RatingProjectionCheckpoints => Set<RatingProjectionCheckpoint>();
     public DbSet<SolutionSubmission> Submissions => Set<SolutionSubmission>();
@@ -32,6 +33,16 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
             entity.ToTable("UserRatings");
             entity.HasKey(x => x.UserId);
             entity.HasIndex(x => new { x.TotalScore, x.SolvedCount });
+        });
+
+        modelBuilder.Entity<RatingAcceptedActivity>(entity =>
+        {
+            entity.ToTable("RatingAcceptedActivities");
+            entity.HasKey(x => new { x.SourceKind, x.SourceId });
+            entity.Property(x => x.SourceKind).HasMaxLength(16).IsRequired();
+            entity.HasIndex(x => new { x.UserId, x.AssignmentId });
+            entity.HasIndex(x => new { x.CourseId, x.SubmittedAt });
+            entity.HasIndex(x => x.SubmittedAt);
         });
 
         modelBuilder.Entity<LeaderboardEntry>(entity =>

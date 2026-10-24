@@ -72,22 +72,50 @@ internal static class SolutionsApiMappingService
         return [];
     }
 
-    internal static async Task<Dictionary<Guid, AssignmentMetadata>> LoadAssignmentMetadataAsync(IEnumerable<Guid> assignmentIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    internal static async Task<Dictionary<Guid, AssignmentMetadata>> LoadAssignmentMetadataAsync(IEnumerable<Guid> assignmentIds, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct, bool requireRatingSources = false)
     {
-        var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().Take(2000).ToArray();
+        var ids = assignmentIds.Where(x => x != Guid.Empty).Distinct().ToArray();
         if (ids.Length == 0) return new Dictionary<Guid, AssignmentMetadata>();
 
-        var assignments = await PostInternalAsync<List<AssignmentSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"), "/api/internal/assignments/summaries", new AssignmentIdsRequest(ids), ct) ?? new List<AssignmentSummaryDto>();
+        // Both internal APIs cap input lists. Resolve every assignment rather
+        // than silently ignoring solutions after the first 2000 identifiers.
+        var assignments = new List<AssignmentSummaryDto>();
+        foreach (var chunk in ids.Chunk(2000))
+        {
+            var batch = await PostInternalAsync<List<AssignmentSummaryDto>>(httpFactory, cfg,
+                ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080"),
+                "/api/internal/assignments/summaries", new AssignmentIdsRequest(chunk), ct);
+            if (batch is null)
+            {
+                if (requireRatingSources) throw new HttpRequestException("RATING_TASK_CATALOG_UNAVAILABLE");
+                continue;
+            }
+            assignments.AddRange(batch);
+        }
+
         var courseIds = assignments.Select(x => x.CourseId).Where(x => x != Guid.Empty).Distinct().ToArray();
-        var courses = await PostInternalAsync<List<CourseSummaryDto>>(httpFactory, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"), "/api/internal/courses/metadata", new CourseIdsRequest(courseIds), ct) ?? new List<CourseSummaryDto>();
-        var courseMap = courses.ToDictionary(x => x.CourseId != Guid.Empty ? x.CourseId : x.Id, x => x.Title ?? x.CourseTitle ?? "Курс");
+        var courses = new List<CourseSummaryDto>();
+        foreach (var chunk in courseIds.Chunk(1000))
+        {
+            var batch = await PostInternalAsync<List<CourseSummaryDto>>(httpFactory, cfg,
+                ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                "/api/internal/courses/metadata", new CourseIdsRequest(chunk), ct);
+            if (batch is null)
+            {
+                if (requireRatingSources) throw new HttpRequestException("RATING_COURSE_CATALOG_UNAVAILABLE");
+                continue;
+            }
+            courses.AddRange(batch);
+        }
+        var courseMap = courses
+            .GroupBy(x => x.CourseId != Guid.Empty ? x.CourseId : x.Id)
+            .ToDictionary(x => x.Key, x => x.First().Title ?? x.First().CourseTitle ?? "Курс");
 
         var map = new Dictionary<Guid, AssignmentMetadata>();
         foreach (var a in assignments)
         {
             var id = a.AssignmentId != Guid.Empty ? a.AssignmentId : a.Id;
-            if (id == Guid.Empty) continue;
-            courseMap.TryGetValue(a.CourseId, out var courseTitle);
+            if (id == Guid.Empty || !courseMap.TryGetValue(a.CourseId, out var courseTitle)) continue;
             map[id] = new AssignmentMetadata(id, a.CourseId, a.Title ?? a.AssignmentTitle ?? "Задание без названия", courseTitle ?? "Курс", System.Math.Max(0, a.Rating));
         }
         return map;

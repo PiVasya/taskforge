@@ -41,6 +41,28 @@ internal static class AssignmentApiMappingService
         }
     }
 
+    internal static async Task<HashSet<Guid>?> LoadRatingCourseIdsAsync(
+        IEnumerable<Guid> courseIds, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct)
+    {
+        var ids = courseIds.Where(id => id != Guid.Empty).Distinct().ToArray();
+        var existing = new HashSet<Guid>();
+        foreach (var chunk in ids.Chunk(1000))
+        {
+            // A failed Education lookup is NOT evidence of deletion. Fail the rating
+            // request instead of silently publishing a zero score or wrong MC balance.
+            var courses = await PostInternalAsync<List<CourseSummaryDto>>(
+                clients, cfg, ServiceUrl(cfg, "EducationApi", "http://education-api:8080"),
+                "/api/internal/courses/metadata", new CourseIdsRequest(chunk), ct);
+            if (courses is null) return null;
+            foreach (var course in courses)
+            {
+                var id = course.CourseId != Guid.Empty ? course.CourseId : course.Id;
+                if (id != Guid.Empty) existing.Add(id);
+            }
+        }
+        return existing;
+    }
+
     private static object TaskConstraintsDto(Assignment x) => new
     {
         kind = "assignment",
