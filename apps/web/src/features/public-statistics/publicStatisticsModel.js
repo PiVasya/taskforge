@@ -7,7 +7,7 @@ export function toUtcDay(date) {
 
 export function shortDay(day) {
   if (!validDay(day)) return '';
-  const [year, month, date] = day.split('-');
+  const [, month, date] = day.split('-');
   return `${date}.${month}`;
 }
 
