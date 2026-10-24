@@ -19,6 +19,19 @@ public sealed record ActivitySummaryDto(int SolvedAssignments, int TotalAttempts
     public static ActivitySummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+public sealed record PublicStatisticsDayDto(string Day, int Accepted, int Failed, int Pending);
+public sealed record PublicRatingDayDto(string Day, int Tasks, long Rating);
+public sealed record PublicStatisticsLanguageDto(string Language, long Attempts, long Accepted);
+public sealed record PublicStatisticsSourceDto(string Kind, long AcceptedAttempts);
+public sealed record UserPublicStatisticsDto(
+    int Rating, int SolvedAssignments, int TotalAttempts,
+    long CodeAttempts, long CodeAccepted, long CodeFailed, long CodePending,
+    DateTimeOffset? LastAcceptedAt,
+    IReadOnlyList<PublicStatisticsDayDto> DailyCode,
+    IReadOnlyList<PublicRatingDayDto> DailyRating,
+    IReadOnlyList<PublicStatisticsLanguageDto> Languages,
+    IReadOnlyList<PublicStatisticsSourceDto> AcceptedSources);
+
 public sealed record UserAccessLevelDto(Guid UserId, string PrimaryRole, string[] Roles, int EffectiveRank, bool IsSuperAdmin, bool CanAuthorCourses);
 
 public sealed record UserSummaryDto(

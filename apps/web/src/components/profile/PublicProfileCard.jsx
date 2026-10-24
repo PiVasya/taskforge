@@ -160,7 +160,7 @@ export default function PublicProfileCard({
             ) : (
               <div className="text-sm space-y-2">
                 <div className="space-y-1">
-                  <div><span className="font-semibold">{profile?.score ?? profile?.rating ?? profile?.totalScore ?? 0}</span>{" "}рейтинга</div>
+                  <div><span className="font-semibold">{profile?.score ?? profile?.rating ?? profile?.totalScore ?? '—'}</span>{" "}рейтинга</div>
                   <div><span className="font-semibold">{profile?.solvedAssignments ?? 0}</span>{" "}решённых заданий</div>
                   <div><span className="font-semibold">{profile?.totalAttempts ?? 0}</span>{" "}попыток отправки решений</div>
                 </div>

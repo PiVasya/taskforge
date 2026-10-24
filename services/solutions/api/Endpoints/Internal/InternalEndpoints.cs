@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
 using TaskForge.Realtime;
@@ -422,6 +423,19 @@ internal static partial class SolutionsApiEndpoints
                 ("solvedCount", solved.Length),
                 ("solvedAssignmentIds", TaskForgeDebugTrace.MapList(solved)));
             return Microsoft.AspNetCore.Http.Results.Ok(new SolvedAssignmentsResponse(userId, solved));
+        });
+
+        app.MapGet("/api/internal/users/{userId:guid}/public-statistics", async (
+            Guid userId, SolutionsDbContext db, IDistributedCache cache, IConfiguration cfg, ILoggerFactory logs, CancellationToken ct) =>
+        {
+            if (userId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest();
+            var statistics = await TaskForgeCache.GetOrSetAsync(
+                cache, cfg, logs.CreateLogger("TaskForge.PublicStatistics"),
+                TaskForgeCache.Key("public-user-statistics", userId), TimeSpan.FromSeconds(60),
+                token => TaskForge.Solutions.Api.Services.Results.UserPublicStatisticsService.LoadAsync(db, userId, token), ct);
+            return statistics == null
+                ? (IResult)Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_PROJECTION_BUILDING" }, statusCode: 503)
+                : Microsoft.AspNetCore.Http.Results.Ok(statistics);
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, SolutionsDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>

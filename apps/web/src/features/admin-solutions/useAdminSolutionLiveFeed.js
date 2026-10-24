@@ -26,6 +26,7 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
   useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
+    const cachedUsers = userCache.current;
     let subscribed = true;
     alive.current = true;
     itemsRef.current = [];
@@ -44,11 +45,11 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
         if (!userId || key === ':') return;
 
         try {
-          let user = userCache.current.get(userId);
+          let user = cachedUsers.get(userId);
           const userPromise = user
             ? Promise.resolve(user)
             : getAdminUser(userId).then((value) => {
-                userCache.current.set(userId, value);
+                cachedUsers.set(userId, value);
                 return value;
               });
           const [loadedUser, detail] = await Promise.all([
@@ -93,7 +94,7 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
       subscribed = false;
       alive.current = false;
       dispose();
-      userCache.current.clear();
+      cachedUsers.clear();
     };
   }, [assignmentId]);
 

@@ -150,11 +150,15 @@ internal static partial class IdentityApiEndpoints
             var extra = ReadPublicProfileExtra(user.AdditionalDataJson);
             if (!extra.PublicProfileEnabled) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Профиль не найден" });
 
+            var insightsRequest = extra.ShowStats
+                ? FetchPublicStatisticsAsync(userId, cfg, httpFactory, ct, app.Logger)
+                : Task.FromResult(((UserPublicStatisticsDto?)null, true));
             var statsResult = extra.ShowStats
                 ? await FetchUserActivitySummaryAsync(userId, cfg, httpFactory, ct, app.Logger)
                 : (ActivitySummaryDto.Empty, true);
             var stats = statsResult.Item1;
             var statsReliable = statsResult.Item2;
+            var publicStats = await insightsRequest;
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 user.Id,
@@ -182,6 +186,8 @@ internal static partial class IdentityApiEndpoints
                 showInLeaderboard = extra.ShowInLeaderboard,
                 statsVisible = extra.ShowStats,
                 statsReliable = !extra.ShowStats || statsReliable,
+                insightsReliable = !extra.ShowStats || publicStats.Item2,
+                insights = extra.ShowStats ? publicStats.Item1 : null,
                 solvedAssignments = extra.ShowStats && statsReliable ? stats.SolvedAssignments : (int?)null,
                 totalAttempts = extra.ShowStats && statsReliable ? stats.TotalAttempts : (int?)null,
                 codeSolutions = extra.ShowStats && statsReliable ? stats.CodeSolutions : (int?)null,
@@ -189,9 +195,9 @@ internal static partial class IdentityApiEndpoints
                 imageSolutions = extra.ShowStats && statsReliable ? stats.ImageSolutions : (int?)null,
                 testAttempts = extra.ShowStats && statsReliable ? stats.TestAttempts : (int?)null,
                 mathAttempts = extra.ShowStats && statsReliable ? stats.MathAttempts : (int?)null,
-                score = extra.ShowStats && statsReliable ? stats.Score : (int?)null,
-                rating = extra.ShowStats && statsReliable ? stats.Score : (int?)null,
-                totalScore = extra.ShowStats && statsReliable ? stats.Score : (int?)null
+                score = extra.ShowStats && publicStats.Item2 ? publicStats.Item1?.Rating : (int?)null,
+                rating = extra.ShowStats && publicStats.Item2 ? publicStats.Item1?.Rating : (int?)null,
+                totalScore = extra.ShowStats && publicStats.Item2 ? publicStats.Item1?.Rating : (int?)null
             });
         });
 

@@ -149,6 +149,9 @@ export default function LeaderboardCard({ entry }) {
             </span>
           )}
         </div>
+        <div className="pt-2 text-xs font-medium text-[rgb(var(--accent))] opacity-80 transition-opacity group-hover:opacity-100">
+          Смотреть статистику →
+        </div>
       </div>
     </button>
     <ContextMenu open={contextMenu.open} x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu((current) => ({ ...current, open: false }))} ariaLabel="Действия участника рейтинга">

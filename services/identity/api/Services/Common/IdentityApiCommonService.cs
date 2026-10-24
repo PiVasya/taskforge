@@ -246,6 +246,37 @@ internal static class IdentityApiCommonService
         }
     }
 
+    internal static async Task<(UserPublicStatisticsDto? Statistics, bool Available)> FetchPublicStatisticsAsync(
+        Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct, ILogger? logger = null)
+    {
+        try
+        {
+            var client = httpFactory.CreateClient();
+            var baseUrl = ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080");
+            using var msg = new HttpRequestMessage(HttpMethod.Get,
+                $"{baseUrl}/api/internal/users/{userId:D}/public-statistics");
+            AddInternalKey(msg, cfg);
+            using var resp = await client.SendAsync(msg, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger?.LogWarning("Public statistics unavailable for user {UserId}: HTTP {StatusCode}",
+                    userId, (int)resp.StatusCode);
+                return (null, false);
+            }
+            var data = await resp.Content.ReadFromJsonAsync<UserPublicStatisticsDto>(JsonOptions(), ct);
+            return (data, data != null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Public statistics request failed for user {UserId}", userId);
+            return (null, false);
+        }
+    }
+
     internal static string ServiceUrl(IConfiguration cfg, string name, string fallback)
         => (cfg[$"Services:{name}"] ?? cfg[$"ServiceUrls:{name}"] ?? fallback).TrimEnd('/');
 
