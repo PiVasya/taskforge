@@ -159,7 +159,7 @@
           "index": "01 / 15",
           "name": "Ифрит",
           "label": "Огонь и молния",
-          "image": "/updates/media/mobs/blaze.png",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/blaze/headshot.png",
           "summary": "Огненные шары ифрита теперь сопровождаются ударом молнии и дольше поджигают цель.",
           "changes": [
             "При попадании огненного шара в цель ударяет настоящая молния.",
@@ -170,7 +170,8 @@
             "Огненный заряд — 50%",
             "Незеритовый лом — 2%"
           ],
-          "animatedImage": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/5/5a/Blaze.gif/revision/latest?cb=20230214143150"
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/blaze/spin.gif",
+          "fallbackImage": "/updates/media/mobs/blaze.png"
         },
         {
           "id": "bogged",
@@ -191,7 +192,7 @@
             "Споровый цветок 1–2 — 25%",
             "Незеритовый лом — 1%"
           ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp"
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/bogged/spin.gif"
         },
         {
           "id": "wither-skeleton",
@@ -208,7 +209,8 @@
           "loot": [
             "Череп — 8%",
             "Незеритовый лом — 1,5%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/wither_skeleton/spin.gif"
         },
         {
           "id": "snow-golem",
@@ -221,7 +223,8 @@
             "Каждый снежок наносит половину сердца дополнительного урона.",
             "Каждое попадание замедляет цель на 2 секунды."
           ],
-          "loot": []
+          "loot": [],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/snow_golem/spin.gif"
         },
         {
           "id": "breeze",
@@ -242,7 +245,7 @@
             "Элитры — 5%",
             "Незеритовый лом 1–2 — 8%"
           ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Breeze_JE1.gif"
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/breeze/spin.gif"
         },
         {
           "id": "drowned",
@@ -259,7 +262,8 @@
           ],
           "loot": [
             "Трезубец — 8%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/drowned/spin.gif"
         },
         {
           "id": "pillager",
@@ -276,7 +280,8 @@
           "loot": [
             "Изумруды 1–5 — 20%",
             "Тотем бессмертия — 1%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/pillager/spin.gif"
         },
         {
           "id": "vindicator",
@@ -322,7 +327,8 @@
             "Снежные блоки 4–12 — 75%",
             "Ведро рыхлого снега — 10%",
             "Осколок эха — 4%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/stray/spin.gif"
         },
         {
           "id": "parched",
@@ -365,7 +371,8 @@
             "Обычные стрелы 3–9 — 65%",
             "Спектральные стрелы 4–14 — 40%",
             "Незеритовый лом — 0,5%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/skeleton/spin.gif"
         },
         {
           "id": "creaking",
@@ -385,7 +392,7 @@
             "Брёвна бледного дуба 2–6 — 75%",
             "Незеритовый лом — 3%"
           ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Creaking_BE1_JE2_Sway_Animation.gif"
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/creaking/spin.gif"
         },
         {
           "id": "armadillo",
@@ -404,14 +411,14 @@
             "Щитки броненосца 2–5 — 70%",
             "Незеритовый лом — 1%"
           ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Armadillo_Peek_JE1_BE1.gif"
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/armadillo/spin.gif"
         },
         {
           "id": "illusioner",
           "index": "14 / 15",
           "name": "Иллюзионист",
           "label": "Армия иллюзий и охота на всех",
-          "image": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/a/a7/Illusioner.png/revision/latest?cb=20220613073947",
+          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/illusioner/headshot.png",
           "summary": "Иллюзионист атакует любых живых противников — от зомби и эндерменов до боссов. Его клоны помогают ему в этом хаосе.",
           "changes": [
             "Иллюзионист встречается редко и появляется вдали от игрока в тёмных местах.",
@@ -428,7 +435,9 @@
           ],
           "loot": [
             "Золотое яблоко — 100%"
-          ]
+          ],
+          "fallbackImage": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/a/a7/Illusioner.png/revision/latest?cb=20220613073947",
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/illusioner/spin.gif"
         },
         {
           "id": "trident-zombie",
@@ -446,7 +455,8 @@
           "loot": [
             "Трезубец — 15%",
             "Незеритовый лом — 1%"
-          ]
+          ],
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/zombie/spin.gif"
         }
       ]
     },
