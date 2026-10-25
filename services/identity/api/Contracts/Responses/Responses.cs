@@ -23,6 +23,11 @@ public sealed record PublicStatisticsDayDto(string Day, int Accepted, int Failed
 public sealed record PublicRatingDayDto(string Day, int Tasks, long Rating);
 public sealed record PublicStatisticsLanguageDto(string Language, long Attempts, long Accepted);
 public sealed record PublicStatisticsSourceDto(string Kind, long AcceptedAttempts);
+public sealed record PublicResultTypeDto(string Kind, long Attempts, long Accepted, long Failed, long Pending);
+public sealed record PublicTaskStatisticsDto(
+    long ResultAttempts, long ResultAccepted, long ResultFailed, long ResultPending,
+    IReadOnlyList<PublicStatisticsDayDto> DailyResults,
+    IReadOnlyList<PublicResultTypeDto> ResultTypes);
 public sealed record UserPublicStatisticsDto(
     int Rating, int SolvedAssignments, int TotalAttempts,
     long CodeAttempts, long CodeAccepted, long CodeFailed, long CodePending,
@@ -30,7 +35,17 @@ public sealed record UserPublicStatisticsDto(
     IReadOnlyList<PublicStatisticsDayDto> DailyCode,
     IReadOnlyList<PublicRatingDayDto> DailyRating,
     IReadOnlyList<PublicStatisticsLanguageDto> Languages,
-    IReadOnlyList<PublicStatisticsSourceDto> AcceptedSources);
+    IReadOnlyList<PublicStatisticsSourceDto> AcceptedSources)
+{
+    // Populated by Solutions API, then merged with Tasks API in Identity.
+    // Null means an older service cannot provide a complete results summary.
+    public long ResultAttempts { get; init; }
+    public long ResultAccepted { get; init; }
+    public long ResultFailed { get; init; }
+    public long ResultPending { get; init; }
+    public IReadOnlyList<PublicStatisticsDayDto>? DailyResults { get; init; }
+    public IReadOnlyList<PublicResultTypeDto>? ResultTypes { get; init; }
+}
 
 public sealed record UserAccessLevelDto(Guid UserId, string PrimaryRole, string[] Roles, int EffectiveRank, bool IsSuperAdmin, bool CanAuthorCourses);
 

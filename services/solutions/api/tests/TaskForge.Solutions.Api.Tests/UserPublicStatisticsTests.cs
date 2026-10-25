@@ -36,6 +36,8 @@ public sealed class UserPublicStatisticsTests
         Assert.DoesNotContain("ResultJson", properties);
         Assert.Contains("DailyCode", properties);
         Assert.Contains("DailyRating", properties);
+        Assert.Contains("DailyResults", properties);
+        Assert.Contains("ResultTypes", properties);
         Assert.Contains("Rating", properties);
     }
 }

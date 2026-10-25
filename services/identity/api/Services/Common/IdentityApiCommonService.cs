@@ -264,7 +264,29 @@ internal static class IdentityApiCommonService
                 return (null, false);
             }
             var data = await resp.Content.ReadFromJsonAsync<UserPublicStatisticsDto>(JsonOptions(), ct);
-            return (data, data != null);
+            if (data?.DailyResults is null || data.ResultTypes is null)
+            {
+                logger?.LogWarning("Public statistics Solutions API is missing full-result projection for {UserId}", userId);
+                return (null, false);
+            }
+
+            // Task attempts are owned by another database. Combine both sources
+            // only after both have answered, never mislabel partial stats as all.
+            var tasksUrl = ServiceUrl(cfg, "TasksApi", "http://tasks-api:8080");
+            using var tasksMsg = new HttpRequestMessage(HttpMethod.Get,
+                $"{tasksUrl}/api/internal/users/{userId:D}/public-attempt-statistics");
+            AddInternalKey(tasksMsg, cfg);
+            using var tasksResp = await client.SendAsync(tasksMsg, ct);
+            if (!tasksResp.IsSuccessStatusCode)
+            {
+                logger?.LogWarning("Public statistics Tasks API unavailable for {UserId}: HTTP {StatusCode}",
+                    userId, (int)tasksResp.StatusCode);
+                return (null, false);
+            }
+            var tasksData = await tasksResp.Content.ReadFromJsonAsync<PublicTaskStatisticsDto>(JsonOptions(), ct);
+            if (tasksData?.DailyResults is null || tasksData.ResultTypes is null)
+                return (null, false);
+            return (MergePublicStatistics(data, tasksData), true);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -275,6 +297,32 @@ internal static class IdentityApiCommonService
             logger?.LogWarning(ex, "Public statistics request failed for user {UserId}", userId);
             return (null, false);
         }
+    }
+
+    internal static UserPublicStatisticsDto MergePublicStatistics(
+        UserPublicStatisticsDto solutions, PublicTaskStatisticsDto tasks)
+    {
+        var days = solutions.DailyResults!.Concat(tasks.DailyResults)
+            .GroupBy(x => x.Day, StringComparer.Ordinal)
+            .OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(g => new PublicStatisticsDayDto(g.Key,
+                checked(g.Sum(x => x.Accepted)), checked(g.Sum(x => x.Failed)),
+                checked(g.Sum(x => x.Pending)))).ToArray();
+        var kinds = solutions.ResultTypes!.Concat(tasks.ResultTypes)
+            .GroupBy(x => x.Kind, StringComparer.Ordinal)
+            .OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(g => new PublicResultTypeDto(g.Key,
+                g.Sum(x => x.Attempts), g.Sum(x => x.Accepted),
+                g.Sum(x => x.Failed), g.Sum(x => x.Pending))).ToArray();
+        return solutions with
+        {
+            ResultAttempts = solutions.ResultAttempts + tasks.ResultAttempts,
+            ResultAccepted = solutions.ResultAccepted + tasks.ResultAccepted,
+            ResultFailed = solutions.ResultFailed + tasks.ResultFailed,
+            ResultPending = solutions.ResultPending + tasks.ResultPending,
+            DailyResults = days,
+            ResultTypes = kinds
+        };
     }
 
     internal static string ServiceUrl(IConfiguration cfg, string name, string fallback)

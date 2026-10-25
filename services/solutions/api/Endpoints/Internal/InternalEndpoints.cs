@@ -431,7 +431,7 @@ internal static partial class SolutionsApiEndpoints
             if (userId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest();
             var statistics = await TaskForgeCache.GetOrSetAsync(
                 cache, cfg, logs.CreateLogger("TaskForge.PublicStatistics"),
-                TaskForgeCache.Key("public-user-statistics", userId), TimeSpan.FromSeconds(60),
+                TaskForgeCache.Key("public-user-statistics:v2", userId), TimeSpan.FromSeconds(60),
                 token => TaskForge.Solutions.Api.Services.Results.UserPublicStatisticsService.LoadAsync(db, userId, token), ct);
             return statistics == null
                 ? (IResult)Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_PROJECTION_BUILDING" }, statusCode: 503)

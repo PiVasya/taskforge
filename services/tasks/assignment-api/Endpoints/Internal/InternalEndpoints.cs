@@ -213,6 +213,18 @@ internal static partial class AssignmentApiEndpoints
                 .Select(ToAssignmentSummaryDto).ToList());
         });
 
+        app.MapGet("/api/internal/users/{userId:guid}/public-attempt-statistics", async (
+            Guid userId, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILoggerFactory loggers,
+            CancellationToken ct) =>
+        {
+            if (userId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest();
+            var stats = await TaskForgeCache.GetOrSetAsync(
+                cache, cfg, loggers.CreateLogger("TaskForge.PublicTaskStatistics"),
+                TaskForgeCache.Key("public-task-statistics:v1", userId), TimeSpan.FromSeconds(60),
+                token => TaskForge.Tasks.Api.Services.Results.PublicTaskStatisticsService.LoadAsync(db, userId, token), ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(stats);
+        });
+
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var attempts = await db.Attempts.AsNoTracking()

@@ -50,8 +50,26 @@ export function languageLabel(raw) {
 }
 
 const sourceNames = {
-  code: 'Код и SQL', image: 'Изображения', task: 'Тесты и математика',
+  code: 'Программирование', sql: 'SQL', image: 'Изображения',
+  test: 'Тесты', math: 'Математика', task: 'Тесты и математика',
 };
+const resultOrder = ['code', 'sql', 'image', 'test', 'math'];
+export function resultTypes(rows = []) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    kind: String(row?.kind || ''),
+    label: sourceNames[row?.kind] || 'Другие задания',
+    attempts: count(row?.attempts),
+    accepted: count(row?.accepted),
+    failed: count(row?.failed),
+    pending: count(row?.pending),
+  })).filter((row) => row.attempts > 0)
+    .sort((a, b) => {
+      const ai = resultOrder.indexOf(a.kind);
+      const bi = resultOrder.indexOf(b.kind);
+      return (ai < 0 ? resultOrder.length : ai) - (bi < 0 ? resultOrder.length : bi);
+    });
+}
 export function acceptedSources(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .map((row) => ({ label: sourceNames[row.kind] || 'Другие задания', value: count(row.acceptedAttempts) }))

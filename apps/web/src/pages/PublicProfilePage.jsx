@@ -51,8 +51,6 @@ export default function PublicProfilePage() {
             <PublicStatisticsDashboard
               statistics={profileQuery.data.insights}
               reliable={profileQuery.data.insightsReliable !== false}
-              totalAttempts={profileQuery.data.totalAttempts}
-              attemptsReliable={profileQuery.data.statsReliable !== false}
             />
           ) : null}
         </>
