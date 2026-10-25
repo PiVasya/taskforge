@@ -1,4 +1,6 @@
-# CustomMobTweaks 2.7.0
+# CustomMobTweaks 2.8.0
+
+Combat modules, configuration and verification: [COMBAT_MECHANICS.md](COMBAT_MECHANICS.md).
 
 Единый Folia-плагин усиления мобов для Minecraft/Folia **26.1.2** и Java **25**.
 В проект перенесены и переработаны механики `CreakingPerks 1.0`, при этом сохранены старые возможности `CustomMobTweaks`.
@@ -273,7 +275,7 @@ gradle clean build
 Результат:
 
 ```text
-build/libs/CustomMobTweaks-2.5.3.jar
+build/libs/CustomMobTweaks-2.8.0.jar
 ```
 
 После первого запуска рабочий конфиг появится здесь:

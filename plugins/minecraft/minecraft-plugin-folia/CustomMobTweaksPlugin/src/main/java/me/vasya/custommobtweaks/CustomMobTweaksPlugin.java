@@ -1,6 +1,10 @@
 package me.vasya.custommobtweaks;
 
 import me.vasya.custommobtweaks.dragon.EnderDragonRework;
+import me.vasya.custommobtweaks.combat.DrownedRiptideModule;
+import me.vasya.custommobtweaks.combat.IllusionerAggroModule;
+import me.vasya.custommobtweaks.combat.ParchedSandModule;
+import me.vasya.custommobtweaks.combat.VindicatorAlarmModule;
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -134,6 +138,10 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new LegacyEnhancementsListener(this));
             registerComponent(new IllusionerSpawner(this));
             registerComponent(new IllusionerCloneManager(this));
+            registerComponent(new IllusionerAggroModule(this));
+            registerComponent(new ParchedSandModule(this));
+            registerComponent(new VindicatorAlarmModule(this));
+            registerComponent(new DrownedRiptideModule(this));
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
@@ -184,6 +192,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
     private void logModuleState(String reason) {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
+                "drowned-riptide", "parched-sand", "illusioner-aggro", "vindicator-alarm",
                 "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
                 "lava-damage", "dry-weapon", "freezing-snowball", "phantom-aggro", "phantom-dive-clones", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);

@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'me.vasya'
-version = '2.7.0'
+version = '2.8.0'
 
 def targetJava = 25
 java {
@@ -28,4 +28,26 @@ tasks.withType(JavaCompile).configureEach {
 
 jar {
     archiveBaseName = 'CustomMobTweaks'
+}
+
+// A separate source set keeps executable rule tests independent of JUnit discovery.
+sourceSets {
+    combatTest {
+        java.srcDir 'src/combatTest/java'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+tasks.register('combatRulesTest', JavaExec) {
+    dependsOn tasks.named('combatTestClasses')
+    classpath = sourceSets.combatTest.runtimeClasspath
+    mainClass = 'me.vasya.custommobtweaks.combat.CombatRulesTest'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(targetJava)
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('combatRulesTest')
 }

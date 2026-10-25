@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.7.0
+# CustomMobTweaks 2.8.0
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -818,3 +818,67 @@ extra-loot:
 # -----------------------------------------------------------------------------
 messages:
   debug: true
+
+# -----------------------------------------------------------------------------
+# Drowned with a trident: Riptide charge instead of throwing. Dry land = melee.
+# The separate trident-zombie module is not modified.
+# -----------------------------------------------------------------------------
+drowned-riptide:
+  enabled: true
+  debug: true
+  require-water-or-rain: true
+  attack-range: 16.0
+  minimum-dash-distance: 3.0
+  windup-ticks: 10
+  dash-duration-ticks: 12
+  dash-speed: 1.35
+  maximum-dash-distance: 12.0
+  cooldown-ticks: 80
+  hit-radius: 0.55
+  hit-damage: 7.0
+  hit-knockback: 0.7
+
+# -----------------------------------------------------------------------------
+# Parched: escape to a safe neighboring cell, at most once per seven seconds.
+# A sand arrow keeps normal direct damage; only OTHER nearby entities get splash.
+# -----------------------------------------------------------------------------
+parched-sand:
+  enabled: true
+  debug: true
+  trigger-radius: 3.0
+  teleport-cooldown-ticks: 140
+  teleport-radius-blocks: 1
+  teleport-particles: 70
+  splash-radius: 2.5
+  splash-damage: 1.0
+  splash-particles: 60
+
+# -----------------------------------------------------------------------------
+# Illusioner: every living combatant can be an enemy, including hostile mobs.
+# Illusioners and their clones are allies. Armor stands / creative / spectators
+# are not combatants. Vanilla target immunities are NOT bypassed.
+# -----------------------------------------------------------------------------
+illusioner-aggro:
+  enabled: true
+  debug: true
+  target-range: 32.0
+  search-period-ticks: 20
+  unseen-memory-ticks: 100
+  protect-all-illusioners: true
+
+# -----------------------------------------------------------------------------
+# Vindicator: one alarm below 40% HP. It flees with its axe; nearby crossbow
+# Pillagers rush to the attacker, then fire using their normal crossbow AI.
+# Speed bonuses are temporary and cannot stack. Piglins are not affected.
+# -----------------------------------------------------------------------------
+vindicator-alarm:
+  enabled: true
+  debug: true
+  health-threshold: 0.40
+  call-radius: 48.0
+  flee-speed-multiplier: 1.5
+  flee-step-blocks: 8.0
+  guard-speed-multiplier: 1.8
+  guard-duration-ticks: 400
+  shooting-distance: 12.0
+  disengage-range: 96.0
