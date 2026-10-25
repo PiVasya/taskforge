@@ -369,7 +369,7 @@
           "name": "Поборник",
           "label": "Тревога и подкрепление",
           "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/vindicator/headshot.png",
-          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/vindicator/spin.webp",
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/vindicator/spin.gif",
           "summary": "Почувствовав поражение, поборник отказывается от ближнего боя, убегает и поднимает тревогу среди разбойников с арбалетами.",
           "changes": [
             "При падении здоровья ниже 40% поборник прекращает атаковать и старается убежать от нападавшего игрока.",
@@ -415,7 +415,7 @@
           "name": "Пустынный скелет",
           "label": "Песчаный прыжок и всплеск",
           "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/parched/headshot.png",
-          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/parched/spin.webp",
+          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/parched/spin.gif",
           "summary": "Если подойти близко, скелет исчезает в облаке песка и появляется в безопасном месте. Его стрелы разбрасывают песок вокруг цели.",
           "changes": [
             "Когда игрок подходит ближе чем на 3 блока, скелет может телепортироваться в безопасное место в радиусе 9 блоков.",

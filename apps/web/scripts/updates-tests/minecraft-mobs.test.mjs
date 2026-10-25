@@ -36,3 +36,27 @@ test('New combatants provide player-facing mechanics, illustrations and loot', (
     assert.ok(mobs.get(id).changes.length > 2, `missing combat update for ${id}`);
   }
 });
+
+
+test('Parched and Vindicator use ready-made GIF animations just like the other animated mobs', () => {
+  for (const page of [main, detail]) {
+    const mobs = new Map(mobsOf(page).map((mob) => [mob.id, mob]));
+    for (const id of ['parched', 'vindicator']) {
+      const mob = mobs.get(id);
+      assert.equal(
+        mob.animatedImage,
+        `https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/${id}/spin.gif`,
+      );
+      assert.ok(mob.image.endsWith('/headshot.png'));
+      assert.equal('replaceAnimatedFrames' in mob, false);
+    }
+    assert.ok(mobs.get('breeze').animatedImage.endsWith('.gif'));
+    assert.ok(mobs.get('creaking').animatedImage.endsWith('.gif'));
+  }
+
+  const component = readFileSync(new URL('../../src/components/ChangelogShowcase.jsx', import.meta.url), 'utf8');
+  assert.equal(component.includes('replaceFullCanvasWebpAnimationFrames'), false);
+  assert.equal(component.includes('replaceAnimatedFrames'), false);
+  assert.equal(component.includes('correctedAnimation'), false);
+  assert.ok(component.includes('showAnimation ? mob.animatedImage : staticImage'));
+});
