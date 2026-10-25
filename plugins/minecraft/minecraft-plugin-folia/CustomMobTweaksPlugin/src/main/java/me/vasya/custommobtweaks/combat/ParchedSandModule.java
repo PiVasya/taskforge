@@ -100,7 +100,7 @@ public final class ParchedSandModule extends ManagedMobModule {
             Player threat = CombatSupport.nearestPlayer(parched, number("trigger-radius", 3.0, 1.0, 8.0));
             if (threat == null) return;
             Location origin = parched.getLocation().clone();
-            int radius = ticks("teleport-radius-blocks", 1, 1, 6);
+            int radius = ticks("teleport-radius-blocks", 1, 1, 9);
             List<Location> candidates = new ArrayList<>();
             for (int dx = -radius; dx <= radius; dx++) for (int dz = -radius; dz <= radius; dz++) {
                 if (dx == 0 && dz == 0) continue;

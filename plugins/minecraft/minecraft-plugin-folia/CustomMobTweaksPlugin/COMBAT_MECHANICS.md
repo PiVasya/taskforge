@@ -1,8 +1,9 @@
-# Combat modules in CustomMobTweaks 2.8.0
+# Combat modules in CustomMobTweaks 2.8.1
 
 Target: Folia 26.1.2, Paper API 26.1.2.build.74-stable, Java 25.
-Only CustomMobTweaks is changed. TaskForgeLink, backend, frontend, database
-migrations and the existing trident-zombie implementation are not changed.
+CustomMobTweaks and the Minecraft news pages of the main frontend are updated.
+TaskForgeLink, backend, database migrations and the existing trident-zombie
+implementation are not changed.
 Piglins and Piglin Brutes are not enrolled by these modules.
 
 ## Drowned with a trident
@@ -23,13 +24,13 @@ The existing `drowned-trident-glow` settings apply to successful dash hits.
 Canceled or fully blocked damage does not apply glow or bonus knockback.
 The module does not alter the trident item or grant extra enchantment drops.
 
-## Parched: neighboring-cell teleport and sand splash
+## Parched: safe-radius teleport and sand splash
 
 `parched-sand` watches nearby Survival/Adventure players. At a distance of
 3 blocks or less, a ready Parched disappears into sand particles and moves
-to a random safe neighboring cell. The default horizontal radius is exactly
-**one block**, with height differences of at most one block. The cooldown is
-140 ticks / 7 seconds, and its deadline survives config reload and chunk unload.
+to a random safe location in the configured radius (up to 9 blocks), with height
+differences of at most one block. The current cooldown is 60 ticks / 3 seconds;
+its deadline survives config reload and chunk unload.
 There is no restriction to sand surfaces.
 
 The destination must be loaded, owned by the current region, within the world
@@ -40,7 +41,7 @@ Teleportation is asynchronous and never awaited with `join()` or `get()`.
 
 Arrows keep their original damage and potion effects on the direct victim.
 Their first non-canceled impact makes a sand burst. Other nearby living
-combatants within 2.5 blocks receive 1 health point of splash damage, subject
+combatants within 4.5 blocks receive 1 health point of splash damage, subject
 to normal armor/damage events and line of sight. The direct victim, shooter
 and other Parched are excluded from that extra damage. A piercing arrow can
 create only one burst, and an arrow hitting a block can create a burst too.
@@ -81,14 +82,15 @@ handled by checking the actual living mob on the following entity tick.
 A low-health mob already targeting a player can also trigger its alarm.
 
 The Vindicator keeps its axe, stops attacking and uses walkable escape paths
-at speed multiplier 1.5. It does **not** become a crossbow shooter or get
-replaced by another entity. Its alarm marker is persistent, so reloads do
+at the configured speed multiplier (currently 1.0). It does **not** become a
+crossbow shooter or get replaced by another entity. Its alarm marker is persistent, so reloads do
 not let it call repeatedly. Fleeing ends after the attacker leaves/dies or
 moves beyond the disengagement range; healing does not re-arm the alarm.
 
 Every currently nearby Pillager actually holding a crossbow within 48 blocks
-is recruited. Existing targets are overridden. It gets a non-stacking,
-transient movement modifier of x1.8 and rushes to a 12-block firing distance,
+is recruited. Existing targets are overridden. It gets a temporary
+movement modifier (currently x1.0, so no bonus speed) and approaches
+a 12-block firing distance,
 then its normal crossbow AI takes over. There is no synthetic projectile
 stream, rapid-fire enchantment, new guard spawning or Piglin modification.
 The default alert duration is 400 ticks / 20 seconds, with a 96-block
@@ -99,6 +101,22 @@ The one-off recruitment scan dispatches remote chunks to their owning region.
 The attacker is sampled on the player scheduler. A guard in a foreign region
 uses location snapshots for approach and sets the live target only after
 ownership allows it. No global world-wide polling task is introduced.
+
+## Extra loot
+
+The existing `extra-loot` death event handles player kills and supports indirect
+player damage (arrows and recent player hits), the Looting enchantment, and
+chance/amount settings. The new `parched` and `vindicator` branches use that
+existing pipeline; they do not create a second death handler.
+
+- Parched: sand (4–10, 100%), weakness arrows (2–5, 45%), red sand (2–6,
+  35%), gold nuggets (1–3, 20%), netherite scrap (1, 0.5%). Looting adds
+  5 percentage points per level to the weakness-arrow chance.
+- Vindicator: emeralds (2–6, 50%), iron ingots (1–3, 35%), iron axe (1,
+  10%), totem (1, 1%), netherite scrap (1, 1%). Looting adds 3 percentage
+  points per level to the emerald chance.
+- Existing Illusioner golden-apple and Drowned trident rewards are not changed.
+  Illusioner clones continue to drop no loot or experience.
 
 ## Lifecycle and configuration
 
@@ -153,8 +171,8 @@ Use a disposable test world, Survival mode and enabled debug logging. Confirm
    thrown tridents, a miss after sidestepping, no duplicate hit and no damage
    through walls. Repeat on dry ground and in rain. Verify the separate custom
    trident-zombie still throws.
-2. A Parched with eight surrounding safe cells: approaching triggers a sand
-   teleport, a second approach before seven seconds does not. Repeat in a
+2. A Parched with free cells within 9 blocks: approaching triggers a sand
+   teleport, a second approach before three seconds does not. Repeat in a
    sealed box, near water/lava, next to a wall and with a scaled-up mob. Verify
    direct arrow damage is not doubled and nearby targets get only weak splash.
 3. An Illusioner with a zombie, cow, Enderman, other Illager and dragon in

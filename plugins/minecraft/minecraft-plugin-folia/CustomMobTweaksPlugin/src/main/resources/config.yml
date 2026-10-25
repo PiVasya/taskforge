@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.8.0
+# CustomMobTweaks 2.8.1
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -294,24 +294,24 @@ happy-ghast-bomber:
   projectile-speed: 0.8
 
 # -----------------------------------------------------------------------------
-# Phantom aggro repair: phantoms created manually from spawn eggs or commands
-# are explicitly given the nearest Survival/Adventure player as a target.
-# Natural phantoms, dragon phantoms and temporary dive copies are untouched.
+# Phantom aggro repair: phantoms created manually from spawn eggs, commands,
+# or other plugins are explicitly given the nearest Survival/Adventure player.
+# Natural phantoms, dragon phantoms and temporary dive copies keep their own AI.
 # -----------------------------------------------------------------------------
 phantom-aggro:
   enabled: true
   debug: true
   manage-spawner-egg: true
   manage-command: true
-  manage-custom: false
+  manage-custom: true
   target-range: 96.0
   controller-period-ticks: 10
   target-refresh-period-ticks: 20
 
 # -----------------------------------------------------------------------------
-# Phantom: every ordinary or dragon-spawned phantom creates one small 1 HP copy
-# when its vanilla sweep attack begins. Generated copies never copy themselves,
-# preventing recursive growth.
+# Phantom dive clones: every ordinary or dragon-spawned phantom creates one
+# small temporary copy when its vanilla sweep attack begins. Copies do not
+# create more copies, so the multiplication is bounded and non-recursive.
 # -----------------------------------------------------------------------------
 phantom-dive-clones:
   enabled: true
@@ -383,10 +383,6 @@ ender-dragon-rework:
 
   fire-stream:
     enabled: true
-
-    # Replace both vanilla ranged attack paths. STRAFING normally shoots one
-    # DragonFireball, while BREATH_ATTACK normally creates a stationary cloud
-    # when the dragon is perched on the exit portal.
     replace-strafing-fireball: true
     replace-perched-breath: true
 
@@ -472,9 +468,8 @@ ender-dragon-rework:
     target-refresh-period-ticks: 20
     target-range: 72.0
 
-    # Folia does not support scoreboard teams, so marked dragon phantoms use a
-    # dense purple particle aura instead of a colored glowing outline. Ordinary
-    # phantoms are never changed.
+    # Only marked dragon phantoms receive a purple particle aura.
+    # Folia does not support scoreboard teams; ordinary phantoms stay unchanged.
     aura:
       period-ticks: 5
       purple-dust-particles: 8
@@ -507,6 +502,69 @@ extra-loot:
         looting-bonus-per-level: 0.01
         min-amount: 1
         max-amount: 2
+
+  parched:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      sand:
+        material: SAND
+        chance: 1.0
+        min-amount: 4
+        max-amount: 10
+      weakness-arrows:
+        material: TIPPED_ARROW
+        potion-type: WEAKNESS
+        chance: 0.45
+        looting-bonus-per-level: 0.05
+        min-amount: 2
+        max-amount: 5
+      red-sand:
+        material: RED_SAND
+        chance: 0.35
+        min-amount: 2
+        max-amount: 6
+      gold-nuggets:
+        material: GOLD_NUGGET
+        chance: 0.20
+        min-amount: 1
+        max-amount: 3
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.005
+        min-amount: 1
+        max-amount: 1
+
+  vindicator:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      emeralds:
+        material: EMERALD
+        chance: 0.50
+        looting-bonus-per-level: 0.03
+        min-amount: 2
+        max-amount: 6
+      iron-ingots:
+        material: IRON_INGOT
+        chance: 0.35
+        min-amount: 1
+        max-amount: 3
+      iron-axe:
+        material: IRON_AXE
+        chance: 0.10
+        min-amount: 1
+        max-amount: 1
+      totem:
+        material: TOTEM_OF_UNDYING
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
 
   trident-zombie:
     enabled: true
@@ -839,17 +897,17 @@ drowned-riptide:
   hit-knockback: 0.7
 
 # -----------------------------------------------------------------------------
-# Parched: escape to a safe neighboring cell, at most once per seven seconds.
+# Parched: escape to a safe nearby cell, cooldown configured in ticks.
 # A sand arrow keeps normal direct damage; only OTHER nearby entities get splash.
 # -----------------------------------------------------------------------------
 parched-sand:
   enabled: true
   debug: true
   trigger-radius: 3.0
-  teleport-cooldown-ticks: 140
-  teleport-radius-blocks: 1
+  teleport-cooldown-ticks: 60
+  teleport-radius-blocks: 9
   teleport-particles: 70
-  splash-radius: 2.5
+  splash-radius: 4.5
   splash-damage: 1.0
   splash-particles: 60
 
@@ -876,9 +934,9 @@ vindicator-alarm:
   debug: true
   health-threshold: 0.40
   call-radius: 48.0
-  flee-speed-multiplier: 1.5
+  flee-speed-multiplier: 1.0
   flee-step-blocks: 8.0
-  guard-speed-multiplier: 1.8
+  guard-speed-multiplier: 1.0
   guard-duration-ticks: 400
   shooting-distance: 12.0
   disengage-range: 96.0
