@@ -1,10 +1,27 @@
-# Combat modules in CustomMobTweaks 2.8.1
+# Combat modules in CustomMobTweaks 2.8.3
 
 Target: Folia 26.1.2, Paper API 26.1.2.build.74-stable, Java 25.
 CustomMobTweaks and the Minecraft news pages of the main frontend are updated.
 TaskForgeLink, backend, database migrations and the existing trident-zombie
 implementation are not changed.
 Piglins and Piglin Brutes are not enrolled by these modules.
+
+## Spider bite copies
+
+`spider-bite-clones` applies equally to ordinary and Cave Spiders. Every
+non-canceled, damage-dealing melee bite creates one tiny copy of the same type.
+The copy initially targets the victim, keeps vanilla attacks (including Cave
+Spider poison), and disappears after 100 ticks. Its persistent-data marker is
+set before world insertion, and copies are excluded from further spawning.
+Copies do not drop loot or experience. Entity-attached Folia scheduling removes
+them on expiration; the module also cleans up active copies on `/cmt reload`.
+The default visual scale is 0.35 and can be adjusted in the bundled config.
+
+Regular and cave spiders have separate extra loot tables under `extra-loot.spider`
+and `extra-loot.cave-spider`. They only roll for real, player-attributed kills and
+add to vanilla drops. The loot handler explicitly skips spiders marked
+`spider_bite_clone` so listener ordering cannot accidentally grant them bonus
+loot; the clone module also clears their vanilla drops and XP.
 
 ## Drowned with a trident
 

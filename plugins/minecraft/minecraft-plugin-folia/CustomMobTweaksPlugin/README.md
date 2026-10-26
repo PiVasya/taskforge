@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.8.1
+# CustomMobTweaks 2.8.3
 
 Combat modules, configuration and verification: [COMBAT_MECHANICS.md](COMBAT_MECHANICS.md).
 
@@ -14,6 +14,12 @@ Combat modules, configuration and verification: [COMBAT_MECHANICS.md](COMBAT_MEC
   - визуальный взрыв и настраиваемое отбрасывание при попадании;
   - отдельная старая атака огненным шаром сохранена и не заменяет специальные заряды нового модуля;
   - дополнительный лут; элитра выпадает по настраиваемому шансу.
+
+- **Пауки (Spider и Cave Spider)**
+  - при каждом успешном укусе появляется одна миниатюрная копия такого же паука;
+  - копия сразу атакует укушенную цель, живёт 5 секунд и не создаёт новые копии;
+  - обычные и пещерные пауки получают разный дополнительный лут при убийстве игроком;
+  - копии не дают опыт и лут.
 
 - **Скрипун (Creaking)**
   - увеличенная скорость;
@@ -291,7 +297,7 @@ gradle clean build
 Результат:
 
 ```text
-build/libs/CustomMobTweaks-2.8.1.jar
+build/libs/CustomMobTweaks-2.8.3.jar
 ```
 
 После первого запуска рабочий конфиг появится здесь:
@@ -299,3 +305,23 @@ build/libs/CustomMobTweaks-2.8.1.jar
 ```text
 plugins/CustomMobTweaks/config.yml
 ```
+
+## Spider bite copies
+
+`spider-bite-clones` affects both ordinary Spiders and Cave Spiders. Each
+uncancelled melee bite that deals damage spawns exactly one small copy of the
+attacker's type at the attacker, with the bitten creature as its initial
+combat target. The copy retains normal spider AI and disappears after 100
+ticks (5 seconds). Every copy is marked before spawning and is forbidden from
+creating additional copies. Temporary copies do not drop loot or experience.
+The entity scheduler manages expiration safely across Folia regions.
+
+The bundled `config.yml` enables this by default at scale `0.35` and
+`lifetime-ticks: 100`. Both real spider types have configurable `extra-loot.spider`
+and `extra-loot.cave-spider` (added to vanilla drops on player kills).
+A PDC check in the loot handler excludes temporary clones before processing any
+configured drops, and the clone module clears their vanilla drops and XP.
+Existing explicit config settings remain untouched.
+`/cmt modules` displays the module's state. Replace the JAR on the server
+then restart Minecraft to load the new code; `/cmt reload` alone cannot
+install new classes.

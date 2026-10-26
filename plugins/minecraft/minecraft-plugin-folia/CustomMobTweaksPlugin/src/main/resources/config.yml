@@ -1,4 +1,4 @@
-# CustomMobTweaks 2.8.1
+# CustomMobTweaks 2.8.3
 # Target: Folia 26.1.2 / Java 25.
 # 20 ticks = 1 second.
 # Damage is measured in health points: 2.0 = one heart.
@@ -120,29 +120,38 @@ harder-stray:
   direct-damage-per-interval: 0.0
 
 # -----------------------------------------------------------------------------
-# Skeleton sniper: 30% vanilla arrow speed, no bonus damage, extreme homing.
+# Skeleton sniper: vanilla arrow physics, long-range aggro, no homing.
 # A shield can still block the arrow.
 # -----------------------------------------------------------------------------
 skeleton-sniper:
   enabled: true
   follow-range: 64.0
   minimum-distance: 0.0
-  preferred-distance: 32.0
+  preferred-distance: 48.0
   retreat-when-close: true
   retreat-strength: 0.45
-  speed-multiplier: 0.3
+  speed-multiplier: 1.0
   base-damage-bonus: 0.0
   far-shot-damage-bonus: 0.0
   prediction-factor: 1.0
   require-line-of-sight: true
-  disable-arrow-gravity: true
+  disable-arrow-gravity: false
   critical: false
   aim-at-body: true
-  continuous-homing: true
-  homing-ticks: 200
-  homing-turn-rate: 0.90
-  homing-lead-factor: 0.95
+  continuous-homing: false
+  homing-ticks: 0
+  homing-turn-rate: 0.0
+  homing-lead-factor: 0.0
   max-track-distance: 96.0
+
+# -----------------------------------------------------------------------------
+# Spider and Cave Spider: every successful melee bite spawns one tiny spider
+# of the same kind. The copy fights for 5 seconds and cannot spawn more copies.
+# -----------------------------------------------------------------------------
+spider-bite-clones:
+  enabled: true
+  scale: 0.35
+  lifetime-ticks: 100
 
 # -----------------------------------------------------------------------------
 # Creaking: much faster, lethal melee hit, large darkness aura.
@@ -481,6 +490,74 @@ ender-dragon-rework:
 # Additional loot. Potion-compatible drops may use potion-type.
 # -----------------------------------------------------------------------------
 extra-loot:
+  # Original spiders only: extra drops are added to their ordinary vanilla loot.
+  # Temporary bite-clones never grant loot or XP, even when killed by a player.
+  spider:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      extra-string:
+        material: STRING
+        chance: 1.0
+        min-amount: 2
+        max-amount: 4
+      spider-eyes:
+        material: SPIDER_EYE
+        chance: 0.50
+        looting-bonus-per-level: 0.05
+        min-amount: 1
+        max-amount: 2
+      cobwebs:
+        material: COBWEB
+        chance: 0.20
+        looting-bonus-per-level: 0.03
+        min-amount: 1
+        max-amount: 2
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.005
+        min-amount: 1
+        max-amount: 1
+
+  cave-spider:
+    enabled: true
+    killed-by-player-only: true
+    drops:
+      extra-string:
+        material: STRING
+        chance: 1.0
+        min-amount: 2
+        max-amount: 3
+      spider-eyes:
+        material: SPIDER_EYE
+        chance: 0.75
+        looting-bonus-per-level: 0.05
+        min-amount: 2
+        max-amount: 4
+      fermented-spider-eyes:
+        material: FERMENTED_SPIDER_EYE
+        chance: 0.35
+        min-amount: 1
+        max-amount: 2
+      cobwebs:
+        material: COBWEB
+        chance: 0.35
+        looting-bonus-per-level: 0.03
+        min-amount: 1
+        max-amount: 3
+      poison-potion:
+        material: POTION
+        potion-type: POISON
+        chance: 0.15
+        looting-bonus-per-level: 0.02
+        min-amount: 1
+        max-amount: 1
+      netherite-scrap:
+        material: NETHERITE_SCRAP
+        chance: 0.01
+        min-amount: 1
+        max-amount: 1
+
   breeze:
     enabled: true
     killed-by-player-only: true

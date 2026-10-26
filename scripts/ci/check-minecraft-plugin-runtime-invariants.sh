@@ -146,10 +146,33 @@ if grep -Eq '^[[:space:]]+include-(strays|bogged):' "$cmt_config"; then
   fail 'legacy sniper variant switches remain in the bundled config'
 fi
 
-grep -Fq 'homing-turn-rate: 0.90' "$cmt_config" \
-  || fail 'expected slightly reduced homing turn rate is missing'
-grep -Fq 'homing-lead-factor: 0.95' "$cmt_config" \
-  || fail 'expected slightly reduced homing lead is missing'
+# Last explicitly requested skeleton behavior is vanilla arrow physics and
+# 64-block aggro, not the older slow homing-arrow configuration.
+for expected in 'follow-range: 64.0' 'preferred-distance: 48.0' 'speed-multiplier: 1.0' \
+                'disable-arrow-gravity: false' 'continuous-homing: false' \
+                'homing-ticks: 0' 'homing-turn-rate: 0.0' 'homing-lead-factor: 0.0'; do
+  grep -Fq "$expected" "$cmt_config" || fail "skeleton default is missing $expected"
+done
+
+# The spiders' configured bonus loot is a real runtime feature, not YAML-only.
+cmt_spider="$folia_root/CustomMobTweaksPlugin/src/main/java/me/vasya/custommobtweaks/SpiderBiteCloneModule.java"
+[ -f "$cmt_spider" ] || fail 'spider clone module is missing'
+grep -Fq 'if (entity instanceof CaveSpider) return "cave-spider";' "$cmt_legacy" \
+  || fail 'cave spider extra-loot mapping is missing'
+grep -Fq 'if (entity instanceof Spider) return "spider";' "$cmt_legacy" \
+  || fail 'normal spider extra-loot mapping is missing'
+grep -Fq 'spiderBiteCloneKey' "$cmt_legacy" \
+  || fail 'temporary spider clones are not excluded from extra loot'
+grep -Fq 'cloneKey = new NamespacedKey(plugin, "spider_bite_clone")' "$cmt_spider" \
+  || fail 'clone PDC key changed without synchronizing the loot handler'
+grep -Fq 'new NamespacedKey(plugin, "spider_bite_clone")' "$cmt_legacy" \
+  || fail 'spider loot exclusion does not use the same clone PDC key'
+grep -Fq 'event.getDrops().clear()' "$cmt_spider" \
+  || fail 'temporary spider vanilla drops are not suppressed'
+grep -Fq 'event.setDroppedExp(0)' "$cmt_spider" \
+  || fail 'temporary spider XP drops are not suppressed'
+grep -Eq '^  spider:$' "$cmt_config" || fail 'normal spider bonus loot config missing'
+grep -Eq '^  cave-spider:$' "$cmt_config" || fail 'cave spider bonus loot config missing'
 
 grep -Fq 'EntityShootBowEvent' "$cmt_clones" \
   || fail 'Illusioner clone creation is not tied to bow shots'

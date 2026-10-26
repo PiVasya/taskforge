@@ -142,6 +142,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
             registerComponent(new ParchedSandModule(this));
             registerComponent(new VindicatorAlarmModule(this));
             registerComponent(new DrownedRiptideModule(this));
+            registerComponent(new SpiderBiteCloneModule(this));
             registerComponent(new FreezingSnowballListener(this));
             registerComponent(new LavaDamageListener(this));
             registerComponent(new DryWeaponListener(this));
@@ -193,7 +194,7 @@ public final class CustomMobTweaksPlugin extends JavaPlugin {
         for (String module : List.of(
                 "harder-creaking", "harder-breeze", "harder-bogged", "harder-armadillo",
                 "drowned-riptide", "parched-sand", "illusioner-aggro", "vindicator-alarm",
-                "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber",
+                "harder-stray", "illusioner-spawn", "illusioner-clones", "trident-zombie", "happy-ghast-bomber", "spider-bite-clones",
                 "lava-damage", "dry-weapon", "freezing-snowball", "phantom-aggro", "phantom-dive-clones", "ender-dragon-rework")) {
             getLogger().info("[reload] module=" + module + " enabled=" + enabled(module) + " reason=" + reason);
         }

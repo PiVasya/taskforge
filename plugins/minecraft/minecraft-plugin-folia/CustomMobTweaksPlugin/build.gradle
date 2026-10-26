@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'me.vasya'
-version = '2.8.1'
+version = '2.8.3'
 
 def targetJava = 25
 java {

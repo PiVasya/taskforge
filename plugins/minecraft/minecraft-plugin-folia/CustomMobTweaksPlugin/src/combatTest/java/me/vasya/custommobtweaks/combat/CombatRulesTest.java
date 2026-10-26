@@ -45,6 +45,7 @@ public final class CombatRulesTest {
             check(CombatMath.segmentIntersectsBox(ax, ay, az, bx, by, bz,
                     x - 0.01, y - 0.01, z - 0.01, x + 0.01, y + 0.01, z + 0.01), "a point along the segment must be hit");
         }
+        checks += SpiderCloneRulesTest.run();
         System.out.println("PASS: " + checks + " combat rule/geometry checks");
     }
 

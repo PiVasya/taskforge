@@ -19,6 +19,7 @@ import org.bukkit.entity.AbstractSkeleton;
 import org.bukkit.entity.Armadillo;
 import org.bukkit.entity.Bogged;
 import org.bukkit.entity.Breeze;
+import org.bukkit.entity.CaveSpider;
 import org.bukkit.entity.Drowned;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -31,6 +32,7 @@ import org.bukkit.entity.Parched;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Snowman;
+import org.bukkit.entity.Spider;
 import org.bukkit.entity.Stray;
 import org.bukkit.entity.Trident;
 import org.bukkit.entity.Vindicator;
@@ -80,6 +82,7 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     private final NamespacedKey lootShooterNameKey;
     private final NamespacedKey lootShooterLootingKey;
     private final NamespacedKey illusionerCloneKey;
+    private final NamespacedKey spiderBiteCloneKey;
 
     private final Set<UUID> breezeTasks = ConcurrentHashMap.newKeySet();
     private final Set<UUID> creakingTasks = ConcurrentHashMap.newKeySet();
@@ -105,6 +108,7 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
         this.lootShooterNameKey = new NamespacedKey(plugin, "loot_shooter_name");
         this.lootShooterLootingKey = new NamespacedKey(plugin, "loot_shooter_looting");
         this.illusionerCloneKey = new NamespacedKey(plugin, "illusioner_clone");
+        this.spiderBiteCloneKey = new NamespacedKey(plugin, "spider_bite_clone");
     }
 
     @Override
@@ -250,7 +254,10 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(EntityDeathEvent event) {
         LivingEntity entity = event.getEntity();
-        if (!entity.getPersistentDataContainer().has(illusionerCloneKey, PersistentDataType.BYTE)) {
+        // Temporary clones must never receive configured loot, regardless of the
+        // listener order at MONITOR. SpiderBiteCloneModule also clears vanilla loot/XP.
+        if (!entity.getPersistentDataContainer().has(illusionerCloneKey, PersistentDataType.BYTE)
+                && !entity.getPersistentDataContainer().has(spiderBiteCloneKey, PersistentDataType.BYTE)) {
             addConfiguredLoot(event);
         }
         cleanupEntity(entity);
@@ -973,9 +980,15 @@ public final class LegacyEnhancementsListener implements Listener, PluginCompone
     }
 
     private String lootKey(LivingEntity entity) {
+        if (entity.getPersistentDataContainer().has(spiderBiteCloneKey, PersistentDataType.BYTE)) {
+            return null;
+        }
         if (entity.getPersistentDataContainer().has(tridentZombieKey, PersistentDataType.BYTE)) {
             return "trident-zombie";
         }
+        // CaveSpider extends Spider: the specialized type must be checked first.
+        if (entity instanceof CaveSpider) return "cave-spider";
+        if (entity instanceof Spider) return "spider";
         if (entity instanceof Breeze) return "breeze";
         if (entity.getType() == EntityType.CREAKING) return "creaking";
         if (entity instanceof Bogged) return "bogged";
