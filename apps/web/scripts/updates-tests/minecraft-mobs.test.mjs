@@ -27,7 +27,7 @@ test('New combatants provide player-facing mechanics, illustrations and loot', (
   for (const id of ['parched', 'vindicator']) {
     const mob = mobs.get(id);
     assert.ok(mob, `missing mob ${id}`);
-    assert.ok(mob.image.startsWith('https://'));
+    assert.ok(mob.image.startsWith('/updates/media/mobs/animated/'));
     assert.ok(mob.summary.length > 30);
     assert.ok(mob.changes.length >= 3);
     assert.ok(mob.loot.length >= 3);
@@ -38,25 +38,43 @@ test('New combatants provide player-facing mechanics, illustrations and loot', (
 });
 
 
-test('Parched and Vindicator use ready-made GIF animations just like the other animated mobs', () => {
-  for (const page of [main, detail]) {
-    const mobs = new Map(mobsOf(page).map((mob) => [mob.id, mob]));
-    for (const id of ['parched', 'vindicator']) {
-      const mob = mobs.get(id);
-      assert.equal(
-        mob.animatedImage,
-        `https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/${id}/spin.gif`,
-      );
-      assert.ok(mob.image.endsWith('/headshot.png'));
-      assert.equal('replaceAnimatedFrames' in mob, false);
+function readWebp(bytes) {
+  assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(bytes.toString('ascii', 8, 12), 'WEBP');
+  assert.equal(bytes.readUInt32LE(4) + 8, bytes.length);
+  const result = { frames: 0 };
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const type = bytes.toString('ascii', offset, offset + 4);
+    const size = bytes.readUInt32LE(offset + 4);
+    const payload = offset + 8;
+    assert.ok(payload + size <= bytes.length, `truncated ${type}`);
+    if (type === 'VP8X') {
+      result.width = bytes.readUIntLE(payload + 4, 3) + 1;
+      result.height = bytes.readUIntLE(payload + 7, 3) + 1;
+      result.animated = Boolean(bytes[payload] & 2);
+      result.alpha = Boolean(bytes[payload] & 16);
     }
-    assert.ok(mobs.get('breeze').animatedImage.endsWith('.gif'));
-    assert.ok(mobs.get('creaking').animatedImage.endsWith('.gif'));
+    if (type === 'ANIM') result.loop = bytes.readUInt16LE(payload + 4);
+    if (type === 'ANMF') result.frames += 1;
+    offset = payload + size + (size % 2);
   }
+  return result;
+}
 
-  const component = readFileSync(new URL('../../src/components/ChangelogShowcase.jsx', import.meta.url), 'utf8');
-  assert.equal(component.includes('replaceFullCanvasWebpAnimationFrames'), false);
-  assert.equal(component.includes('replaceAnimatedFrames'), false);
-  assert.equal(component.includes('correctedAnimation'), false);
-  assert.ok(component.includes('showAnimation ? mob.animatedImage : staticImage'));
+test('All fifteen mobs are local, transparent, looping 512px animations on both news pages', () => {
+  for (const page of [main, detail]) {
+    for (const mob of mobsOf(page)) {
+      assert.equal(mob.image, `/updates/media/mobs/animated/${mob.id}.webp`);
+      const path = new URL(`../../public${mob.image}`, import.meta.url);
+      const image = readWebp(readFileSync(path));
+      assert.equal(image.width, 512, mob.id);
+      assert.equal(image.height, 512, mob.id);
+      assert.equal(image.animated, true, mob.id);
+      assert.equal(image.alpha, true, mob.id);
+      assert.ok(image.frames > 1, mob.id);
+      assert.equal(image.loop, 0, mob.id);
+      assert.equal(mob.fallbackImage, undefined, mob.id);
+      assert.equal(mob.animatedImage, undefined, mob.id);
+    }
+  }
 });

@@ -1,0 +1,120 @@
+{
+  "mojangCommit": "46ba6ea985fb5a92d79a9419198f10dda14c199d",
+  "files": [
+    {
+      "path": "models/entity/wither_skeleton.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/wither_skeleton.geo.json",
+      "sha256": "9a0a512aa7cc834852bcc44765c0fbd39993f44bc47b80e7d797cb867b9480f3"
+    },
+    {
+      "path": "models/entity/snow_golem.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/snow_golem.geo.json",
+      "sha256": "0d0146dd81f55eebfc67df09e69824d345e82b95fe84bb419fceca6c6a23050c"
+    },
+    {
+      "path": "models/entity/drowned.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/drowned.geo.json",
+      "sha256": "e4b1d4d740bdaad4b92eb3229ce412f6e2e266b988ae952fe37d708c782072fb"
+    },
+    {
+      "path": "models/entity/stray.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/stray.geo.json",
+      "sha256": "6e78613813bcea63130752e45ee03047a7466106b56c4f3290a9dc4cf2595a3a"
+    },
+    {
+      "path": "models/entity/stray_armor.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/stray_armor.geo.json",
+      "sha256": "1bf5a6ef5dd72ef23f665f47d9ebb45bc6be25237ce5c57954b77e8465041302"
+    },
+    {
+      "path": "models/entity/parched.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/parched.geo.json",
+      "sha256": "34cf423874e5c57068bca1f55c0f30f4619ad94ed3bc9452c143720e2b4b0842"
+    },
+    {
+      "path": "models/entity/evoker.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/evoker.geo.json",
+      "sha256": "c5f149fb2ebbcf9dd764053aca4d15f54fbf3aa241718e94a6a3373f7ca22362"
+    },
+    {
+      "path": "models/entity/zombie.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/zombie.geo.json",
+      "sha256": "61a8ff5d0443bc29a6946ab165ab144ae87237e19bdd11fdec077e8cf5d9e414"
+    },
+    {
+      "path": "models/entity/trident.geo.json",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/models/entity/trident.geo.json",
+      "sha256": "8be960e07e87f228e33fa08621843dcd5b2ccaae4fd934a2dad776640e5fad05"
+    },
+    {
+      "path": "textures/entity/skeleton/wither_skeleton.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/skeleton/wither_skeleton.png",
+      "sha256": "fdfae927fd8ad6e4fc991f756488d5ca00b83e8a894f4c28eceb33475ce8f9b1"
+    },
+    {
+      "path": "textures/entity/snow_golem.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/snow_golem.png",
+      "sha256": "8233b8e8135b080cfbb3190b3e064fd346397f719ef25f3d661357f5d291a2f9"
+    },
+    {
+      "path": "textures/entity/zombie/drowned.tga",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/zombie/drowned.tga",
+      "sha256": "52b49d692bb57f49f941d8c4a2c5bd0a86ea32dae25da3b0cecfa0ef881f9ada"
+    },
+    {
+      "path": "textures/entity/skeleton/stray.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/skeleton/stray.png",
+      "sha256": "aa641d92d75b98dd0b385af43d1d06d6f642099a552fc5c59085bbb6f9d314ae"
+    },
+    {
+      "path": "textures/entity/skeleton/stray_overlay.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/skeleton/stray_overlay.png",
+      "sha256": "07ebaba70f33df916c300330555378acd363482f292797e0aa1a47384ff87454"
+    },
+    {
+      "path": "textures/entity/parched/parched.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/parched/parched.png",
+      "sha256": "2ff23c24f8865d2d5d49a95f6f913db99458e7ca1a6f0aca3eeff71b8ba48b62"
+    },
+    {
+      "path": "textures/entity/zombie/zombie.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/zombie/zombie.png",
+      "sha256": "b172ff1b50c3ce0587cf82a2865bb05b9a22fc54a78d446b7bfcab13ffcea0ab"
+    },
+    {
+      "path": "textures/entity/trident.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/entity/trident.png",
+      "sha256": "4cfc0d8d2663ca4c1bd2fd52f2a699914c16bdb30aeb6f34a7be9f2926038900"
+    },
+    {
+      "path": "textures/items/bow_standby.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/items/bow_standby.png",
+      "sha256": "113ac4abb7fdd72d9949b4636a79130d672f1b54b76a103e1238ad5ea757ba11"
+    },
+    {
+      "path": "textures/items/stone_sword.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/items/stone_sword.png",
+      "sha256": "675495afbe03f3c63a78e72b581743314f0ac02a12e43b24a5b2bd1267fce949"
+    },
+    {
+      "path": "textures/blocks/pumpkin_face_off.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/blocks/pumpkin_face_off.png",
+      "sha256": "8993e19661e39829ec6e126ea3fe97e5e63725c268d0776c3c71ff824087f1aa"
+    },
+    {
+      "path": "textures/blocks/pumpkin_side.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/blocks/pumpkin_side.png",
+      "sha256": "4794db787370fd96d9b767600e6b8a678e49683ce2be12b2668ee8e8c11b7cb0"
+    },
+    {
+      "path": "textures/blocks/pumpkin_top.png",
+      "url": "https://raw.githubusercontent.com/Mojang/bedrock-samples/46ba6ea985fb5a92d79a9419198f10dda14c199d/resource_pack/textures/blocks/pumpkin_top.png",
+      "sha256": "d454f99259a049130e4be02ec3c7a59ccac2d6754c9f5fc1283259e200f05e41"
+    },
+    {
+      "path": "textures/entity/illusioner.png",
+      "url": "https://minecraft.wiki/images/Illusioner_%28texture%29.png?8523f",
+      "sha256": "a7fcb10e61fd4ddfbc03f89c4a20f22a414e75dc2df4bd1d15418ad2041a36c8"
+    }
+  ]
+}

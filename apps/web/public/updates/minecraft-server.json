@@ -245,7 +245,7 @@
           "index": "01 / 15",
           "name": "Ифрит",
           "label": "Огонь и молния",
-          "image": "/updates/media/mobs/blaze.png",
+          "image": "/updates/media/mobs/animated/blaze.webp",
           "summary": "Огненные шары ифрита теперь сопровождаются ударом молнии и дольше поджигают цель.",
           "changes": [
             "При попадании огненного шара в цель ударяет настоящая молния.",
@@ -255,15 +255,14 @@
             "5 стержней — 70%",
             "Огненный заряд — 50%",
             "Незеритовый лом — 2%"
-          ],
-          "animatedImage": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/5/5a/Blaze.gif/revision/latest?cb=20230214143150"
+          ]
         },
         {
           "id": "bogged",
           "index": "02 / 15",
           "name": "Болотник",
           "label": "Яд, иссушение и лужи",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/bogged/headshot.png",
+          "image": "/updates/media/mobs/animated/bogged.webp",
           "summary": "Его стрелы запускают продолжительный набор отрицательных эффектов и оставляют опасную область.",
           "changes": [
             "Стрела накладывает Иссушение II на 5 секунд.",
@@ -276,15 +275,14 @@
             "8 видов стрел с эффектами — по 5% каждая",
             "Споровый цветок 1–2 — 25%",
             "Незеритовый лом — 1%"
-          ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Bogged.webp"
+          ]
         },
         {
           "id": "wither-skeleton",
           "index": "03 / 15",
           "name": "Скелет-иссушитель",
           "label": "Жёсткое оглушение",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/wither_skeleton/headshot.png",
+          "image": "/updates/media/mobs/animated/wither-skeleton.webp",
           "summary": "Ближний удар на короткое время практически лишает игрока возможности нормально отвечать.",
           "changes": [
             "Удар оглушает игрока на 3 секунды.",
@@ -301,7 +299,7 @@
           "index": "04 / 15",
           "name": "Снежный голем",
           "label": "Боевые снежки",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/snow_golem/headshot.png",
+          "image": "/updates/media/mobs/animated/snow-golem.webp",
           "summary": "Снежки снежного голема теперь действительно мешают противнику двигаться.",
           "changes": [
             "Каждый снежок наносит половину сердца дополнительного урона.",
@@ -314,7 +312,7 @@
           "index": "05 / 15",
           "name": "Вихрь",
           "label": "Серия воздушных атак",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/breeze/headshot.png",
+          "image": "/updates/media/mobs/animated/breeze.webp",
           "summary": "Вихрь стал полноценным дальнобойным противником с несколькими типами давления.",
           "changes": [
             "Атакует каждые 12 тиков (0,6 секунды) на дистанции до 32 блоков при прямой видимости.",
@@ -327,15 +325,14 @@
             "Стержни вихря 4–12 — 100%",
             "Элитры — 5%",
             "Незеритовый лом 1–2 — 8%"
-          ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Breeze_JE1.gif"
+          ]
         },
         {
           "id": "drowned",
           "index": "06 / 15",
           "name": "Утопленник",
           "label": "Рывок с трезубцем",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/drowned/headshot.png",
+          "image": "/updates/media/mobs/animated/drowned.webp",
           "summary": "Утопленники с трезубцем перестали метать его: вместо этого они прорываются к цели с мощным водяным рывком.",
           "changes": [
             "В воде и под дождём утопленник готовит рывок полсекунды и бросается в выбранном направлении.",
@@ -352,7 +349,7 @@
           "index": "07 / 15",
           "name": "Разбойник",
           "label": "Пробитие защиты",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/pillager/headshot.png",
+          "image": "/updates/media/mobs/animated/pillager.webp",
           "summary": "Арбалет разбойника опасен даже для полностью экипированного игрока.",
           "changes": [
             "Выстрелы разбойника пробивают броню.",
@@ -368,8 +365,7 @@
           "id": "vindicator",
           "name": "Поборник",
           "label": "Тревога и подкрепление",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/vindicator/headshot.png",
-          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/vindicator/spin.gif",
+          "image": "/updates/media/mobs/animated/vindicator.webp",
           "summary": "Почувствовав поражение, поборник отказывается от ближнего боя, убегает и поднимает тревогу среди разбойников с арбалетами.",
           "changes": [
             "При падении здоровья ниже 40% поборник прекращает атаковать и старается убежать от нападавшего игрока.",
@@ -391,7 +387,7 @@
           "index": "09 / 15",
           "name": "Зимогор",
           "label": "Глубокая заморозка",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/stray/headshot.png",
+          "image": "/updates/media/mobs/animated/stray.webp",
           "summary": "Его стрела не только замедляет, но и временно уменьшает запас здоровья.",
           "changes": [
             "Стрела сильно замедляет цель на 1,5 секунды.",
@@ -414,8 +410,7 @@
           "id": "parched",
           "name": "Пустынный скелет",
           "label": "Песчаный прыжок и всплеск",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/parched/headshot.png",
-          "animatedImage": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/parched/spin.gif",
+          "image": "/updates/media/mobs/animated/parched.webp",
           "summary": "Если подойти близко, скелет исчезает в облаке песка и появляется в безопасном месте. Его стрелы разбрасывают песок вокруг цели.",
           "changes": [
             "Когда игрок подходит ближе чем на 3 блока, скелет может телепортироваться в безопасное место в радиусе 9 блоков.",
@@ -438,7 +433,7 @@
           "index": "11 / 15",
           "name": "Обычный скелет",
           "label": "Снайпер",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/skeleton/headshot.png",
+          "image": "/updates/media/mobs/animated/skeleton.webp",
           "summary": "Обычный скелет стал дальнобойным стрелком, который удерживает дистанцию и корректирует полёт стрелы.",
           "changes": [
             "Замечает цель на расстоянии до 64 блоков и старается держаться примерно в 32 блоках.",
@@ -458,7 +453,7 @@
           "index": "12 / 15",
           "name": "Скрипун",
           "label": "Смертельная охота",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/creaking/headshot.png",
+          "image": "/updates/media/mobs/animated/creaking.webp",
           "summary": "Скрипун стал очень быстрым противником с тяжёлым ударом и большой зоной тьмы.",
           "changes": [
             "Скрипун двигается значительно быстрее обычного.",
@@ -470,15 +465,14 @@
             "Сгустки смолы 8–16 — 100%",
             "Брёвна бледного дуба 2–6 — 75%",
             "Незеритовый лом — 3%"
-          ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Creaking_BE1_JE2_Sway_Animation.gif"
+          ]
         },
         {
           "id": "armadillo",
           "index": "13 / 15",
           "name": "Броненосец",
           "label": "Защитная сфера",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/armadillo/headshot.png",
+          "image": "/updates/media/mobs/animated/armadillo.webp",
           "summary": "После получения урона броненосец создаёт вокруг себя большую отталкивающую область.",
           "changes": [
             "Базовый радиус сферы — 16 блоков.",
@@ -489,15 +483,14 @@
           "loot": [
             "Щитки броненосца 2–5 — 70%",
             "Незеритовый лом — 1%"
-          ],
-          "animatedImage": "https://minecraft.wiki/w/Special:Redirect/file/Armadillo_Peek_JE1_BE1.gif"
+          ]
         },
         {
           "id": "illusioner",
           "index": "14 / 15",
           "name": "Иллюзионист",
           "label": "Армия иллюзий и охота на всех",
-          "image": "https://static.wikia.nocookie.net/minecraft_gamepedia/images/a/a7/Illusioner.png/revision/latest?cb=20220613073947",
+          "image": "/updates/media/mobs/animated/illusioner.webp",
           "summary": "Иллюзионист атакует любых живых противников — от зомби и эндерменов до боссов. Его клоны помогают ему в этом хаосе.",
           "changes": [
             "Иллюзионист встречается редко и появляется вдали от игрока в тёмных местах.",
@@ -521,7 +514,7 @@
           "index": "15 / 15",
           "name": "Зомби с трезубцем",
           "label": "Редкий стрелок",
-          "image": "https://cdn.jsdelivr.net/gh/IsaiahPapa/minecraft-render-pipeline@main/dist/latest/zombie/headshot.png",
+          "image": "/updates/media/mobs/animated/trident-zombie.webp",
           "summary": "Три процента зомби превращаются в отдельный усиленный дальнобойный вариант.",
           "changes": [
             "Примерно 3% зомби появляются с трезубцем.",

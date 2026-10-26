@@ -1,0 +1,317 @@
+[
+  {
+    "id": "blaze",
+    "file": "blaze.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 66,
+    "distinctFrames": 66,
+    "durationMs": 2640,
+    "loop": 0,
+    "alphaBounds": [
+      152,
+      48,
+      360,
+      464
+    ],
+    "bytes": 827122,
+    "sha256": "990c1caad5fed34eac1602920e748059db7da5af5189bff89b1a028e870b95fb",
+    "source": "https://minecraft.wiki/w/File:Blaze_JE2.gif"
+  },
+  {
+    "id": "bogged",
+    "file": "bogged.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 500,
+    "distinctFrames": 499,
+    "durationMs": 20000,
+    "loop": 0,
+    "alphaBounds": [
+      150,
+      48,
+      362,
+      464
+    ],
+    "bytes": 3622982,
+    "sha256": "d64eaf1eb5dfcc81d262b1b09ea94ddd2baabd99cbea9a7672347633a0a3fd4b",
+    "source": "https://minecraft.wiki/w/File:Bogged.webp"
+  },
+  {
+    "id": "wither-skeleton",
+    "file": "wither-skeleton.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      154,
+      45,
+      358,
+      467
+    ],
+    "bytes": 781894,
+    "sha256": "57ec5aaaaeb6dd45958b3241f4b40ba99f9aae1064a208e205b5e0205e2fe77f",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "snow-golem",
+    "file": "snow-golem.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      99,
+      45,
+      413,
+      467
+    ],
+    "bytes": 1143012,
+    "sha256": "f7795350c9af4f94f6ab390b41d8de334e919ec215133b912a9bbce6e148a393",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "breeze",
+    "file": "breeze.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 50,
+    "distinctFrames": 50,
+    "durationMs": 2000,
+    "loop": 0,
+    "alphaBounds": [
+      61,
+      48,
+      450,
+      464
+    ],
+    "bytes": 655084,
+    "sha256": "90050d612ad706fb40fd9fe06841f46feccdb00fe6d47daa390d489846cb6130",
+    "source": "https://minecraft.wiki/w/File:Breeze_BE1_JE2.webp"
+  },
+  {
+    "id": "drowned",
+    "file": "drowned.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      121,
+      45,
+      391,
+      467
+    ],
+    "bytes": 1668698,
+    "sha256": "768b99bf1e9a24edc61de7da04454348371d584a1d0ebf3e45689adbf8e996f7",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "pillager",
+    "file": "pillager.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 44,
+    "distinctFrames": 44,
+    "durationMs": 2480,
+    "loop": 0,
+    "alphaBounds": [
+      95,
+      48,
+      416,
+      464
+    ],
+    "bytes": 220628,
+    "sha256": "514ec9ae3a4a3c4216ebd10f8048b16f571b12551c47a4b9a7610955f1ebe055",
+    "source": "https://minecraft.wiki/w/File:Pillager_Charging_Crossbow.gif"
+  },
+  {
+    "id": "vindicator",
+    "file": "vindicator.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 60,
+    "distinctFrames": 60,
+    "durationMs": 3000,
+    "loop": 0,
+    "alphaBounds": [
+      123,
+      48,
+      388,
+      464
+    ],
+    "bytes": 433686,
+    "sha256": "852e5ff9c0c76cbe017dfed10efc46fa88fdbbdf5ca3c8b360d85fc674524d84",
+    "source": "https://minecraft.wiki/w/File:AMCM_live_event_vindicator_idle.gif"
+  },
+  {
+    "id": "stray",
+    "file": "stray.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      124,
+      45,
+      381,
+      457
+    ],
+    "bytes": 1232170,
+    "sha256": "e8055e59996d6969a25ec64b2f32aac6e7899688dedc326d3e32ddc1da689149",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "parched",
+    "file": "parched.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      131,
+      45,
+      378,
+      464
+    ],
+    "bytes": 1584288,
+    "sha256": "ff823b456e0d595147a22daf5aec10dca501f6ee37d5500f0ca92c3ccf0c0990",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "skeleton",
+    "file": "skeleton.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 250,
+    "distinctFrames": 250,
+    "durationMs": 20000,
+    "loop": 0,
+    "alphaBounds": [
+      157,
+      48,
+      354,
+      464
+    ],
+    "bytes": 1236198,
+    "sha256": "72011d3d4093e2468f856a65d801617c2e783a8535b7eae9ed22c28186fe6edd",
+    "source": "https://minecraft.wiki/w/File:Skeleton_idle_animation.webp"
+  },
+  {
+    "id": "creaking",
+    "file": "creaking.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 6,
+    "distinctFrames": 6,
+    "durationMs": 1000,
+    "loop": 0,
+    "alphaBounds": [
+      167,
+      48,
+      344,
+      464
+    ],
+    "bytes": 49848,
+    "sha256": "731344555fa47e7807f8ad6147364f561836ba96c1d6b83fffe5848b9b5d164d",
+    "source": "https://minecraft.wiki/w/File:Creaking_BE1_JE2_Sway_Animation.gif"
+  },
+  {
+    "id": "armadillo",
+    "file": "armadillo.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 122,
+    "distinctFrames": 122,
+    "durationMs": 3000,
+    "loop": 0,
+    "alphaBounds": [
+      48,
+      70,
+      464,
+      441
+    ],
+    "bytes": 779888,
+    "sha256": "743f1dbc0ee416d71d4497c9180d758cf840644811af7f1dd92bd93d4f02db8e",
+    "source": "https://minecraft.wiki/w/File:Armadillo_Peek_JE1_BE1.gif"
+  },
+  {
+    "id": "illusioner",
+    "file": "illusioner.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      138,
+      45,
+      374,
+      467
+    ],
+    "bytes": 1050316,
+    "sha256": "cc2ccb7e33fc2af7ee7348a1b5f9a36bc7d849a312721ea2d2279397653a7aa6",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  },
+  {
+    "id": "trident-zombie",
+    "file": "trident-zombie.webp",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 80,
+    "distinctFrames": 80,
+    "durationMs": 4000,
+    "loop": 0,
+    "alphaBounds": [
+      119,
+      45,
+      393,
+      467
+    ],
+    "bytes": 1460618,
+    "sha256": "6be28b27f023efb401c2a51dbd12f8c7ed87ec979f9b16cc961f90a34ffc8101",
+    "source": "Mojang Bedrock geometry/textures; TaskForge idle animation"
+  }
+]

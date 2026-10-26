@@ -148,82 +148,30 @@ function DeathActions({ section }) {
 }
 
 function MobCard({ mob }) {
-  const cardRef = React.useRef(null);
-  const [animationFailed, setAnimationFailed] = React.useState(false);
-  const [staticImage, setStaticImage] = React.useState(mob.image);
-  const [imageVisible, setImageVisible] = React.useState(true);
-  const [cardVisible, setCardVisible] = React.useState(false);
-  const [pageVisible, setPageVisible] = React.useState(
-    typeof document === 'undefined' || document.visibilityState === 'visible'
-  );
+  const imageSource = mob.animatedImage || mob.image;
+  const [imageFailed, setImageFailed] = React.useState(false);
 
   React.useEffect(() => {
-    if (!mob.animatedImage || !cardRef.current || typeof IntersectionObserver === 'undefined') {
-      setCardVisible(Boolean(mob.animatedImage));
-      return undefined;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => setCardVisible(entry.isIntersecting),
-      { rootMargin: '0px', threshold: 0.01 }
-    );
-
-    observer.observe(cardRef.current);
-    return () => observer.disconnect();
-  }, [mob.animatedImage]);
-
-  React.useEffect(() => {
-    if (!mob.animatedImage || typeof document === 'undefined') return undefined;
-
-    const updatePageVisibility = () => {
-      setPageVisible(!document.hidden);
-    };
-    const pausePageAnimation = () => setPageVisible(false);
-
-    updatePageVisibility();
-    document.addEventListener('visibilitychange', updatePageVisibility);
-    window.addEventListener('pagehide', pausePageAnimation);
-    window.addEventListener('pageshow', updatePageVisibility);
-
-    return () => {
-      document.removeEventListener('visibilitychange', updatePageVisibility);
-      window.removeEventListener('pagehide', pausePageAnimation);
-      window.removeEventListener('pageshow', updatePageVisibility);
-    };
-  }, [mob.animatedImage]);
-
-  const showAnimation = Boolean(mob.animatedImage && !animationFailed && cardVisible && pageVisible);
-  const imageSource = showAnimation ? mob.animatedImage : staticImage;
-
-  const handleImageError = () => {
-    if (showAnimation) {
-      setAnimationFailed(true);
-      return;
-    }
-
-    if (mob.fallbackImage && staticImage !== mob.fallbackImage) {
-      setStaticImage(mob.fallbackImage);
-      return;
-    }
-
-    setImageVisible(false);
-  };
+    setImageFailed(false);
+  }, [imageSource]);
 
   return (
-    <article ref={cardRef} className="changelog-mob-card">
+    <article className="changelog-mob-card">
       <div className="changelog-mob-visual" aria-hidden="true">
         <div className="changelog-mob-glow" />
-        {imageVisible ? (
+        {imageSource && !imageFailed ? (
           <img
             src={imageSource}
             alt=""
+            width="512"
+            height="512"
             className="changelog-mob-image"
             loading="lazy"
             decoding="async"
-            fetchPriority="low"
+            fetchpriority="low"
             draggable="false"
             referrerPolicy="no-referrer"
-            onError={handleImageError}
+            onError={() => setImageFailed(true)}
           />
         ) : null}
         <span className="changelog-mob-index">{mob.index}</span>
