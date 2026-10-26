@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using static TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService;
 using TaskForge.Tasks.Api.Services.Runtime;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentApiSerializationService;
 
@@ -17,14 +18,31 @@ internal static class AssignmentTypedExportService
     internal static async Task<IReadOnlyDictionary<Guid, JsonObject>> LoadImportDtosAsync(
         TasksDbContext db,
         IReadOnlyCollection<Assignment> assignments,
-        CancellationToken ct = default)
+        CancellationToken ct = default, GraphExportOptions? options = null)
     {
         if (assignments.Count == 0) return new Dictionary<Guid, JsonObject>();
+        options ??= new GraphExportOptions();
+        var content = options.IncludeContent;
+        var checks = options.IncludeChecks;
         var ids = assignments.Select(x => x.Id).Distinct().ToArray();
-        var code = await db.CodeAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct);
-        var image = await db.ImageAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct);
-        var test = await db.TestAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct);
-        var math = await db.MathAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct);
+        var code = content || checks ? await db.CodeAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId))
+            .Select(x => new CodeAssignmentSpec { AssignmentId = x.AssignmentId,
+                Language = content ? x.Language : "", AllowedLanguagesCsv = content ? x.AllowedLanguagesCsv : null,
+                StarterCode = content ? x.StarterCode : null, TestsJson = checks ? x.TestsJson : "[]",
+                CodeForbiddenCallsJson = checks ? x.CodeForbiddenCallsJson : null,
+                CodeRequiredCallsJson = checks ? x.CodeRequiredCallsJson : null }).ToDictionaryAsync(x => x.AssignmentId, ct)
+            : new Dictionary<Guid, CodeAssignmentSpec>();
+        var image = content || checks ? await db.ImageAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId))
+            .Select(x => new ImageAssignmentSpec { AssignmentId = x.AssignmentId,
+                Language = content ? x.Language : "", AllowedLanguagesCsv = content ? x.AllowedLanguagesCsv : null,
+                StarterCode = content ? x.StarterCode : null, TestsJson = checks ? x.TestsJson : "[]",
+                CodeForbiddenCallsJson = checks ? x.CodeForbiddenCallsJson : null,
+                CodeRequiredCallsJson = checks ? x.CodeRequiredCallsJson : null }).ToDictionaryAsync(x => x.AssignmentId, ct)
+            : new Dictionary<Guid, ImageAssignmentSpec>();
+        var test = checks ? await db.TestAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct)
+            : new Dictionary<Guid, TestAssignmentSpec>();
+        var math = checks ? await db.MathAssignmentSpecs.AsNoTracking().Where(x => ids.Contains(x.AssignmentId)).ToDictionaryAsync(x => x.AssignmentId, ct)
+            : new Dictionary<Guid, MathAssignmentSpec>();
 
         var result = new Dictionary<Guid, JsonObject>(assignments.Count);
         foreach (var assignment in assignments)
@@ -33,22 +51,22 @@ internal static class AssignmentTypedExportService
             var dto = Common(assignment, type);
             switch (type)
             {
-                case "code-test":
+                case "code-test" when content || checks:
                     if (!code.TryGetValue(assignment.Id, out var codeSpec)) Missing(assignment, type);
                     AddExecutable(dto, codeSpec!.Language, codeSpec.AllowedLanguagesCsv, codeSpec.StarterCode,
-                        codeSpec.TestsJson, codeSpec.CodeForbiddenCallsJson, codeSpec.CodeRequiredCallsJson, image: false);
+                        codeSpec.TestsJson, codeSpec.CodeForbiddenCallsJson, codeSpec.CodeRequiredCallsJson, image: false, content, checks);
                     break;
-                case "image-test":
+                case "image-test" when content || checks:
                     if (!image.TryGetValue(assignment.Id, out var imageSpec)) Missing(assignment, type);
                     AddExecutable(dto, imageSpec!.Language, imageSpec.AllowedLanguagesCsv, imageSpec.StarterCode,
-                        imageSpec.TestsJson, imageSpec.CodeForbiddenCallsJson, imageSpec.CodeRequiredCallsJson, image: true);
+                        imageSpec.TestsJson, imageSpec.CodeForbiddenCallsJson, imageSpec.CodeRequiredCallsJson, image: true, content, checks);
                     break;
-                case "test":
+                case "test" when checks:
                     if (!test.TryGetValue(assignment.Id, out var testSpec)) Missing(assignment, type);
                     dto["testSettings"] = ParseNode(testSpec!.SettingsJson, new JsonObject());
                     dto["questions"] = ParseNode(testSpec.QuestionsJson, new JsonArray());
                     break;
-                case "math":
+                case "math" when checks:
                     if (!math.TryGetValue(assignment.Id, out var mathSpec)) Missing(assignment, type);
                     dto["testSettings"] = ParseNode(mathSpec!.SettingsJson, new JsonObject());
                     dto["blocks"] = ParseNode(mathSpec.BlocksJson, new JsonArray());
@@ -80,11 +98,15 @@ internal static class AssignmentTypedExportService
         string testsJson,
         string? forbiddenJson,
         string? requiredJson,
-        bool image)
+        bool image, bool content, bool checks)
     {
+        if (content)
+        {
         dto["language"] = language;
         dto["allowedLanguages"] = JsonSerializer.SerializeToNode(ParseCsv(allowedLanguagesCsv, language), JsonOptions());
         dto["starterCode"] = starterCode ?? string.Empty;
+        }
+        if (!checks) return;
         var imageThreshold = image ? JsonInt(testsJson, "imageTestSimilarityThreshold", 90) : (int?)null;
         dto["testCases"] = ExportTestCasesNode(testsJson, imageThreshold);
         dto["codeForbiddenCalls"] = JsonSerializer.SerializeToNode(ParseStringArrayJson(forbiddenJson), JsonOptions());

@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using TaskForge.Shared.Import;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Runtime;
+using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Serialization;
 using TaskForge.Tasks.Api.Services.Sql;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService;
 using static TaskForge.Tasks.Api.Services.Serialization.AssignmentApiSerializationService;
@@ -34,7 +36,19 @@ internal static partial class AssignmentApiEndpoints
         return ImportJsonIdentity.Hash(JsonSerializer.SerializeToElement(document));
     }
 
-    private static async Task<Dictionary<Guid, JsonObject>> CaptureImportAssignments(TasksDbContext db, JsonElement graph, CancellationToken ct)
+    internal static GraphExportOptions ImportSnapshotOptions(JsonElement payload)
+    {
+        var input = ReadGraphImportPayload(payload);
+        var options = ReadGraphImportOptions(payload);
+        var scopes = input.ValueKind == JsonValueKind.Object && input.TryGetProperty("scopes", out var values) && values.ValueKind == JsonValueKind.Array
+            ? values.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).ToHashSet()
+            : KnownScopes.Select(x => (string?)x).ToHashSet();
+        return new GraphExportOptions(IncludeContent: options.UpdateContent && scopes.Contains("content"),
+            IncludeChecks: options.UpdateChecks && scopes.Contains("checks"), IncludeVisibility: options.UpdateVisibility && scopes.Contains("visibility"),
+            IncludeConnections: false, IncludeConnectionAccess: false, IncludeLayout: false, IncludeGuide: false);
+    }
+
+    private static async Task<Dictionary<Guid, JsonObject>> CaptureImportAssignments(TasksDbContext db, JsonElement graph, CancellationToken ct, GraphExportOptions? options = null)
     {
         var ids = ExtractAssignmentImportItems(graph).Where(x => x.ValueKind == JsonValueKind.Object)
             .Select(x => x.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && Guid.TryParse(id.GetString(), out var value) ? value : Guid.Empty)
@@ -42,10 +56,37 @@ internal static partial class AssignmentApiEndpoints
         if (graph.ValueKind == JsonValueKind.Object && graph.TryGetProperty("deleteTasks", out var deletes) && deletes.ValueKind == JsonValueKind.Array)
             foreach (var value in deletes.EnumerateArray())
                 if (value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id)) ids.Add(id);
-        return await SnapshotImportAssignments(db, ids, ct);
+        return await SnapshotImportAssignments(db, ids, ct, options);
     }
 
-    private static async Task<Dictionary<Guid, JsonObject>> SnapshotImportAssignments(TasksDbContext db, IReadOnlySet<Guid> ids, CancellationToken ct)
+    private static async Task<Dictionary<Guid, JsonObject>> SnapshotImportAssignments(TasksDbContext db, IReadOnlySet<Guid> ids,
+        CancellationToken ct, GraphExportOptions? options = null)
+    {
+        if (options is null) return await SnapshotLegacyImportAssignments(db, ids, ct);
+        var source = db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id));
+        var query = options.IncludeContent
+            ? source.Select(x => new Assignment { Id = x.Id, CourseId = x.CourseId, Title = x.Title, Type = x.Type,
+                Description = x.Description, Tags = x.Tags, Rating = x.Rating, IsVisible = x.IsVisible })
+            : source.Select(x => new Assignment { Id = x.Id, CourseId = x.CourseId, Title = x.Title, Type = x.Type,
+                Rating = x.Rating, IsVisible = x.IsVisible });
+        var rows = await query.ToListAsync(ct);
+        var typed = await AssignmentTypedExportService.LoadImportDtosAsync(db, rows, ct, options);
+        var sql = await SqlTaskGraphService.Export(db, rows, options, ct);
+        var result = new Dictionary<Guid, JsonObject>();
+        foreach (var (id, node) in typed)
+        {
+            var copy = node.DeepClone().AsObject();
+            if (!options.IncludeVisibility) copy.Remove("isVisible");
+            if (!options.IncludeContent)
+                foreach (var field in new[] { "type", "title", "description", "tags", "rating", "language", "allowedLanguages", "starterCode" }) copy.Remove(field);
+            if (sql.Specs.TryGetValue(id, out var spec)) copy["sql"] = spec.DeepClone();
+            result[id] = copy;
+        }
+        return result;
+    }
+
+    // Schema-1 journals were hashed with the old DTO shape; do not weaken their conflict checks.
+    private static async Task<Dictionary<Guid, JsonObject>> SnapshotLegacyImportAssignments(TasksDbContext db, IReadOnlySet<Guid> ids, CancellationToken ct)
     {
         var rows = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToListAsync(ct);
         var typed = await AssignmentTypedReadService.BuildDtosAsync(db, rows, includeSensitive: true, ct: ct);
@@ -136,12 +177,12 @@ internal static partial class AssignmentApiEndpoints
         return diff;
     }
 
-    private static async Task AddImportEntityAudit(TasksDbContext db, Dictionary<Guid, JsonObject> before, JsonObject response, CancellationToken ct)
+    private static async Task AddImportEntityAudit(TasksDbContext db, Dictionary<Guid, JsonObject> before, JsonObject response, CancellationToken ct, GraphExportOptions? options = null)
     {
         var ids = before.Keys.ToHashSet();
         foreach (var row in response["assignments"]?.AsArray() ?? new JsonArray())
             if (Guid.TryParse(row?["id"]?.ToString(), out var id)) ids.Add(id);
-        var after = await SnapshotImportAssignments(db, ids, ct);
+        var after = await SnapshotImportAssignments(db, ids, ct, options);
         var changes = ids.Order().Select(id => ImportEntityChange(id, before.GetValueOrDefault(id), after.GetValueOrDefault(id))).ToArray();
         response["entityChanges"] = new JsonArray(changes.Select(x => (JsonNode)x).ToArray());
         response["updatedCount"] = changes.Count(x => x["action"]?.ToString() == "updated");

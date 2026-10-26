@@ -250,9 +250,9 @@ export default function LeaderboardPage() {
         {!loading && !error && (
           
           <>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid auto-rows-fr items-stretch gap-4 md:grid-cols-2">
               {entries.map((e, index) => (
-                <div key={e.userId || index} className="tf-reveal-item" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
+                <div key={e.userId || index} className="tf-reveal-item h-full" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
                   <LeaderboardCard entry={e} />
                 </div>
               ))}

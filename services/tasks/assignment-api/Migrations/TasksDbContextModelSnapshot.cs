@@ -1137,6 +1137,127 @@ namespace TaskForge.Tasks.Api.Migrations
                     b.ToTable("TaskGraphImportOperations", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TaskGraphTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("BytesWritten")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("CancelRequested")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("CompletedItems")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CourseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentItem")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ErrorJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("HeartbeatAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ImportOperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Lane")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Percent")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Phase")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("ResultBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ResultStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<int>("TotalItems")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("Lane", "State", "CreatedAt");
+
+                    b.HasIndex("UserId", "CourseId", "CreatedAt");
+
+                    b.ToTable("TaskGraphTransfers", (string)null);
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TaskGraphTransferPart", b =>
+                {
+                    b.Property<Guid>("TransferId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("TransferId", "Sequence");
+
+                    b.ToTable("TaskGraphTransferParts", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TestAssignmentSpec", b =>
                 {
                     b.Property<Guid>("AssignmentId")
@@ -1269,6 +1390,15 @@ namespace TaskForge.Tasks.Api.Migrations
                         .WithOne()
                         .HasForeignKey("TaskForge.Tasks.Api.Domain.Sql.SqlExpectedArtifact", "EngineTargetId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskForge.Tasks.Api.Domain.TaskGraphTransferPart", b =>
+                {
+                    b.HasOne("TaskForge.Tasks.Api.Domain.TaskGraphTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

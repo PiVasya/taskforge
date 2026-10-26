@@ -83,15 +83,26 @@ internal static partial class EducationApiEndpoints
                 editorCourseRows));
         });
 
-        app.MapPut("/api/courses/{courseId:guid}/map", async (
-            Guid courseId,
-            CourseMapSaveRequest request,
-            HttpContext http,
-            EducationDbContext db,
-            IConfiguration cfg,
-            IHubContext<CourseMapPresenceHub> hub,
-            CancellationToken ct) =>
+        app.MapPut("/api/courses/{courseId:guid}/map", SaveCourseMapAsync);
+        app.MapPut("/api/internal/courses/{courseId:guid}/map/transfer", async (Guid courseId,
+            TransferMapSaveRequest payload, HttpContext http, EducationDbContext db, IConfiguration cfg,
+            IHttpClientFactory clients, IHubContext<CourseMapPresenceHub> hub, CancellationToken ct) =>
         {
+            if (!await GraphTransferActor.RestoreAsync(http, payload.UserId, cfg, clients, ct))
+                return Microsoft.AspNetCore.Http.Results.StatusCode(403);
+            return await SaveCourseMapAsync(courseId, payload.Request, http, db, cfg, hub, ct);
+        });
+
+        app.MapHub<CourseMapPresenceHub>("/hubs/course-map");
+
+        return app;
+    }
+
+    internal sealed record TransferMapSaveRequest(Guid UserId, CourseMapSaveRequest Request);
+
+    private static async Task<IResult> SaveCourseMapAsync(Guid courseId, CourseMapSaveRequest request,
+        HttpContext http, EducationDbContext db, IConfiguration cfg, IHubContext<CourseMapPresenceHub> hub, CancellationToken ct)
+    {
             var incomingNodeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("nodes", out var incomingNodes) && incomingNodes.ValueKind == JsonValueKind.Array ? incomingNodes.GetArrayLength() : 0;
             var incomingEdgeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("edges", out var incomingEdges) && incomingEdges.ValueKind == JsonValueKind.Array ? incomingEdges.GetArrayLength() : 0;
             var incomingNodeIds = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("nodes", out var saveNodes) && saveNodes.ValueKind == JsonValueKind.Array
@@ -289,11 +300,6 @@ internal static partial class EducationApiEndpoints
                 ("updatedAt", now));
 
             return Microsoft.AspNetCore.Http.Results.Ok(savedResponse);
-        });
-
-        app.MapHub<CourseMapPresenceHub>("/hubs/course-map");
-
-        return app;
     }
 
     private static async Task<Course?> ResolveRootCourseAsync(Guid requestedCourseId, EducationDbContext db, CancellationToken ct)

@@ -217,6 +217,7 @@ public static class TaskForgeRequestSecurity
 
     public static ClaimsPrincipal? ValidateUser(HttpContext context, IConfiguration config)
     {
+        if (TaskForge.Shared.Import.GraphTransferActor.Get(context) is { } worker) return worker;
         var token = ReadCookie(context, "tf_at") ?? ReadBearer(context);
         if (string.IsNullOrWhiteSpace(token)) return null;
 

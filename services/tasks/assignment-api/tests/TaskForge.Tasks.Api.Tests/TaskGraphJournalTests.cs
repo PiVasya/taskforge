@@ -9,6 +9,50 @@ namespace TaskForge.Tasks.Api.Tests;
 public sealed class TaskGraphJournalTests
 {
     [Fact]
+    public void LayoutOnlyImportUsesEffectiveScopesAndHonorsDisabledMutations()
+    {
+        var layout = JsonSerializer.SerializeToElement(new { positions = new Dictionary<string, object>
+            { ["$course"] = new { x = 0, y = 0 } } });
+        TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService.ParsedGraph Graph(
+            string[] scopes, Guid[]? deletes = null) => new()
+        {
+            Courses = [],
+            Tasks = [],
+            DeleteTaskIds = deletes ?? [],
+            Connections = [],
+            Scopes = scopes.ToHashSet(StringComparer.Ordinal),
+            Layout = layout,
+            SourceSchemaVersion = 5
+        };
+        var options = new TaskForge.Tasks.Api.Services.Serialization.AssignmentTaskGraphJsonService.GraphImportOptions();
+        Assert.True(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout"]), options));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "content"]), options));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "checks"]), options));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "visibility"]), options));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "connections"]), options));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "connectionAccess"]), options));
+        Assert.True(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout", "content"]),
+            options with { UpdateContent = false }));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout"]),
+            options with { UpdateLayout = false }));
+        Assert.False(AssignmentApiEndpoints.IsLayoutOnlyGraphImport(Graph(["ids", "layout"], [Guid.NewGuid()]), options));
+    }
+
+    [Fact]
+    public void LayoutOnlyEntityAuditNeverClaimsContentChanges()
+    {
+        var id = Guid.NewGuid();
+        var receipt = JsonNode.Parse($"{{\"taskGraph\":{{\"tasks\":[{{\"assignmentId\":\"{id:D}\",\"action\":\"updated\"}}]}},\"updatedCount\":5}}")!.AsObject();
+        AssignmentApiEndpoints.AddLayoutOnlyEntityAudit(receipt);
+        Assert.Equal(0, receipt["updatedCount"]!.GetValue<int>());
+        Assert.Equal(1, receipt["unchangedCount"]!.GetValue<int>());
+        var change = Assert.Single(receipt["entityChanges"]!.AsArray());
+        Assert.Equal("unchanged", change!["action"]!.ToString());
+        Assert.Empty(change["changedFields"]!.AsArray());
+        Assert.Null(change["beforeSha256"]);
+    }
+
+    [Fact]
     public void FingerprintIgnoresObjectPropertyOrderAndFormatting()
     {
         var first = ImportJsonIdentity.Read("{\"b\":[1,2],\"a\":{\"z\":3,\"x\":4}}");

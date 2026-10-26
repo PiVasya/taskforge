@@ -119,7 +119,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
     <div
       className="tf-modal-backdrop fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-black/60 p-2 sm:p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose?.();
+        if (event.target === event.currentTarget) onClose?.();
       }}
     >
       <Card className="tf-modal-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
@@ -130,7 +130,7 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => downloadTaskGraphAudit(null, diff)}>{'Скачать отчёт'}</Button>
-            <Button variant="outline" onClick={onClose} disabled={busy}><X size={16} /> Назад</Button>
+            <Button variant="outline" onClick={onClose}><X size={16} /> Назад</Button>
             <Button onClick={onApply} disabled={busy || Boolean(error) || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation || diff.requiresConnectionDeleteConfirmation || diff.requiresDuplicateConfirmation}>
               <FileJson size={16} /> {busy ? 'Импортирую…' : 'Импортировать'}
             </Button>
@@ -138,7 +138,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
-          {error ? (
+          <div className="px-4 pt-3 sm:px-6">{progress}</div>
+        {error ? (
             <div className="mb-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
               <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={17} /> Импорт не завершён</div>
               <div className="mt-1">{error.primaryMessage || error.userMessage || 'Не удалось импортировать JSON.'}</div>

@@ -532,5 +532,7 @@ export function projectTaskGraphImport(incoming, current, options) {
   const labels = new Map([...before.values(), ...incomingIds.values()].map((row) => [row.nodeId, row.row?.title || row.row?.key || COURSE_REF]));
   const previewNodes = finalNodes.map((node) => ({ ...node, label: labels.get(node.id) || node.entityId || node.id,
     ...taskGraphNodeSize(node) }));
-  return { ...result, previewNodes, added, removed, kept, accessChanged, placements, positionChanges, viewportChanged };
+  return { ...result, previewNodes, added, removed, kept, accessChanged, placements, positionChanges, viewportChanged,
+    referenceNodes: { incoming: Object.fromEntries([...incomingIds].map(([key, entity]) => [key, entity.nodeId])),
+      current: Object.fromEntries([...before].map(([key, entity]) => [key, entity.nodeId])) } };
 }

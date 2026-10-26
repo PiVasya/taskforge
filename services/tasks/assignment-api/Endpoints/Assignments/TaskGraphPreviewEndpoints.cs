@@ -40,13 +40,17 @@ internal static partial class AssignmentApiEndpoints
 
     private static void MapTaskGraphPreviewEndpoints(WebApplication app)
     {
-        app.MapPost("/api/courses/{courseId:guid}/assignments/import-json/preview", async (
-            Guid courseId, JsonElement payload, HttpContext http, IConfiguration cfg,
-            TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
+        app.MapPost("/api/courses/{courseId:guid}/assignments/import-json/preview", PreviewTaskGraphAsync)
+            .AddEndpointFilter<SqlEndpointFilter>();
+    }
+
+    private static async Task<IResult> PreviewTaskGraphAsync(Guid courseId, JsonElement payload, HttpContext http,
+        IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
+    {
             if (!IsEditor(http, cfg)) return Microsoft.AspNetCore.Http.Results.Json(
                 new { code = "EDITOR_REQUIRED", message = "Для проверки импорта нужны права редактора." }, statusCode: 403);
             if (!await CanUserEditCourseAsync(courseId, http, cfg, clients, ct)) return CourseEditForbidden();
+            TaskForge.Tasks.Api.Services.Transfer.GraphTransferProgress.Get(http)?.Report("preview.validate", 10);
             var input = ReadGraphImportPayload(payload);
             if (!LooksLikeCanonicalGraph(input)) return Microsoft.AspNetCore.Http.Results.Ok(new { issues = Array.Empty<ValidationIssue>() });
             var options = ReadGraphImportOptions(payload);
@@ -74,19 +78,22 @@ internal static partial class AssignmentApiEndpoints
             var access = await LoadCourseAccessRowsAsync(subtree, user.Value, clients, cfg, ct);
             var editable = access.Where(x => x.CanEdit).Select(x => x.CourseId).ToHashSet();
             if (subtree.Any(id => !editable.Contains(id))) return CourseEditForbidden();
+            TaskForge.Tasks.Api.Services.Transfer.GraphTransferProgress.Get(http)?.Report("preview.bindings", 40, 0, graph.Tasks.Count);
             var issues = await CheckTaskGraphBindingsAsync(graph, courseId, subtree, db, clients, cfg, ct);
             if (issues.Count == 0)
             {
                 var ids = graph.Tasks.Select(task => task.Source.TryGetProperty("id", out var value)
                         && value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id) ? id : Guid.Empty)
                     .Where(id => id != Guid.Empty).Distinct().ToArray();
-                var existing = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+                var existing = (await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct)).ToHashSet();
                 for (var index = 0; index < graph.Tasks.Count; index++)
                 {
+                    ct.ThrowIfCancellationRequested();
+                    if (index % 25 == 0) TaskForge.Tasks.Api.Services.Transfer.GraphTransferProgress.Get(http)?.Report("preview.assignments", 45 + 35 * index / Math.Max(1, graph.Tasks.Count), index, graph.Tasks.Count);
                     try
                     {
                         var request = AssignmentRequestFromJson(graph.Tasks[index].Source);
-                        var isExisting = request.Id.HasValue && existing.ContainsKey(request.Id.Value);
+                        var isExisting = request.Id.HasValue && existing.Contains(request.Id.Value);
                         var validation = isExisting ? FilterExistingImportRequest(request, options) : request with { Id = null };
                         foreach (var message in ValidateImportedAssignment(validation, index + 1)) issues.Add(new($"$.tasks[{index}]", message));
                         if (!isExisting && !graph.Scopes.Contains("content"))
@@ -98,6 +105,7 @@ internal static partial class AssignmentApiEndpoints
                     }
                 }
             }
+            TaskForge.Tasks.Api.Services.Transfer.GraphTransferProgress.Get(http)?.Report("preview.resources", 85, graph.Tasks.Count, graph.Tasks.Count);
             var datasets = new List<SqlTaskGraphService.DatasetPreview>();
             if (issues.Count == 0)
             {
@@ -115,7 +123,10 @@ internal static partial class AssignmentApiEndpoints
                         ? value.GetString() : null
                 }).ToArray()
             };
-            return Microsoft.AspNetCore.Http.Results.Ok(new { issues, datasets, bindings });
-        }).AddEndpointFilter<SqlEndpointFilter>();
+            var requestedIds = graph.Tasks.Select(x => x.Source.TryGetProperty("id", out var value)
+                && value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id) ? id : Guid.Empty).ToArray();
+            var metadata = await db.Assignments.AsNoTracking().Where(x => requestedIds.Contains(x.Id) && subtree.Contains(x.CourseId))
+                .Select(x => new { x.Id, x.CourseId, x.Title, x.Type }).ToListAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { issues, datasets, bindings, metadata });
     }
 }

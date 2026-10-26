@@ -1524,19 +1524,20 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
     + (projection?.positionChanges || 0) + (projection?.viewportChanged ? 1 : 0);
   const hasImportWork = operationCount > 0 || (preflight.datasets || []).some((dataset) => dataset.action === 'create');
 
-  // Show connections as declared in the incoming JSON. A task may be reached via
-  // another task, so direct course->task edges alone are not sufficient.
+  // Reachability describes the effective map, including preserved edges in a
+  // layout-only/merge import. Canonical keys may differ for the same UUID.
+  const nodeRef = (key) => projection?.referenceNodes?.incoming?.[key] || key;
   const outgoing = new Map();
-  for (const connection of incoming.connections || []) {
-    const from = String(connection?.from || '');
-    const to = String(connection?.to || '');
+  const effectiveEdges = projection?.edges || (incoming.connections || []).map((edge) => ({ source: edge.from, target: edge.to }));
+  for (const connection of effectiveEdges) {
+    const from = String(connection.source || '');
+    const to = String(connection.target || '');
     if (!outgoing.has(from)) outgoing.set(from, []);
     outgoing.get(from).push(to);
   }
-  // A course may have every child edge and still be invisible if the root
-  // does not reach that course. Report both levels independently.
-  const rootReachable = new Set([TASK_GRAPH_COURSE_REF]);
-  const fromRoot = [TASK_GRAPH_COURSE_REF];
+  const rootNode = nodeRef(TASK_GRAPH_COURSE_REF);
+  const rootReachable = new Set([rootNode]);
+  const fromRoot = [rootNode];
   for (let index = 0; index < fromRoot.length; index += 1) {
     for (const to of outgoing.get(fromRoot[index]) || []) {
       if (rootReachable.has(to)) continue;
@@ -1546,10 +1547,15 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
   }
   const courseRows = (incoming.courses || []).map((course) => {
     const courseKey = String(course.key || '');
-    const children = rows.filter((row) => String(row.courseRef || '') === courseKey);
-    const childKeys = new Set(children.map((row) => String(row.key || '')));
-    const visited = new Set([courseKey]);
-    const queue = [courseKey];
+    const children = rows.filter((row) => {
+      const existing = currentById.get(row.id);
+      return existing ? currentIdentity.get(existing.course || TASK_GRAPH_COURSE_REF) === incomingIdentity.get(courseKey)
+        : String(row.courseRef || '') === courseKey;
+    });
+    const childKeys = new Set(children.map((row) => nodeRef(row.key)));
+    const courseNode = nodeRef(courseKey);
+    const visited = new Set([courseNode]);
+    const queue = [courseNode];
     for (let index = 0; index < queue.length; index += 1) {
       for (const to of outgoing.get(queue[index]) || []) {
         if (visited.has(to)) continue;
@@ -1557,22 +1563,22 @@ export function buildTaskGraphImportDiff(parsed, currentExport, importOptions = 
         queue.push(to);
       }
     }
-    const unreachableKeys = children.filter((row) => !visited.has(String(row.key || ''))).map((row) => row.key);
+    const unreachableKeys = children.filter((row) => !visited.has(nodeRef(row.key))).map((row) => row.key);
     return {
       key: courseKey,
       id: course.id || null,
       title: course.title || courseKey,
       taskCount: children.length,
-      reachableFromRoot: rootReachable.has(courseKey),
+      reachableFromRoot: rootReachable.has(courseNode),
       createCount: children.filter((row) => row.action === 'create').length,
       existingCount: children.filter((row) => row.action !== 'create').length,
-      directLinkCount: (outgoing.get(courseKey) || []).filter((to) => childKeys.has(to)).length,
+      directLinkCount: (outgoing.get(courseNode) || []).filter((to) => childKeys.has(to)).length,
       reachableCount: children.length - unreachableKeys.length,
       unreachableKeys,
     };
   });
   if (options.updateConnections) {
-    const unreachableFromRoot = rows.filter((row) => !rootReachable.has(String(row.key || '')));
+    const unreachableFromRoot = rows.filter((row) => !rootReachable.has(nodeRef(row.key)));
     if (unreachableFromRoot.length) warnings.push(`От корневого курса $course нет пути до ${unreachableFromRoot.length} заданий из JSON. Проверьте стрелки от корня и вложенных курсов.`);
     for (const course of courseRows) {
       if (!course.reachableFromRoot) warnings.push(`Курс «${course.title}» не достижим от $course; его счётчик может остаться нулевым.`);

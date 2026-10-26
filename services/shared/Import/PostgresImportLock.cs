@@ -13,9 +13,10 @@ public sealed class PostgresImportLock : IAsyncDisposable
 {
     private readonly DbContext db;
     private readonly long key;
-    private PostgresImportLock(DbContext db, long key) { this.db = db; this.key = key; }
+    private readonly bool shared;
+    private PostgresImportLock(DbContext db, long key, bool shared) { this.db = db; this.key = key; this.shared = shared; }
 
-    public static async Task<PostgresImportLock?> TryAcquireAsync(DbContext db, string name, CancellationToken ct)
+    public static async Task<PostgresImportLock?> TryAcquireAsync(DbContext db, string name, CancellationToken ct, bool shared = false)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(name));
         var key = BinaryPrimitives.ReadInt64LittleEndian(bytes);
@@ -23,10 +24,10 @@ public sealed class PostgresImportLock : IAsyncDisposable
         try
         {
             await using var command = db.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "SELECT pg_try_advisory_lock(@key)";
+            command.CommandText = shared ? "SELECT pg_try_advisory_lock_shared(@key)" : "SELECT pg_try_advisory_lock(@key)";
             var parameter = command.CreateParameter(); parameter.ParameterName = "key"; parameter.Value = key;
             command.Parameters.Add(parameter);
-            if (await command.ExecuteScalarAsync(ct) is true) return new PostgresImportLock(db, key);
+            if (await command.ExecuteScalarAsync(ct) is true) return new PostgresImportLock(db, key, shared);
         }
         catch { await db.Database.CloseConnectionAsync(); throw; }
         await db.Database.CloseConnectionAsync();
@@ -40,7 +41,7 @@ public sealed class PostgresImportLock : IAsyncDisposable
             if (db.Database.GetDbConnection().State == ConnectionState.Open)
             {
                 await using var command = db.Database.GetDbConnection().CreateCommand();
-                command.CommandText = "SELECT pg_advisory_unlock(@key)";
+                command.CommandText = shared ? "SELECT pg_advisory_unlock_shared(@key)" : "SELECT pg_advisory_unlock(@key)";
                 command.CommandTimeout = 5;
                 var parameter = command.CreateParameter(); parameter.ParameterName = "key"; parameter.Value = key;
                 command.Parameters.Add(parameter);

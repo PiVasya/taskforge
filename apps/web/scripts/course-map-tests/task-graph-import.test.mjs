@@ -336,3 +336,21 @@ test('preview does not trim test strings, reorder cases, or alter Unicode', () =
   const result=diff(input);assert.equal(result.validationErrorCount,0);assert.equal(JSON.stringify(input),before);
   const applied=prepare(commit(input));assert.deepEqual(applied.assignments[0].testCases,tests);
 });
+
+test('layout preview uses preserved paths even when incoming keys differ and no connections are sent', () => {
+  const before = graph({ courses: [{ key: 'old-year', id: uid(200), title: 'Contest 2025' }],
+    tasks: [task('old-task', { id: uid(1), course: 'old-year' })],
+    connections: [{ from: '$course', to: 'old-year' }, { from: 'old-year', to: 'old-task' }],
+    layout: { positions: { $course: { x: 0, y: 0 }, 'old-year': { x: 500, y: 0 }, 'old-task': { x: 1000, y: 0 } } } });
+  const input = { schemaVersion: 5, format: 'taskforge-task-graph', scopes: ['ids', 'layout'],
+    courses: [{ key: 'year', id: uid(200) }], tasks: [{ key: 'task', id: uid(1) }],
+    layout: { positions: { year: { x: 700, y: 100 }, task: { x: 1200, y: 100 } } } };
+  const result = diff(input, before);
+  assert.equal(result.validationErrorCount, 0, JSON.stringify(result.graphIssues));
+  assert.equal(result.courseRows[0].reachableFromRoot, true);
+  assert.equal(result.courseRows[0].taskCount, 1);
+  assert.equal(result.courseRows[0].directLinkCount, 1);
+  assert.equal(result.courseRows[0].reachableCount, 1);
+  assert.deepEqual(result.courseRows[0].unreachableKeys, []);
+  assert.equal(result.connectionAddedCount, 0); assert.equal(result.connectionRemovedCount, 0);
+});

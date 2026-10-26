@@ -7,6 +7,7 @@ source = source.replace(
   "import api from './http';",
   "const api = { post: (...args) => { globalThis.__tfProgressPostCalls += 1; return globalThis.__tfProgressPost(...args); } };",
 );
+source = source.replace("import { runGraphTransfer } from './graphTransfers';", "const runGraphTransfer = () => { throw new Error('unexpected graph transfer in course-progress test'); };");
 const assignments = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('course progress requests with the same ids share one in-flight HTTP request', async () => {

@@ -36,7 +36,7 @@ export default function LeaderboardCard({ entry }) {
       type="button"
       onClick={handleOpenProfile}
       onContextMenuCapture={(event) => { if (!claimContextMenuEvent(event)) return; setContextMenu({ open: true, x: event.clientX, y: event.clientY }); }}
-      className="group relative w-full text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
+      className="group relative w-full h-full min-h-[160px] text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all p-4 flex gap-4 cursor-pointer"
     >
       
       <div className="absolute -top-3 left-0">
@@ -64,7 +64,7 @@ export default function LeaderboardCard({ entry }) {
       </div>
 
       
-      <div className="flex-1 min-w-0 space-y-1">
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
         
         <div className="flex flex-wrap items-center gap-2">
           <div className="font-semibold break-words">
@@ -115,7 +115,7 @@ export default function LeaderboardCard({ entry }) {
         )}
 
         
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+        <div className="mt-auto pt-2 flex flex-wrap gap-2 text-xs">
           
           <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
             <span className="font-semibold text-neutral-700 dark:text-neutral-200">
@@ -148,9 +148,6 @@ export default function LeaderboardCard({ entry }) {
               </span>
             </span>
           )}
-        </div>
-        <div className="pt-2 text-xs font-medium text-[rgb(var(--accent))] opacity-80 transition-opacity group-hover:opacity-100">
-          Смотреть статистику →
         </div>
       </div>
     </button>

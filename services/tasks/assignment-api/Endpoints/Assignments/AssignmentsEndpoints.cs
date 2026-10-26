@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -107,6 +108,7 @@ internal static partial class AssignmentApiEndpoints
     {
         MapTaskGraphPreviewEndpoints(app);
         MapTaskGraphOperationEndpoints(app);
+        MapTaskGraphTransferEndpoints(app);
         app.MapGet("/api/courses/{courseId:guid}/assignments", async (Guid courseId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             var includeHidden = await CanUserEditCourseAsync(courseId, http, cfg, clients, ct);
@@ -489,72 +491,8 @@ internal static partial class AssignmentApiEndpoints
                     : new CourseAssignmentProgressDto(id, 0, 0, 0, false)).ToList());
         });
 
-        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", async (
-            Guid courseId,
-            bool? includeIds,
-            bool? includeContent,
-            bool? includeChecks,
-            bool? includeVisibility,
-            bool? includeConnections,
-            bool? includeConnectionAccess,
-            bool? includeLayout,
-            bool? includeGuide,
-            HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            if (!IsEditor(http, cfg))
-            {
-                return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для экспорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
-            }
-            if (!await CanUserEditCourseAsync(courseId, http, cfg, clients, ct)) return CourseEditForbidden();
-
-            var educationBaseUrl = ServiceUrl(cfg, "EducationApi", "http://education-api:8080");
-            var tree = await GetInternalAsync<CourseTreeResponse>(
-                clients,
-                cfg,
-                educationBaseUrl,
-                $"/api/internal/courses/{courseId:D}/tree",
-                ct);
-            if (tree == null || tree.CourseIds.Length == 0)
-            {
-                return Microsoft.AspNetCore.Http.Results.Json(
-                    new { message = "Не удалось получить структуру курса для экспорта.", code = "COURSE_TREE_UNAVAILABLE" },
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
-            var exportCourseIds = tree.CourseIds.Where(x => x != Guid.Empty).Distinct().ToArray();
-            var rows = await db.Assignments.AsNoTracking()
-                .Where(x => exportCourseIds.Contains(x.CourseId))
-                .OrderBy(x => x.CourseId)
-                .ThenBy(x => x.Sort)
-                .ThenBy(x => x.CreatedAt)
-                .ToListAsync(ct);
-            var map = await GetInternalAsync<CourseMapInternalResponse>(
-                clients,
-                cfg,
-                educationBaseUrl,
-                $"/api/internal/courses/{courseId:D}/map",
-                ct);
-            if (map == null)
-            {
-                return Microsoft.AspNetCore.Http.Results.Json(
-                    new { message = "Не удалось получить карту курса для экспорта.", code = "COURSE_MAP_UNAVAILABLE" },
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
-            var exportOptions = new GraphExportOptions(
-                includeIds ?? true,
-                includeContent ?? true,
-                includeChecks ?? true,
-                includeVisibility ?? true,
-                includeConnections ?? true,
-                includeConnectionAccess ?? true,
-                includeLayout ?? true,
-                includeGuide ?? false);
-            if (!exportOptions.IncludeIds && !exportOptions.IncludeContent)
-                return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "TASK_GRAPH_EXPORT_INCOMPLETE",
-                    message = "Для обратного импорта нужны ID заданий или раздел «Условия и настройки»." });
-            var sql = await SqlTaskGraphService.Export(db, rows, exportOptions, ct);
-            var exportDtos = await AssignmentTypedExportService.LoadImportDtosAsync(db, rows, ct);
-            return Microsoft.AspNetCore.Http.Results.Json(BuildExport(courseId, rows, tree, map, exportOptions, sql, exportDtos), JsonOptions());
-        }).AddEndpointFilter<SqlEndpointFilter>();
+        app.MapGet("/api/courses/{courseId:guid}/assignments/export-json", ExportTaskGraphHttpAsync)
+            .AddEndpointFilter<SqlEndpointFilter>();
 
         app.MapPost("/api/courses/{courseId:guid}/assignments/import-json", JournaledTaskGraphImportAsync)
             .AddEndpointFilter<SqlEndpointFilter>();
@@ -638,6 +576,8 @@ internal static partial class AssignmentApiEndpoints
     private static async Task<IResult> ApplyTaskGraphImportAsync(Guid courseId, JsonElement payload, HttpContext http,
         IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
     {
+            var applyElapsed = Stopwatch.StartNew();
+            LogImportPhase(http, applyElapsed, "apply.begin");
             if (!IsEditor(http, cfg))
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new { message = "Для импорта заданий нужны права редактора.", code = "EDITOR_REQUIRED" }, statusCode: StatusCodes.Status403Forbidden);
@@ -722,6 +662,19 @@ internal static partial class AssignmentApiEndpoints
                 if (bindingIssues.Count > 0)
                     return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "TASK_GRAPH_BINDING_INVALID",
                         message = "Импорт остановлен: конфликт UUID или курса задания.", issues = bindingIssues });
+                LogImportPhase(http, applyElapsed, "apply.bindings-checked", taskGraph.Tasks.Count, taskGraph.Courses.Count);
+                if (IsMetadataOnlyGraphImport(taskGraph, importOptions)
+                    && taskGraph.Courses.All(x => x.Id != Guid.Empty && graphSubtreeCourseIds.Contains(x.Id)))
+                {
+                    var referenceIds = taskGraph.Tasks.Select(x => x.Source.TryGetProperty("id", out var value)
+                        && value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id) ? id : Guid.Empty).ToArray();
+                    // Disabled updates apply only to existing entities. A mixed package
+                    // can still create new entities from its content, so it must fall through.
+                    if (referenceIds.All(x => x != Guid.Empty)
+                        && await db.Assignments.CountAsync(x => referenceIds.Contains(x.Id) && graphSubtreeCourseIds.Contains(x.CourseId), ct) == referenceIds.Length)
+                        return await ApplyMetadataOnlyGraphImportAsync(taskGraph, importOptions, graphCourseIds,
+                            graphSubtreeCourseIds, db, clients, cfg, http, applyElapsed, ct);
+                }
                 sourceItems = taskGraph.Tasks.Select(x => x.Source).ToList();
             }
             else
@@ -771,6 +724,7 @@ internal static partial class AssignmentApiEndpoints
                 ? new List<Assignment>()
                 : await db.Assignments.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
             var existingRowById = existingRows.ToDictionary(x => x.Id);
+            LogImportPhase(http, applyElapsed, "apply.existing-assignments-loaded", existingRows.Count, taskGraph?.Courses.Count ?? 0);
 
             for (var i = 0; i < requests.Count; i++)
             {
@@ -970,6 +924,7 @@ internal static partial class AssignmentApiEndpoints
                 }
             }
 
+            LogImportPhase(http, applyElapsed, "apply.courses-resolved", requests.Count, taskGraph?.Courses.Count ?? 0);
             var targetCourseIds = taskGraph != null && graphCourseIds != null
                 ? taskGraph.Tasks.Select(x => graphCourseIds.GetValueOrDefault(x.CourseRef, courseId)).Append(courseId).Distinct().ToArray()
                 : new[] { courseId };
@@ -990,8 +945,15 @@ internal static partial class AssignmentApiEndpoints
             await using var sqlImportTransaction = db.Database.CurrentTransaction is null
                 ? await db.Database.BeginTransactionAsync(ct) : null;
 
+            LogImportPhase(http, applyElapsed, "apply.assignments-start", requests.Count, taskGraph?.Courses.Count ?? 0);
             for (var i = 0; i < requests.Count; i++)
             {
+                ct.ThrowIfCancellationRequested();
+                TaskForge.Tasks.Api.Services.Transfer.GraphTransferProgress.Get(http)?.Report("assignments",
+                    30 + 40 * i / Math.Max(1, requests.Count), i, requests.Count, requests[i].Id?.ToString("D"));
+                if (i % 25 == 0)
+                    LogImportPhase(http, applyElapsed, $"apply.assignment-{i + 1}-of-{requests.Count}", requests.Count,
+                        taskGraph?.Courses.Count ?? 0);
                 var request = requests[i];
                 var key = taskGraph?.Tasks[i].Key;
                 var taskCourseRef = taskGraph?.Tasks[i].CourseRef ?? CourseReference;
@@ -1013,7 +975,22 @@ internal static partial class AssignmentApiEndpoints
                             assignmentId = existing.Id
                         });
                     }
-                    await ApplyAssignmentRequestAsync(existing, filteredRequest, db, clients, cfg, ct);
+                    try
+                    {
+                        if (importOptions.UpdateContent || importOptions.UpdateChecks || taskGraph is null)
+                            await ApplyAssignmentRequestAsync(existing, filteredRequest, db, clients, cfg, ct);
+                        else if (filteredRequest.IsVisible.HasValue && filteredRequest.IsVisible.Value != existing.IsVisible)
+                        {
+                            existing.IsVisible = filteredRequest.IsVisible.Value;
+                            existing.UpdatedAt = DateTimeOffset.UtcNow;
+                        }
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        LogImportPhase(http, applyElapsed, $"apply.assignment-cancelled-at-{i + 1}-of-{requests.Count}",
+                            requests.Count, taskGraph?.Courses.Count ?? 0);
+                        throw;
+                    }
                     if (oldRating != existing.Rating || oldVisible != existing.IsVisible) ratingAffectedAssignmentIds.Add(existing.Id);
                     updated.Add(existing);
                     processed.Add((key, taskCourseRef, existing, "updated"));
@@ -1055,6 +1032,7 @@ internal static partial class AssignmentApiEndpoints
                 deleted.AddRange(deleteRows);
             }
 
+            LogImportPhase(http, applyElapsed, "apply.assignments-done", requests.Count, taskGraph?.Courses.Count ?? 0);
             if (created.Count > 0) db.Assignments.AddRange(created);
             await db.SaveChangesAsync(ct);
             if (taskGraph?.SourceSchemaVersion == SchemaVersion)
@@ -1147,7 +1125,10 @@ internal static partial class AssignmentApiEndpoints
             }
 
             var processedAssignments = processed.Select(x => x.Assignment).ToList();
-            var processedDtos = await AssignmentTypedReadService.BuildDtosAsync(db, processedAssignments, includeSensitive: true, ct: ct);
+            LogImportPhase(http, applyElapsed, "apply.readback-start", processedAssignments.Count, taskGraph?.Courses.Count ?? 0);
+            var processedDtos = processedAssignments.Select(x => new
+            { x.Id, x.CourseId, x.Type, x.Title, x.Rating, x.IsVisible, x.Language }).ToArray();
+            LogImportPhase(http, applyElapsed, "apply.done", processedAssignments.Count, taskGraph?.Courses.Count ?? 0);
             return Microsoft.AspNetCore.Http.Results.Ok(new
             {
                 createdCount = created.Count,

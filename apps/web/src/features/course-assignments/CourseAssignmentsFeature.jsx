@@ -64,12 +64,15 @@ import {
   DEFAULT_JSON_IMPORT_OPTIONS,
   taskGraphExampleToText,
   taskGraphJsonParseMessage,
-  taskGraphExportIssue,
 } from './courseTaskGraphJson';
 import { resolveRootCourseId } from './courseMapModel';
 import { useAuth } from '../../auth/AuthContext';
 import { applyServerGraphBindings, captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
 import TaskGraphImportStatus from './components/TaskGraphImportStatus';
+import GraphTransferProgress from './components/GraphTransferProgress';
+import useGraphTransfers from './useGraphTransfers';
+import useTaskGraphExport from './useTaskGraphExport';
+import { isTransferActive, previewExportOptions, withPreviewMetadata } from './graphTransferModel';
 import useTaskGraphImportActions from './useTaskGraphImportActions';
 import useTaskGraphImportJournal from './useTaskGraphImportJournal';
 import useTaskGraphJsonInput from './useTaskGraphJsonInput';
@@ -249,7 +252,7 @@ export default function CourseAssignmentsPage() {
   const [jsonImportParsed, setJsonImportParsed] = useState(null);
   const [jsonImportCurrentExport, setJsonImportCurrentExport] = useState(null);
   const [jsonImportApplyError, setJsonImportApplyError] = useState(null);
-  const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS });
+  const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS, includeGuide: false });
   const [jsonImportOptions, setJsonImportOptions] = useState({ ...DEFAULT_JSON_IMPORT_OPTIONS });
   const [graphImportRequest, setGraphImportRequest] = useState(null);
   const [jsonMapRecovery, setJsonMapRecovery] = useState(false);
@@ -258,7 +261,11 @@ export default function CourseAssignmentsPage() {
   const importContextRef = useRef('');
   importContextRef.current = `${courseId}:${importUserId}`;
   const importJournal = useTaskGraphImportJournal({ courseId, userId: importUserId, enabled: Boolean(isEditorMode && courseCanEdit) });
-  useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
+  const transfers = useGraphTransfers({ courseId, userId: importUserId, enabled: Boolean(isEditorMode && courseCanEdit), journal: importJournal,
+    onError: (error) => handleApiError(error, notify) });
+  const transferBusy = transfers.rows.some((row) => isTransferActive(row) && ['import', 'resume', 'map'].includes(row.kind));
+
+  useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); setJsonImportBusy(false); setJsonExportBusy(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
   const jsonPreviewSequenceRef = useRef(0);
   const jsonPreviewMapVersionRef = useRef(null);
   const {
@@ -928,15 +935,17 @@ export default function CourseAssignmentsPage() {
       return;
     }
 
+    const context = importContextRef.current;
     setJsonImportBusy(true);
     setJsonImportApplyError(null);
     try {
       const sequence = ++jsonPreviewSequenceRef.current;
       const [snapshot, preflight] = await Promise.all([
-        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId), readExport: () => exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS) }),
+        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId), readExport: () => exportAssignmentsToJson(courseId, previewExportOptions(parsed, jsonImportOptions)) }),
         previewAssignmentsFromJson(courseId, parsed, jsonImportOptions),
       ]);
-      const { currentExport, mapVersion } = snapshot;
+      const { mapVersion } = snapshot;
+      const currentExport = withPreviewMetadata(snapshot.currentExport, preflight);
       if (sequence !== jsonPreviewSequenceRef.current) return;
       jsonPreviewMapVersionRef.current = mapVersion;
       const prepared = applyServerGraphBindings(parsed, preflight);
@@ -948,13 +957,14 @@ export default function CourseAssignmentsPage() {
       if (!diff.hasImportWork) notify.warn("В JSON нет данных, которые можно применить");
       if (diff.validationErrorCount > 0) notify.warn(`В JSON есть ошибки: ${diff.validationErrorCount}`);
     } catch (e) {
+      if (context !== importContextRef.current) return;
       if (e?.response?.status === 413) {
         notify.error('Сервер отклонил размер JSON (HTTP 413). Разделите импорт на меньшие пакеты; содержимое не применено.');
       } else {
         handleApiError(e, notify, "Не удалось подготовить дифф импорта");
       }
     } finally {
-      setJsonImportBusy(false);
+      if (context === importContextRef.current) setJsonImportBusy(false);
     }
   };
 
@@ -970,9 +980,16 @@ export default function CourseAssignmentsPage() {
     const sequence = ++jsonPreviewSequenceRef.current;
     setJsonImportBusy(true);
     try {
-      const preflight = await previewAssignmentsFromJson(courseId, jsonImportParsed, next);
+      const [snapshot, preflight] = await Promise.all([
+        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId),
+          readExport: () => exportAssignmentsToJson(courseId, previewExportOptions(jsonImportParsed, next)) }),
+        previewAssignmentsFromJson(courseId, jsonImportParsed, next),
+      ]);
       if (sequence !== jsonPreviewSequenceRef.current) return;
-      setJsonImportDiff(buildTaskGraphImportDiff(jsonImportParsed, jsonImportCurrentExport, next, preflight));
+      const current = withPreviewMetadata(snapshot.currentExport, preflight);
+      jsonPreviewMapVersionRef.current = snapshot.mapVersion;
+      setJsonImportCurrentExport(current);
+      setJsonImportDiff(buildTaskGraphImportDiff(jsonImportParsed, current, next, preflight));
     } catch (error) {
       if (sequence === jsonPreviewSequenceRef.current) setJsonImportApplyError(handleApiError(error, false, 'Не удалось проверить импорт на сервере. Применение заблокировано.'));
     } finally {
@@ -993,7 +1010,7 @@ export default function CourseAssignmentsPage() {
       notify.error("Сначала исправьте ошибки JSON");
       return;
     }
-    if (jsonImportBusy || jsonImportApplyError) return;
+    if (jsonImportBusy || transferBusy || jsonImportApplyError) return;
     if (jsonImportDiff?.requiresConnectionDeleteConfirmation || jsonImportDiff?.requiresDuplicateConfirmation) {
       notify.error('Подтвердите удаление связей или создание возможных дублей в проверке импорта.');
       return;
@@ -1018,43 +1035,17 @@ export default function CourseAssignmentsPage() {
     await applyJsonImport(jsonImportParsed);
   };
 
-  const handleExportJson = async () => {
-    if (!ensureCanManageAssignments("экспортировать JSON")) return;
-    const issue = taskGraphExportIssue(jsonExportOptions);
-    if (issue) { notify.warn(issue); return; }
-    setJsonExportBusy(true);
-    try {
-      const data = await exportAssignmentsToJson(courseId, jsonExportOptions);
-      const text = JSON.stringify(data, null, 2);
-      const safeTitle = (course?.title || "course")
-        .toLowerCase()
-        .replace(/[^a-zа-яё0-9]+/gi, "-")
-        .replace(/^-+|-+$/g, "") || "course";
-      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `taskforge-${safeTitle}-task-graph.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setJsonExportDialogOpen(false);
-      const count = Array.isArray(data?.tasks) ? data.tasks.length : 0;
-      const courseCount = Array.isArray(data?.courses) ? data.courses.length : 0;
-      const links = Array.isArray(data?.connections) ? data.connections.length : 0;
-      notify.success(`Граф экспортирован: ${count} заданий, ${courseCount} вложенных курсов, ${links} связей`);
-    } catch (e) {
-      handleApiError(e, notify, "Не удалось экспортировать JSON");
-    } finally {
-      setJsonExportBusy(false);
-    }
-  };
+  const handleExportJson = useTaskGraphExport({ courseId, jsonExportOptions, importContextRef, ensureCanManageAssignments,
+    notify, setJsonExportBusy, setJsonExportDialogOpen });
 
+  const transferProgress = <GraphTransferProgress controller={transfers} operation={importJournal.operation}
+    busy={jsonImportBusy || jsonExportBusy} compact />;
   return (
     <>
+      {isEditorMode && courseCanEdit ? <GraphTransferProgress controller={transfers} operation={importJournal.operation}
+        busy={jsonImportBusy || jsonExportBusy} /> : null}
       {isEditorMode && courseCanEdit ? <TaskGraphImportStatus importJournal={importJournal} graphImportRequest={graphImportRequest}
-        jsonImportBusy={jsonImportBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
+        jsonImportBusy={jsonImportBusy || transferBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
         openJsonImportDialog={openJsonImportDialog} notify={notify} lastImportDiffRef={lastImportDiffRef} /> : null}
       {!showFlowLayout ? (
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
@@ -1164,9 +1155,10 @@ export default function CourseAssignmentsPage() {
       </IfEditor>
 
       <JsonTaskGraphDiffModal
+        progress={transferProgress}
         open={jsonImportDiffOpen}
         diff={jsonImportDiff}
-        busy={jsonImportBusy}
+        busy={jsonImportBusy || transferBusy}
         error={jsonImportApplyError}
         onClose={() => {
           setJsonImportApplyError(null);
@@ -1179,17 +1171,20 @@ export default function CourseAssignmentsPage() {
       />
 
       <JsonTaskGraphExportDialog
+        progress={transferProgress}
         open={jsonExportDialogOpen}
         busy={jsonExportBusy}
         onClose={() => setJsonExportDialogOpen(false)}
         onExport={handleExportJson}
+        onPreset={(preset) => setJsonExportOptions({ ...preset })}
         exportOptions={jsonExportOptions}
         onExportOptionChange={handleJsonExportOptionChange}
       />
 
       <JsonTaskGraphImportDialog
+        progress={transferProgress}
         open={jsonImportDialogOpen}
-        busy={jsonImportBusy || jsonInputBusy || Boolean(createBusyType)}
+        busy={jsonImportBusy || transferBusy || jsonInputBusy || Boolean(createBusyType)}
         preview={jsonImportPreview}
         text={jsonImportText}
         source={jsonImportSource}

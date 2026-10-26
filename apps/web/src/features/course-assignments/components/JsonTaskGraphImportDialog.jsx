@@ -7,6 +7,7 @@ import JsonImportHelp from './JsonImportHelp';
 
 export default function JsonTaskGraphImportDialog({
   open,
+  progress = null,
   busy = false,
   preview = 'пусто',
   text = '',
@@ -44,7 +45,7 @@ export default function JsonTaskGraphImportDialog({
     <div
       className="tf-modal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-black/55 p-2 sm:p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose?.();
+        if (event.target === event.currentTarget) onClose?.();
       }}
       onDragOver={(event) => {
         if (!busy && Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault();
@@ -61,10 +62,11 @@ export default function JsonTaskGraphImportDialog({
             <div className="flex items-center gap-2 text-xl font-semibold"><FileJson size={20} /> Импорт JSON</div>
             <div className="mt-1 text-sm text-neutral-500">Загрузите файл или вставьте JSON. Перед применением TaskForge покажет точный список изменений.</div>
           </div>
-          <Button variant="outline" onClick={onClose} disabled={busy} title="Закрыть"><X size={16} /> Закрыть</Button>
+          <Button variant="outline" onClick={onClose} title="Закрыть"><X size={16} /> Закрыть</Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+          {progress}
           <div className="flex flex-col gap-3 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Sparkles size={18} />

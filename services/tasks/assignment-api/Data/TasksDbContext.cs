@@ -7,6 +7,8 @@ namespace TaskForge.Tasks.Api.Data;
 
 public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : DbContext(options)
 {
+    public DbSet<TaskGraphTransfer> TaskGraphTransfers => Set<TaskGraphTransfer>();
+    public DbSet<TaskGraphTransferPart> TaskGraphTransferParts => Set<TaskGraphTransferPart>();
     public DbSet<TaskGraphImportOperation> TaskGraphImportOperations => Set<TaskGraphImportOperation>();
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
@@ -43,6 +45,28 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ConfigureSqlDomain();
+        modelBuilder.Entity<TaskGraphTransfer>(entity =>
+        {
+            entity.ToTable("TaskGraphTransfers");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.Lane, x.State, x.CreatedAt });
+            entity.HasIndex(x => new { x.UserId, x.CourseId, x.CreatedAt });
+            entity.HasIndex(x => x.ExpiresAt);
+            entity.Property(x => x.Kind).HasMaxLength(24);
+            entity.Property(x => x.Lane).HasMaxLength(24);
+            entity.Property(x => x.State).HasMaxLength(24);
+            entity.Property(x => x.RequestHash).HasMaxLength(64);
+            entity.Property(x => x.Phase).HasMaxLength(100);
+            entity.Property(x => x.CurrentItem).HasMaxLength(100);
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.Property(x => x.ErrorJson).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<TaskGraphTransferPart>(entity =>
+        {
+            entity.ToTable("TaskGraphTransferParts");
+            entity.HasKey(x => new { x.TransferId, x.Sequence });
+            entity.HasOne<TaskGraphTransfer>().WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<TaskGraphImportOperation>(entity =>
         {

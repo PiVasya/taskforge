@@ -1,9 +1,10 @@
 import React from 'react';
+import { previewExportOptions, withPreviewMetadata } from './graphTransferModel';
 import { getCourseMap } from '../../api/courseMaps';
 import { captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
 import { exportAssignmentsToJson, previewAssignmentsFromJson } from '../../api/assignments';
 import { handleApiError } from '../../utils/handleApiError';
-import { buildTaskGraphImportDiff, FULL_JSON_EXPORT_OPTIONS, DEFAULT_JSON_IMPORT_OPTIONS } from './courseTaskGraphJson';
+import { buildTaskGraphImportDiff, DEFAULT_JSON_IMPORT_OPTIONS } from './courseTaskGraphJson';
 import { mapRecoveryPayload, mapRequestFromOperation } from './courseTaskGraphOperation';
 
 export default function useTaskGraphImportActions({ courseId, importContextRef, importJournal, jsonImportDiff, jsonImportOptions,
@@ -64,11 +65,11 @@ export default function useTaskGraphImportActions({ courseId, importContextRef, 
         updateLayout: Boolean(operation.response.taskGraph.apply?.layout), allowDeletes: false,
         allowConnectionDeletes: false, allowDuplicates: false };
       const [snapshot, preflight] = await Promise.all([
-        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId), readExport: () => exportAssignmentsToJson(courseId, FULL_JSON_EXPORT_OPTIONS) }),
+        captureTaskGraphPreviewSnapshot({ readMap: () => getCourseMap(courseId), readExport: () => exportAssignmentsToJson(courseId, previewExportOptions(parsed, options)) }),
         previewAssignmentsFromJson(courseId, parsed, options),
       ]);
       if (String(operation.courseId) !== String(courseId) || context !== importContextRef.current) return;
-      const current = snapshot.currentExport;
+      const current = withPreviewMetadata(snapshot.currentExport, preflight);
       jsonPreviewMapVersionRef.current = snapshot.mapVersion;
       setJsonMapRecovery(true); setJsonImportOptions(options); setJsonImportParsed(parsed);
       setJsonImportCurrentExport(current); setJsonImportDiff(buildTaskGraphImportDiff(parsed, current, options, preflight));

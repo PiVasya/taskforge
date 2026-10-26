@@ -8,7 +8,7 @@ import { loadSourceModule } from '../../apps/web/scripts/test-utils/load-source-
 const argv=process.argv.slice(2);
 const get=name=>argv.includes(name)?argv[argv.indexOf(name)+1]:undefined;
 if(argv.includes('--help')) {
-  console.log('TASKFORGE_TEST_TOKEN=<editor token> node scripts/tests/task-graph-import-live.mjs --base https://host --course-id <empty hidden ROOT course UUID> --allow-writes [--large 250] [--out /tmp/taskforge-import-live.json]');
+  console.log('TASKFORGE_TEST_TOKEN=<editor token> node scripts/tests/task-graph-import-live.mjs --base https://host --course-id <empty hidden ROOT course UUID> --allow-writes [--transfers] [--large 250] [--out /tmp/taskforge-import-live.json]');
   process.exit(0);
 }
 const base=get('--base'), courseId=get('--course-id'), token=process.env.TASKFORGE_TEST_TOKEN;
@@ -19,10 +19,49 @@ if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(courseId))
 const large=Number(get('--large')||0); if(![0,250].includes(large)) throw Error('--large accepts 250 only.');
 const out=get('--out')||'/tmp/taskforge-import-live.json';
 const checks=[];const root=`/api/courses/${courseId}`;
-async function request(method,path,body) {
+async function requestRaw(method,path,body) {
   const response=await fetch(new URL(path,url),{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
   const raw=await response.text(); let data; try {data=JSON.parse(raw);}catch {data={code:'NON_JSON_RESPONSE'};}
   return {status:response.status,data};
+}
+// --transfers runs the same acceptance cases through the durable API rather
+// than keeping a mutating HTTP request open. Only an explicitly supplied hidden
+// disposable course is accepted by the safety checks below.
+const useTransfers = argv.includes('--transfers');
+async function transfer(kind, payload, operationId) {
+  const transferId = randomUUID();
+  const started = await requestRaw('POST', `${root}/assignments/transfers`, { transferId, kind, payload, ...(operationId ? { operationId } : {}) });
+  if (started.status >= 400) return started;
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let job = started.data;
+  while (['queued', 'running'].includes(job.state)) {
+    if (Date.now() > deadline) throw Error(`Transfer ${transferId} is still running; inspect its status before retrying.`);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const lookup = await requestRaw('GET', `${root}/assignments/transfers/${transferId}`);
+    if (lookup.status !== 200) throw Error(`Transfer status unavailable: ${transferId}`);
+    job = lookup.data;
+    assert.equal(Object.hasOwn(job, 'payloadJson'), false, 'status must never disclose the retained payload');
+  }
+  if (job.state !== 'succeeded') return { status: job.resultStatus || 409, data: JSON.parse(job.errorJson || '{}') };
+  for (let retry = 0; retry < 3; retry++) {
+    const result = await requestRaw('GET', `${root}/assignments/transfers/${transferId}/result`);
+    if (result.status !== 503) return result;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw Error(`Result temporarily unavailable: ${transferId}`);
+}
+async function request(method, path, body) {
+  if (!useTransfers) return requestRaw(method, path, body);
+  if (method === 'GET' && path.startsWith(`${root}/assignments/export-json`)) {
+    const query = new URL(path, url).searchParams;
+    return transfer('export', Object.fromEntries([...query].map(([key, value]) => [key, value !== 'false'])));
+  }
+  if (method === 'POST' && path === `${root}/assignments/import-json`) return transfer('import', body, body?.operationId);
+  if (method === 'POST' && path.endsWith('/import-json/preview')) return transfer('preview', body);
+  const match = path.match(/\/import-json\/operations\/([a-f\d-]+)\/(map|resume)$/i);
+  if (match && ((method === 'PUT' && match[2] === 'map') || (method === 'POST' && match[2] === 'resume')))
+    return transfer(match[2], body || {}, match[1]);
+  return requestRaw(method, path, body);
 }
 async function ok(method,path,body) {const res=await request(method,path,body);if(res.status<200||res.status>=300)throw Error(`${method} ${path}: HTTP ${res.status} ${res.data?.code||''}`);return res.data;}
 async function check(name,fn) {await fn(); checks.push({name,passed:true});console.log(`PASS ${name}`);}
@@ -62,6 +101,21 @@ try {
   assert.equal(initial.courses?.length||0,0,'Refusing to touch a course with children.');
   const initialMap=await ok('GET',`${root}/map`);
   assert.ok((initialMap.document?.nodes?.length||0)<=1); assert.equal(initialMap.document?.edges?.length||0,0);
+  if (useTransfers) await check('transfer IDs replay one job, changed payloads conflict, metadata export is independent', async () => {
+    const id = randomUUID();
+    const payload = { includeIds: true, includeContent: false, includeChecks: false, includeVisibility: false,
+      includeConnections: false, includeConnectionAccess: false, includeLayout: true, includeGuide: false };
+    const input = { transferId: id, kind: 'export', payload };
+    const first = await requestRaw('POST', `${root}/assignments/transfers`, input);
+    assert.equal(first.status, 202);
+    const repeated = await requestRaw('POST', `${root}/assignments/transfers`, input);
+    assert.equal(repeated.status, 200); assert.equal(repeated.data.transferId, id);
+    const changed = await requestRaw('POST', `${root}/assignments/transfers`, { ...input, payload: { ...payload, includeContent: true } });
+    assert.equal(changed.status, 409); assert.equal(changed.data.code, 'TRANSFER_PAYLOAD_CHANGED');
+    const light = await transfer('export', payload);
+    assert.equal(light.status, 200); assert.deepEqual(light.data.scopes, ['ids', 'layout']);
+    assert.equal(light.data.guide, undefined);
+  });
   let mega;
   await check('official mega: one pass, real map receipt, 17 edges, one unplaced draft',async()=>{
     mega=await apply(structuredClone(json.TASK_GRAPH_MEGA_EXAMPLE));

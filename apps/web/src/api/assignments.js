@@ -1,3 +1,4 @@
+import { runGraphTransfer } from './graphTransfers';
 import api from './http';
 
 const courseProgressInFlight = new Map();
@@ -39,18 +40,15 @@ export async function getAssignmentEditMeta(assignmentId) {
 }
 
 export async function importAssignmentsFromJson(courseId, graph, options = {}, operationId) {
-  const res = await api.post(`/api/courses/${courseId}/assignments/import-json`, { graph, options, operationId });
-  return res.data;
+  return runGraphTransfer(courseId, 'import', { graph, options }, { operationId });
 }
 
 export async function previewAssignmentsFromJson(courseId, graph, options = {}) {
-  const res = await api.post(`/api/courses/${courseId}/assignments/import-json/preview`, { graph, options });
-  return res.data;
+  return runGraphTransfer(courseId, 'preview', { graph, options });
 }
 
 export async function exportAssignmentsToJson(courseId, options = {}) {
-  const res = await api.get(`/api/courses/${courseId}/assignments/export-json`, { params: options });
-  return res.data;
+  return runGraphTransfer(courseId, 'snapshot', options);
 }
 
 
@@ -103,14 +101,16 @@ export async function getTaskGraphImport(courseId, operationId) {
   return (await api.get(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}`)).data;
 }
 export async function resumeTaskGraphImport(courseId, operationId) {
-  return (await api.post(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/resume`)).data;
+  return runGraphTransfer(courseId, 'resume', {}, { operationId });
 }
 export async function saveTaskGraphImportMap(courseId, operationId, expectedVersion, document, replaceConflicted = false) {
-  return (await api.put(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/map`, {
-    expectedVersion, document, replaceConflicted,
-  })).data;
+  return runGraphTransfer(courseId, 'map', { expectedVersion, document, replaceConflicted }, { operationId });
 }
 
 export async function stopTaskGraphImport(courseId, operationId) {
   return (await api.post(`/api/courses/${courseId}/assignments/import-json/operations/${operationId}/stop`, { acknowledgePartial: true })).data;
+}
+
+export function exportAssignmentsToBlob(courseId, options = {}) {
+  return runGraphTransfer(courseId, 'export', options, { resultType: 'blob' });
 }
