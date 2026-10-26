@@ -9,7 +9,7 @@
     "frames": 80,
     "durationMs": 4000,
     "source": "Mojang Bedrock geometry/textures; TaskForge idle animation",
-    "sha256": "57ec5aaaaeb6dd45958b3241f4b40ba99f9aae1064a208e205b5e0205e2fe77f"
+    "sha256": "cc0c14aec29d56a363ddfa3f7163dac159b0e867a1764d2f8bf33166ffe784c7"
   },
   {
     "id": "snow-golem",
@@ -21,7 +21,7 @@
     "frames": 80,
     "durationMs": 4000,
     "source": "Mojang Bedrock geometry/textures; TaskForge idle animation",
-    "sha256": "f7795350c9af4f94f6ab390b41d8de334e919ec215133b912a9bbce6e148a393"
+    "sha256": "6e7676da16d8906cde2f8e0d0aff9878d14c8b8a998fd12cbc36cce7c3160ad2"
   },
   {
     "id": "drowned",
@@ -45,7 +45,7 @@
     "frames": 80,
     "durationMs": 4000,
     "source": "Mojang Bedrock geometry/textures; TaskForge idle animation",
-    "sha256": "e8055e59996d6969a25ec64b2f32aac6e7899688dedc326d3e32ddc1da689149"
+    "sha256": "5951113f033b1cbafb22f283344e428d7fd173e0f534703c11dd350e0eb1b89b"
   },
   {
     "id": "parched",
@@ -57,7 +57,7 @@
     "frames": 80,
     "durationMs": 4000,
     "source": "Mojang Bedrock geometry/textures; TaskForge idle animation",
-    "sha256": "ff823b456e0d595147a22daf5aec10dca501f6ee37d5500f0ca92c3ccf0c0990"
+    "sha256": "4a85ce0788624cc68dde67f59b84f99ee5ec0865cd5ad70385c4d8d93f403511"
   },
   {
     "id": "illusioner",
@@ -69,7 +69,7 @@
     "frames": 80,
     "durationMs": 4000,
     "source": "Mojang Bedrock geometry/textures; TaskForge idle animation",
-    "sha256": "cc2ccb7e33fc2af7ee7348a1b5f9a36bc7d849a312721ea2d2279397653a7aa6"
+    "sha256": "5c1b1dc1f700f97e4edfeba90e31478f63bf0982c2938f59e4e0fd8d254294b1"
   },
   {
     "id": "trident-zombie",

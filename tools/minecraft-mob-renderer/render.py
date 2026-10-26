@@ -124,10 +124,6 @@ class Mob:
             overlay, dims = geometry("stray_armor")
             self.layers.append((overlay, dims, "entity/skeleton/stray_overlay.png"))
         self.hand_items = []
-        if name in ("stray", "parched", "illusioner"):
-            self.hand_items.append(("leftArm", "bow_standby.png", [6,12,0], [-14, 0, -16], [8,8], .8))
-        if name == "wither-skeleton":
-            self.hand_items.append(("rightArm", "stone_sword.png", [-5,12,-1], [0,0,12], [4,12], 1.0))
         self.sprites = {}
         for _, filename, *_ in self.hand_items:
             image = Image.open(ASSETS / "textures/items" / filename).convert("RGBA")
@@ -183,7 +179,7 @@ class Mob:
                         faces.append((transformed(pts, matrix),uv,matrix[:3,:3]@normal))
             result.append(("entity/trident.png", faces))
         if self.name == "snow-golem":
-            cube = {"origin":[-4.5,19.5,-4.5],"size":[9,9,9],
+            cube = {"origin":[-4.5,20.5,-4.5],"size":[9,9,9],
                     "uv":{f:{"uv":[0,0],"uv_size":[16,16]} for f in ("north","south","east","west","up","down")}}
             for pts, uv, normal in cube_faces(cube, (16,16)):
                 face = "top" if normal[1] else ("face_off" if normal[2]<0 else "side")

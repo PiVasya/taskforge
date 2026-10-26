@@ -9,6 +9,10 @@ Snow golem, wither skeleton, drowned, stray, parched, illusioner and trident zom
 use authored periodic idle poses; the other eight preserve sourced animation.
 The renderer does not rotate the camera or animate a static illustration.
 
+Wither skeleton, stray, parched and illusioner are intentionally empty-handed.
+Drowned and trident zombie retain their tridents. The snow golem's pumpkin begins
+at model Y=20.5 and remains attached to the animated head bone.
+
 `MobCard` keeps one image URL for the card lifetime, including outside the
 viewport and while the document is hidden. Native lazy loading defers downloads
 without swapping media. An image error does not substitute another illustration.
@@ -24,6 +28,7 @@ python tools/minecraft-mob-renderer/fetch_sources.py
 python tools/minecraft-mob-renderer/render.py
 python tools/minecraft-mob-renderer/normalize.py
 python tools/minecraft-mob-renderer/verify.py
+python -m unittest discover -s tools/minecraft-mob-renderer -p test_render.py
 ```
 
 Geometry/textures are pinned to a Mojang Bedrock Samples revision in `sources.json`.
