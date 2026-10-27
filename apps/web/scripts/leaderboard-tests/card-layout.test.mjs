@@ -18,7 +18,8 @@ test('all leaderboard cards are exactly 128px tall independent of text, city, ed
   assert.match(page, /grid auto-rows-\[128px\] items-stretch gap-3 md:grid-cols-2/);
   assert.match(page, /className="tf-reveal-item h-\[128px\] min-w-0"/);
   assert.match(card, /className="group relative w-full h-\[128px\]/);
-  assert.doesNotMatch(card, /min-h-\[|h-full|min-h-full|mt-auto/);
+  assert.doesNotMatch(card, /min-h-\[|min-h-full|mt-auto/);
+  assert.doesNotMatch(card.match(/className="group relative[^"]+"/)?.[0] || '', /h-full/);
   assert.match(card, /h-6 min-w-0 font-semibold/);
   assert.match(card, /h-\[18px\] min-w-0 text-xs/);
   assert.match(card, /h-\[26px\] min-w-0 text-xs/);
@@ -60,4 +61,15 @@ test('marquee tracks resizing, keeps the duplicated copy hidden from screen read
   assert.match(marqueeCss, /\.tf-leaderboard-marquee:hover \.tf-leaderboard-marquee__track/);
   assert.match(marqueeCss, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(marqueeCss, /overflow-x: auto;/);
+});
+
+test('leaderboard photos and fallback initials share a larger, square, non-shrinking rounded avatar', () => {
+  assert.match(card, /className="h-16 w-16 min-h-16 min-w-16 flex-none overflow-hidden rounded-xl border /);
+  assert.match(card, /\{entry\.avatarUrl \? \([\s\S]*?<img[\s\S]*?className="block h-full w-full object-cover"/);
+  assert.match(card, /: \([\s\S]*?<div className="grid h-full w-full place-items-center bg-gradient-to-br/);
+  const avatar = card.slice(card.indexOf('h-16 w-16 min-h-16 min-w-16'), card.indexOf('{/* The three lines'));
+  assert.doesNotMatch(avatar, /rounded-full|h-12|w-12/);
+  assert.match(page, /tf-skeleton h-16 w-16 flex-none rounded-xl/);
+  assert.doesNotMatch(page, /tf-skeleton tf-skeleton-avatar/);
+  assert.match(page, /grid auto-rows-\[128px\] gap-3 md:grid-cols-2/);
 });

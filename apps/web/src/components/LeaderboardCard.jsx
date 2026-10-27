@@ -48,15 +48,15 @@ export default function LeaderboardCard({ entry }) {
           </div>
         </div>
 
-        <div className="shrink-0">
+        <div className="h-16 w-16 min-h-16 min-w-16 flex-none overflow-hidden rounded-xl border border-neutral-300/60 bg-[rgb(var(--muted))] shadow-sm dark:border-neutral-700/60">
           {entry.avatarUrl ? (
             <img
               src={entry.avatarUrl}
               alt={name}
-              className="h-12 w-12 rounded-full object-cover border border-neutral-300/60 dark:border-neutral-700/60"
+              className="block h-full w-full object-cover"
             />
           ) : (
-            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-fuchsia-500 to-pink-500 grid place-items-center text-white text-xl font-semibold">
+            <div className="grid h-full w-full place-items-center bg-gradient-to-br from-fuchsia-500 to-pink-500 text-2xl font-semibold text-white">
               {(name || '?')[0].toUpperCase()}
             </div>
           )}

@@ -223,11 +223,11 @@ export default function LeaderboardPage() {
         </Card>
 
         {loading && (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid auto-rows-[128px] gap-3 md:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="tf-skeleton-card tf-reveal-item" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
-                <div className="flex items-center gap-4">
-                  <div className="tf-skeleton tf-skeleton-avatar" />
+              <div key={index} className="tf-skeleton-card tf-reveal-item h-[128px]" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
+                <div className="flex h-full items-center gap-4">
+                  <div className="tf-skeleton h-16 w-16 flex-none rounded-xl" />
                   <div className="min-w-0 flex-1">
                     <div className="tf-skeleton tf-skeleton-line mb-3 w-1/2" />
                     <div className="tf-skeleton tf-skeleton-line w-3/4" />
