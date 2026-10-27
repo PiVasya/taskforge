@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Archive,
@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { Badge, Button, Card, Field, Input, Select } from '../../components/ui';
+import { decisionFindingStatus, duplicateFindingStatus, filterAccountReviewFindings } from './accountDuplicateReview.mjs';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -89,6 +90,8 @@ const statusLabel = (status) => ({
   'merge-queued': 'Объединение поставлено в очередь',
   'resolved-by-merge': 'Разрешено объединением',
   'resolved-by-delete': 'Разрешено удалением',
+  'merge-failed': 'Ошибка объединения',
+  'merge-cancelled': 'Объединение отменено',
 }[status] || status || '—');
 
 const operationLabel = (type) => ({
@@ -283,7 +286,18 @@ function EvidenceList({ evidence = [] }) {
   );
 }
 
-function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy }) {
+function DuplicateAccountPreview({ account }) {
+  const name = accountTitle(account);
+  const login = account?.login ? `@${account.login}` : 'без логина';
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5" title={`${name} · ${login}`}>
+      <span className="min-w-0 truncate text-sm font-semibold">{name}</span>
+      <span className="hidden max-w-[40%] min-w-0 truncate text-xs text-neutral-500 lg:inline">{login}</span>
+    </span>
+  );
+}
+
+function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy, expanded, onToggle, localAction, operation }) {
   const rawData = finding.data || {};
   const accounts = (rawData.accounts || []).map((account) => ({
     ...account,
@@ -299,57 +313,110 @@ function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy }) 
     ['Больше полезной истории', accountName(data.historicallyRicherUserId)],
     ['Рекомендуемый основной', accountName(data.suggestedPrimaryUserId)],
   ];
-  const reviewed = finding.status !== 'open';
+  const status = duplicateFindingStatus(finding, localAction, operation);
+  const reviewed = status !== 'open';
+  const merging = status === 'merge-queued' || status === 'resolved-by-merge' || status === 'merge-failed' || status === 'merge-cancelled';
+  const canReset = reviewed && !merging;
+  const panelId = `duplicate-details-${finding.id}`;
+  const names = accounts.slice(0, 2).map(accountTitle);
+
   return (
-    <Card>
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
+    <section id={`duplicate-finding-${finding.id}`} className="min-w-0 overflow-hidden rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-sm">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[rgba(var(--accent-500)/0.07)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[rgb(var(--accent-600))] sm:gap-3"
+        aria-expanded={expanded}
+        aria-controls={expanded ? panelId : undefined}
+        aria-label={`${expanded ? 'Свернуть' : 'Раскрыть'} пару: ${names.join(' и ')}. Совпадение ${finding.score}%. ${statusLabel(status)}`}
+        onClick={() => onToggle(finding.id)}
+      >
+        <Badge intent={scoreIntent(finding.score)}>{finding.score}%</Badge>
+        <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+          <DuplicateAccountPreview account={accounts[0]} />
+          <Merge size={15} className="shrink-0 text-neutral-500" aria-hidden="true" />
+          <DuplicateAccountPreview account={accounts[1]} />
+        </span>
+        {reviewed ? (
+          <span className="shrink-0" title={statusLabel(status)}>
+            <span className="sm:hidden" aria-hidden="true">{status === 'merge-queued'
+              ? <Loader2 size={15} className="animate-spin" />
+              : status === 'merge-failed' || status === 'merge-cancelled'
+                ? <X size={15} />
+                : <CheckCircle2 size={15} />}</span>
+            <span className="hidden sm:inline-flex"><Badge intent={status === 'merge-failed' ? 'danger' : 'outline'}>{statusLabel(status)}</Badge></span>
+          </span>
+        ) : null}
+        {expanded ? <ChevronUp size={17} className="shrink-0" aria-hidden="true" /> : <ChevronDown size={17} className="shrink-0" aria-hidden="true" />}
+      </button>
+
+      {expanded ? (
+        <div id={panelId} className="border-t border-[rgb(var(--border))] px-3 pb-4 pt-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge intent={scoreIntent(finding.score)}>{finding.score}%</Badge>
-            <div className="text-lg font-semibold">Возможный дубль</div>
-            <Badge intent={reviewed ? 'success' : 'outline'}>{statusLabel(finding.status)}</Badge>
+            <Badge intent={scoreIntent(finding.score)}>Совпадение {finding.score}%</Badge>
             <Badge intent="outline">вероятность {Math.round((finding.modelProbability || 0) * 100)}%</Badge>
+            <span className="text-xs text-neutral-500">Разница регистрации: {data.registrationGapDays ?? '—'} дн.</span>
+            {reviewed ? <Badge intent="outline">{statusLabel(status)}</Badge> : null}
           </div>
-          <div className="mt-2 text-sm text-neutral-500">Разница регистрации: {data.registrationGapDays ?? '—'} дн.</div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
-          <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'duplicate')}><CheckCircle2 size={16} /><span className="ml-1">Это дубль</span></Button>
-          <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'different')}><Users size={16} /><span className="ml-1">Разные люди</span></Button>
-          <Button disabled={busy} variant="ghost" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
-          {reviewed ? <Button disabled={busy} variant="ghost" onClick={() => handlers.resetFinding(finding.id)}><RotateCcw size={16} /><span className="ml-1">Снять решение</span></Button> : null}
-        </div>
-      </div>
-      <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-5">
-        {summary.map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-[rgb(var(--border))] px-3 py-2">
-            <div className="text-[11px] text-neutral-500">{label}</div>
-            <div className="mt-1 truncate text-sm font-semibold" title={value}>{value}</div>
+          {!reviewed ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button disabled={busy} onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
+              <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'duplicate')}><CheckCircle2 size={16} /><span className="ml-1">Это дубль</span></Button>
+              <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'different')}><Users size={16} /><span className="ml-1">Разные люди</span></Button>
+              <Button disabled={busy} variant="ghost" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
+              <span>{status === 'merge-failed'
+                ? 'Объединение завершилось ошибкой. Его можно повторить, не покидая список.'
+                : status === 'merge-cancelled'
+                  ? 'Объединение отменено. При необходимости можно поставить его на повтор.'
+                  : status === 'resolved-by-merge'
+                    ? 'Аккаунты объединены. Можно проверять следующие пары.'
+                    : merging
+                      ? 'Объединение поставлено в очередь. Можно проверять следующие пары.'
+                      : 'Решение сохранено. Можно проверять следующие пары.'}</span>
+              {operation ? <Badge intent={operationIntent(operation.status)}>{operation.status} · {operation.progressPercent ?? 0}%</Badge> : null}
+              {status === 'confirmed' ? (
+                <Button disabled={busy} onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
+              ) : null}
+              {(status === 'merge-failed' || status === 'merge-cancelled') && operation ? (
+                <Button variant="outline" disabled={busy} onClick={() => handlers.retryOperation(operation.id)}><RotateCcw size={16} /><span className="ml-1">Повторить объединение</span></Button>
+              ) : null}
+              {canReset ? <Button disabled={busy} variant="outline" onClick={() => handlers.resetFinding(finding.id)}><RotateCcw size={16} /><span className="ml-1">Снять решение</span></Button> : null}
+            </div>
+          )}
+          <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
+            {summary.map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-xl border border-[rgb(var(--border))] px-3 py-2">
+                <div className="text-[11px] text-neutral-500">{label}</div>
+                <div className="mt-1 truncate text-sm font-semibold" title={value}>{value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="mt-4 grid grid-cols-1 gap-4 2xl:grid-cols-2">
-        {accounts.map((account) => (
-          <AccountPanel
-            key={account.userId}
-            account={account}
-            data={data}
-            verified={verifiedIds.has(String(account.userId))}
-            blocked={blockedIds.has(String(account.userId))}
-            onVerify={handlers.verify}
-            onUnverify={handlers.unverify}
-            onBlock={handlers.openBlock}
-            onUnblock={handlers.unblock}
-            onDelete={handlers.openDelete}
-            busy={busy}
-          />
-        ))}
-      </div>
-      <div className="mt-5 border-t border-[rgb(var(--border))] pt-5">
-        <div className="mb-3 flex items-center gap-2 font-semibold"><Sparkles size={17} /> Почему система связала аккаунты</div>
-        <EvidenceList evidence={data.evidence || []} />
-      </div>
-    </Card>
+          <div className="mt-4 grid grid-cols-1 gap-4 2xl:grid-cols-2">
+            {accounts.map((account) => (
+              <AccountPanel
+                key={account.userId}
+                account={account}
+                data={data}
+                verified={verifiedIds.has(String(account.userId))}
+                blocked={blockedIds.has(String(account.userId))}
+                onVerify={handlers.verify}
+                onUnverify={handlers.unverify}
+                onBlock={handlers.openBlock}
+                onUnblock={handlers.unblock}
+                onDelete={handlers.openDelete}
+                busy={busy || merging}
+              />
+            ))}
+          </div>
+          <div className="mt-5 border-t border-[rgb(var(--border))] pt-5">
+            <div className="mb-3 flex items-center gap-2 font-semibold"><Sparkles size={17} /> Почему система связала аккаунты</div>
+            <EvidenceList evidence={data.evidence || []} />
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -625,12 +692,15 @@ export default function AdminAiAccountManagerPage() {
   const [operations, setOperations] = useState([]);
   const initialTab = searchParams.get('tab');
   const [tab, setTabState] = useState(['duplicates', 'suspicious', 'reviewed', 'verified', 'blocked', 'operations'].includes(initialTab) ? initialTab : 'duplicates');
-  const [showArchivedOperations, setShowArchivedOperations] = useState(searchParams.get('archived') === '1');
+  const [showArchivedOperations, setShowArchivedOperations] = useState(initialTab === 'operations' && searchParams.get('archived') === '1');
   const setTab = (value) => {
     setTabState(value);
     const next = new URLSearchParams(searchParams);
     next.set('tab', value);
-    if (value !== 'operations') next.delete('archived');
+    if (value !== 'operations') {
+      next.delete('archived');
+      setShowArchivedOperations(false);
+    }
     setSearchParams(next, { replace: true });
   };
   const [query, setQuery] = useState('');
@@ -639,6 +709,39 @@ export default function AdminAiAccountManagerPage() {
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [expandedFindingId, setExpandedFindingId] = useState(null);
+  const [locallyHandled, setLocallyHandled] = useState({});
+  const scrollAnchorRef = useRef(null);
+
+  // The expanded card may be much taller than a compact row. After a decision
+  // or a queued merge, keep this row in view rather than letting the browser
+  // scroll-anchor to an unrelated area when its details disappear.
+  const rememberDuplicatePosition = (findingId) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const row = document.getElementById(`duplicate-finding-${findingId}`);
+    if (!row) return;
+    const top = row.getBoundingClientRect().top;
+    scrollAnchorRef.current = {
+      findingId,
+      top: Math.max(48, Math.min(top, Math.min(160, window.innerHeight * 0.4))),
+    };
+  };
+
+  useLayoutEffect(() => {
+    if (!scrollAnchorRef.current || tab !== 'duplicates') return;
+    const { findingId, top } = scrollAnchorRef.current;
+    const row = document.getElementById(`duplicate-finding-${findingId}`);
+    if (!row) { scrollAnchorRef.current = null; return; }
+    const difference = row.getBoundingClientRect().top - top;
+    if (Math.abs(difference) > 1) window.scrollBy(0, difference);
+    scrollAnchorRef.current = null;
+  }, [expandedFindingId, locallyHandled, tab]);
+
+  const acceptDuplicateDecision = (findingId, status, operationId) => {
+    if (tab === 'duplicates') rememberDuplicatePosition(findingId);
+    setLocallyHandled((previous) => ({ ...previous, [findingId]: { status, operationId } }));
+    setExpandedFindingId(null);
+  };
 
   const loadRun = useCallback(async () => {
     const latest = await getLatestAccountAnalysisRun();
@@ -673,6 +776,14 @@ export default function AdminAiAccountManagerPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // A new analysis represents a fresh review queue, not a continuation of the
+  // locally retained (already handled) rows from the previous analysis.
+  useEffect(() => {
+    setLocallyHandled({});
+    setExpandedFindingId(null);
+    scrollAnchorRef.current = null;
+  }, [run?.id]);
+
   useEffect(() => {
     const scanActive = run?.id && ACTIVE_RUN_STATUSES.has(run.status);
     const operationActive = operations.some((item) => ACTIVE_OPERATION_STATUSES.has(item.status));
@@ -680,24 +791,38 @@ export default function AdminAiAccountManagerPage() {
     const timer = window.setInterval(async () => {
       try {
         const tasks = [];
-        if (scanActive) tasks.push(getAccountAnalysisRun(run.id).then((fresh) => setRun(fresh)));
-        if (operationActive) tasks.push(loadOperations());
+        if (scanActive) tasks.push(getAccountAnalysisRun(run.id).then(async (fresh) => {
+          setRun(fresh);
+          if (fresh.status === 'completed') await loadFindings(fresh);
+        }));
+        if (operationActive) tasks.push(getAccountOperations({ take: 200, archived: showArchivedOperations }).then(async (freshOps) => {
+          setOperations(freshOps);
+          if (!freshOps.some((item) => ACTIVE_OPERATION_STATUSES.has(item.status))) {
+            await Promise.all([loadBlocked(), loadReviews(), loadFindings(run)]);
+          }
+        }));
         await Promise.all(tasks);
-        const freshOps = operationActive ? await getAccountOperations({ take: 200, archived: showArchivedOperations }) : operations;
-        if (operationActive) setOperations(freshOps);
-        if (operationActive && !freshOps.some((item) => ACTIVE_OPERATION_STATUSES.has(item.status))) await Promise.all([loadBlocked(), loadReviews(), loadFindings(run)]);
       } catch (error) { setPageError(handleApiError(error, notify, 'Не удалось обновить статус операций')); }
     }, 1800);
     return () => window.clearInterval(timer);
-  }, [loadBlocked, loadFindings, loadOperations, loadReviews, notify, operations, run, showArchivedOperations]);
+  }, [loadBlocked, loadFindings, loadReviews, notify, operations, run, showArchivedOperations]);
 
-  const act = async (callback, successText, errorText) => {
+  const act = async (callback, successText, errorText, onAccepted) => {
     try {
       setBusy(true);
-      await callback();
+      const result = await callback();
+      // Update the compact row before fetching the changed server state. This
+      // prevents the pair from disappearing temporarily during refresh.
+      if (onAccepted) onAccepted(result);
       if (successText) notify.success(successText);
       setPageError(null);
-      await Promise.all([loadFindings(run), loadReviews(), loadBlocked(), loadOperations()]);
+      try {
+        await Promise.all([loadFindings(run), loadReviews(), loadBlocked(), loadOperations()]);
+      } catch (refreshError) {
+        // The mutation already succeeded. Do not report it as failed, as that
+        // could encourage another, unsafe merge or deletion request.
+        setPageError(handleApiError(refreshError, notify, 'Действие выполнено, но не удалось обновить список'));
+      }
       return true;
     } catch (error) {
       setPageError(handleApiError(error, notify, errorText));
@@ -711,11 +836,24 @@ export default function AdminAiAccountManagerPage() {
     setFindings([]);
   }, 'Полный анализ аккаунтов запущен', 'Не удалось запустить анализ');
 
-  const decision = (findingId, value) => act(
-    () => decideAccountFinding(findingId, value),
-    value === 'different' ? 'Пара помечена как разные люди' : value === 'duplicate' ? 'Дубль подтверждён' : 'Результат скрыт',
-    'Не удалось сохранить решение',
-  );
+  const decision = async (findingId, value) => {
+    try {
+      setBusy(true);
+      const result = await decideAccountFinding(findingId, value);
+      acceptDuplicateDecision(findingId, decisionFindingStatus(value));
+      // The decision endpoint returns the authoritative updated finding and
+      // review. Updating only those records avoids reloading the whole scan
+      // before an administrator can evaluate the next pair.
+      if (result?.finding) setFindings((current) => current.map((item) => item.id === findingId ? result.finding : item));
+      if (result?.review) setReviews((current) => [result.review, ...current.filter((item) => item.id !== result.review.id)]);
+      notify.success(value === 'different' ? 'Пара помечена как разные люди' : value === 'duplicate' ? 'Дубль подтверждён' : 'Результат скрыт');
+      setPageError(null);
+      return true;
+    } catch (error) {
+      setPageError(handleApiError(error, notify, 'Не удалось сохранить решение'));
+      return false;
+    } finally { setBusy(false); }
+  };
 
   const verify = (userId) => act(() => decideAccount(userId, 'verified'), 'Аккаунт помечен проверенным', 'Не удалось сохранить отметку');
   const unverify = async (userId) => {
@@ -724,7 +862,14 @@ export default function AdminAiAccountManagerPage() {
   };
   const resetFinding = async (findingId) => {
     const ok = await notify.confirm({ title: 'Снять решение по паре?', message: 'Пара снова появится в результатах анализа.', okText: 'Снять', cancelText: 'Отмена' });
-    if (ok) await act(() => deleteAccountFindingDecision(findingId), 'Решение снято', 'Не удалось снять решение');
+    if (ok) await act(() => deleteAccountFindingDecision(findingId), 'Решение снято', 'Не удалось снять решение', (result) => {
+      if (result?.finding) setFindings((current) => current.map((item) => item.id === findingId ? result.finding : item));
+      setLocallyHandled((previous) => {
+        const next = { ...previous };
+        delete next[findingId];
+        return next;
+      });
+    });
   };
   const removeReview = async (review) => {
     const ok = await notify.confirm({ title: 'Снять сохранённое решение?', message: 'После удаления решения аккаунт или пара снова смогут появиться в новых результатах анализа.', okText: 'Снять решение', cancelText: 'Отмена' });
@@ -749,6 +894,31 @@ export default function AdminAiAccountManagerPage() {
     if (ok) await act(() => unblockAccount(account.userId), 'Разблокировка поставлена в очередь', 'Не удалось разблокировать аккаунт');
   };
 
+  const enqueueMerge = async (value) => {
+    try {
+      setBusy(true);
+      const operation = await createAccountOperation({
+        type: 'merge',
+        sourceUserId: value.source.userId,
+        targetUserId: value.primary.userId,
+        findingId: value.finding?.id,
+        reason: value.reason,
+        confirmation: value.confirmation,
+      });
+      if (value.finding?.id) acceptDuplicateDecision(value.finding.id, 'merge-queued', operation?.id);
+      // The accepted DTO is already enough to start background status polling.
+      // Do not await a full refresh of every finding/account before the next review.
+      if (operation?.id) setOperations((previous) => [operation, ...previous.filter((item) => item.id !== operation.id)].slice(0, 200));
+      setPageError(null);
+      setDialog(null);
+      notify.success('Объединение поставлено в очередь. Можно продолжать проверку пар.');
+      return true;
+    } catch (error) {
+      setPageError(handleApiError(error, notify, 'Не удалось поставить объединение в очередь'));
+      return false;
+    } finally { setBusy(false); }
+  };
+
   const submitDialog = async (value) => {
     let success = false;
     if (value.mode === 'block') {
@@ -766,14 +936,7 @@ export default function AdminAiAccountManagerPage() {
         hardDelete: !!value.hardDelete,
       }), 'Удаление поставлено в безопасную очередь', 'Не удалось запустить удаление');
     } else if (value.mode === 'merge') {
-      success = await act(() => createAccountOperation({
-        type: 'merge',
-        sourceUserId: value.source.userId,
-        targetUserId: value.primary.userId,
-        findingId: value.finding?.id,
-        reason: value.reason,
-        confirmation: value.confirmation,
-      }), 'Объединение аккаунтов запущено', 'Не удалось запустить объединение');
+      success = await enqueueMerge(value);
     } else if (value.mode === 'review') {
       success = await act(() => updateAccountReview(value.review.id, value.decision, value.note), 'Решение обновлено', 'Не удалось обновить решение');
     } else if (value.mode === 'operation') {
@@ -785,7 +948,12 @@ export default function AdminAiAccountManagerPage() {
         hardDelete: !!value.hardDelete,
       }), 'Операция обновлена', 'Не удалось обновить операцию');
     }
-    if (success) { setDialog(null); setTab(value.mode === 'block' ? 'blocked' : value.mode === 'review' ? 'verified' : 'operations'); }
+    if (success) {
+      setDialog(null);
+      // A merge is an asynchronous operation. Do not throw the reviewer into
+      // the operations tab: the next pair is already available in this list.
+      if (value.mode !== 'merge') setTab(value.mode === 'block' ? 'blocked' : value.mode === 'review' ? 'verified' : 'operations');
+    }
   };
 
   const operationHandlers = {
@@ -806,29 +974,28 @@ export default function AdminAiAccountManagerPage() {
     }),
   };
 
+  const retryMergeInPlace = (operationId) => act(
+    () => retryAccountOperation(operationId),
+    'Объединение снова поставлено в очередь',
+    'Не удалось повторить объединение',
+  );
+
   const verifiedIds = useMemo(() => new Set(reviews.filter((row) => row.subjectType === 'account' && row.decision === 'verified' && row.userId).map((row) => String(row.userId))), [reviews]);
   const blockedIds = useMemo(() => new Set(blockedAccounts.map((row) => String(row.user?.userId || row.userId))), [blockedAccounts]);
 
-  const filtered = useMemo(() => {
-    const search = query.trim().toLowerCase();
-    return findings.filter((item) => {
-      const accountIds = item.kind === 'duplicate' ? (item.data?.accounts || []).map((account) => String(account.userId)) : [String(item.data?.account?.userId || item.primaryUserId || '')];
-      const allAnchored = accountIds.length > 0 && accountIds.every((userId) => verifiedIds.has(userId) || blockedIds.has(userId));
-      const singleAnchored = item.kind === 'suspicious' && accountIds.some((userId) => verifiedIds.has(userId) || blockedIds.has(userId));
-      if (tab === 'duplicates' && (item.kind !== 'duplicate' || item.status !== 'open' || allAnchored)) return false;
-      if (tab === 'suspicious' && (item.kind !== 'suspicious' || item.status !== 'open' || singleAnchored)) return false;
-      if (!search) return true;
-      return JSON.stringify(item.data || {}).toLowerCase().includes(search) || String(item.findingKey || '').toLowerCase().includes(search);
-    });
-  }, [blockedIds, findings, query, tab, verifiedIds]);
+  const filtered = useMemo(() => filterAccountReviewFindings({
+    findings, tab, query, verifiedIds, blockedIds, localActions: locallyHandled,
+  }), [blockedIds, findings, locallyHandled, query, tab, verifiedIds]);
 
-  const openDuplicates = findings.filter((item) => item.kind === 'duplicate' && item.status === 'open').length;
+  const operationById = useMemo(() => new Map(operations.map((item) => [item.id, item])), [operations]);
+  const openDuplicates = findings.filter((item) => item.kind === 'duplicate'
+    && duplicateFindingStatus(item, locallyHandled[item.id], operationById.get(locallyHandled[item.id]?.operationId)) === 'open').length;
   const openSuspicious = findings.filter((item) => item.kind === 'suspicious' && item.status === 'open').length;
   const reviewedCount = reviews.filter((x) => !(x.subjectType === 'account' && x.decision === 'verified')).length;
   const verifiedCount = reviews.filter((x) => x.subjectType === 'account' && x.decision === 'verified').length;
   const activeRun = run && ACTIVE_RUN_STATUSES.has(run.status);
 
-  const handlers = { decision, resetFinding, verify, unverify, openBlock, unblock, openDelete, openMerge };
+  const handlers = { decision, resetFinding, verify, unverify, openBlock, unblock, openDelete, openMerge, retryOperation: retryMergeInPlace };
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -872,9 +1039,20 @@ export default function AdminAiAccountManagerPage() {
       {!loading && tab === 'operations' ? <><Card><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-semibold">Журнал операций</div><div className="mt-1 text-xs text-neutral-500">Архивирование не удаляет аудит. Любую архивную запись можно вернуть.</div></div><Button variant={showArchivedOperations ? 'default' : 'outline'} onClick={() => { const next = !showArchivedOperations; setShowArchivedOperations(next); const params = new URLSearchParams(searchParams); params.set('tab', 'operations'); if (next) params.set('archived', '1'); else params.delete('archived'); setSearchParams(params, { replace: true }); }}>{showArchivedOperations ? 'Показаны архивные' : 'Открыть архив'}</Button></div></Card><OperationsList rows={operations} busy={busy} handlers={operationHandlers} archived={showArchivedOperations} /></> : null}
 
       {!loading && ['duplicates', 'suspicious'].includes(tab) ? (
-        <div className="space-y-4">
+        <div className={tab === 'duplicates' ? 'space-y-1.5' : 'space-y-4'}>
           {filtered.map((finding) => finding.kind === 'duplicate'
-            ? <DuplicateFinding key={finding.id} finding={finding} busy={busy} verifiedIds={verifiedIds} blockedIds={blockedIds} handlers={handlers} />
+            ? <DuplicateFinding
+                key={finding.id}
+                finding={finding}
+                busy={busy}
+                verifiedIds={verifiedIds}
+                blockedIds={blockedIds}
+                handlers={handlers}
+                expanded={expandedFindingId === finding.id}
+                onToggle={(findingId) => setExpandedFindingId((current) => current === findingId ? null : findingId)}
+                localAction={locallyHandled[finding.id]}
+                operation={operationById.get(locallyHandled[finding.id]?.operationId)}
+              />
             : <SuspiciousFinding key={finding.id} finding={finding} busy={busy} verifiedIds={verifiedIds} blockedIds={blockedIds} handlers={handlers} />)}
           {run?.status === 'completed' && filtered.length === 0 ? <Card><div className="py-8 text-center text-neutral-500"><CheckCircle2 size={28} className="mx-auto mb-3" />В этой вкладке сейчас ничего нет.</div></Card> : null}
         </div>
