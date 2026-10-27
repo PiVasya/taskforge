@@ -223,14 +223,15 @@ export default function LeaderboardPage() {
         </Card>
 
         {loading && (
-          <div className="grid auto-rows-[128px] gap-3 md:grid-cols-2">
+          <div className="tf-leaderboard-grid grid gap-3 md:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="tf-skeleton-card tf-reveal-item h-[128px]" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
-                <div className="flex h-full items-center gap-4">
-                  <div className="tf-skeleton h-16 w-16 flex-none rounded-xl" />
+              <div key={index} className="tf-leaderboard-skeleton tf-reveal-item border border-neutral-200/70 bg-[rgb(var(--card))] dark:border-neutral-800/70" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
+                <div className="flex h-full items-center gap-3">
+                  <div className="tf-leaderboard-avatar tf-skeleton" />
                   <div className="min-w-0 flex-1">
-                    <div className="tf-skeleton tf-skeleton-line mb-3 w-1/2" />
-                    <div className="tf-skeleton tf-skeleton-line w-3/4" />
+                    <div className="tf-skeleton tf-skeleton-line mb-1.5 w-1/2" />
+                    <div className="tf-skeleton tf-skeleton-line mb-1.5 w-3/4" />
+                    <div className="tf-skeleton tf-skeleton-line w-2/3" />
                   </div>
                 </div>
               </div>
@@ -250,9 +251,9 @@ export default function LeaderboardPage() {
         {!loading && !error && (
           
           <>
-            <div className="grid auto-rows-[128px] items-stretch gap-3 md:grid-cols-2">
+            <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2">
               {entries.map((e, index) => (
-                <div key={e.userId || index} className="tf-reveal-item h-[128px] min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
+                <div key={e.userId || index} className="tf-reveal-item h-full min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
                   <LeaderboardCard entry={e} />
                 </div>
               ))}

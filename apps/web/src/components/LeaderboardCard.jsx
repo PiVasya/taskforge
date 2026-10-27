@@ -4,6 +4,7 @@ import { Trophy, MapPin, BookOpen, Clock, AtSign, Copy, ExternalLink } from 'luc
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from './ui/ContextMenu';
 import { useNotify } from './notify/NotifyProvider';
 import LeaderboardMarquee from './LeaderboardMarquee';
+import './LeaderboardCard.css';
 
 export default function LeaderboardCard({ entry }) {
   const nav = useNavigate();
@@ -39,16 +40,17 @@ export default function LeaderboardCard({ entry }) {
           if (!claimContextMenuEvent(event)) return;
           setContextMenu({ open: true, x: event.clientX, y: event.clientY });
         }}
-        className="group relative w-full h-[128px] text-left rounded-2xl border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all px-4 py-3 flex items-center gap-3 cursor-pointer"
+        className="tf-leaderboard-card group relative w-full text-left border border-neutral-200/70 dark:border-neutral-800/70 bg-[rgb(var(--card))] shadow-soft hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center gap-3 cursor-pointer"
       >
-        <div className="absolute -top-3 left-0">
-          <div className={`inline-flex items-center gap-1 rounded-2xl bg-gradient-to-br ${rankBg} px-3 py-1 text-xs font-semibold text-neutral-900 shadow-md`}>
+        {/* Keep the rank inside the card, clear of the avatar's tight top inset. */}
+        <div className="pointer-events-none absolute right-1.5 top-1.5 z-10">
+          <div className={`inline-flex items-center gap-1 rounded-lg bg-gradient-to-br ${rankBg} px-2 py-[2px] text-xs font-semibold ${entry.rank <= 3 ? 'text-neutral-900' : 'text-neutral-900 dark:text-neutral-100'} shadow-sm`}>
             <Trophy size={14} />
             <span>#{entry.rank}</span>
           </div>
         </div>
 
-        <div className="h-16 w-16 min-h-16 min-w-16 flex-none overflow-hidden rounded-xl border border-neutral-300/60 bg-[rgb(var(--muted))] shadow-sm dark:border-neutral-700/60">
+        <div className="tf-leaderboard-avatar shrink-0 overflow-hidden bg-[rgb(var(--muted))] shadow-sm ring-1 ring-inset ring-neutral-300/60 dark:ring-neutral-700/60">
           {entry.avatarUrl ? (
             <img
               src={entry.avatarUrl}
@@ -62,9 +64,9 @@ export default function LeaderboardCard({ entry }) {
           )}
         </div>
 
-        {/* The three lines never wrap or change the fixed 128px card height. */}
-        <div className="flex-1 min-w-0 overflow-hidden flex flex-col justify-center gap-1.5">
-          <div className="h-6 min-w-0 font-semibold flex items-center">
+        {/* Three fixed, non-wrapping lines add up to 64px with their 2px gaps. */}
+        <div className="tf-leaderboard-info flex-1 min-w-0 overflow-hidden flex flex-col justify-center">
+          <div className="tf-leaderboard-name min-w-0 pr-[70px] font-semibold flex items-center">
             <LeaderboardMarquee title={[name, ...(hasBadges ? entry.badges.map((badge) => badge.name) : [])].filter(Boolean).join(' · ')}>
               <span className="inline-flex items-center gap-2 whitespace-nowrap">
                 <span>{name}</span>
@@ -82,7 +84,7 @@ export default function LeaderboardCard({ entry }) {
             </LeaderboardMarquee>
           </div>
 
-          <div className="h-[18px] min-w-0 text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="tf-leaderboard-meta min-w-0 text-xs text-neutral-500 dark:text-neutral-400">
             {hasMetadata && (
               <LeaderboardMarquee title={metadataTitle}>
                 <span className="inline-flex items-center gap-3 whitespace-nowrap">
@@ -109,23 +111,23 @@ export default function LeaderboardCard({ entry }) {
             )}
           </div>
 
-          <div className="h-[26px] min-w-0 text-xs">
+          <div className="tf-leaderboard-stats min-w-0 text-xs">
             <LeaderboardMarquee>
               <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-[2px]">
                   <span className="font-semibold text-neutral-700 dark:text-neutral-200">{solved}</span>
                   <span className="text-neutral-500 dark:text-neutral-400">решённых&nbsp;заданий</span>
                 </span>
 
                 {typeof entry.totalAttempts === 'number' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-[2px]">
                     <span className="font-semibold text-neutral-700 dark:text-neutral-200">{entry.totalAttempts}</span>
                     <span className="text-neutral-500 dark:text-neutral-400">попыток</span>
                   </span>
                 )}
 
                 {entry.lastSubmitAt && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--muted))] px-2 py-[2px]">
                     <Clock size={12} />
                     <span className="text-neutral-500 dark:text-neutral-400">
                       Активен: {new Date(entry.lastSubmitAt).toLocaleDateString(undefined, {

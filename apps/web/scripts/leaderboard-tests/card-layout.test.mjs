@@ -7,6 +7,7 @@ const card = await readFile(new URL('../../src/components/LeaderboardCard.jsx', 
 const page = await readFile(new URL('../../src/pages/admin/LeaderboardPage.jsx', import.meta.url), 'utf8');
 const marquee = await readFile(new URL('../../src/components/LeaderboardMarquee.jsx', import.meta.url), 'utf8');
 const marqueeCss = await readFile(new URL('../../src/components/LeaderboardMarquee.css', import.meta.url), 'utf8');
+const layoutCss = await readFile(new URL('../../src/components/LeaderboardCard.css', import.meta.url), 'utf8');
 
 test('entire leaderboard card opens the profile without a redundant statistics link', () => {
   assert.match(card, /<button[\s\S]*?onClick=\{handleOpenProfile\}/);
@@ -14,15 +15,46 @@ test('entire leaderboard card opens the profile without a redundant statistics l
   assert.doesNotMatch(card, /Смотреть статистику|Открыть статистику/);
 });
 
-test('all leaderboard cards are exactly 128px tall independent of text, city, education and badges', () => {
-  assert.match(page, /grid auto-rows-\[128px\] items-stretch gap-3 md:grid-cols-2/);
-  assert.match(page, /className="tf-reveal-item h-\[128px\] min-w-0"/);
-  assert.match(card, /className="group relative w-full h-\[128px\]/);
-  assert.doesNotMatch(card, /min-h-\[|min-h-full|mt-auto/);
-  assert.doesNotMatch(card.match(/className="group relative[^"]+"/)?.[0] || '', /h-full/);
-  assert.match(card, /h-6 min-w-0 font-semibold/);
-  assert.match(card, /h-\[18px\] min-w-0 text-xs/);
-  assert.match(card, /h-\[26px\] min-w-0 text-xs/);
+test('card height is avatar + exactly 5px at top and bottom, in every row and skeleton', () => {
+  const getPixel = (name) => {
+    const match = layoutCss.match(new RegExp(`--tf-leaderboard-${name}:\\s*(\\d+)px;`));
+    assert.ok(match, `missing fixed pixel token ${name}`);
+    return Number(match[1]);
+  };
+  const avatar = getPixel('avatar-size');
+  const padding = getPixel('card-padding');
+  const stroke = getPixel('card-stroke');
+  const corner = getPixel('card-radius');
+  assert.equal(avatar, 64);
+  assert.equal(padding + stroke, 5);
+  assert.equal(avatar + 2 * (padding + stroke), 74);
+  assert.equal(corner - (padding + stroke), 11);
+  assert.match(layoutCss, /--tf-leaderboard-card-height: calc\(/);
+  assert.match(layoutCss, /--tf-leaderboard-avatar-radius: calc\(/);
+  assert.match(layoutCss, /grid-auto-rows: var\(--tf-leaderboard-card-height\)/);
+  assert.match(layoutCss, /height: var\(--tf-leaderboard-card-height\)/);
+  assert.match(layoutCss, /height: var\(--tf-leaderboard-avatar-size\)/);
+  assert.match(page, /className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2"/);
+  assert.match(page, /className="tf-leaderboard-grid grid gap-3 md:grid-cols-2"/);
+  assert.match(page, /className="tf-leaderboard-skeleton tf-reveal-item/);
+  assert.match(card, /className="tf-leaderboard-card group relative w-full/);
+  assert.doesNotMatch(card + page, /128px|auto-rows-fr|mt-auto|min-h-\[/);
+});
+
+test('all three text lines fit inside 64px without wrapping, enlarging or clipping the card', () => {
+  assert.match(layoutCss, /\.tf-leaderboard-info \{ gap: 2px; \}/);
+  assert.match(layoutCss, /\.tf-leaderboard-name \{ height: 22px; line-height: 22px; \}/);
+  assert.match(layoutCss, /\.tf-leaderboard-meta \{ height: 16px; line-height: 16px; \}/);
+  assert.match(layoutCss, /\.tf-leaderboard-stats \{ height: 22px; line-height: 16px; \}/);
+  assert.equal(22 + 16 + 22 + 2 * 2, 64);
+  assert.match(card, /px-2 py-\[2px\]/);
+  assert.match(card, /tf-leaderboard-info flex-1 min-w-0 overflow-hidden/);
+});
+
+test('rank is moved to top-right inside the card so it cannot cover a tightly inset avatar', () => {
+  assert.match(card, /absolute right-1\.5 top-1\.5 z-10/);
+  assert.match(card, /tf-leaderboard-name min-w-0 pr-\[70px\]/);
+  assert.doesNotMatch(card, /absolute -top-3 left-0/);
 });
 
 test('name and badges, login/location/education and stats are three nonwrapping marquee lines', () => {
@@ -63,13 +95,15 @@ test('marquee tracks resizing, keeps the duplicated copy hidden from screen read
   assert.match(marqueeCss, /overflow-x: auto;/);
 });
 
-test('leaderboard photos and fallback initials share a larger, square, non-shrinking rounded avatar', () => {
-  assert.match(card, /className="h-16 w-16 min-h-16 min-w-16 flex-none overflow-hidden rounded-xl border /);
-  assert.match(card, /\{entry\.avatarUrl \? \([\s\S]*?<img[\s\S]*?className="block h-full w-full object-cover"/);
-  assert.match(card, /: \([\s\S]*?<div className="grid h-full w-full place-items-center bg-gradient-to-br/);
-  const avatar = card.slice(card.indexOf('h-16 w-16 min-h-16 min-w-16'), card.indexOf('{/* The three lines'));
-  assert.doesNotMatch(avatar, /rounded-full|h-12|w-12/);
-  assert.match(page, /tf-skeleton h-16 w-16 flex-none rounded-xl/);
-  assert.doesNotMatch(page, /tf-skeleton tf-skeleton-avatar/);
-  assert.match(page, /grid auto-rows-\[128px\] gap-3 md:grid-cols-2/);
+test('avatar photos, initials and loading state share the inset rounded-square geometry', () => {
+  assert.match(card, /className="tf-leaderboard-avatar shrink-0 overflow-hidden/);
+  assert.match(card, /\{entry\.avatarUrl \? \(/);
+  assert.match(card, /className="block h-full w-full object-cover"/);
+  assert.match(card, /className="grid h-full w-full place-items-center bg-gradient-to-br/);
+  assert.match(layoutCss, /border-radius: var\(--tf-leaderboard-avatar-radius\)/);
+  assert.match(layoutCss, /flex: 0 0 var\(--tf-leaderboard-avatar-size\)/);
+  assert.match(page, /className="tf-leaderboard-avatar tf-skeleton"/);
+  const avatarMarkup = card.slice(card.indexOf('tf-leaderboard-avatar shrink-0'), card.indexOf('{/* Three fixed, non-wrapping lines')) ;
+  assert.doesNotMatch(avatarMarkup, /rounded-full|rounded-xl border|h-12|w-12/);
+  assert.doesNotMatch(page, /tf-skeleton-card|tf-skeleton-avatar/);
 });

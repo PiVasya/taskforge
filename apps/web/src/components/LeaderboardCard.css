@@ -1,0 +1,43 @@
+/* A card is exactly one avatar plus a thin frame. Keep every size derived
+   from these values so a badge/name change cannot stretch one card. */
+:root {
+  --tf-leaderboard-avatar-size: 64px;
+  --tf-leaderboard-card-padding: 4px;
+  --tf-leaderboard-card-stroke: 1px;
+  --tf-leaderboard-card-radius: 16px;
+  --tf-leaderboard-card-height: calc(
+    var(--tf-leaderboard-avatar-size) +
+    var(--tf-leaderboard-card-padding) + var(--tf-leaderboard-card-padding) +
+    var(--tf-leaderboard-card-stroke) + var(--tf-leaderboard-card-stroke)
+  );
+  --tf-leaderboard-avatar-radius: calc(
+    var(--tf-leaderboard-card-radius) -
+    var(--tf-leaderboard-card-padding) - var(--tf-leaderboard-card-stroke)
+  );
+}
+
+.tf-leaderboard-grid {
+  grid-auto-rows: var(--tf-leaderboard-card-height);
+}
+
+.tf-leaderboard-card,
+.tf-leaderboard-skeleton {
+  box-sizing: border-box;
+  height: var(--tf-leaderboard-card-height);
+  padding: var(--tf-leaderboard-card-padding);
+  border-radius: var(--tf-leaderboard-card-radius);
+}
+
+.tf-leaderboard-avatar {
+  box-sizing: border-box;
+  width: var(--tf-leaderboard-avatar-size);
+  height: var(--tf-leaderboard-avatar-size);
+  flex: 0 0 var(--tf-leaderboard-avatar-size);
+  border-radius: var(--tf-leaderboard-avatar-radius);
+}
+
+/* 22 + 16 + 22 + 2 * 2 = 64px: the text block never exceeds the avatar. */
+.tf-leaderboard-info { gap: 2px; }
+.tf-leaderboard-name { height: 22px; line-height: 22px; }
+.tf-leaderboard-meta { height: 16px; line-height: 16px; }
+.tf-leaderboard-stats { height: 22px; line-height: 16px; }
