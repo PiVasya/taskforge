@@ -135,9 +135,6 @@ export default function LeaderboardPage() {
           <h1 className="text-2xl font-semibold">Топ студентов</h1>
           <QuotaPill bucket="top" />
         </div>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Нажми на участника, чтобы открыть его профиль.
-        </p>
 
         
         <Card className="p-4 space-y-2">
@@ -223,7 +220,7 @@ export default function LeaderboardPage() {
         </Card>
 
         {loading && (
-          <div className="tf-leaderboard-grid grid gap-3 md:grid-cols-2">
+          <div className="tf-leaderboard-grid grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className="tf-leaderboard-skeleton tf-reveal-item border border-neutral-200/70 bg-[rgb(var(--card))] dark:border-neutral-800/70" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
                 <div className="flex h-full items-center gap-3">
@@ -251,7 +248,7 @@ export default function LeaderboardPage() {
         {!loading && !error && (
           
           <>
-            <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2">
+            <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
               {entries.map((e, index) => (
                 <div key={e.userId || index} className="tf-reveal-item h-full min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
                   <LeaderboardCard entry={e} />

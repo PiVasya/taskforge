@@ -34,8 +34,8 @@ test('card height is avatar + exactly 5px at top and bottom, in every row and sk
   assert.match(layoutCss, /grid-auto-rows: var\(--tf-leaderboard-card-height\)/);
   assert.match(layoutCss, /height: var\(--tf-leaderboard-card-height\)/);
   assert.match(layoutCss, /height: var\(--tf-leaderboard-avatar-size\)/);
-  assert.match(page, /className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2"/);
-  assert.match(page, /className="tf-leaderboard-grid grid gap-3 md:grid-cols-2"/);
+  assert.match(page, /className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3"/);
+  assert.match(page, /className="tf-leaderboard-grid grid gap-3 md:grid-cols-2 xl:grid-cols-3"/);
   assert.match(page, /className="tf-leaderboard-skeleton tf-reveal-item/);
   assert.match(card, /className="tf-leaderboard-card group relative w-full/);
   assert.doesNotMatch(card + page, /128px|auto-rows-fr|mt-auto|min-h-\[/);
@@ -106,4 +106,25 @@ test('avatar photos, initials and loading state share the inset rounded-square g
   const avatarMarkup = card.slice(card.indexOf('tf-leaderboard-avatar shrink-0'), card.indexOf('{/* Three fixed, non-wrapping lines')) ;
   assert.doesNotMatch(avatarMarkup, /rounded-full|rounded-xl border|h-12|w-12/);
   assert.doesNotMatch(page, /tf-skeleton-card|tf-skeleton-avatar/);
+});
+
+
+test('leaderboard is three columns on wide screens, two on medium and one on mobile with no redundant prompt', () => {
+  const gridClass = 'md:grid-cols-2 xl:grid-cols-3';
+  assert.equal((page.match(/md:grid-cols-2 xl:grid-cols-3/g) || []).length, 2);
+  assert.ok(page.includes(gridClass));
+  assert.doesNotMatch(page, /Нажми на участника, чтобы открыть его профиль/);
+  assert.match(page, /<h1 className="text-2xl font-semibold">Топ студентов<\/h1>/);
+});
+
+test('long display names and usernames use an overflow-driven marquee inside a fixed-height card', () => {
+  assert.match(card, /tf-leaderboard-name[^\n]*?pr-\[70px\]/);
+  assert.match(card, /<LeaderboardMarquee title=\{\[name,/);
+  assert.match(card, /<span>\{name\}<\/span>/);
+  assert.match(card, /\{showLogin &&[\s\S]*?<span>\{login\}<\/span>/);
+  assert.equal((card.match(/<LeaderboardMarquee/g) || []).length, 3);
+  assert.match(marquee, /const available = viewport.clientWidth;/);
+  assert.match(marquee, /measureLeaderboardMarquee\(required, available\)/);
+  assert.match(marqueeCss, /animation: tf-leaderboard-marquee-scroll/);
+  assert.equal(measureLeaderboardMarquee(800, 240).overflow, true);
 });
