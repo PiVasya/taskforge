@@ -1,0 +1,59 @@
+/* All three leaderboard text lines have a fixed height. Long labels scroll
+   inside the line and never change the card's geometry. */
+.tf-leaderboard-marquee {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tf-leaderboard-marquee__track {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: none;
+  gap: 28px;
+  white-space: nowrap;
+}
+
+.tf-leaderboard-marquee__copy {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+}
+
+.tf-leaderboard-marquee[data-overflow="true"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 10px, black calc(100% - 10px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 10px, black calc(100% - 10px), transparent);
+}
+
+.tf-leaderboard-marquee[data-overflow="true"] .tf-leaderboard-marquee__track {
+  animation: tf-leaderboard-marquee-scroll var(--tf-leaderboard-marquee-duration, 12s) linear infinite;
+}
+
+@keyframes tf-leaderboard-marquee-scroll {
+  to { transform: translate3d(calc(0px - var(--tf-leaderboard-marquee-distance, 0px)), 0, 0); }
+}
+
+/* Hovering the actual line pauses it so long data can be inspected. */
+.tf-leaderboard-marquee:hover .tf-leaderboard-marquee__track {
+  animation-play-state: paused;
+}
+
+/* Accessibility: disable movement and let the full text be manually scrolled. */
+@media (prefers-reduced-motion: reduce) {
+  .tf-leaderboard-marquee[data-overflow="true"] {
+    overflow-x: auto;
+    -webkit-mask-image: none;
+    mask-image: none;
+    scrollbar-width: thin;
+  }
+  .tf-leaderboard-marquee__track {
+    animation: none !important;
+  }
+  .tf-leaderboard-marquee__duplicate {
+    display: none;
+  }
+}
