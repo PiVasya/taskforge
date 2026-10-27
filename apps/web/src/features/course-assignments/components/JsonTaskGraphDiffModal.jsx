@@ -103,7 +103,7 @@ function DeleteList({ rows }) {
   );
 }
 
-export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error = null, onClose, onApply, importOptions = {}, onImportOptionChange, mapOnly = false }) {
+export default function JsonTaskGraphDiffModal({ open, diff, progress = null, busy = false, error = null, onClose, onApply, importOptions = {}, onImportOptionChange, mapOnly = false }) {
   React.useEffect(() => {
     if (!(open && diff) || typeof document === 'undefined') return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -138,8 +138,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, busy = false, error
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
-          <div className="px-4 pt-3 sm:px-6">{progress}</div>
-        {error ? (
+          {progress ? <div className="mb-4">{progress}</div> : null}
+          {error ? (
             <div className="mb-4 rounded-2xl border border-red-400/70 bg-red-500/10 px-4 py-3 text-sm text-red-950 dark:text-red-100">
               <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={17} /> Импорт не завершён</div>
               <div className="mt-1">{error.primaryMessage || error.userMessage || 'Не удалось импортировать JSON.'}</div>

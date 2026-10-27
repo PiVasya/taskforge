@@ -2,15 +2,32 @@
 
 ## Deployment
 
-This source package is based on `taskforge-develop-20261026-graph-import-diagnostics-fix.zip`.
-It changes the tasks database model. The migration belongs to the project owner;
-no migration or existing ModelSnapshot is generated or edited in this package.
+The owner-generated EF migration is now checked into the tasks-api source tree:
 
-Run from the repository root with the SDK selected by `global.json`:
+- `Migrations/20261026171352_AddTaskGraphTransfers.cs`
+- `Migrations/20261026171352_AddTaskGraphTransfers.Designer.cs`
+- `Migrations/TasksDbContextModelSnapshot.cs`
+
+It only creates `TaskGraphTransfers`, `TaskGraphTransferParts` and their indexes;
+existing assignment/course tables are not dropped or rewritten by its `Up()` method.
+**Do not generate `AddTaskGraphTransfers` again.** Check the three files into Git
+and run the migration-history and pending-model checks in CI.
+
+The tasks-api applies EF migrations **on startup** by default via
+`Database:MigrateOnStartup` (`MIGRATE_ON_STARTUP=true` in the production compose
+stack). If the server uses the `develop` image tag with Watchtower enabled, an
+image publication can restart tasks-api and apply this migration automatically.
+Back up `taskforge_tasks` before that deployment and confirm the migration in
+`__EFMigrationsHistory` after startup. A migration-safety CI pass validates files
+and EF model state; it does **not** apply the migration to production. With
+multiple replicas, coordinate restarts/migration ownership rather than allowing
+concurrent startup migrations unexpectedly.
+
+Run checks from the repository root with the SDK selected by `global.json`:
 
 ```bash
-chmod +x scripts/generate-migrations.sh
-./scripts/generate-migrations.sh AddTaskGraphTransfers assignment
+python3 scripts/ci/check-ef-migration-history.py --dir services/tasks/assignment-api/Migrations
+python3 scripts/ci/check-ef-migrations.py --targets assignment
 
 dotnet test services/tasks/assignment-api/tests/TaskForge.Tasks.Api.Tests/TaskForge.Tasks.Api.Tests.csproj
 dotnet test services/education/api/tests/TaskForge.Education.Api.Tests/TaskForge.Education.Api.Tests.csproj
@@ -20,8 +37,7 @@ npm --prefix apps/web ci
 CI=true npm --prefix apps/web run build
 ```
 
-Review and commit the newly generated migration and snapshot before CI/deployment.
-The semantic migration check is expected to fail until this is done. Apply the
+Keep the generated migration and snapshot in every release image. Apply the
 migration using the normal tasks-api deployment/migration mechanism. Deploy
 `tasks-api`, `education-api`, `front` and `gateway` from the same source revision;
 update backend services before publishing the new frontend. The migration creates

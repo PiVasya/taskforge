@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { loadSourceModule } from '../test-utils/load-source-module.mjs';
 
@@ -147,4 +148,14 @@ test('transfer UI: many recent small operations cannot hide an older active tran
   const completed = Array.from({ length: 40 }, (_, n) => job('succeeded', { transferId: `completed-${n}` }));
   const rows = mergeTransferStatuses([active], completed, 'course-1', 'user-1');
   assert.equal(rows.length, 30); assert.equal(rows[0].transferId, 'still-running');
+});
+
+// CI's production build treats missing JSX bindings as errors. Keep the
+// progress passed by the course editor wired into the import preview modal.
+test('transfer UI: import preview accepts and displays the progress component', () => {
+  const modal = readFileSync(new URL('../../src/features/course-assignments/components/JsonTaskGraphDiffModal.jsx', import.meta.url), 'utf8');
+  const editor = readFileSync(new URL('../../src/features/course-assignments/CourseAssignmentsFeature.jsx', import.meta.url), 'utf8');
+  assert.match(modal, /function JsonTaskGraphDiffModal\(\{[^}]*\bprogress\s*=\s*null\b/);
+  assert.match(modal, /\{progress\}/);
+  assert.match(editor, /<JsonTaskGraphDiffModal\s+progress=\{transferProgress\}/);
 });
