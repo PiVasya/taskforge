@@ -1,0 +1,60 @@
+/* Hints are paint-only overlays: the original layout and accessible name remain intact. */
+:where(.tf-hotkey-control) { position: relative; }
+.tf-hotkey-control > .tf-shortcut-hint {
+  display: none !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 4;
+  box-sizing: border-box;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 2px 3px !important;
+  border-radius: inherit;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: center;
+  text-shadow: none;
+  white-space: normal !important;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+/* Page-level icon-button rules may hide every span on small screens. */
+.tf-shortcut-hint .tf-shortcut-normal { display: inline !important; }
+.tf-shortcut-hint .tf-shortcut-newtab { display: none !important; }
+.tf-shortcut-hint .tf-shortcut-normal > span,
+.tf-shortcut-hint .tf-shortcut-newtab > span { display: inline !important; }
+.course-map-toolbar-icon > .tf-shortcut-hint,
+.side-nav-link.is-rail > .tf-shortcut-hint,
+.compiler-button--icon > .tf-shortcut-hint { font-size: 9px; line-height: 1.05; }
+@media (max-width: 1220px) {
+  .compiler-button > .tf-shortcut-hint { font-size: 9px; line-height: 1.05; }
+}
+html[data-tf-shortcuts="on"][data-tf-shortcut-modal="false"] .tf-hotkey-control > .tf-shortcut-hint,
+html[data-tf-shortcuts="on"] [data-tf-shortcut-scope="active"] .tf-hotkey-control > .tf-shortcut-hint,
+html[data-tf-shortcuts="new-tab"][data-tf-shortcut-modal="false"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-hint,
+html[data-tf-shortcuts="new-tab"] [data-tf-shortcut-scope="active"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-hint { display: flex !important; }
+html[data-tf-shortcuts="new-tab"] .tf-shortcut-normal { display: none !important; }
+html[data-tf-shortcuts="new-tab"] .tf-shortcut-newtab { display: inline !important; }
+.tf-shortcuts-backdrop { position: fixed; inset: 0; z-index: 220; display: grid; place-items: center; padding: 12px; background: #0009; }
+.tf-shortcuts-dialog { width: min(720px, 100%); max-height: min(85dvh, 850px); overflow: auto; border-radius: 16px; border: 1px solid rgb(var(--border)); background: rgb(var(--card)); color: rgb(var(--text)); padding: 20px; }
+.tf-shortcuts-dialog header { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.tf-shortcuts-dialog h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.tf-shortcut-list { display: grid; gap: 0; margin: 12px 0; }
+.tf-shortcut-list > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(var(--border) / .5); }
+.tf-shortcut-list dt { min-width: 0; font-size: 13px; }
+.tf-shortcut-list dd { margin: 0; flex-shrink: 0; font: 12px ui-monospace, monospace; }
+.tf-shortcuts-settings { display: grid; gap: 16px; }
+.tf-shortcuts-settings label { display: flex; gap: 10px; align-items: center; }
+.tf-shortcuts-pinned { position: fixed; right: 12px; bottom: 12px; z-index: 210; box-shadow: 0 4px 18px #0004; }

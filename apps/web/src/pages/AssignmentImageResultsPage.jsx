@@ -124,7 +124,7 @@ export default function AssignmentImageResultsPage() {
               {submittedAt ? <span className="text-sm text-neutral-500">{formatDateTime(submittedAt)}</span> : null}
             </div>
           </div>
-          <Button onClick={onBack} variant="outline">Назад</Button>
+          <Button shortcut="course" shortcutHref={`/assignment/${assignmentId}`} onClick={onBack} variant="outline">Назад</Button>
         </div>
 
         {!data ? (

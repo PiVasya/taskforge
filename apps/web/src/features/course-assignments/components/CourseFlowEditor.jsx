@@ -1,3 +1,4 @@
+import { ShortcutButton } from '../../shortcuts/ShortcutControls';
 import React from 'react';
 import ReactFlow, {
   ReactFlowProvider,
@@ -3190,7 +3191,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     >
       <div className="course-map-toolbar">
         <div className="course-map-toolbar-left">
-          <button
+          <ShortcutButton
             type="button"
             className="course-map-toolbar-icon"
             title={course?.parentCourseId ? 'Назад к родительскому курсу' : 'Назад к курсам'}
@@ -3198,18 +3199,18 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             onClick={() => { rememberBeforeNavigate(); nav(course?.parentCourseId ? `/course/${course.parentCourseId}` : '/courses'); }}
           >
             <ArrowLeft size={16} />
-          </button>
+          </ShortcutButton>
 
           <div className={`course-map-search${searchOpen ? ' is-open' : ''}`}>
-            <button
+            <ShortcutButton
               type="button"
               className="course-map-toolbar-icon course-map-search-trigger"
               title="Поиск по карте"
               aria-label="Поиск по карте"
-              onClick={() => setSearchOpen((value) => !value)}
+              shortcut="search" onClick={() => setSearchOpen((value) => !value)}
             >
               <Search size={16} />
-            </button>
+            </ShortcutButton>
             {searchOpen ? (
               <div className="course-map-search-field">
                 <input
@@ -3227,33 +3228,33 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
                   aria-label="Поиск по карте курса"
                 />
                 {query ? (
-                  <button type="button" className="course-map-search-clear" title="Очистить поиск" aria-label="Очистить поиск" onClick={() => onQueryChange?.('')}>
+                  <ShortcutButton type="button" className="course-map-search-clear" title="Очистить поиск" aria-label="Очистить поиск" onClick={() => onQueryChange?.('')}>
                     <X size={13} />
-                  </button>
+                  </ShortcutButton>
                 ) : null}
               </div>
             ) : null}
           </div>
 
           {editorMode ? <span className={`course-map-dirty-dot${dirty ? ' is-dirty' : ''}`} title={dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'} /> : null}
-          {serverChanged ? <button type="button" className="course-map-server-changed" onClick={reloadServerVersion}><RotateCcw size={13} /> новая версия</button> : null}
+          {serverChanged ? <ShortcutButton type="button" className="course-map-server-changed" shortcut="refresh" onClick={reloadServerVersion}><RotateCcw size={13} /> новая версия</ShortcutButton> : null}
         </div>
         <div className="course-map-toolbar-right">
           {editorMode && unplaced.length > 0 ? (
             <div className="course-map-unplaced" ref={unplacedRef}>
-              <button
+              <ShortcutButton
                 type="button"
                 className={`course-map-unplaced-trigger${unplacedOpen ? ' is-open' : ''}`}
                 onClick={() => setUnplacedOpen((value) => !value)}
                 aria-expanded={unplacedOpen}
               >
                 Не на карте · <strong>{unplaced.length}</strong>
-              </button>
+              </ShortcutButton>
               {unplacedOpen ? (
                 <div className="course-map-unplaced-popover">
                   <div className="course-map-unplaced-head">
                     <div className="course-map-popover-title">Не на карте</div>
-                    <button type="button" className="course-map-unplaced-close" onClick={() => setUnplacedOpen(false)} aria-label="Закрыть"><X size={14} /></button>
+                    <ShortcutButton type="button" className="course-map-unplaced-close" onClick={() => setUnplacedOpen(false)} aria-label="Закрыть"><X size={14} /></ShortcutButton>
                   </div>
                   <div className="course-map-unplaced-list">
                     {unplaced.map((entry) => (
@@ -3263,7 +3264,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
                       >
                         <span className="course-map-unplaced-kind">{entry.kind === 'course' ? 'Курс' : 'Задание'}</span>
                         <span className="course-map-unplaced-title" title={entry.entity.title || 'Без названия'}>{entry.entity.title || 'Без названия'}</span>
-                        <button
+                        <ShortcutButton
                           type="button"
                           className="course-map-unplaced-add"
                           title="Добавить рядом с курсором"
@@ -3271,7 +3272,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
                           onClick={() => addUnplacedNearCursor(entry)}
                         >
                           <Plus size={14} />
-                        </button>
+                        </ShortcutButton>
                       </div>
                     ))}
                   </div>
@@ -3282,9 +3283,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
 
           {editorMode ? (
             <div className="course-map-presence">
-              <button type="button" className="course-map-presence-trigger" aria-label={`Редакторов в карте: ${Math.max(1, presence.length)}`}>
+              <ShortcutButton type="button" className="course-map-presence-trigger" aria-label={`Редакторов в карте: ${Math.max(1, presence.length)}`}>
                 <span className="course-map-presence-dot" />{presence.length > 1 ? <span>{presence.length}</span> : null}
-              </button>
+              </ShortcutButton>
               <div className="course-map-presence-popover">
                 <div className="course-map-popover-title">Сейчас в редакторе</div>
                 {(presence.length ? presence : [{ userId: currentUserId, displayName: userDisplayName(user), isDirty: dirty }]).map((row) => (
@@ -3298,9 +3299,9 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             </div>
           ) : null}
 
-          {editorMode && onShowGrid ? <button type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" onClick={onShowGrid}><LayoutGrid size={16} /></button> : null}
-          {editorMode && onExportJson ? <button type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} onClick={onExportJson}><Download size={16} /></button> : null}
-          {editorMode && onImportJson ? <button type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" onClick={() => {
+          {editorMode && onShowGrid ? <ShortcutButton type="button" className="course-map-toolbar-icon" title="Открыть карточки" aria-label="Открыть карточки" shortcut="tab.2" shortcutPriority={1} onClick={onShowGrid}><LayoutGrid size={16} /></ShortcutButton> : null}
+          {editorMode && onExportJson ? <ShortcutButton type="button" className="course-map-toolbar-icon" title="Экспорт JSON" aria-label="Экспорт JSON" disabled={exportBusy} shortcut="export" onClick={onExportJson}><Download size={16} /></ShortcutButton> : null}
+          {editorMode && onImportJson ? <ShortcutButton type="button" className="course-map-toolbar-icon" title="Импорт JSON" aria-label="Импорт JSON" shortcut="import" onClick={() => {
             courseMapConsole('IMPORT_BUTTON_CLICK', {
               viewKey, dirty: dirtyRef.current, loading,
               serverChanged, serverReloading: serverReloadingRef.current,
@@ -3315,8 +3316,8 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
             }
             courseMapConsole('IMPORT_DIALOG_DISPATCH', { viewKey });
             onImportJson();
-          }}><FileJson size={16} /></button> : null}
-          {editorMode ? <Button className="course-map-save-button" onClick={save} disabled={!dirty} title="Сохранить карту (Ctrl+S)"><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
+          }}><FileJson size={16} /></ShortcutButton> : null}
+          {editorMode ? <Button className="course-map-save-button" shortcut="save" onClick={save} disabled={!dirty} title="Сохранить карту (Ctrl+S)"><Save size={15} /> {dirty ? 'Сохранить' : 'Сохранено'}</Button> : null}
         </div>
       </div>
 

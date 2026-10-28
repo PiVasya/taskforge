@@ -1,3 +1,4 @@
+import { ShortcutButton } from '../shortcuts/ShortcutControls';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Braces,
@@ -453,7 +454,7 @@ function CompilerFeature() {
 
       <div className="compiler-toolbar card">
         <div ref={languageSelectRef} className={`compiler-language-select ${languageMenuOpen ? 'is-open' : ''}`}>
-          <button
+          <ShortcutButton
             type="button"
             className="compiler-language-select__trigger"
             onClick={() => setLanguageMenuOpen((open) => !open)}
@@ -464,13 +465,13 @@ function CompilerFeature() {
             <FileCode2 size={17} />
             <span>{selectedLanguage.label} · {selectedLanguage.runtime}</span>
             <ChevronDown size={15} aria-hidden="true" />
-          </button>
+          </ShortcutButton>
           {languageMenuOpen ? (
             <div className="compiler-language-select__menu" role="listbox" aria-label="Язык компилятора">
               {LANGUAGES.map((item) => {
                 const selected = item.id === language;
                 return (
-                  <button
+                  <ShortcutButton
                     key={item.id}
                     type="button"
                     role="option"
@@ -483,7 +484,7 @@ function CompilerFeature() {
                     </span>
                     <span>{item.label}</span>
                     <small>{item.runtime}</small>
-                  </button>
+                  </ShortcutButton>
                 );
               })}
             </div>
@@ -497,37 +498,37 @@ function CompilerFeature() {
         </div>
 
         <div className="compiler-toolbar__actions">
-          <button type="button" className="compiler-button" onClick={resetTemplate} disabled={active} title="Вернуть стартовый шаблон">
+          <ShortcutButton type="button" className="compiler-button" onClick={resetTemplate} disabled={active} title="Вернуть стартовый шаблон">
             <RotateCcw size={17} /><span>Шаблон</span>
-          </button>
-          <button type="button" className="compiler-button" onClick={downloadSource} title="Скачать исходник">
+          </ShortcutButton>
+          <ShortcutButton type="button" className="compiler-button" shortcut="download" onClick={downloadSource} title="Скачать исходник">
             <Download size={17} /><span>Скачать</span>
-          </button>
-          <button type="button" className="compiler-button compiler-button--icon" onClick={toggleFullscreen} title="Полноэкранный режим">
+          </ShortcutButton>
+          <ShortcutButton type="button" className="compiler-button compiler-button--icon" shortcut="fullscreen" onClick={toggleFullscreen} title="Полноэкранный режим">
             {isFullscreen ? <Shrink size={18} /> : <Expand size={18} />}
-          </button>
+          </ShortcutButton>
           {active ? (
-            <button type="button" className="compiler-button compiler-button--stop" onClick={stop}>
+            <ShortcutButton type="button" className="compiler-button compiler-button--stop" shortcut="close" onClick={stop}>
               <CircleStop size={18} /><span>Остановить</span>
-            </button>
+            </ShortcutButton>
           ) : (
-            <button type="button" className="compiler-button compiler-button--run" onClick={() => start()}>
+            <ShortcutButton type="button" className="compiler-button compiler-button--run" shortcut="primary" onClick={() => start()}>
               <Play size={18} fill="currentColor" /><span>Запустить</span>
-            </button>
+            </ShortcutButton>
           )}
-          <button type="button" className="compiler-button compiler-button--icon" onClick={restart} disabled={status === 'creating'} title="Перезапустить">
+          <ShortcutButton type="button" className="compiler-button compiler-button--icon" shortcut="restart" onClick={restart} disabled={status === 'creating'} title="Перезапустить">
             <RotateCcw size={18} />
-          </button>
+          </ShortcutButton>
         </div>
       </div>
 
       <div className="compiler-mobile-tabs" role="tablist" aria-label="Область компилятора">
-        <button type="button" className={mobileTab === 'code' ? 'is-active' : ''} onClick={() => setMobileTab('code')}>
+        <ShortcutButton type="button" className={mobileTab === 'code' ? 'is-active' : ''} shortcut="tab.1" onClick={() => setMobileTab('code')}>
           <FileCode2 size={16} /> Код
-        </button>
-        <button type="button" className={mobileTab === 'console' ? 'is-active' : ''} onClick={() => setMobileTab('console')}>
+        </ShortcutButton>
+        <ShortcutButton type="button" className={mobileTab === 'console' ? 'is-active' : ''} shortcut="tab.2" onClick={() => setMobileTab('console')}>
           <Terminal size={16} /> Консоль
-        </button>
+        </ShortcutButton>
       </div>
 
       <div
@@ -550,20 +551,20 @@ function CompilerFeature() {
           </div>
         </section>
 
-        <button
+        <ShortcutButton
           type="button"
           className="compiler-splitter"
           onPointerDown={beginResize}
           aria-label="Изменить ширину редактора и консоли"
           title="Потяните, чтобы изменить размер панелей"
-        ><span /></button>
+        ><span /></ShortcutButton>
 
         <section className={`compiler-pane compiler-pane--terminal ${mobileTab === 'console' ? 'is-mobile-active' : ''}`}>
           <header className="compiler-pane__header compiler-pane__header--terminal">
             <div><Terminal size={16} /><span>Консоль</span></div>
             <div className="compiler-console-actions">
-              <button type="button" onClick={copyConsole} title="Скопировать вывод"><Clipboard size={15} /></button>
-              <button type="button" onClick={() => terminalRef.current?.clear()} title="Очистить консоль"><Eraser size={15} /></button>
+              <ShortcutButton type="button" onClick={copyConsole} title="Скопировать вывод"><Clipboard size={15} /></ShortcutButton>
+              <ShortcutButton type="button" onClick={() => terminalRef.current?.clear()} title="Очистить консоль"><Eraser size={15} /></ShortcutButton>
             </div>
           </header>
           <InteractiveTerminal

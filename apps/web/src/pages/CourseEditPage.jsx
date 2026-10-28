@@ -428,7 +428,7 @@ export default function CourseEditPage({ overlay = false }) {
         <div className="space-y-4">
           <Card>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={save} disabled={busy} title="Сохранить (Ctrl+S)" className="flex-1 min-w-[150px]">
+              <Button shortcut="save" onClick={save} disabled={busy} title="Сохранить (Ctrl+S)" className="flex-1 min-w-[150px]">
                 <Save size={16} /> {busy ? 'Сохраняю…' : 'Сохранить'}
               </Button>
               <Button

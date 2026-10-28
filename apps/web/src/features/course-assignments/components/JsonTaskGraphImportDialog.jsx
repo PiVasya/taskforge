@@ -62,7 +62,7 @@ export default function JsonTaskGraphImportDialog({
             <div className="flex items-center gap-2 text-xl font-semibold"><FileJson size={20} /> Импорт JSON</div>
             <div className="mt-1 text-sm text-neutral-500">Загрузите файл или вставьте JSON. Перед применением TaskForge покажет точный список изменений.</div>
           </div>
-          <Button variant="outline" onClick={onClose} title="Закрыть"><X size={16} /> Закрыть</Button>
+          <Button variant="outline" shortcut="close" onClick={onClose} title="Закрыть"><X size={16} /> Закрыть</Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
@@ -88,8 +88,8 @@ export default function JsonTaskGraphImportDialog({
                   }}
                 />
               </label>
-              <Button variant="outline" onClick={onCopy} disabled={busy || !hasText}><Copy size={16} /> Копировать</Button>
-              <Button variant="outline" onClick={onFormat} disabled={busy || !hasText || largeInput} title={largeInput ? 'Большой JSON форматируйте в исходном файле' : undefined}>Форматировать</Button>
+              <Button variant="outline" shortcut="copy" onClick={onCopy} disabled={busy || !hasText}><Copy size={16} /> Копировать</Button>
+              <Button variant="outline" shortcut="format" onClick={onFormat} disabled={busy || !hasText || largeInput} title={largeInput ? 'Большой JSON форматируйте в исходном файле' : undefined}>Форматировать</Button>
               {hasText ? <Button variant="outline" onClick={onClear} disabled={busy}>Очистить</Button> : null}
               <Button variant="outline" onClick={onToggleDocs} disabled={busy}><FileJson size={16} /> {docsOpen ? 'Скрыть справку' : 'Справка'}</Button>
             </div>
@@ -132,7 +132,7 @@ export default function JsonTaskGraphImportDialog({
           <div className="min-w-0 text-xs text-neutral-500">
             На следующем шаге вы увидите, что будет создано, обновлено, удалено или оставлено без изменений. До подтверждения курс не меняется.
           </div>
-          <Button className="shrink-0" onClick={onPrepareDiff} disabled={busy || !hasText}>
+          <Button className="shrink-0" shortcut="primary" onClick={onPrepareDiff} disabled={busy || !hasText}>
             <GitCompare size={16} /> {busy ? 'Проверяю…' : 'Проверить импорт'}
           </Button>
         </div>

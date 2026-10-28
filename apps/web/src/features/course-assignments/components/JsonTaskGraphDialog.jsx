@@ -59,7 +59,7 @@ export default function JsonTaskGraphDialog({
       <Card className="tf-modal-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-5xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
         <div className="flex shrink-0 flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-2 text-xl font-semibold"><Sparkles size={20} /> JSON-граф заданий</div>
-          <Button variant="outline" onClick={onClose} disabled={busy} title="Закрыть"><X size={16} /> Закрыть</Button>
+          <Button variant="outline" shortcut="close" onClick={onClose} disabled={busy} title="Закрыть"><X size={16} /> Закрыть</Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
@@ -70,7 +70,7 @@ export default function JsonTaskGraphDialog({
             <Badge variant="outline">{preview}</Badge>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={onExport} disabled={exportBusy || busy}>
+            <Button variant="outline" shortcut="download" onClick={onExport} disabled={exportBusy || busy}>
               <Download size={16} /> {exportBusy ? 'Экспорт…' : 'Экспорт'}
             </Button>
             <label className={`btn-outline cursor-pointer${busy ? ' pointer-events-none opacity-60' : ''}`}>
@@ -87,8 +87,8 @@ export default function JsonTaskGraphDialog({
                 }}
               />
             </label>
-            <Button variant="outline" onClick={onCopy} disabled={busy || !text.trim()}><Copy size={16} /> Копировать</Button>
-            <Button variant="outline" onClick={onFormat} disabled={busy || !text.trim()}>Форматировать</Button>
+            <Button variant="outline" shortcut="copy" onClick={onCopy} disabled={busy || !text.trim()}><Copy size={16} /> Копировать</Button>
+            <Button variant="outline" shortcut="format" onClick={onFormat} disabled={busy || !text.trim()}>Форматировать</Button>
             <Button variant="outline" onClick={onToggleDocs} disabled={busy}><FileJson size={16} /> {docsOpen ? 'Скрыть справку' : 'Справка'}</Button>
           </div>
           </div>
@@ -136,7 +136,7 @@ export default function JsonTaskGraphDialog({
           <div className="min-w-0 text-xs text-neutral-500">
             ID связывает JSON с существующим заданием. Позиции хранятся отдельно в layout и могут импортироваться независимо от условий.
           </div>
-          <Button className="shrink-0" onClick={onPrepareDiff} disabled={busy}>
+          <Button className="shrink-0" shortcut="primary" onClick={onPrepareDiff} disabled={busy}>
             <GitCompare size={16} /> {busy ? 'Проверяю…' : 'Проверить и импортировать'}
           </Button>
         </div>

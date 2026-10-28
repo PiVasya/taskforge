@@ -421,25 +421,25 @@ export default function AdminSolutionsPage() {
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant={tab === 'live' ? 'primary' : 'outline'} onClick={() => setTab('live')}>
+            <Button variant={tab === 'live' ? 'primary' : 'outline'} shortcut="tab.1" onClick={() => setTab('live')}>
               В эфире
             </Button>
-            <Button variant={tab === 'code' ? 'primary' : 'outline'} onClick={() => setTab('code')}>
+            <Button variant={tab === 'code' ? 'primary' : 'outline'} shortcut="tab.2" onClick={() => setTab('code')}>
               Код
             </Button>
-            <Button variant={tab === 'sql' ? 'primary' : 'outline'} onClick={() => setTab('sql')}>
+            <Button variant={tab === 'sql' ? 'primary' : 'outline'} shortcut="tab.3" onClick={() => setTab('sql')}>
               SQL
             </Button>
-            <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>
+            <Button variant={tab === 'tests' ? 'primary' : 'outline'} shortcut="tab.4" onClick={() => setTab('tests')}>
               Тесты
             </Button>
-            <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>
+            <Button variant={tab === 'images' ? 'primary' : 'outline'} shortcut="tab.5" onClick={() => setTab('images')}>
               Картинки
             </Button>
-            <Button variant={tab === 'math' ? 'primary' : 'outline'} onClick={() => setTab('math')}>
+            <Button variant={tab === 'math' ? 'primary' : 'outline'} shortcut="tab.6" onClick={() => setTab('math')}>
               Математика
             </Button>
-            <Button variant={tab === 'groups' ? 'primary' : 'outline'} onClick={() => setTab('groups')}>
+            <Button variant={tab === 'groups' ? 'primary' : 'outline'} shortcut="tab.7" onClick={() => setTab('groups')}>
               Группы
             </Button>
           </div>

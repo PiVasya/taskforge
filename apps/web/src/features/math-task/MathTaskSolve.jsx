@@ -232,7 +232,7 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <Card>
           <div className="space-y-3">
             <div className="flex gap-3">
-              <Button data-taskforge-automation-id="math-task-start" data-taskforge-agent-role="math-action" data-taskforge-agent-action="start-math-task" onClick={begin} disabled={loading || limitReached}>
+              <Button data-taskforge-automation-id="math-task-start" data-taskforge-agent-role="math-action" data-taskforge-agent-action="start-math-task" shortcut="primary" onClick={begin} disabled={loading || limitReached}>
                 {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать задание')}
               </Button>
             </div>
@@ -253,9 +253,9 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button data-taskforge-automation-id="math-task-close-result" data-taskforge-agent-role="math-action" data-taskforge-agent-action="close-math-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
+              <Button data-taskforge-automation-id="math-task-close-result" data-taskforge-agent-role="math-action" data-taskforge-agent-action="close-math-result" variant="outline" shortcut="close" onClick={closeAttempt}>Закрыть</Button>
               {startData && (attemptsAreUnlimited(startData) || startData.attemptNumber < startData.maxAttempts) ? (
-                <Button data-taskforge-automation-id="math-task-restart" data-taskforge-agent-role="math-action" data-taskforge-agent-action="restart-math-task" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
+                <Button data-taskforge-automation-id="math-task-restart" data-taskforge-agent-role="math-action" data-taskforge-agent-action="restart-math-task" shortcut="primary" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>
               )}
@@ -270,8 +270,8 @@ function MathTaskSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             <MathTaskBlock key={block.id} storeKey={storeKey} block={block} index={index} />
           ))}
           <div className="flex justify-end gap-3">
-            <Button data-taskforge-automation-id="math-task-cancel" data-taskforge-agent-role="math-action" data-taskforge-agent-action="cancel-math-task" variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
-            <Button data-taskforge-automation-id="math-task-submit" data-taskforge-agent-role="math-action" data-taskforge-agent-action="submit-math-task" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Отправить решение'}</Button>
+            <Button data-taskforge-automation-id="math-task-cancel" data-taskforge-agent-role="math-action" data-taskforge-agent-action="cancel-math-task" variant="outline" shortcut="close" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
+            <Button data-taskforge-automation-id="math-task-submit" data-taskforge-agent-role="math-action" data-taskforge-agent-action="submit-math-task" shortcut="primary" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Отправить решение'}</Button>
           </div>
         </div>
       ) : null}

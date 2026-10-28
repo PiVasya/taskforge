@@ -790,12 +790,12 @@ export default function MySolutionsPage() {
 
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant={tab === 'all' ? 'primary' : 'outline'} onClick={() => setTab('all')}>Все</Button>
-            <Button variant={tab === 'code' ? 'primary' : 'outline'} onClick={() => setTab('code')}>Код</Button>
-            <Button variant={tab === 'sql' ? 'primary' : 'outline'} onClick={() => setTab('sql')}>SQL</Button>
-            <Button variant={tab === 'tests' ? 'primary' : 'outline'} onClick={() => setTab('tests')}>Тесты</Button>
-            <Button variant={tab === 'images' ? 'primary' : 'outline'} onClick={() => setTab('images')}>Картинки</Button>
-            <Button variant={tab === 'math' ? 'primary' : 'outline'} onClick={() => setTab('math')}>Математика</Button>
+            <Button variant={tab === 'all' ? 'primary' : 'outline'} shortcut="tab.1" onClick={() => setTab('all')}>Все</Button>
+            <Button variant={tab === 'code' ? 'primary' : 'outline'} shortcut="tab.2" onClick={() => setTab('code')}>Код</Button>
+            <Button variant={tab === 'sql' ? 'primary' : 'outline'} shortcut="tab.3" onClick={() => setTab('sql')}>SQL</Button>
+            <Button variant={tab === 'tests' ? 'primary' : 'outline'} shortcut="tab.4" onClick={() => setTab('tests')}>Тесты</Button>
+            <Button variant={tab === 'images' ? 'primary' : 'outline'} shortcut="tab.5" onClick={() => setTab('images')}>Картинки</Button>
+            <Button variant={tab === 'math' ? 'primary' : 'outline'} shortcut="tab.6" onClick={() => setTab('math')}>Математика</Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">

@@ -1,3 +1,4 @@
+import { ShortcutButton, ShortcutHint, shortcutAttributes } from '../../features/shortcuts/ShortcutControls';
 import { Children, cloneElement, isValidElement, useId } from 'react';
 
 function isFormControl(child) {
@@ -8,7 +9,7 @@ function isFormControl(child) {
     return child.type === Input || child.type === Textarea || child.type === Select;
 }
 
-export const Field = ({ label, children, hint }) => {
+export const Field = ({ label, children, hint, shortcut }) => {
     const reactId = useId();
     const baseId = `tf-field-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const hintId = hint ? `${baseId}-hint` : undefined;
@@ -27,7 +28,7 @@ export const Field = ({ label, children, hint }) => {
 
     return (
         <div className="field">
-            {label && <label className="label" htmlFor={controlIndex >= 0 ? controlId : undefined}>{label}</label>}
+            {label && <label {...shortcutAttributes(shortcut)} className={`label ${shortcut ? "tf-hotkey-control" : ""}`} htmlFor={controlIndex >= 0 ? controlId : undefined}>{label}<ShortcutHint shortcut={shortcut} /></label>}
             {childList}
             {hint && <div id={hintId} className="text-xs text-neutral-500 mt-1">{hint}</div>}
         </div>
@@ -40,7 +41,7 @@ export const Select = (p) => <select {...p} className={`select ${p.className || 
 export const Button = ({ variant, intent, className = '', ...p }) => {
     const v = variant || intent || 'primary';
     return (
-        <button
+        <ShortcutButton
             {...p}
             className={`${v === 'primary' ? 'btn-primary' : v === 'outline' ? 'btn-outline' : 'btn-ghost'} ${className}`}
         />

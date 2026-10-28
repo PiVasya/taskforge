@@ -1115,7 +1115,7 @@ export default function CourseAssignmentsPage() {
           <IfEditor>
             {courseCanEdit ? (
               <>
-                <Button variant="outline" className="w-full sm:w-auto" onClick={openJsonExportDialog} disabled={jsonExportBusy}>
+                <Button variant="outline" className="w-full sm:w-auto" shortcut={showFlowLayout ? undefined : "export"} onClick={openJsonExportDialog} disabled={jsonExportBusy}>
                   <Download size={16} /> Экспорт JSON
                 </Button>
                 <Button className="w-full sm:w-auto" onClick={(event) => showFlowLayout ? openJsonImportDialog() : openCreateMenu(event)}>

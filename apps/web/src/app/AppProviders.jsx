@@ -1,3 +1,4 @@
+import ShortcutProvider from '../features/shortcuts/ShortcutProvider';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AuthProvider, { useAuth } from '../auth/AuthContext';
@@ -129,7 +130,7 @@ export default function AppProviders({ children }) {
         <NotifyProvider>
           <QueryClientProvider>
             <UiSettingsProvider>
-              <SessionProviders>{children}</SessionProviders>
+              <ShortcutProvider><SessionProviders>{children}</SessionProviders></ShortcutProvider>
             </UiSettingsProvider>
           </QueryClientProvider>
         </NotifyProvider>

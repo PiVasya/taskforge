@@ -214,7 +214,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
         <Card>
           <div className="space-y-3">
             <div className="flex gap-3">
-              <Button data-taskforge-automation-id="task-test-start" data-taskforge-agent-role="test-action" data-taskforge-agent-action="start-test" onClick={begin} disabled={loading || limitReached}>
+              <Button data-taskforge-automation-id="task-test-start" data-taskforge-agent-role="test-action" data-taskforge-agent-action="start-test" shortcut="primary" onClick={begin} disabled={loading || limitReached}>
                 {limitReached ? 'Лимит попыток' : (loading ? 'Запуск…' : 'Начать тест')}
               </Button>
             </div>
@@ -236,9 +236,9 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button data-taskforge-automation-id="task-test-close-result" data-taskforge-agent-role="test-action" data-taskforge-agent-action="close-test-result" variant="outline" onClick={closeAttempt}>Закрыть</Button>
+              <Button data-taskforge-automation-id="task-test-close-result" data-taskforge-agent-role="test-action" data-taskforge-agent-action="close-test-result" variant="outline" shortcut="close" onClick={closeAttempt}>Закрыть</Button>
               {startData && (attemptsAreUnlimited(startData) || startData.attemptNumber < startData.maxAttempts) ? (
-                <Button data-taskforge-automation-id="task-test-restart" data-taskforge-agent-role="test-action" data-taskforge-agent-action="restart-test" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
+                <Button data-taskforge-automation-id="task-test-restart" data-taskforge-agent-role="test-action" data-taskforge-agent-action="restart-test" shortcut="primary" onClick={begin} disabled={loading}>{loading ? 'Запуск…' : 'Новая попытка'}</Button>
               ) : (
                 <Button variant="secondary" disabled>Лимит попыток</Button>
               )}
@@ -253,8 +253,8 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             <TaskTestQuestion key={question.id} storeKey={storeKey} question={question} index={index} />
           ))}
           <div className="flex gap-3">
-            <Button data-taskforge-automation-id="task-test-submit" data-taskforge-agent-role="test-action" data-taskforge-agent-action="submit-test" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Завершить тест'}</Button>
-            <Button data-taskforge-automation-id="task-test-cancel" data-taskforge-agent-role="test-action" data-taskforge-agent-action="cancel-test" variant="outline" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
+            <Button data-taskforge-automation-id="task-test-submit" data-taskforge-agent-role="test-action" data-taskforge-agent-action="submit-test" shortcut="primary" onClick={doSubmit} disabled={submitLoading}>{submitLoading ? 'Отправка…' : 'Завершить тест'}</Button>
+            <Button data-taskforge-automation-id="task-test-cancel" data-taskforge-agent-role="test-action" data-taskforge-agent-action="cancel-test" variant="outline" shortcut="close" onClick={closeAttempt} disabled={submitLoading}>Отмена</Button>
           </div>
         </div>
       ) : null}

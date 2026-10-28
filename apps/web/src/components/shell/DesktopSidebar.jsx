@@ -1,6 +1,6 @@
+import { ShortcutLink as Link } from '../../features/shortcuts/ShortcutControls';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useUiNavigationSettings } from '../../contexts/UiSettingsContext';
 import { useShellNavigation } from './navigation';

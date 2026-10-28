@@ -8,7 +8,7 @@ export default function CourseLayoutToggle({ value, onChange }) {
       <Button
         variant={value === 'flow' ? 'primary' : 'ghost'}
         className="min-w-0 flex-1 px-3 py-2 text-xs sm:flex-none"
-        onClick={() => onChange('flow')}
+        shortcut="tab.1" onClick={() => onChange('flow')}
         title="Интерактивная карта курса"
       >
         <Workflow size={15} /> Карта
@@ -16,7 +16,7 @@ export default function CourseLayoutToggle({ value, onChange }) {
       <Button
         variant={value === 'grid' ? 'primary' : 'ghost'}
         className="min-w-0 flex-1 px-3 py-2 text-xs sm:flex-none"
-        onClick={() => onChange('grid')}
+        shortcut="tab.2" onClick={() => onChange('grid')}
         title="Обычные карточки"
       >
         <LayoutGrid size={15} /> Карточки

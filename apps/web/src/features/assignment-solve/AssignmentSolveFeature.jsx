@@ -1,3 +1,4 @@
+import { ShortcutAnchor } from '../shortcuts/ShortcutControls';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../../components/ui';
@@ -770,9 +771,9 @@ export default function AssignmentSolvePage() {
               <div className="solve-muted-copy mt-2 text-sm">{summary.description}</div>
             </div>
             {solutionId ? (
-              <a href={resultUrl} target="_blank" rel="noreferrer" className="btn-outline shrink-0">
+              <ShortcutAnchor shortcut="results" href={resultUrl} target="_blank" rel="noreferrer" className="btn-outline shrink-0">
                 Открыть подробно
-              </a>
+              </ShortcutAnchor>
             ) : null}
           </div>
 
@@ -1249,9 +1250,9 @@ export default function AssignmentSolvePage() {
                       <h3 className="font-semibold">Результат</h3>
                       <div className="flex items-center gap-2">
                         {imgCompare.resultUrl && !imgCompare.isTrial ? (
-                          <a href={imgCompare.resultUrl} target="_blank" rel="noreferrer" className="btn-outline text-xs px-3 py-1.5">
+                          <ShortcutAnchor shortcut="results" shortcutPriority={1} href={imgCompare.resultUrl} target="_blank" rel="noreferrer" className="btn-outline text-xs px-3 py-1.5">
                             Подробно
-                          </a>
+                          </ShortcutAnchor>
                         ) : null}
                         {imgCompare.isTrial ? (
                           <Badge variant="outline">Пробник</Badge>
@@ -1296,6 +1297,7 @@ export default function AssignmentSolvePage() {
                 )}
 
                 <Button
+                  shortcut="results" shortcutHref={`/assignment/${assignmentId}/image-results`}
                   variant="outline"
                   onClick={() => {
                     const url = `/assignment/${assignmentId}/image-results`;
@@ -1325,6 +1327,7 @@ export default function AssignmentSolvePage() {
           secondaryActions={[
             {
               key: 'trial-image',
+              shortcut: 'restart',
               label: 'Пробник',
               onClick: onTrialImageTest,
               disabled: assignmentSwitching || imgBusy,

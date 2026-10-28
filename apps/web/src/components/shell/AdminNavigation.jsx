@@ -1,5 +1,5 @@
+import { ShortcutLink as Link } from '../../features/shortcuts/ShortcutControls';
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { useShellNavigation } from './navigation';
 
 function AdminNavigation() {

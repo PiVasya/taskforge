@@ -1,3 +1,4 @@
+import { ShortcutHint, shortcutAttributes } from '../../features/shortcuts/ShortcutControls';
 
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -141,8 +142,8 @@ export default function LeaderboardPage() {
           <div className="flex flex-wrap gap-4 items-end">
             
             <div className="flex flex-col min-w-[220px]">
-              <label htmlFor="leaderboard-search" className="text-xs font-medium mb-1">
-                Поиск участника
+              <label {...shortcutAttributes("search")} htmlFor="leaderboard-search" className="tf-hotkey-control text-xs font-medium mb-1">
+                Поиск участника<ShortcutHint shortcut="search" />
               </label>
               <Input
                 id="leaderboard-search"
@@ -212,7 +213,7 @@ export default function LeaderboardPage() {
               type="button"
               variant="primary"
               className="h-8"
-              onClick={() => loadEntries({ reset: true })}
+              shortcut="filter" onClick={() => loadEntries({ reset: true })}
             >
               Применить
             </Button>

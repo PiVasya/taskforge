@@ -130,8 +130,8 @@ export default function JsonTaskGraphDiffModal({ open, diff, progress = null, bu
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => downloadTaskGraphAudit(null, diff)}>{'Скачать отчёт'}</Button>
-            <Button variant="outline" onClick={onClose}><X size={16} /> Назад</Button>
-            <Button onClick={onApply} disabled={busy || Boolean(error) || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation || diff.requiresConnectionDeleteConfirmation || diff.requiresDuplicateConfirmation}>
+            <Button variant="outline" shortcut="close" onClick={onClose}><X size={16} /> Назад</Button>
+            <Button shortcut="primary" onClick={onApply} disabled={busy || Boolean(error) || !diff.hasImportWork || diff.validationErrorCount > 0 || diff.requiresDeleteConfirmation || diff.requiresConnectionDeleteConfirmation || diff.requiresDuplicateConfirmation}>
               <FileJson size={16} /> {busy ? 'Импортирую…' : 'Импортировать'}
             </Button>
           </div>

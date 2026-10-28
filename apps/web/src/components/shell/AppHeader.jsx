@@ -1,5 +1,6 @@
+import { ShortcutButton, ShortcutLink as Link } from '../../features/shortcuts/ShortcutControls';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart2,
   Bell,
@@ -36,10 +37,10 @@ const HeaderAction = React.memo(function HeaderAction({
   const className = `header-quick-action ${active ? 'is-active' : ''}`;
   if (asButton) {
     return (
-      <button type="button" className={className} onClick={onClick} title={label}>
+      <ShortcutButton shortcut="editorMode" type="button" className={className} onClick={onClick} title={label}>
         <Icon size={16} />
         <span>{label}</span>
-      </button>
+      </ShortcutButton>
     );
   }
   return (
@@ -132,15 +133,15 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
         <div className="flex min-w-0 items-center gap-3">
           {isAuthenticated && showSidebarToggle ? (
             <>
-              <button
+              <ShortcutButton
                 type="button"
-                onClick={toggleSidebarCollapsed}
+                shortcut="sidebar" onClick={toggleSidebarCollapsed}
                 className="hidden xl:grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100 hover:bg-[rgba(var(--border)/0.16)] transition"
                 title={sidebarCollapsed ? 'Развернуть левое меню' : 'Свернуть левое меню'}
                 aria-label={sidebarCollapsed ? 'Развернуть левое меню' : 'Свернуть левое меню'}
               >
                 {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-              </button>
+              </ShortcutButton>
               <Link
                 to={brandHref}
                 className="xl:hidden h-11 w-11 shrink-0 rounded-2xl grid place-items-center shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100"
@@ -228,7 +229,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
 
           {isAuthenticated ? (
             <div className="hidden md:block relative" ref={quickMenuRef}>
-              <button
+              <ShortcutButton
                 type="button"
                 className="btn-outline"
                 onClick={() => setQuickOpen((value) => !value)}
@@ -237,14 +238,15 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                 title="Быстрые действия"
               >
                 <MoreHorizontal size={18} />
-              </button>
+              </ShortcutButton>
               {quickOpen && (
                 <div className="shell-quick-menu absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-200/60 dark:border-neutral-800/60 bg-[rgb(var(--card))] shadow-soft p-1 z-50">
                   <Link to="/settings?section=profile" className="btn-ghost w-full justify-start" onClick={() => setQuickOpen(false)}>
                     <User size={18} />
                     <span className="ml-2">Профиль</span>
                   </Link>
-                  <button
+                  <ShortcutButton
+                    shortcut="notifications"
                     type="button"
                     className="btn-ghost w-full justify-start"
                     onClick={() => {
@@ -255,10 +257,10 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                     <Bell size={18} />
                     <span className="ml-2">Уведомления</span>
                     {unreadCount > 0 ? <span className="tf-notification-menu-count">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
-                  </button>
+                  </ShortcutButton>
                   {canEdit && (
-                    <button
-                      type="button"
+                    <ShortcutButton
+                      shortcut="editorMode" type="button"
                       className="btn-ghost w-full justify-start"
                       onClick={() => {
                         toggle();
@@ -267,7 +269,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                     >
                       {isEditorMode ? <PencilLine size={18} /> : <Eye size={18} />}
                       <span className="ml-2">{isEditorMode ? 'Режим редактора' : 'Режим просмотра'}</span>
-                    </button>
+                    </ShortcutButton>
                   )}
                   {isAdmin && adminSecondaryNav.length > 0 && (
                     <>
@@ -291,10 +293,10 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
                     <LifeBuoy size={18} />
                     <span className="ml-2">Поддержка</span>
                   </Link>
-                  <button type="button" className="btn-ghost w-full justify-start" onClick={handleLogout}>
+                  <ShortcutButton type="button" className="btn-ghost w-full justify-start" onClick={handleLogout}>
                     <LogOut size={18} />
                     <span className="ml-2">Выйти</span>
-                  </button>
+                  </ShortcutButton>
                 </div>
               )}
             </div>
@@ -312,10 +314,10 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
           )}
 
           <div className="xl:hidden">
-            <button
+            <ShortcutButton
               type="button"
               className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
-              onClick={onOpenMobile}
+              shortcut="sidebar" onClick={onOpenMobile}
               title="Меню"
               aria-label="Открыть меню"
               aria-haspopup="dialog"
@@ -323,7 +325,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
               aria-controls="taskforge-mobile-navigation"
             >
               <Menu size={20} />
-            </button>
+            </ShortcutButton>
           </div>
         </div>
       </div>

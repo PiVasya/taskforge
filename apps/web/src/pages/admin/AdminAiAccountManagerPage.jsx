@@ -131,10 +131,10 @@ function Metric({ label, value, hint, icon: Icon }) {
 function Modal({ title, children, onClose, busy, width = 'max-w-3xl' }) {
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/65 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <div className={`max-h-[92vh] w-full ${width} overflow-y-auto rounded-3xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-2xl`}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`max-h-[92vh] w-full ${width} overflow-y-auto rounded-3xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-2xl`}>
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[rgb(var(--border))] bg-[rgb(var(--card))] px-5 py-4">
           <div className="text-lg font-semibold">{title}</div>
-          <Button variant="ghost" disabled={busy} onClick={onClose}><X size={18} /></Button>
+          <Button shortcut="close" variant="ghost" disabled={busy} onClick={onClose}><X size={18} /></Button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -321,7 +321,7 @@ function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy, ex
   const names = accounts.slice(0, 2).map(accountTitle);
 
   return (
-    <section id={`duplicate-finding-${finding.id}`} className="min-w-0 overflow-hidden rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-sm">
+    <section data-hotkey-context="duplicate" id={`duplicate-finding-${finding.id}`} className="min-w-0 overflow-hidden rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-sm">
       <button
         type="button"
         className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[rgba(var(--accent-500)/0.07)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[rgb(var(--accent-600))] sm:gap-3"
@@ -359,10 +359,10 @@ function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy, ex
           </div>
           {!reviewed ? (
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button disabled={busy} onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
-              <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'duplicate')}><CheckCircle2 size={16} /><span className="ml-1">Это дубль</span></Button>
-              <Button disabled={busy} variant="outline" onClick={() => handlers.decision(finding.id, 'different')}><Users size={16} /><span className="ml-1">Разные люди</span></Button>
-              <Button disabled={busy} variant="ghost" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
+              <Button disabled={busy} shortcut="merge" onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
+              <Button disabled={busy} variant="outline" shortcut="duplicate" onClick={() => handlers.decision(finding.id, 'duplicate')}><CheckCircle2 size={16} /><span className="ml-1">Это дубль</span></Button>
+              <Button disabled={busy} variant="outline" shortcut="different" onClick={() => handlers.decision(finding.id, 'different')}><Users size={16} /><span className="ml-1">Разные люди</span></Button>
+              <Button disabled={busy} variant="ghost" shortcut="ignore" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
             </div>
           ) : (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
@@ -377,7 +377,7 @@ function DuplicateFinding({ finding, verifiedIds, blockedIds, handlers, busy, ex
                       : 'Решение сохранено. Можно проверять следующие пары.'}</span>
               {operation ? <Badge intent={operationIntent(operation.status)}>{operation.status} · {operation.progressPercent ?? 0}%</Badge> : null}
               {status === 'confirmed' ? (
-                <Button disabled={busy} onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
+                <Button disabled={busy} shortcut="merge" onClick={() => handlers.openMerge(finding, accounts)}><Merge size={16} /><span className="ml-1">Объединить</span></Button>
               ) : null}
               {(status === 'merge-failed' || status === 'merge-cancelled') && operation ? (
                 <Button variant="outline" disabled={busy} onClick={() => handlers.retryOperation(operation.id)}><RotateCcw size={16} /><span className="ml-1">Повторить объединение</span></Button>
@@ -439,7 +439,7 @@ function SuspiciousFinding({ finding, verifiedIds, blockedIds, handlers, busy })
           <Button disabled={busy} onClick={() => handlers.verify(account.userId)}><ShieldCheck size={16} /><span className="ml-1">Проверен</span></Button>
           <Button disabled={busy} variant="outline" onClick={() => handlers.openBlock(account)}><Ban size={16} /><span className="ml-1">Блокировать</span></Button>
           <Button disabled={busy} variant="ghost" onClick={() => handlers.openDelete(account)}><Trash2 size={16} /><span className="ml-1">Удалить</span></Button>
-          <Button disabled={busy} variant="ghost" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
+          <Button disabled={busy} variant="ghost" shortcut="ignore" onClick={() => handlers.decision(finding.id, 'ignored')}>Игнорировать</Button>
           {finding.status !== 'open' ? <Button disabled={busy} variant="ghost" onClick={() => handlers.resetFinding(finding.id)}>Снять решение</Button> : null}
         </div>
       </div>
@@ -1005,7 +1005,7 @@ export default function AdminAiAccountManagerPage() {
           <h1 className="flex items-center gap-3 text-2xl font-semibold sm:text-3xl"><span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgb(var(--border))]"><BrainCircuit size={23} /></span>Менеджер аккаунтов</h1>
           <p className="mt-2 max-w-4xl text-sm text-neutral-500">Поиск дублей теперь связан с полным управлением жизненным циклом: проверка, блокировка, разблокировка, объединение, безопасное удаление и обратимое управление решениями.</p>
         </div>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading || busy} onClick={loadAll}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button><Button disabled={busy || activeRun} onClick={startScan}>{activeRun ? <Loader2 size={16} className="animate-spin" /> : <ScanSearch size={16} />}<span className="ml-1">{activeRun ? 'Анализ идёт' : 'Проанализировать аккаунты'}</span></Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading || busy} shortcut="refresh" onClick={loadAll}><RefreshCcw size={16} /><span className="ml-1">Обновить</span></Button><Button disabled={busy || activeRun} onClick={startScan}>{activeRun ? <Loader2 size={16} className="animate-spin" /> : <ScanSearch size={16} />}<span className="ml-1">{activeRun ? 'Анализ идёт' : 'Проанализировать аккаунты'}</span></Button></div>
       </div>
 
       {pageError ? <AppErrorPanel error={pageError} title="Проблема менеджера аккаунтов" /> : null}
@@ -1024,9 +1024,9 @@ export default function AdminAiAccountManagerPage() {
           <div className="flex flex-wrap gap-2">
             {[
               ['duplicates', `Дубли ${openDuplicates}`], ['suspicious', `Странные ${openSuspicious}`], ['reviewed', `Решения ${reviewedCount}`], ['verified', `Проверенные ${verifiedCount}`], ['blocked', `Заблокированные ${blockedAccounts.length}`], ['operations', `Операции ${operations.length}`],
-            ].map(([key, label]) => <Button key={key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>)}
+            ].map(([key, label], index) => <Button shortcut={`tab.${index + 1}`} key={key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>)}
           </div>
-          {['duplicates', 'suspicious'].includes(tab) ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(240px,1fr),160px] xl:w-[560px]"><Field label="Поиск"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="имя, логин, email, ID" /></Field><Field label="Минимальный балл"><Select value={minScore} onChange={(event) => setMinScore(event.target.value)}><option value="0">Все</option><option value="42">От 42</option><option value="60">От 60</option><option value="75">От 75</option><option value="90">От 90</option></Select></Field></div> : tab === 'reviewed' ? <div className="xl:w-[420px]"><Field label="Поиск по решениям"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="имя, ID, комментарий" /></Field></div> : null}
+          {['duplicates', 'suspicious'].includes(tab) ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(240px,1fr),160px] xl:w-[560px]"><Field shortcut="search" label="Поиск"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="имя, логин, email, ID" /></Field><Field label="Минимальный балл"><Select value={minScore} onChange={(event) => setMinScore(event.target.value)}><option value="0">Все</option><option value="42">От 42</option><option value="60">От 60</option><option value="75">От 75</option><option value="90">От 90</option></Select></Field></div> : tab === 'reviewed' ? <div className="xl:w-[420px]"><Field shortcut="search" label="Поиск по решениям"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="имя, ID, комментарий" /></Field></div> : null}
         </div>
       </Card>
 

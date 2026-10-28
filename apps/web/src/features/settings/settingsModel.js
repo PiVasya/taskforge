@@ -9,6 +9,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { key: 'preview', title: 'Предпросмотр' },
   { key: 'integrations', title: 'Связи' },
   { key: 'security', title: 'Безопасность' },
+  { key: 'shortcuts', title: 'Горячие клавиши' },
   { key: 'developer', title: 'Разработчик' },
 ]);
 

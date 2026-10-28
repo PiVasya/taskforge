@@ -1,3 +1,5 @@
+import ShortcutSettingsSection from './components/ShortcutSettingsSection';
+import { ShortcutButton } from '../shortcuts/ShortcutControls';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Card } from '../../components/ui';
@@ -62,15 +64,16 @@ function SettingsNavigation({ activeSection, onOpen, profile, extra }) {
     <aside className="settings-navigation self-start space-y-3 lg:pb-2 lg:pr-2">
       <Card className="p-2">
         <nav className="space-y-1" aria-label="Разделы настроек">
-          {SETTINGS_SECTIONS.map((section) => (
-            <button
+          {SETTINGS_SECTIONS.map((section, index) => (
+            <ShortcutButton
+              shortcut={`tab.${index + 1}`}
               key={section.key}
               type="button"
               onClick={() => onOpen(section.key)}
               className={`settings-nav-item ${activeSection === section.key ? 'is-active' : ''}`}
             >
               {section.title}
-            </button>
+            </ShortcutButton>
           ))}
         </nav>
       </Card>
@@ -452,6 +455,7 @@ export default function SettingsFeature() {
   }, [notify, passwordForm]);
 
   const activeContent = (() => {
+    if (activeSection === 'shortcuts') return <ShortcutSettingsSection />;
     if (activeSection === 'appearance') return <AppearanceSettingsSection form={form} setField={setField} />;
     if (activeSection === 'solve') return <SolveSettingsSection form={form} setField={setField} />;
     if (activeSection === 'fx') return <BackgroundSettingsSection form={form} setField={setField} options={FX_OPTIONS} />;
@@ -509,7 +513,7 @@ export default function SettingsFeature() {
           {profileQuery.error && !profile ? <Card className="mb-4 p-4 text-sm text-red-500">Не удалось загрузить профиль. <Button variant="outline" onClick={profileQuery.refetch}>Повторить</Button></Card> : null}
           {activeContent}
           <div className="fixed bottom-4 right-4 z-40 flex justify-end pointer-events-none">
-            <Button onClick={save} disabled={saving || !canSave} title="Сохранить (Ctrl+S)" className="settings-save-button pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
+            <Button shortcut="save" onClick={save} disabled={saving || !canSave} title="Сохранить (Ctrl+S)" className="settings-save-button pointer-events-auto shadow-lg disabled:cursor-not-allowed disabled:opacity-55">
               {saving ? 'Сохранение…' : hasChanges ? 'Сохранить' : 'Сохранено'}
             </Button>
           </div>

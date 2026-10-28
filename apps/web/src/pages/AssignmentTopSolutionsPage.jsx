@@ -55,7 +55,7 @@ export default function AssignmentTopSolutionsPage() {
   return (
     <>
       <div className="mb-6">
-        <Button variant="outline" onClick={() => nav(`/assignment/${assignmentId}`)}>
+        <Button shortcut="course" shortcutHref={`/assignment/${assignmentId}`} variant="outline" onClick={() => nav(`/assignment/${assignmentId}`)}>
           ← Назад к заданию
         </Button>
       </div>

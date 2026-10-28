@@ -1,6 +1,7 @@
+import { ShortcutButton, ShortcutLink as Link } from '../../features/shortcuts/ShortcutControls';
 import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell,
   Eye,
@@ -191,15 +192,15 @@ function MobileNavigation({ open, onClose }) {
               {currentViewTitle}
             </div>
           </div>
-          <button
+          <ShortcutButton
             ref={closeButtonRef}
             type="button"
             className="mobile-nav-close"
-            onClick={onClose}
+            shortcut="close" onClick={onClose}
             aria-label="Закрыть меню"
           >
             <X size={20} />
-          </button>
+          </ShortcutButton>
         </div>
 
         {isAuthenticated ? <QuotaStatusBar mobile className="mobile-nav-sheet__quota" /> : null}
@@ -234,10 +235,10 @@ function MobileNavigation({ open, onClose }) {
                   <Settings size={19} />
                   <span>Настройки</span>
                 </Link>
-                <button
+                <ShortcutButton
                   type="button"
                   className="mobile-nav-card"
-                  onClick={() => {
+                  shortcut="notifications" onClick={() => {
                     onClose();
                     openNotifications();
                   }}
@@ -247,19 +248,19 @@ function MobileNavigation({ open, onClose }) {
                     {unreadCount > 0 ? <span className="tf-notification-menu-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
                   </span>
                   <span>Уведомления</span>
-                </button>
+                </ShortcutButton>
                 {canEdit ? (
-                  <button
+                  <ShortcutButton
                     type="button"
                     className={`mobile-nav-card ${isEditorMode ? 'is-active' : ''}`}
-                    onClick={() => {
+                    shortcut="editorMode" onClick={() => {
                       toggle();
                       onClose();
                     }}
                   >
                     {isEditorMode ? <PencilLine size={19} /> : <Eye size={19} />}
                     <span>{isEditorMode ? 'Редактор' : 'Просмотр'}</span>
-                  </button>
+                  </ShortcutButton>
                 ) : null}
               </div>
             </section>
@@ -286,10 +287,10 @@ function MobileNavigation({ open, onClose }) {
 
           <section className="mobile-nav-section mobile-nav-section--last">
             {isAuthenticated ? (
-              <button type="button" className="mobile-nav-card mobile-nav-card--danger w-full" onClick={handleLogout}>
+              <ShortcutButton type="button" className="mobile-nav-card mobile-nav-card--danger w-full" onClick={handleLogout}>
                 <LogOut size={19} />
                 <span>Выйти</span>
-              </button>
+              </ShortcutButton>
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 <Link to="/login" className="mobile-nav-card" onClick={onClose}>

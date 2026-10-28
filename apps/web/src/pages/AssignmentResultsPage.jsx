@@ -1,3 +1,4 @@
+import { ShortcutAnchor } from '../features/shortcuts/ShortcutControls';
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../components/ui';
@@ -344,15 +345,15 @@ export default function AssignmentResultsPage() {
       <>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
+            <ShortcutAnchor shortcut="course" href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
               <ArrowLeft size={16} /> назад к решению
-            </a>
+            </ShortcutAnchor>
           </div>
           <div className="flex items-center gap-2">
             <Button
               onClick={() => nav(0)}
               variant="outline"
-              data-taskforge-automation-id="refresh-results"
+              shortcut="refresh" data-taskforge-automation-id="refresh-results"
               data-taskforge-agent-role="solution-results-action"
               data-taskforge-agent-action="refresh-results"
             >
@@ -392,16 +393,16 @@ export default function AssignmentResultsPage() {
     <>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <a href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
+          <ShortcutAnchor shortcut="course" href={`/assignment/${assignmentId}`} onClick={handleBack} className="text-brand-600 hover:underline">
             <ArrowLeft size={16} /> назад к решению
-          </a>
+          </ShortcutAnchor>
           {view === 'smoke' && <Badge>Пробный прогон</Badge>}
         </div>
         <div className="flex items-center gap-2">
           <Button
             onClick={() => nav(0)}
             variant="outline"
-            data-taskforge-automation-id="refresh-results"
+            shortcut="refresh" data-taskforge-automation-id="refresh-results"
             data-taskforge-agent-role="solution-results-action"
             data-taskforge-agent-action="refresh-results"
           >

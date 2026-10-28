@@ -1,5 +1,6 @@
+import { ShortcutLink as Link } from '../../shortcuts/ShortcutControls';
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import { Card, Button } from '../../../components/ui';
 import { useEditorMode } from '../../../contexts/EditorModeContext';
@@ -237,19 +238,19 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
         <Button
           variant="ghost"
           className="inline-flex items-center gap-1"
-          onClick={goBack}
+          shortcut="course" shortcutHref={`/course/${courseId}`} onClick={goBack}
         >
           <ArrowLeft size={16} /> к заданиям курса
         </Button>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         {canEdit ? (
-          <Link to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
+          <Link shortcut="insights" to={`/admin/assignments/${assignmentId}/insights`} className="btn-outline">
             <BarChart3 size={16} className="mr-2" /> Аналитика задания
           </Link>
         ) : null}
         {canEdit && isEditorMode ? (
-          <Link to={`/assignment/${assignmentId}/edit`} className="btn-outline">
+          <Link shortcut="edit" to={`/assignment/${assignmentId}/edit`} className="btn-outline">
             Редактировать
           </Link>
         ) : null}
@@ -362,7 +363,7 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
         <Link
           className="btn-outline solve-action-button solve-next-button"
           to={`/assignment/${only.id}`}
-          data-taskforge-automation-id="next-assignment"
+          shortcut="next" data-taskforge-automation-id="next-assignment"
           data-taskforge-agent-role="navigation-action"
           data-taskforge-agent-action="next-assignment"
           title={title}
@@ -375,7 +376,7 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
           className="solve-action-button solve-next-button"
           variant="outline"
           onClick={activate}
-          data-taskforge-automation-id="next-assignment"
+          shortcut="next" data-taskforge-automation-id="next-assignment"
           data-taskforge-agent-role="navigation-action"
           data-taskforge-agent-action="next-assignment"
           disabled={isDisabled}
@@ -443,7 +444,7 @@ const SolveActionDock = React.memo(function SolveActionDock({
               key={action.key || index}
               className="solve-action-button"
               variant={action.variant || 'outline'}
-              onClick={action.onClick}
+              shortcut={action.shortcut} onClick={action.onClick}
               disabled={action.disabled}
               title={action.title || action.label}
             >
@@ -453,7 +454,7 @@ const SolveActionDock = React.memo(function SolveActionDock({
           ))}
           <Button
             className="solve-action-button solve-action-button--primary"
-            onClick={onPrimary}
+            shortcut="primary" onClick={onPrimary}
             data-taskforge-automation-id={primaryAutomationId}
             data-taskforge-agent-role={primaryAgentRole}
             data-taskforge-agent-action={primaryAgentAction}

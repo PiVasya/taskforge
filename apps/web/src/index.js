@@ -16,6 +16,7 @@ import './features/news/news.css';
 import './components/shell/mobile-shell.css';
 import './components/notify/notify.css';
 import './styles/neobrutal.css';
+import './features/shortcuts/shortcuts.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
