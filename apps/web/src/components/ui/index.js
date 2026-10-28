@@ -28,7 +28,7 @@ export const Field = ({ label, children, hint, shortcut }) => {
 
     return (
         <div className="field">
-            {label && <label {...shortcutAttributes(shortcut)} className={`label ${shortcut ? "tf-hotkey-control" : ""}`} htmlFor={controlIndex >= 0 ? controlId : undefined}>{label}<ShortcutHint shortcut={shortcut} /></label>}
+            {label && <label {...shortcutAttributes(shortcut)} className={`label ${shortcut ? "tf-hotkey-control" : ""}`} aria-label={shortcut && typeof label === 'string' ? label : undefined} htmlFor={controlIndex >= 0 ? controlId : undefined}>{shortcut ? <span className="tf-shortcut-original">{label}</span> : label}<ShortcutHint shortcut={shortcut} /></label>}
             {childList}
             {hint && <div id={hintId} className="text-xs text-neutral-500 mt-1">{hint}</div>}
         </div>

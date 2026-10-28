@@ -135,7 +135,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
             <>
               <ShortcutButton
                 type="button"
-                shortcut="sidebar" onClick={toggleSidebarCollapsed}
+                onClick={toggleSidebarCollapsed}
                 className="hidden xl:grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-soft border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/40 text-neutral-900 dark:text-neutral-100 hover:bg-[rgba(var(--border)/0.16)] transition"
                 title={sidebarCollapsed ? 'Развернуть левое меню' : 'Свернуть левое меню'}
                 aria-label={sidebarCollapsed ? 'Развернуть левое меню' : 'Свернуть левое меню'}
@@ -317,7 +317,7 @@ function AppHeader({ onOpenMobile, mobileOpen = false }) {
             <ShortcutButton
               type="button"
               className="btn-outline !min-w-0 h-12 w-12 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3"
-              shortcut="sidebar" onClick={onOpenMobile}
+              onClick={onOpenMobile}
               title="Меню"
               aria-label="Открыть меню"
               aria-haspopup="dialog"

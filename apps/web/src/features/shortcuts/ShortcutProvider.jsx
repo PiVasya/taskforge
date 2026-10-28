@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { useEditorMode } from '../../contexts/EditorModeContext';
-import { useUiNavigationSettings } from '../../contexts/UiSettingsContext';
 import { useNotificationCenter } from '../../components/notify/NotifyProvider';
 import { SHORTCUTS, navigationShortcuts, shortcutAllowed, shortcutLabel } from './shortcutCatalog';
 import { createShortcutController } from './shortcutController';
@@ -81,14 +80,14 @@ export function ShortcutInstructions() {
     <p>{'Удерживайте левый Alt: надписи на кнопках заменятся подсказками. Отпустите Alt, чтобы вернуть текст.'}</p>
     <p>{'Ctrl+Alt+клавиша раздела открывает новую вкладку. Ctrl+Alt+Enter открывает ссылку, выбранную клавишей Tab. Это не отправляет решение повторно.'}</p>
     <p>{'Действия и цифры работают только на экране с соответствующими кнопками. В открытом диалоге команды фоновой страницы заблокированы.'}</p>
-    <p>{'Буквы указаны по английской клавиатуре; переключать раскладку не нужно. AltGr не используется. Системные сочетания могут иметь приоритет перед сайтом.'}</p>
+    <p>{'Например, Alt+Enter — отправить решение, Alt+E — режим редактора (при наличии прав), Alt+C — курсы. Комбинации со стрелками, Alt+Tab и Alt+` остаются за браузером и Linux.'}</p>
+    <p>{'Названия клавиш показаны полностью: Shift нужно удерживать вместе с Alt, а не нажимать стрелку вверх. Буквы работают независимо от раскладки. Правый Alt (AltGr) не используется.'}</p>
   </div>;
 }
 
 export default function ShortcutProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const { isAdmin, canEdit, hasRole, toggle } = useEditorMode();
-  const { toggleSidebarCollapsed } = useUiNavigationSettings();
   const { openCenter } = useNotificationCenter();
   const [settings, setSettings] = useState(loadSettings);
   const [pinned, setPinned] = useState(false);
@@ -100,7 +99,7 @@ export default function ShortcutProvider({ children }) {
   const permissions = useMemo(() => ({ authenticated: Boolean(isAuthenticated), admin: isAdmin,
     editor: canEdit, minecraft: isAdmin || hasRole('Minecraft') }), [isAuthenticated, isAdmin, canEdit, hasRole]);
   runtime.current = { ...permissions, ...settings, pinned, actions: {
-    notifications: openCenter, sidebar: toggleSidebarCollapsed, editorMode: toggle,
+    notifications: openCenter, editorMode: toggle,
   }, navigate };
   const closeHelp = useCallback(() => setHelpOpen(false), []);
   const showHelp = useCallback(() => setHelpOpen(true), []);

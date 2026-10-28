@@ -47,3 +47,11 @@ test('new tabs allow only HTTP same-origin navigation, preserving query/hash', (
     assert.equal(safeShortcutHref(href, origin), null);
   }
 });
+
+test('desktop-polished catalog leaves OS window chords alone and honors clear editor labels', () => {
+  assert.equal(SHORTCUTS.sidebar, undefined);
+  assert.equal(SHORTCUTS.next, undefined);
+  assert.deepEqual(shortcutKeys('editorMode'), ['Alt', 'E']);
+  assert.deepEqual(shortcutKeys('format'), ['Alt', 'Shift', 'J']);
+  assert.equal(Object.values(SHORTCUTS).some(item => ['Backquote','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Period'].includes(item.code)), false);
+});

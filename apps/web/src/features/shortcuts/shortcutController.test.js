@@ -182,3 +182,23 @@ test('a modal with a disabled primary never falls through to the background', ()
   setup('<button id="background" data-tf-shortcut="primary">Submit</button><div role="dialog"><button id="dialog" disabled data-tf-shortcut="primary">Apply</button></div>');
   press('Enter'); expect(calls.clicks).toEqual([]);
 });
+
+test('Linux Alt+backquote and Alt+arrows are never intercepted by the site', () => {
+  setup('<button data-tf-shortcut="editorMode">Editor</button>');
+  expect(press('Backquote').defaultPrevented).toBe(false);
+  expect(press('ArrowUp').defaultPrevented).toBe(false);
+  expect(press('ArrowDown').defaultPrevented).toBe(false);
+  expect(press('Period').defaultPrevented).toBe(false);
+  expect(calls.clicks).toEqual([]);
+});
+test('Alt+E toggles the editor through the existing control without Shift', () => {
+  setup('<button data-tf-shortcut="editorMode">Editor</button>');
+  const event = press('KeyE');
+  expect(event.defaultPrevented).toBe(true);
+  expect(calls.clicks).toEqual(['editorMode']);
+  expect(press('KeyE', { shiftKey: true }).defaultPrevented).toBe(false);
+});
+test('Alt+E does nothing when editor permissions are absent', () => {
+  setup('<button data-tf-shortcut="editorMode">Editor</button>'); state.editor=false;
+  press('KeyE'); expect(calls.clicks).toEqual([]);
+});

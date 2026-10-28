@@ -9,11 +9,11 @@ keyboard mode. The Settings / Keyboard shortcuts section also provides a persist
 or navigation clears the persistent display. Settings are saved immediately in this
 browser under `taskforge.shortcuts.v1`; there is no database change.
 
-The original text, SVGs, DOM order and accessible names remain present. An absolutely
-positioned, opaque, `aria-hidden` overlay paints the hint without participating in flex/grid
+The original text, SVGs, DOM order and accessible names remain present. Original content is wrapped in `display: contents` and visually hidden only while the overlay is visible; `aria-label` preserves the button name for assistive technology. An absolutely
+positioned, transparent, `aria-hidden` overlay paints the hint without participating in flex/grid
 layout. There is no width/height measurement followed by resizing, no extra badge beside
 the text, and no root font/padding change. Compact icon controls use a smaller hint font;
-the Shift modifier uses its arrow glyph in overlays and its full name in the reference.
+icon-only controls show only the key to press after Alt (e.g. "I" for Alt+I) to avoid truncation; Shift is written literally elsewhere.
 
 Alt+Enter clicks the current enabled primary action: submitting code/SQL/image/test/math
 answers, starting an attempt, running compiler code, or applying an explicitly prepared
@@ -55,7 +55,7 @@ callbacks. Existing onClick handlers perform the actual work.
 - New tabs are restricted to same-origin HTTP(S) destinations and opened synchronously
   with `noopener,noreferrer`.
 - Operating-system and browser-reserved shortcuts may still take precedence. Do not
-  override Alt+F4 or Alt+Left/Right. Users may disable this system in Settings.
+  override Alt+F4, Alt+arrows or Alt+backquote (Linux window switching). Users may disable this system in Settings.
 
 ## Extending the catalog
 
@@ -131,10 +131,8 @@ is claimed from the fixture.
 | `nav.assistant` | `Alt+Shift+O` | ИИ-ассистент | admin |
 | `help` | `Alt+/` | Справочник сочетаний | navigation |
 | `notifications` | `Alt+J` | Уведомления | navigation |
-| `sidebar` | `Alt+`` | Левое меню | navigation |
-| `editorMode` | `Alt+Shift+E` | Режим редактора | editing |
+| `editorMode` | `Alt+E` | Режим редактора | editing |
 | `primary` | `Alt+Enter` | Отправить решение / запустить код | task |
-| `next` | `Alt+.` | Следующее задание | task |
 | `course` | `Alt+B` | К заданиям курса | task |
 | `results` | `Alt+Y` | Результаты задания | task |
 | `edit` | `Alt+Shift+W` | Редактировать | editing |
@@ -150,7 +148,7 @@ is claimed from the fixture.
 | `fullscreen` | `Alt+Z` | Полный экран | compiler |
 | `restart` | `Alt+Shift+Enter` | Перезапустить код | compiler |
 | `copy` | `Alt+Shift+V` | Копировать | page |
-| `format` | `Alt+F` | Форматировать JSON | editing |
+| `format` | `Alt+Shift+J` | Форматировать JSON | editing |
 | `merge` | `Alt+8` | Открыть объединение пары | review |
 | `duplicate` | `Alt+9` | Это дубль | review |
 | `different` | `Alt+0` | Разные люди | review |
@@ -164,3 +162,12 @@ is claimed from the fixture.
 | `tab.7` | `Alt+7` | Раздел 7 текущей страницы | tabs |
 | `tab.8` | `Alt+8` | Раздел 8 текущей страницы | tabs |
 | `tab.9` | `Alt+9` | Раздел 9 текущей страницы | tabs |
+
+## Linux / UI polish notes (2026-10-29)
+
+- Alt+` and Alt+arrows remain OS/browser-owned; the left-sidebar toggle is still clickable.
+- The next-assignment picker still allows selecting a branch; no automatic Alt+period navigation.
+- Editor mode uses **Alt+E** (not Alt+Shift+E); Shift is written literally in the hint.
+- JSON formatting uses **Alt+Shift+J** instead of Alt+F to avoid browser menu conflicts.
+- Hints have **no extra border or opaque background**: buttons keep their existing visual style and geometry.
+- The update is announced in `apps/web/public/updates/keyboard-shortcuts.json`.

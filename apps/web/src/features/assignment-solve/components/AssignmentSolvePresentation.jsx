@@ -363,7 +363,7 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
         <Link
           className="btn-outline solve-action-button solve-next-button"
           to={`/assignment/${only.id}`}
-          shortcut="next" data-taskforge-automation-id="next-assignment"
+          data-taskforge-automation-id="next-assignment"
           data-taskforge-agent-role="navigation-action"
           data-taskforge-agent-action="next-assignment"
           title={title}
@@ -376,7 +376,7 @@ const NextAssignmentControl = React.memo(function NextAssignmentControl({ option
           className="solve-action-button solve-next-button"
           variant="outline"
           onClick={activate}
-          shortcut="next" data-taskforge-automation-id="next-assignment"
+          data-taskforge-automation-id="next-assignment"
           data-taskforge-agent-role="navigation-action"
           data-taskforge-agent-action="next-assignment"
           disabled={isDisabled}

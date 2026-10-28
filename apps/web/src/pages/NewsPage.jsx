@@ -7,6 +7,7 @@ import {
   Database,
   Flame,
   Gamepad2,
+  Keyboard,
   Newspaper,
   Server,
   Trophy,
@@ -21,7 +22,8 @@ const UpdateCard = React.memo(function UpdateCard({ item, index }) {
   const id = String(item.id || '');
   const isMinecraft = id.startsWith('minecraft-');
   const isSql = id === 'sql-tasks';
-  const Icon = isMinecraft ? Gamepad2 : isSql ? Database : Wrench;
+  const isShortcuts = id === 'keyboard-shortcuts';
+  const Icon = isMinecraft ? Gamepad2 : isSql ? Database : isShortcuts ? Keyboard : Wrench;
 
   return (
     <article className="changelog-card group">

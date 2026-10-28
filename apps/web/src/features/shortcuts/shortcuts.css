@@ -1,4 +1,5 @@
-/* Hints are paint-only overlays: the original layout and accessible name remain intact. */
+/* Paint-only hints: the original content stays in layout, the overlay has no panel of its own. */
+.tf-hotkey-control > .tf-shortcut-original { display: contents; }
 :where(.tf-hotkey-control) { position: relative; }
 .tf-hotkey-control > .tf-shortcut-hint {
   display: none !important;
@@ -13,38 +14,59 @@
   margin: 0 !important;
   padding: 2px 3px !important;
   border-radius: inherit;
-  background: rgb(var(--card));
-  color: rgb(var(--text));
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  color: inherit;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: min(0.86em, 13px);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: 0;
   text-transform: none;
   text-align: center;
   text-shadow: none;
-  white-space: normal !important;
+  white-space: nowrap !important;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   align-items: center;
   justify-content: center;
   pointer-events: none;
 }
+.tf-shortcut-hint > span { overflow: hidden; max-width: 100%; white-space: nowrap !important; text-overflow: ellipsis; }
+.tf-shortcut-hint > span > span { display: inline !important; }
+/* Icon-only buttons show the remaining key while Alt is already held.
+   This is deliberate: a 34-44px icon cannot fit "Ctrl+Alt+Shift+J". */
+.course-map-toolbar-icon .tf-shortcut-hint .tf-shortcut-modifier,
+.side-nav-link.is-rail .tf-shortcut-hint .tf-shortcut-modifier,
+.compiler-button--icon .tf-shortcut-hint .tf-shortcut-modifier,
+.course-map-toolbar-icon .tf-shortcut-hint .tf-shortcut-separator,
+.side-nav-link.is-rail .tf-shortcut-hint .tf-shortcut-separator,
+.compiler-button--icon .tf-shortcut-hint .tf-shortcut-separator { display: none !important; }
 /* Page-level icon-button rules may hide every span on small screens. */
 .tf-shortcut-hint .tf-shortcut-normal { display: inline !important; }
 .tf-shortcut-hint .tf-shortcut-newtab { display: none !important; }
-.tf-shortcut-hint .tf-shortcut-normal > span,
-.tf-shortcut-hint .tf-shortcut-newtab > span { display: inline !important; }
 .course-map-toolbar-icon > .tf-shortcut-hint,
 .side-nav-link.is-rail > .tf-shortcut-hint,
 .compiler-button--icon > .tf-shortcut-hint { font-size: 9px; line-height: 1.05; }
 @media (max-width: 1220px) {
   .compiler-button > .tf-shortcut-hint { font-size: 9px; line-height: 1.05; }
 }
+@media (max-width: 600px) {
+  .compiler-button .tf-shortcut-hint .tf-shortcut-modifier,
+  .compiler-button .tf-shortcut-hint .tf-shortcut-separator { display: none !important; }
+}
 html[data-tf-shortcuts="on"][data-tf-shortcut-modal="false"] .tf-hotkey-control > .tf-shortcut-hint,
 html[data-tf-shortcuts="on"] [data-tf-shortcut-scope="active"] .tf-hotkey-control > .tf-shortcut-hint,
 html[data-tf-shortcuts="new-tab"][data-tf-shortcut-modal="false"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-hint,
 html[data-tf-shortcuts="new-tab"] [data-tf-shortcut-scope="active"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-hint { display: flex !important; }
+/* Same selector as the visible overlay: hide icons/text but preserve their geometry.
+   display:contents means the wrapper never adds a flex/grid box. */
+html[data-tf-shortcuts="on"][data-tf-shortcut-modal="false"] .tf-hotkey-control > .tf-shortcut-original,
+html[data-tf-shortcuts="on"] [data-tf-shortcut-scope="active"] .tf-hotkey-control > .tf-shortcut-original,
+html[data-tf-shortcuts="new-tab"][data-tf-shortcut-modal="false"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-original,
+html[data-tf-shortcuts="new-tab"] [data-tf-shortcut-scope="active"] .tf-hotkey-control[data-tf-shortcut-nav] > .tf-shortcut-original { visibility: hidden !important; }
 html[data-tf-shortcuts="new-tab"] .tf-shortcut-normal { display: none !important; }
 html[data-tf-shortcuts="new-tab"] .tf-shortcut-newtab { display: inline !important; }
 .tf-shortcuts-backdrop { position: fixed; inset: 0; z-index: 220; display: grid; place-items: center; padding: 12px; background: #0009; }

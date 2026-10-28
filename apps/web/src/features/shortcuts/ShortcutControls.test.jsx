@@ -15,8 +15,9 @@ test('a shortcut button preserves its original content, handler and accessible n
   let calls = 0;
   render(<Button shortcut="primary" onClick={() => { calls++; }}><span className="original">Submit solution</span></Button>);
   const button = container.querySelector('button');
-  expect(button.firstElementChild.className).toBe('original');
-  expect(button.firstElementChild.textContent).toBe('Submit solution');
+  expect(button.firstElementChild.className).toBe('tf-shortcut-original');
+  expect(button.querySelector('.original').textContent).toBe('Submit solution');
+  expect(button.getAttribute('aria-label')).toBe('Submit solution');
   expect(button.querySelector('.tf-shortcut-hint').getAttribute('aria-hidden')).toBe('true');
   expect(button.getAttribute('aria-keyshortcuts')).toBe('Alt+Enter');
   act(() => button.click()); expect(calls).toBe(1);
@@ -62,4 +63,17 @@ test('search field labels keep their input association alongside the hint', () =
   expect(label.control).toBe(container.querySelector('input'));
   expect(label.dataset.tfShortcut).toBe('search');
   expect(container.querySelector('input').value).toBe('query');
+});
+
+test('plain-text shortcut buttons keep an accessible action name while Alt hides visible text', () => {
+  render(<Button shortcut="primary">Отправить решение</Button>);
+  const button = container.querySelector('button');
+  expect(button.getAttribute('aria-label')).toBe('Отправить решение');
+  expect(button.querySelector('.tf-shortcut-original').textContent).toBe('Отправить решение');
+  expect(button.querySelector('.tf-shortcut-hint').getAttribute('aria-hidden')).toBe('true');
+});
+test('Shift is spelled out in the visible hint, not a misleading up-arrow', () => {
+  render(<Button shortcut="format">Форматировать</Button>);
+  expect(container.querySelector('.tf-shortcut-hint').textContent).toContain('Shift');
+  expect(container.querySelector('.tf-shortcut-hint').textContent).not.toContain('⇧');
 });
