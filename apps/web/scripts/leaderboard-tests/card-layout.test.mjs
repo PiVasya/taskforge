@@ -128,3 +128,12 @@ test('long display names and usernames use an overflow-driven marquee inside a f
   assert.match(marqueeCss, /animation: tf-leaderboard-marquee-scroll/);
   assert.equal(measureLeaderboardMarquee(800, 240).overflow, true);
 });
+
+
+test('leaderboard requests 24 students initially and 24 more per click', () => {
+  assert.match(page, /const LEADERBOARD_PAGE_SIZE = 24;/);
+  assert.match(page, /params\.pageSize = LEADERBOARD_PAGE_SIZE;/);
+  assert.match(page, /const nextPage = reset \? 1 : currentPage \+ 1;/);
+  assert.match(page, /setEntries\(\(prev\) => reset \? parsed\.items : \[\.\.\.prev, \.\.\.parsed\.items\]\)/);
+  assert.match(page, /index % LEADERBOARD_PAGE_SIZE/);
+});

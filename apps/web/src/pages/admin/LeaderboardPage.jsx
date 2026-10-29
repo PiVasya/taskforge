@@ -13,7 +13,7 @@ import { handleApiError } from '../../utils/handleApiError';
 import { getApiErrorMessage } from '../../api/http';
 import { AlertTriangle } from 'lucide-react';
 
-const LEADERBOARD_PAGE_SIZE = 20;
+const LEADERBOARD_PAGE_SIZE = 24;
 
 function createLeaderboardViewId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
