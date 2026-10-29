@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import {
-  searchUsersOnce,
   getUserSolutionsHistory,
   getAdminUserGroupIds,
   getUserImageSolutionsPage,
@@ -9,6 +8,7 @@ import { getUserTaskTestAttemptsPage } from '../../api/taskTestAttempts';
 import { getAdminGroups, getAdminGroupMemberIds } from '../../api/groups';
 import { getUserMathAttemptsPage } from '../../api/mathTaskAttempts';
 import useQuery from '../../hooks/useQuery';
+import { searchAdminUsersSmart } from './adminSolutionUserLookup';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import {
   asAdminHistoryPage,
@@ -20,8 +20,6 @@ import {
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
-
-
 
 export default function useAdminSolutionsData({ searchQuery, userId, groupId, filterDays, pages = {}, pageSize = 50 }) {
   const queryClient = useQueryClient();
@@ -72,7 +70,7 @@ export default function useAdminSolutionsData({ searchQuery, userId, groupId, fi
 
   const usersQuery = useQuery({
     queryKey: usersKey,
-    queryFn: () => searchUsersOnce(normalizedSearch, 20),
+    queryFn: () => searchAdminUsersSmart(normalizedSearch),
     enabled: normalizedSearch.length > 0,
     staleTime: 30_000,
     keepPreviousData: false,

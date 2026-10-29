@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Button, Input, Select, Badge } from '../../components/ui';
+import { Card, Button, Select, Badge } from '../../components/ui';
 import { Trash2, Users, UserPlus, X } from 'lucide-react';
 import {
   getSolutionDetails,
@@ -19,6 +19,7 @@ import { useNotify } from '../../components/notify/NotifyProvider';
 import AppErrorPanel from '../../components/AppErrorPanel';
 import { handleApiError } from '../../utils/handleApiError';
 import useAdminSolutionsData from './useAdminSolutionsData';
+import useAdminSolutionUserSearch from './useAdminSolutionUserSearch';
 import useAdminSolutionLiveFeed from './useAdminSolutionLiveFeed';
 import {
   filterLiveItems,
@@ -29,6 +30,7 @@ import { CompactEmpty, RunnerOutput, TestAttemptReview } from './components/Admi
 import AdminHistoryPager from './components/AdminHistoryPager';
 import AdminCodeSolutionsPanel from './components/AdminCodeSolutionsPanel';
 import AdminSolutionLiveCard, { AssignmentLinkButton } from './components/AdminSolutionLiveCard';
+import AdminUserSearchCombobox from './components/AdminUserSearchCombobox';
 import {
   formatDateTime,
   getAssignmentId,
@@ -56,9 +58,10 @@ export default function AdminSolutionsPage() {
   const [pageError, setPageError] = useState(null);
   const [tab, setTab] = useState('live');
 
-  const [q, setQ] = useState('');
-  const [submittedQuery, setSubmittedQuery] = useState('');
-  const [userId, setUserId] = useState('');
+  const {
+    q, submittedQuery, selectedUserInfo, userId,
+    changeUserQuery, clearUserSearch, chooseUser, submitSearch,
+  } = useAdminSolutionUserSearch(tab);
   const [groupId, setGroupId] = useState('');
   const [filterDays, setFilterDays] = useState(null);
 
@@ -105,7 +108,6 @@ export default function AdminSolutionsPage() {
     groupsLoading,
     groupMembersLoading,
     error: queryError,
-    refetchUsers,
     refetchSolutions,
     refetchSql,
     refetchTests,
@@ -129,21 +131,6 @@ export default function AdminSolutionsPage() {
 
   const { items: liveItems, state: liveState } = useAdminSolutionLiveFeed();
 
-  const loadUsers = () => {
-    const next = q.trim();
-    if (!next) {
-      setSubmittedQuery('');
-      setUserId('');
-      return;
-    }
-    if (next === submittedQuery) {
-      refetchUsers();
-    } else {
-      setUserId('');
-      setGroupId('');
-      setSubmittedQuery(next);
-    }
-  };
 
   useEffect(() => {
     setExpandedCodeIds([]);
@@ -189,7 +176,8 @@ export default function AdminSolutionsPage() {
     groupId,
     groupUserIds: selectedGroupUserIds,
     filterDays,
-  }), [filterDays, groupId, liveItems, selectedGroupUserIds, userId]);
+    searchText: tab === 'live' && !userId ? q : '',
+  }), [filterDays, groupId, liveItems, q, selectedGroupUserIds, tab, userId]);
 
   const visibleLiveItems = useMemo(
     () => filterLiveItemsByTab(displayedLiveItems, tab),
@@ -328,8 +316,12 @@ export default function AdminSolutionsPage() {
     setExpandedTestAttemptId(id);
   };
 
+  const usersForActions = selectedUserInfo
+    ? [selectedUserInfo, ...users.filter((item) => String(item.id) !== String(selectedUserInfo.id))]
+    : users;
+
   const { bulkDeletingTab, handleDeleteAll } = useAdminSolutionsBulkDelete({
-    userId, tab, users,
+    userId, tab, users: usersForActions,
     onSuccess: (target) => {
       setHistoryPages((current) => ({ ...current, [target.tab]: 1 }));
       setExpandedCodeIds([]);
@@ -410,7 +402,9 @@ export default function AdminSolutionsPage() {
     }
   };
 
-  const selectedUser = users.find((u) => u.id === userId) || null;
+  const selectedUser = userId
+    ? (selectedUserInfo?.id === userId ? selectedUserInfo : users.find((u) => String(u.id) === userId) || null)
+    : null;
 
   return (
     <>
@@ -444,45 +438,21 @@ export default function AdminSolutionsPage() {
             </Button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 items-end">
-            <div className="space-y-1 min-w-0">
-              <div className="text-xs uppercase tracking-wide text-neutral-500">
-                Поиск пользователя
-              </div>
-              <div className="flex flex-wrap gap-2 sm:flex-nowrap min-w-0">
-                <Input
-                  className="min-w-0"
-                  placeholder="email / имя / фамилия"
-                  value={q}
-                  disabled={!!bulkDeletingTab}
-                  onChange={(e) => setQ(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') loadUsers();
-                  }}
-                />
-                <Button onClick={loadUsers} disabled={searchLoading || !!bulkDeletingTab}>
-                  Найти
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-1 min-w-0">
-              <div className="text-xs uppercase tracking-wide text-neutral-500">
-                Пользователь
-              </div>
-              <Select value={userId} disabled={!!bulkDeletingTab} onChange={(e) => {
-                const next = e.target.value;
-                setUserId(next);
-                if (next) setGroupId('');
-              }}>
-                <option value="">— не выбрано —</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.email} ({u.firstName} {u.lastName})
-                  </option>
-                ))}
-              </Select>
-            </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.5fr)_minmax(180px,1fr)_minmax(160px,1fr)] items-end">
+            <AdminUserSearchCombobox
+              query={q}
+              onQueryChange={changeUserQuery}
+              onClear={clearUserSearch}
+              onSelectUser={(user, label) => { chooseUser(user, label); setGroupId(''); }}
+              selectedUser={selectedUser}
+              live={tab === 'live'}
+              liveItems={liveItems}
+              users={users}
+              searchedQuery={submittedQuery}
+              searchLoading={searchLoading}
+              onSubmitSearch={submitSearch}
+              disabled={!!bulkDeletingTab}
+            />
 
             <div className="space-y-1 min-w-0">
               <div className="text-xs uppercase tracking-wide text-neutral-500">
@@ -491,7 +461,7 @@ export default function AdminSolutionsPage() {
               <Select value={groupId} disabled={!!bulkDeletingTab} onChange={(e) => {
                 const next = e.target.value;
                 setGroupId(next);
-                if (next) setUserId('');
+                if (next && userId) clearUserSearch();
               }}>
                 <option value="">— все группы —</option>
                 {groups.map((group) => (
@@ -522,7 +492,7 @@ export default function AdminSolutionsPage() {
               </Select>
             </div>
 
-            <div className="flex flex-wrap items-end gap-2 min-w-0 md:col-span-2 xl:col-span-4">
+            <div className="flex flex-wrap items-end gap-2 min-w-0 md:col-span-2 xl:col-span-3">
               {tab !== 'live' && <Button
                 onClick={() => {
                   if (tab === 'sql') return refetchSql();
@@ -563,10 +533,15 @@ export default function AdminSolutionsPage() {
               className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300"
               data-selected-user-id={selectedUser.id}
             >
-              <span>Выбран: <span className="font-mono">{selectedUser.email}</span></span>
+              <span>Выбран: <span className="font-medium">{[selectedUser.firstName, selectedUser.lastName].filter(Boolean).join(' ') || selectedUser.displayName || selectedUser.email || selectedUser.login || selectedUser.id}</span></span>
+              {selectedUser.email ? <span className="font-mono opacity-70">{selectedUser.email}</span> : null}
               <span className="font-mono opacity-70">ID: {selectedUser.id}</span>
-              <Badge>Рейтинг: {selectedUser.score ?? selectedUser.rating ?? selectedUser.totalScore ?? 0}</Badge>
-              <Badge>Решено: {selectedUser.solved ?? selectedUser.solvedCount ?? 0}</Badge>
+              {selectedUser.score != null || selectedUser.rating != null || selectedUser.totalScore != null ? (
+                <Badge>Рейтинг: {selectedUser.score ?? selectedUser.rating ?? selectedUser.totalScore}</Badge>
+              ) : null}
+              {selectedUser.solved != null || selectedUser.solvedCount != null ? (
+                <Badge>Решено: {selectedUser.solved ?? selectedUser.solvedCount}</Badge>
+              ) : null}
             </div>
           )}
         </Card>
@@ -583,7 +558,13 @@ export default function AdminSolutionsPage() {
             ) : null}
 
             {!groupMembersLoading && visibleLiveItems.length === 0 ? (
-              <CompactEmpty>Новые решения появятся здесь сразу после отправки.</CompactEmpty>
+              <CompactEmpty>
+                {tab === 'live' && q.trim() && !userId
+                  ? `По запросу «${q.trim()}» нет решений среди последних событий эфира.`
+                  : userId || groupId || filterDays
+                    ? 'По выбранным фильтрам новых решений нет.'
+                    : 'Новые решения появятся здесь сразу после отправки.'}
+              </CompactEmpty>
             ) : null}
 
             <div className="space-y-2">
