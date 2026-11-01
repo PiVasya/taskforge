@@ -68,7 +68,7 @@ import {
 import { resolveRootCourseId } from './courseMapModel';
 import { useAuth } from '../../auth/AuthContext';
 import { applyServerGraphBindings, captureTaskGraphPreviewSnapshot } from './taskGraphPreviewSnapshot';
-import TaskGraphImportStatus from './components/TaskGraphImportStatus';
+import TaskGraphImportStatus, { TaskGraphImportHistory } from './components/TaskGraphImportStatus';
 import GraphTransferProgress from './components/GraphTransferProgress';
 import useGraphTransfers from './useGraphTransfers';
 import useTaskGraphExport from './useTaskGraphExport';
@@ -1038,15 +1038,23 @@ export default function CourseAssignmentsPage() {
   const handleExportJson = useTaskGraphExport({ courseId, jsonExportOptions, importContextRef, ensureCanManageAssignments,
     notify, setJsonExportBusy, setJsonExportDialogOpen });
 
+  const activeImportTransfer = transfers.rows.some((row) => isTransferActive(row) && ['import', 'resume', 'map'].includes(row.kind));
+  const pendingImport = isImportPending(importJournal.operation) && (importJournal.ready || importJournal.lookupError);
+  const pendingImportStatus = pendingImport && !activeImportTransfer ? (
+    <TaskGraphImportStatus importJournal={importJournal} graphImportRequest={graphImportRequest}
+      jsonImportBusy={jsonImportBusy || transferBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
+      openJsonImportDialog={openJsonImportDialog} notify={notify} lastImportDiffRef={lastImportDiffRef} />
+  ) : null;
+  const importHistory = importJournal.history.length ? <TaskGraphImportHistory importJournal={importJournal}
+    courseId={courseId} notify={notify} lastImportDiffRef={lastImportDiffRef} /> : null;
   const transferProgress = <GraphTransferProgress controller={transfers} operation={importJournal.operation}
-    busy={jsonImportBusy || jsonExportBusy} compact />;
+    busy={jsonImportBusy || jsonExportBusy} showHistory historyContent={importHistory} />;
+  const diffProgress = <GraphTransferProgress controller={transfers} operation={importJournal.operation}
+    busy={jsonImportBusy || jsonExportBusy} showHistory={false} />;
   return (
     <>
       {isEditorMode && courseCanEdit ? <GraphTransferProgress controller={transfers} operation={importJournal.operation}
-        busy={jsonImportBusy || jsonExportBusy} /> : null}
-      {isEditorMode && courseCanEdit ? <TaskGraphImportStatus importJournal={importJournal} graphImportRequest={graphImportRequest}
-        jsonImportBusy={jsonImportBusy || transferBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
-        openJsonImportDialog={openJsonImportDialog} notify={notify} lastImportDiffRef={lastImportDiffRef} /> : null}
+        page pendingContent={pendingImportStatus} /> : null}
       {!showFlowLayout ? (
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -1155,7 +1163,7 @@ export default function CourseAssignmentsPage() {
       </IfEditor>
 
       <JsonTaskGraphDiffModal
-        progress={transferProgress}
+        progress={diffProgress}
         open={jsonImportDiffOpen}
         diff={jsonImportDiff}
         busy={jsonImportBusy || transferBusy}

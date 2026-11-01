@@ -65,7 +65,7 @@ function Row({ row, controller, operation }) {
   const active = isTransferActive(row);
   const stale = active && row.state === 'running' && Date.now() - Date.parse(row.heartbeatAt || row.updatedAt) > 15000;
   const pendingMap = ['import', 'resume'].includes(row.kind) && row.state === 'succeeded'
-    && !(operation?.operationId === row.operationId && operation.state === 'completed');
+    && operation?.operationId === row.operationId && operation.state !== 'completed';
   const percentage = transferImportPercent(row, operation);
   const seconds = Math.max(0, Math.floor((Date.parse(row.finishedAt || new Date().toISOString()) - Date.parse(row.startedAt || row.createdAt)) / 1000));
   let failure; try { failure = JSON.parse(row.errorJson || '{}'); } catch { failure = {}; }
@@ -100,22 +100,79 @@ function Row({ row, controller, operation }) {
     </details>
   </div>;
 }
-export default function GraphTransferProgress({ controller, operation, busy = false, compact = false }) {
+function LiveRow({ row, operation, controller, page = false }) {
+  const percentage = transferImportPercent(row, operation);
+  const title = text[row.kind] || row.kind;
+  const phase = row.cancelRequested ? text.stopping : phases[row.phase] || text[row.phase]
+    || (row.phase && !row.phase.includes('.') ? row.phase : '') || text[row.state] || text.running;
+  const count = row.totalItems > 0 ? ` · ${row.completedItems || 0}/${row.totalItems}` : '';
+  const stale = row.state === 'running' && Date.now() - Date.parse(row.heartbeatAt || row.updatedAt) > 15000;
+  return (
+    <div className="min-w-0" data-testid="graph-transfer-active-job">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm">
+        <strong>{title}</strong>
+        <span className="min-w-0 flex-1 truncate text-neutral-500" title={phase}>{phase}{count}</span>
+        <span className="font-semibold tabular-nums">{percentage}%</span>
+        {page ? <details className="text-xs"><summary className="cursor-pointer underline underline-offset-2">Действия</summary>
+          <div className="mt-1 flex flex-wrap gap-2">
+            <Button variant="outline" disabled={controller.actionId === row.transferId || row.cancelRequested}
+              onClick={() => {
+                if (['import', 'resume', 'map'].includes(row.kind) && !window.confirm(`${text.stop}? ${text.noRollback}`)) return;
+                void controller.act(row, 'cancel');
+              }}>{text.stop}</Button>
+          </div>
+        </details> : null}
+      </div>
+      <progress className="mt-1 h-1.5 w-full accent-[rgb(var(--accent))]" value={percentage} max="100" aria-label={`${title}: ${percentage}%`} />
+      {stale ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-300" role="status">{text.unavailable}</p> : null}
+    </div>
+  );
+}
+
+/** Completed transfers are available on demand, never as a permanent banner above the course map. */
+export default function GraphTransferProgress({ controller, operation, busy = false,
+  page = false, pendingContent = null, showHistory = true, historyContent = null }) {
   const active = controller.rows.filter(isTransferActive);
   const recent = controller.rows.filter((row) => !isTransferActive(row));
-  const shown = active.length ? active : recent.slice(0, compact ? 1 : 2);
-  const rest = controller.rows.filter((row) => !shown.includes(row));
-  if (!shown.length && !busy && !controller.lookupError) return null;
-  return <section className="mb-3 space-y-2 rounded-xl border p-3" aria-label={text.heading}>
-    <div className="flex items-center justify-between gap-2 text-sm"><strong>{text.heading}</strong>
-      <button type="button" className="text-xs underline" onClick={() => controller.refresh()}>{text.status}</button>
-    </div>
-    {busy && !active.length ? <div className="text-xs" role="status">{text.sending}<progress className="mt-1 h-2 w-full" aria-label={text.sending} /></div> : null}
-    {controller.lookupError ? <p className="text-xs" role="status">{text.unavailable}</p> : null}
-    <div className="max-h-72 space-y-2 overflow-auto">{shown.map((row) => <Row key={row.transferId} row={row} controller={controller} operation={operation} />)}</div>
-    {!compact && rest.length ? <details><summary className="cursor-pointer text-xs">{text.history} ({rest.length})</summary>
-      <div className="mt-2 max-h-80 space-y-2 overflow-auto">{rest.map((row) => <Row key={row.transferId} row={row} controller={controller} operation={operation} />)}</div>
-    </details> : null}
-    <p className="text-xs text-neutral-500">{text.closed}</p>
-  </section>;
+
+  if (page) {
+    if (!active.length && !pendingContent) return null;
+    return (
+      <section className="mb-2 space-y-2 rounded-lg border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))] px-3 py-2"
+        aria-label="Текущие операции с графом" data-testid="graph-transfer-page-status">
+        {active.map((row) => <LiveRow key={row.transferId} row={row} controller={controller} operation={operation} page />)}
+        {pendingContent}
+      </section>
+    );
+  }
+
+  // Inside dialogs the current job is visible; history is a small closed disclosure.
+  // Never show completed jobs automatically, even when reopening the editor.
+  const hasHistory = showHistory && (recent.length > 0 || Boolean(historyContent));
+  if (!active.length && !busy && !hasHistory) return null;
+  return (
+    <section className="mb-3 space-y-2" aria-label={text.heading} data-testid="graph-transfer-dialog-status">
+      {active.length ? <div className="space-y-2 rounded-lg border border-[rgba(var(--border)/0.6)] p-3">
+        {active.map((row) => <LiveRow key={row.transferId} row={row} controller={controller} operation={operation} />)}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" className="text-xs underline underline-offset-2" onClick={() => controller.refresh()}>{text.status}</button>
+          <details className="text-xs"><summary className="cursor-pointer underline underline-offset-2">Подробности</summary>
+            <div className="mt-2 max-h-52 space-y-2 overflow-auto">{active.map((row) => <Row key={row.transferId} row={row} controller={controller} operation={operation} />)}</div>
+          </details>
+        </div>
+      </div> : null}
+      {busy && !active.length ? <div className="rounded-lg border border-[rgba(var(--border)/0.6)] px-3 py-2 text-xs" role="status">
+        {text.sending}<progress className="mt-1 h-1.5 w-full" aria-label={text.sending} />
+      </div> : null}
+      {controller.lookupError && (busy || active.length) ? <p className="text-xs text-amber-600 dark:text-amber-300" role="status">{text.unavailable}</p> : null}
+      {hasHistory ? <details className="text-xs text-neutral-500" data-testid="graph-transfer-history">
+        <summary className="inline-block cursor-pointer underline underline-offset-2">{text.history}</summary>
+        {historyContent}
+        {recent.length ? <div className="mt-2 max-h-72 space-y-2 overflow-auto">
+          <div className="mb-1 font-semibold text-current">Этапы операций</div>
+          {recent.map((row) => <Row key={row.transferId} row={row} controller={controller} operation={operation} />)}
+        </div> : null}
+      </details> : null}
+    </section>
+  );
 }

@@ -32,7 +32,7 @@ export function mergeTransferStatuses(previous, incoming, courseId, userId) {
   return [...rows.values()].sort((a, b) => Number(isTransferActive(b)) - Number(isTransferActive(a)) || Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 30);
 }
 export function transferImportPercent(job, operation) {
-  if (operation?.operationId === job?.operationId && operation?.state === 'completed') return 100;
+  if (job?.state === 'succeeded' || (operation?.operationId === job?.operationId && operation?.state === 'completed')) return 100;
   if (job?.kind === 'map') return Math.min(99, 70 + Math.floor((job.percent || 0) * 29 / 100));
   if (['import', 'resume'].includes(job?.kind)) return Math.min(70, Math.floor((job.percent || 0) * 0.7));
   return Math.max(0, Math.min(100, job?.percent || 0));

@@ -95,16 +95,18 @@ export default function JsonTaskGraphImportDialog({
             </div>
           </div>
 
-          <div className="mt-3 rounded-xl border border-[rgba(var(--border)/0.55)] px-3 py-2 text-xs" role="status" aria-live="polite">
-            <div className="break-all">Источник: <strong>{source}</strong></div>
-            <div className="mt-1">Содержимое: <strong>{inputBytes.toLocaleString('ru-RU')} байт</strong> ({(inputBytes / 1048576).toFixed(2)} МиБ), {text.length.toLocaleString('ru-RU')} символов</div>
-            <div className="mt-1 text-neutral-500">JSON-файлы до 24 МиБ загружайте через «Выбрать файл» или перетаскиванием .json в это окно. Проверяйте имя файла и размер перед импортом.</div>
-          </div>
+          {hasText ? <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500" role="status" aria-live="polite">
+            <span className="max-w-full truncate" title={source}>{source}</span>
+            <span aria-hidden="true">·</span>
+            <span>{(inputBytes / 1048576).toFixed(2)} МиБ</span>
+          </div> : null}
           {largeInput ? (
-            <div className="mt-4 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/15 p-4 text-sm">
-              <div className="font-semibold">Большой JSON загружен целиком</div>
-              <p className="mt-2 text-neutral-500">Чтобы браузер не зависал, текст не выводится целиком в редактор. Проверка и импорт используют полное содержимое ({inputBytes.toLocaleString('ru-RU')} байт), а не этот фрагмент. Чтобы вставить другой JSON, нажмите «Очистить» или выберите новый файл.</p>
-              <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-[rgb(var(--card))] p-3 text-xs">{text.slice(0, 600)}…</pre>
+            <div className="mt-3 flex min-h-24 items-center gap-3 rounded-xl border border-dashed border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/10 px-4 py-3 text-sm">
+              <FileJson size={22} className="shrink-0 text-neutral-500" />
+              <div>
+                <div className="font-medium">JSON загружен. Можно проверять импорт.</div>
+                <p className="mt-1 text-xs text-neutral-500">Большие файлы не показываются текстом, но обрабатываются целиком. Чтобы заменить файл, выберите другой.</p>
+              </div>
             </div>
           ) : (
             <Textarea
