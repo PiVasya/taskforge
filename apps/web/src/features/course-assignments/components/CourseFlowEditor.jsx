@@ -325,7 +325,7 @@ function findOpenMapPosition(basePosition, existingNodes, index = 0) {
   return { x: base.x + index * 34, y: base.y + index * 34 };
 }
 
-function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, importReloadKey = 0, onGraphImportComplete, onLearnerProgress = null }) {
+function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query = '', focusCourseId = '', dataRevision = 0, onRefreshCourseData, onQueryChange, onShowGrid, onExportJson, onImportJson, exportBusy = false, graphImportRequest = null, allowPendingImportDialog = false, importReloadKey = 0, onGraphImportComplete, onLearnerProgress = null }) {
   const nav = useNavigate();
   const location = useLocation();
   const notify = useNotify();
@@ -3309,7 +3309,7 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
               graphSource: graphSourceRef.current,
               nodes: nodesRef.current.length, edges: edgesRef.current.length,
             });
-            if (dirtyRef.current) {
+            if (dirtyRef.current && !allowPendingImportDialog) {
               courseMapConsole('IMPORT_BUTTON_BLOCKED', { viewKey, reason: 'local-unsaved-map', version: Number(recordRef.current.version || 0) }, 'warn');
               notify.warn('Сначала сохраните или отмените локальные изменения карты.');
               return;

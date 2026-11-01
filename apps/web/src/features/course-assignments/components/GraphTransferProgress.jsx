@@ -65,7 +65,7 @@ function Row({ row, controller, operation }) {
   const active = isTransferActive(row);
   const stale = active && row.state === 'running' && Date.now() - Date.parse(row.heartbeatAt || row.updatedAt) > 15000;
   const pendingMap = ['import', 'resume'].includes(row.kind) && row.state === 'succeeded'
-    && operation?.operationId === row.operationId && operation.state !== 'completed';
+    && Boolean(row.operationId) && !(operation?.operationId === row.operationId && operation.state === 'completed');
   const percentage = transferImportPercent(row, operation);
   const seconds = Math.max(0, Math.floor((Date.parse(row.finishedAt || new Date().toISOString()) - Date.parse(row.startedAt || row.createdAt)) / 1000));
   let failure; try { failure = JSON.parse(row.errorJson || '{}'); } catch { failure = {}; }
@@ -100,7 +100,7 @@ function Row({ row, controller, operation }) {
     </details>
   </div>;
 }
-function LiveRow({ row, operation, controller, page = false }) {
+function LiveRow({ row, operation }) {
   const percentage = transferImportPercent(row, operation);
   const title = text[row.kind] || row.kind;
   const phase = row.cancelRequested ? text.stopping : phases[row.phase] || text[row.phase]
@@ -113,15 +113,6 @@ function LiveRow({ row, operation, controller, page = false }) {
         <strong>{title}</strong>
         <span className="min-w-0 flex-1 truncate text-neutral-500" title={phase}>{phase}{count}</span>
         <span className="font-semibold tabular-nums">{percentage}%</span>
-        {page ? <details className="text-xs"><summary className="cursor-pointer underline underline-offset-2">Действия</summary>
-          <div className="mt-1 flex flex-wrap gap-2">
-            <Button variant="outline" disabled={controller.actionId === row.transferId || row.cancelRequested}
-              onClick={() => {
-                if (['import', 'resume', 'map'].includes(row.kind) && !window.confirm(`${text.stop}? ${text.noRollback}`)) return;
-                void controller.act(row, 'cancel');
-              }}>{text.stop}</Button>
-          </div>
-        </details> : null}
       </div>
       <progress className="mt-1 h-1.5 w-full accent-[rgb(var(--accent))]" value={percentage} max="100" aria-label={`${title}: ${percentage}%`} />
       {stale ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-300" role="status">{text.unavailable}</p> : null}
@@ -129,22 +120,11 @@ function LiveRow({ row, operation, controller, page = false }) {
   );
 }
 
-/** Completed transfers are available on demand, never as a permanent banner above the course map. */
+/** Transfer progress is rendered only inside import/export dialogs, never in the course layout. */
 export default function GraphTransferProgress({ controller, operation, busy = false,
-  page = false, pendingContent = null, showHistory = true, historyContent = null }) {
+  showHistory = true, historyContent = null }) {
   const active = controller.rows.filter(isTransferActive);
   const recent = controller.rows.filter((row) => !isTransferActive(row));
-
-  if (page) {
-    if (!active.length && !pendingContent) return null;
-    return (
-      <section className="mb-2 space-y-2 rounded-lg border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--card))] px-3 py-2"
-        aria-label="Текущие операции с графом" data-testid="graph-transfer-page-status">
-        {active.map((row) => <LiveRow key={row.transferId} row={row} controller={controller} operation={operation} page />)}
-        {pendingContent}
-      </section>
-    );
-  }
 
   // Inside dialogs the current job is visible; history is a small closed disclosure.
   // Never show completed jobs automatically, even when reopening the editor.
@@ -153,7 +133,7 @@ export default function GraphTransferProgress({ controller, operation, busy = fa
   return (
     <section className="mb-3 space-y-2" aria-label={text.heading} data-testid="graph-transfer-dialog-status">
       {active.length ? <div className="space-y-2 rounded-lg border border-[rgba(var(--border)/0.6)] p-3">
-        {active.map((row) => <LiveRow key={row.transferId} row={row} controller={controller} operation={operation} />)}
+        {active.map((row) => <LiveRow key={row.transferId} row={row} operation={operation} />)}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" className="text-xs underline underline-offset-2" onClick={() => controller.refresh()}>{text.status}</button>
           <details className="text-xs"><summary className="cursor-pointer underline underline-offset-2">Подробности</summary>

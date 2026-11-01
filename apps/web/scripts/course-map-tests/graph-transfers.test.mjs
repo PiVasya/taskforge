@@ -150,12 +150,32 @@ test('transfer UI: many recent small operations cannot hide an older active tran
   assert.equal(rows.length, 30); assert.equal(rows[0].transferId, 'still-running');
 });
 
-// CI's production build treats missing JSX bindings as errors. Keep the
-// progress passed by the course editor wired into the import preview modal.
-test('transfer UI: import preview accepts and displays the progress component', () => {
-  const modal = readFileSync(new URL('../../src/features/course-assignments/components/JsonTaskGraphDiffModal.jsx', import.meta.url), 'utf8');
+test('transfer UI: progress and recovery stay inside dialogs, never above the course map', () => {
+  const preview = readFileSync(new URL('../../src/features/course-assignments/components/JsonTaskGraphDiffModal.jsx', import.meta.url), 'utf8');
+  const input = readFileSync(new URL('../../src/features/course-assignments/components/JsonTaskGraphImportDialog.jsx', import.meta.url), 'utf8');
+  const transfer = readFileSync(new URL('../../src/features/course-assignments/components/GraphTransferProgress.jsx', import.meta.url), 'utf8');
   const editor = readFileSync(new URL('../../src/features/course-assignments/CourseAssignmentsFeature.jsx', import.meta.url), 'utf8');
-  assert.match(modal, /function JsonTaskGraphDiffModal\(\{[^}]*\bprogress\s*=\s*null\b/);
-  assert.match(modal, /\{progress\}/);
-  assert.match(editor, /<JsonTaskGraphDiffModal\s+progress=\{transferProgress\}/);
+  assert.match(preview, /function JsonTaskGraphDiffModal\(\{[^}]*\bprogress\s*=\s*null\b/);
+  assert.match(preview, /\{progress\}/);
+  assert.match(editor, /<JsonTaskGraphDiffModal\s+progress=\{diffProgress\}/);
+  assert.match(editor, /<JsonTaskGraphImportDialog\s+progress=\{transferProgress\}\s+recovery=\{pendingImportStatus\}\s+blocked=\{importBlocked\}/);
+  assert.match(input, /\{recovery\}\s+\{progress\}/);
+  assert.match(input, /disabled=\{busy \|\| blocked \|\| !hasText\}/);
+  assert.match(editor, /const importBlocked = !importJournal.ready/);
+  assert.match(editor, /if \(importBlocked\) \{/);
+  assert.match(editor, /allowPendingImportDialog=\{hasPendingImport \|\| otherPendingImport \|\| Boolean\(graphImportRequest\)\}/);
+  assert.match(editor, /return \(\s*<>\s*\{!showFlowLayout \? \(/);
+  assert.doesNotMatch(editor, /page\s+pendingContent=/);
+  assert.doesNotMatch(transfer, /graph-transfer-page-status|\bpage\s*=\s*false|\bpendingContent\b/);
+});
+
+test('transfer UI: a pending import must not prevent reopening the import dialog for recovery', () => {
+  const editor = readFileSync(new URL('../../src/features/course-assignments/CourseAssignmentsFeature.jsx', import.meta.url), 'utf8');
+  const opening = editor.match(/const openJsonImportDialog = React\.useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[/)?.[1];
+  assert.ok(opening);
+  assert.match(opening, /setJsonImportDialogOpen\(true\)/);
+  assert.doesNotMatch(opening, /\breturn\s*;/);
+  assert.doesNotMatch(opening, /IMPORT_MODAL_BLOCKED/);
+  const map = readFileSync(new URL('../../src/features/course-assignments/components/CourseFlowEditor.jsx', import.meta.url), 'utf8');
+  assert.match(map, /if \(dirtyRef\.current && !allowPendingImportDialog\)/);
 });

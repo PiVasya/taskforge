@@ -264,6 +264,9 @@ export default function CourseAssignmentsPage() {
   const transfers = useGraphTransfers({ courseId, userId: importUserId, enabled: Boolean(isEditorMode && courseCanEdit), journal: importJournal,
     onError: (error) => handleApiError(error, notify) });
   const transferBusy = transfers.rows.some((row) => isTransferActive(row) && ['import', 'resume', 'map'].includes(row.kind));
+  const hasPendingImport = isImportPending(importJournal.operation) && importJournal.operation?.state !== 'missing';
+  const otherPendingImport = importJournal.history.some((entry) => entry.operationId !== importJournal.operation?.operationId && isImportPending(entry));
+  const importBlocked = !importJournal.ready || hasPendingImport || otherPendingImport || Boolean(graphImportRequest);
 
   useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); setJsonImportBusy(false); setJsonExportBusy(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
   const jsonPreviewSequenceRef = useRef(0);
@@ -371,25 +374,19 @@ export default function CourseAssignmentsPage() {
   }, [courseCanEdit, isEditorMode]);
 
   const openJsonImportDialog = React.useCallback(() => {
-    const pendingOperation = isImportPending(importJournal.operation) && importJournal.operation.state !== 'missing';
     courseMapConsole('IMPORT_MODAL_OPEN_ATTEMPT', {
       courseId, graphImportRequest: Boolean(graphImportRequest),
-      operationPending: pendingOperation, mapEditorMode, courseCanEdit,
+      operationPending: hasPendingImport || otherPendingImport, mapEditorMode, courseCanEdit,
       currentlyOpen: jsonImportDialogOpen,
     });
-    if (graphImportRequest || pendingOperation) {
-      courseMapConsole('IMPORT_MODAL_BLOCKED', {
-        courseId, reason: 'pending-import-operation',
-        graphImportRequest: Boolean(graphImportRequest), operationPending: pendingOperation,
-      }, 'warn');
-      notify.warn('Сначала завершите сохранение карты предыдущего импорта.'); return; }
+    // A pending operation must not block access to its recovery controls in the import dialog.
     closeContextMenu();
     closeCreateMenu();
     setJsonDocsOpen(false);
     setJsonImportOptions((current) => ({ ...current, allowDeletes: false, allowConnectionDeletes: false, allowDuplicates: false }));
     setJsonImportDialogOpen(true);
     courseMapConsole('IMPORT_MODAL_OPEN_DISPATCHED', { courseId });
-  }, [closeContextMenu, closeCreateMenu, courseCanEdit, courseId, graphImportRequest, importJournal.operation, jsonImportDialogOpen, mapEditorMode, notify]);
+  }, [closeContextMenu, closeCreateMenu, courseCanEdit, courseId, graphImportRequest, hasPendingImport, otherPendingImport, jsonImportDialogOpen, mapEditorMode]);
 
   useEffect(() => {
     courseMapConsole('IMPORT_MODAL_STATE', { courseId, open: jsonImportDialogOpen });
@@ -920,6 +917,10 @@ export default function CourseAssignmentsPage() {
 
   const handlePrepareJsonImportDiff = async () => {
     if (jsonInputBusy) return;
+    if (importBlocked) {
+      notify.warn('Сначала завершите или восстановите предыдущий импорт в этом окне.');
+      return;
+    }
     setJsonMapRecovery(false);
     if (!ensureCanManageAssignments("импортировать JSON")) return;
     if (!String(jsonImportText || "").trim()) {
@@ -1010,7 +1011,7 @@ export default function CourseAssignmentsPage() {
       notify.error("Сначала исправьте ошибки JSON");
       return;
     }
-    if (jsonImportBusy || transferBusy || jsonImportApplyError) return;
+    if (jsonImportBusy || transferBusy || jsonImportApplyError || (!jsonMapRecovery && importBlocked)) return;
     if (jsonImportDiff?.requiresConnectionDeleteConfirmation || jsonImportDiff?.requiresDuplicateConfirmation) {
       notify.error('Подтвердите удаление связей или создание возможных дублей в проверке импорта.');
       return;
@@ -1043,7 +1044,7 @@ export default function CourseAssignmentsPage() {
   const pendingImportStatus = pendingImport && !activeImportTransfer ? (
     <TaskGraphImportStatus importJournal={importJournal} graphImportRequest={graphImportRequest}
       jsonImportBusy={jsonImportBusy || transferBusy} prepareMapRecovery={prepareMapRecovery} resumeImport={resumeImport}
-      openJsonImportDialog={openJsonImportDialog} notify={notify} lastImportDiffRef={lastImportDiffRef} />
+      notify={notify} lastImportDiffRef={lastImportDiffRef} />
   ) : null;
   const importHistory = importJournal.history.length ? <TaskGraphImportHistory importJournal={importJournal}
     courseId={courseId} notify={notify} lastImportDiffRef={lastImportDiffRef} /> : null;
@@ -1053,8 +1054,6 @@ export default function CourseAssignmentsPage() {
     busy={jsonImportBusy || jsonExportBusy} showHistory={false} />;
   return (
     <>
-      {isEditorMode && courseCanEdit ? <GraphTransferProgress controller={transfers} operation={importJournal.operation}
-        page pendingContent={pendingImportStatus} /> : null}
       {!showFlowLayout ? (
       <div className="page-hero-card mb-6 rounded-[28px] p-5 sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -1191,6 +1190,8 @@ export default function CourseAssignmentsPage() {
 
       <JsonTaskGraphImportDialog
         progress={transferProgress}
+        recovery={pendingImportStatus}
+        blocked={importBlocked}
         open={jsonImportDialogOpen}
         busy={jsonImportBusy || transferBusy || jsonInputBusy || Boolean(createBusyType)}
         preview={jsonImportPreview}
@@ -1256,6 +1257,7 @@ export default function CourseAssignmentsPage() {
           dataRevision={assignmentsQuery.updatedAt || 0}
           onLearnerProgress={mapEditorMode ? null : setLearnerFlowProgress}
           graphImportRequest={graphImportRequest}
+          allowPendingImportDialog={hasPendingImport || otherPendingImport || Boolean(graphImportRequest)}
           importReloadKey={importReloadKey}
           onGraphImportComplete={handleGraphImportComplete}
           onRefreshCourseData={async () => {

@@ -8,6 +8,8 @@ import JsonImportHelp from './JsonImportHelp';
 export default function JsonTaskGraphImportDialog({
   open,
   progress = null,
+  recovery = null,
+  blocked = false,
   busy = false,
   preview = 'пусто',
   text = '',
@@ -66,7 +68,11 @@ export default function JsonTaskGraphImportDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+          {recovery}
           {progress}
+          {blocked && !recovery ? <div className="mb-3 rounded-xl border border-[rgba(var(--border)/0.7)] p-3 text-sm" role="status">
+            Проверяем предыдущий импорт. Новый импорт будет доступен после завершения или восстановления операции.
+          </div> : null}
           <div className="flex flex-col gap-3 rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/20 p-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Sparkles size={18} />
@@ -134,7 +140,7 @@ export default function JsonTaskGraphImportDialog({
           <div className="min-w-0 text-xs text-neutral-500">
             На следующем шаге вы увидите, что будет создано, обновлено, удалено или оставлено без изменений. До подтверждения курс не меняется.
           </div>
-          <Button className="shrink-0" shortcut="primary" onClick={onPrepareDiff} disabled={busy || !hasText}>
+          <Button className="shrink-0" shortcut="primary" onClick={onPrepareDiff} disabled={busy || blocked || !hasText}>
             <GitCompare size={16} /> {busy ? 'Проверяю…' : 'Проверить импорт'}
           </Button>
         </div>

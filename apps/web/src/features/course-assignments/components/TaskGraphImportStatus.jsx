@@ -4,9 +4,9 @@ import { Button } from '../../../components/ui';
 import { handleApiError } from '../../../utils/handleApiError';
 import { downloadTaskGraphAudit, isImportPending } from '../courseTaskGraphOperation';
 
-// Only unresolved imports need a message above the map; completed imports live in the journal.
+// Recovery actions are available inside the JSON import dialog without shifting the course map.
 export default function TaskGraphImportStatus({ importJournal, graphImportRequest, jsonImportBusy,
-  prepareMapRecovery, resumeImport, openJsonImportDialog, notify, lastImportDiffRef }) {
+  prepareMapRecovery, resumeImport, notify, lastImportDiffRef }) {
   const operation = importJournal.operation;
   if (!isImportPending(operation) || (!importJournal.ready && !importJournal.lookupError)) return null;
 
@@ -15,7 +15,7 @@ export default function TaskGraphImportStatus({ importJournal, graphImportReques
   const canContinue = operation.state !== 'missing' && operation.state !== 'sending' && operation.state !== 'unknown';
   const hasKnownResult = Boolean(operation.response);
   const message = operation.state === 'missing'
-    ? 'Предыдущий импорт не найден. Откройте исходный JSON.'
+    ? 'Предыдущий импорт не найден. Выберите исходный JSON для повторного импорта.'
     : needsMapRebase ? 'Карта изменилась. Нужно повторно проверить её перед завершением импорта.'
     : isSaving ? 'Данные импортированы, карта сохраняется.'
     : hasKnownResult ? 'Данные импортированы, но сохранение карты не подтверждено.'
@@ -29,7 +29,8 @@ export default function TaskGraphImportStatus({ importJournal, graphImportReques
   };
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs sm:text-sm" role="status" data-testid="import-operation-status">
+    <section className="mb-3 flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-[rgba(var(--border)/0.7)] bg-[rgba(var(--muted)/0.15)] p-3 text-xs sm:text-sm"
+      role="status" aria-label="Восстановление импорта" data-testid="import-operation-status">
       <span className="min-w-0 flex-1">{message}</span>
       {importJournal.lookupError || operation.state === 'unknown' || !hasKnownResult ? (
         <Button variant="outline" disabled={importJournal.busy} onClick={() => importJournal.refresh(operation.operationId).catch((error) => handleApiError(error, notify))}>
@@ -41,7 +42,6 @@ export default function TaskGraphImportStatus({ importJournal, graphImportReques
           {needsMapRebase && hasKnownResult ? 'Пересчитать карту' : hasKnownResult ? 'Завершить импорт' : 'Продолжить импорт'}
         </Button>
       ) : null}
-      {operation.state === 'missing' ? <Button variant="outline" onClick={openJsonImportDialog}>Открыть JSON</Button> : null}
       <details className="text-xs text-neutral-500">
         <summary className="cursor-pointer underline underline-offset-2">Журнал</summary>
         <div className="mt-2 flex max-w-lg flex-wrap items-center gap-2">
@@ -63,7 +63,7 @@ export default function TaskGraphImportStatus({ importJournal, graphImportReques
       </details>
       {importJournal.lookupError ? <p className="w-full text-xs text-amber-600 dark:text-amber-300">Не удалось прочитать журнал. Результат импорта ещё неизвестен.</p> : null}
       {operation.error?.message || graphImportRequest?.error ? <p className="w-full text-xs text-red-600 dark:text-red-300">{operation.error?.message || graphImportRequest?.error}</p> : null}
-    </div>
+    </section>
   );
 }
 
