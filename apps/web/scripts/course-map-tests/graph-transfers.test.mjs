@@ -169,6 +169,17 @@ test('transfer UI: progress and recovery stay inside dialogs, never above the co
   assert.doesNotMatch(transfer, /graph-transfer-page-status|\bpage\s*=\s*false|\bpendingContent\b/);
 });
 
+test('transfer UI: expanded job details do not duplicate the active progress bar', () => {
+  const transfer = readFileSync(new URL('../../src/features/course-assignments/components/GraphTransferProgress.jsx', import.meta.url), 'utf8');
+  const compact = transfer.split('function LiveRow(')[1]?.split('/** Transfer progress')[0];
+  const details = transfer.split('function Row(')[1]?.split('function LiveRow(')[0];
+  assert.ok(compact && details, 'Both compact and detailed job views must exist');
+  assert.equal((compact.match(/<progress\b/g) || []).length, 1, 'One indicator for each live job');
+  assert.doesNotMatch(details, /<progress\b/, 'Detailed job view must not repeat the indicator');
+  assert.match(details, /row\.completedItems/, 'Keep the real progress counters in job details');
+  assert.match(details, /controller\.act/, 'Keep the recovery and cancellation controls');
+});
+
 test('transfer UI: a pending import must not prevent reopening the import dialog for recovery', () => {
   const editor = readFileSync(new URL('../../src/features/course-assignments/CourseAssignmentsFeature.jsx', import.meta.url), 'utf8');
   const opening = editor.match(/const openJsonImportDialog = React\.useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[/)?.[1];

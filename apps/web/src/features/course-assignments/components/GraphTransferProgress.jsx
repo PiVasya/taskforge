@@ -74,7 +74,6 @@ function Row({ row, controller, operation }) {
       <strong>{text[row.kind] || row.kind} <span className="font-normal text-neutral-500">{text[row.lane]}</span></strong>
       <span>{row.cancelRequested && active ? text.stopping : pendingMap ? text.awaitingMap : text[row.state]}{!['failed', 'cancelled', 'expired'].includes(row.state) ? ` \u00b7 ${percentage}%` : ''}</span>
     </div>
-    <progress className="mt-2 h-2 w-full accent-[rgb(var(--accent))]" value={percentage} max="100" aria-label={text[row.kind] || row.kind} />
     <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs text-neutral-500">
       <span>{phases[row.phase] || row.phase}{row.totalItems > 0 ? ` \u00b7 ${row.completedItems}/${row.totalItems}` : ''}</span>
       <span>{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}{row.bytesWritten > 0 ? ` \u00b7 ${(row.bytesWritten / 1048576).toFixed(2)} MiB gzip` : ''}</span>
