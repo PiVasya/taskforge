@@ -4,6 +4,11 @@ import GraphTransferProgress from './GraphTransferProgress';
 import TaskGraphImportStatus, { TaskGraphImportHistory } from './TaskGraphImportStatus';
 import { transferImportPercent } from '../graphTransferModel';
 
+// These are rendering tests. Do not load the HTTP client via the import journal:
+// axios ships ESM that CRA's Jest runner does not transform from node_modules.
+jest.mock('../../../api/assignments', () => ({ getTaskGraphImport: jest.fn() }));
+jest.mock('../../../utils/handleApiError', () => ({ handleApiError: jest.fn() }));
+
 const finishedImport = {
   transferId: 'transfer-import', operationId: 'operation-import', kind: 'import', lane: 'content',
   state: 'succeeded', percent: 100, phase: 'completed', completedItems: 792, totalItems: 792,
