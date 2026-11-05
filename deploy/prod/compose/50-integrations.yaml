@@ -87,6 +87,7 @@ services:
       Telegram__BotToken: ${SUPPORT_BOT_TOKEN:-}
       Telegram__SupportGroupId: ${SUPPORT_BOT_GROUP_ID:-}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      Discord__BotToken: ${DISCORD_BOT_TOKEN:-}
       SUPPORT_BOT_TOKEN: ${SUPPORT_BOT_TOKEN:-}
       SUPPORT_BOT_GROUP_ID: ${SUPPORT_BOT_GROUP_ID:-}
       SUPPORT_BOT_USERNAME: ${SUPPORT_BOT_USERNAME:-}

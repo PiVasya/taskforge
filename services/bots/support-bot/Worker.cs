@@ -10,7 +10,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace TaskForge.SupportBot;
 
-public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClientFactory, IConfiguration cfg, AiAccessDigestAggregator aiAccess) : BackgroundService
+public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClientFactory, IConfiguration cfg, AiAccessDigestAggregator aiAccess, DiscordIntegration discord) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private TelegramBotClient? _bot;
@@ -84,11 +84,10 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
         if (string.IsNullOrWhiteSpace(token))
         {
-            logger.LogWarning("Support bot is disabled: Telegram bot token is not configured.");
-            await WaitUntilCancelledAsync(stoppingToken);
-            return;
+            logger.LogWarning("Telegram is disabled: bot token is missing. Discord gateway and delivery remain available if configured.");
         }
-
+        else
+        {
         if (!long.TryParse(groupIdRaw, out _supportGroupId) || _supportGroupId == 0)
         {
             _supportGroupId = 0;
@@ -116,6 +115,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
         var receiverOptions = new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() };
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, receiverOptions, cancellationToken: stoppingToken);
         logger.LogInformation("Support Telegram bot started. Support group id: {GroupId}", _supportGroupId);
+
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -197,14 +198,14 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
 
     private async Task ForwardPendingAdminRepliesToUsersAsync(CancellationToken ct)
     {
-        if (_bot == null) return;
+        if (_bot == null && !discord.Configured) return;
         var support = SupportClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/internal/support/telegram/pending-admin-replies");
         AddInternalKey(request);
         using var response = await support.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogWarning("Failed to load pending admin replies. Status: {Status}", response.StatusCode);
+            logger.LogWarning("Failed to load pending support replies. Status: {Status}", response.StatusCode);
             return;
         }
 
@@ -217,13 +218,33 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
                 continue;
             }
 
-            var contact = await LoadTelegramContactByUserIdAsync(reply.UserId.Value, ct);
-            if (contact?.TelegramChatId == null)
+            var (contact, lookupFailed) = await LoadMessengerContactByUserIdAsync(reply.UserId.Value, ct);
+            if (lookupFailed) continue;
+            if (contact == null || !contact.Linked)
             {
                 await MarkAdminReplyUnavailableAsync(reply.MessageId, ct);
                 continue;
             }
 
+            if (contact.PrimaryMessenger == "discord")
+            {
+                if (string.IsNullOrWhiteSpace(contact.DiscordUserId))
+                {
+                    await MarkDiscordReplyAsync(reply.MessageId, "mark-unavailable", ct);
+                    continue;
+                }
+                if (!discord.Configured) continue;
+                var result = await discord.SendTextAsync(contact.DiscordUserId, FormatPrivateAdminReply(reply), ct);
+                if (result.Success)
+                    await MarkDiscordReplyAsync(reply.MessageId, "mark-delivered", ct);
+                else if (result.PermanentFailure)
+                    await MarkDiscordReplyAsync(reply.MessageId, "mark-unavailable", ct);
+                else
+                    logger.LogWarning("Discord reply delivery for message {MessageId} failed. code={Code}", reply.MessageId, result.ErrorCode);
+                continue;
+            }
+
+            if (_bot == null || contact.TelegramChatId == null) continue;
             Message sent;
             try
             {
@@ -231,10 +252,8 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             }
             catch (ApiRequestException error) when (error.ErrorCode == 403)
             {
-                // A blocked recipient is a permanent delivery outcome for this
-                // message, not a reason to abort or retry the entire oldest batch.
                 await MarkAdminReplyUnavailableAsync(reply.MessageId, ct, "recipient-forbidden");
-                logger.LogWarning("Support reply {MessageId} cannot be delivered: Telegram rejected the recipient (403). Continuing with other recipients.", reply.MessageId);
+                logger.LogWarning("Support reply {MessageId} cannot be delivered: Telegram rejected the recipient (403).", reply.MessageId);
                 continue;
             }
             using var mark = new HttpRequestMessage(HttpMethod.Post, $"api/internal/support/telegram/admin-replies/{reply.MessageId}/mark-delivered")
@@ -244,12 +263,37 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
             AddInternalKey(mark);
             using var markResponse = await support.SendAsync(mark, ct);
             if (!markResponse.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Failed to mark admin reply {MessageId} as delivered. Status: {Status}", reply.MessageId, markResponse.StatusCode);
-            }
+                logger.LogWarning("Failed to mark Telegram support reply {MessageId} as delivered. Status: {Status}", reply.MessageId, markResponse.StatusCode);
         }
     }
 
+    private async Task MarkDiscordReplyAsync(Guid messageId, string state, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/internal/support/discord/admin-replies/{messageId}/{state}");
+        AddInternalKey(request);
+        using var response = await SupportClient().SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            logger.LogWarning("Failed to mark Discord reply {MessageId} as {State}: {Status}", messageId, state, response.StatusCode);
+    }
+
+    private async Task<(MessengerContactDto? Contact, bool LookupFailed)> LoadMessengerContactByUserIdAsync(Guid userId, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"api/internal/integrations/messengers/users/{userId}");
+        AddInternalKey(request);
+        try
+        {
+            using var response = await IdentityClient().SendAsync(request, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return (null, false);
+            if (!response.IsSuccessStatusCode) return (null, true);
+            return (await response.Content.ReadFromJsonAsync<MessengerContactDto>(JsonOptions, ct), false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to resolve preferred messenger for support reply {UserId}", userId);
+            return (null, true);
+        }
+    }
 
     public async Task<PasswordRecoveryDeliveryResult> SendPasswordRecoveryCodeAsync(
         PasswordRecoveryDeliveryRequest request,
@@ -611,6 +655,7 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     private static string SourceLabel(string? source) => source switch
     {
         "TelegramUser" => "Telegram",
+        "DiscordUser" => "Discord",
         "Web" => "Сайт",
         _ => string.IsNullOrWhiteSpace(source) ? "Сайт" : source
     };
@@ -711,6 +756,15 @@ public sealed class Worker(ILogger<Worker> logger, IHttpClientFactory httpClient
     {
         public Guid MessageId { get; set; }
         public Guid TicketId { get; set; }
+    }
+
+    private sealed class MessengerContactDto
+    {
+        public Guid UserId { get; set; }
+        public bool Linked { get; set; }
+        public string? PrimaryMessenger { get; set; }
+        public long? TelegramChatId { get; set; }
+        public string? DiscordUserId { get; set; }
     }
 
     private sealed class TelegramContactDto

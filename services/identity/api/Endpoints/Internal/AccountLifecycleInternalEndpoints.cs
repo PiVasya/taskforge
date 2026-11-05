@@ -209,6 +209,12 @@ internal static partial class IdentityApiEndpoints
             var sourceTelegramUsername = source.TelegramUsername;
             var sourceTelegramLinkedAtUtc = source.TelegramLinkedAtUtc;
             var sourceTelegramLinkCount = source.TelegramLinkCount;
+            var sourceDiscordUserId = source.DiscordUserId;
+            var sourceDiscordName = source.DiscordName;
+            var sourceDiscordLinkedAtUtc = source.DiscordLinkedAtUtc;
+            var sourceDiscordLinkCount = source.DiscordLinkCount;
+            var sourcePrimaryMessenger = EffectivePrimaryMessenger(source);
+            var targetHadMessenger = target.TelegramChatId.HasValue || target.DiscordUserId != null;
             var sourceRole = source.Role;
             var sourceLastLoginAt = source.LastLoginAt;
 
@@ -234,12 +240,15 @@ internal static partial class IdentityApiEndpoints
 
             var linkCodes = await db.TelegramLinkCodes.Where(x => x.UserId == source.Id).ToListAsync(ct);
             db.TelegramLinkCodes.RemoveRange(linkCodes);
+            db.DiscordLinkCodes.RemoveRange(await db.DiscordLinkCodes.Where(x => x.UserId == source.Id).ToListAsync(ct));
 
             if (!string.IsNullOrWhiteSpace(sourceEmail) && !string.IsNullOrWhiteSpace(target.Email) &&
                 !string.Equals(sourceEmail, target.Email, StringComparison.OrdinalIgnoreCase))
                 warnings.Add("У аккаунтов разные email; сохранён email основного аккаунта.");
             if (sourceTelegramChatId.HasValue && target.TelegramChatId.HasValue && target.TelegramChatId != sourceTelegramChatId)
                 warnings.Add("У обоих аккаунтов были разные Telegram-привязки; сохранена привязка основного аккаунта.");
+            if (sourceDiscordUserId != null && target.DiscordUserId != null && target.DiscordUserId != sourceDiscordUserId)
+                warnings.Add("У обоих аккаунтов были разные Discord-привязки; сохранена привязка основного аккаунта.");
 
             source.AccountStatus = "merged";
             source.MergedIntoUserId = target.Id;
@@ -265,6 +274,16 @@ internal static partial class IdentityApiEndpoints
                 target.TelegramLinkedAtUtc = sourceTelegramLinkedAtUtc;
                 target.TelegramLinkCount = Math.Max(target.TelegramLinkCount, sourceTelegramLinkCount);
             }
+            if (target.DiscordUserId == null && sourceDiscordUserId != null)
+            {
+                target.DiscordUserId = sourceDiscordUserId;
+                target.DiscordName = sourceDiscordName;
+                target.DiscordLinkedAtUtc = sourceDiscordLinkedAtUtc;
+                target.DiscordLinkCount = Math.Max(target.DiscordLinkCount, sourceDiscordLinkCount);
+            }
+            target.PrimaryMessenger = targetHadMessenger
+                ? EffectivePrimaryMessenger(target)
+                : sourcePrimaryMessenger ?? EffectivePrimaryMessenger(target);
             if (RoleRank(sourceRole) > RoleRank(target.Role)) target.Role = sourceRole;
             if (sourceLastLoginAt.HasValue && (!target.LastLoginAt.HasValue || sourceLastLoginAt > target.LastLoginAt)) target.LastLoginAt = sourceLastLoginAt;
 
@@ -290,6 +309,7 @@ internal static partial class IdentityApiEndpoints
             db.UserFeatureRoles.RemoveRange(await db.UserFeatureRoles.Where(x => x.UserId == source.Id).ToListAsync(ct));
             db.LoginLogs.RemoveRange(await db.LoginLogs.Where(x => x.UserId == source.Id).ToListAsync(ct));
             db.TelegramLinkCodes.RemoveRange(await db.TelegramLinkCodes.Where(x => x.UserId == source.Id).ToListAsync(ct));
+            db.DiscordLinkCodes.RemoveRange(await db.DiscordLinkCodes.Where(x => x.UserId == source.Id).ToListAsync(ct));
             var settings = await db.UiSettings.FirstOrDefaultAsync(x => x.UserId == source.Id, ct);
             if (settings != null) db.UiSettings.Remove(settings);
             var block = await db.BlockedAccounts.FirstOrDefaultAsync(x => x.UserId == source.Id, ct);
@@ -377,6 +397,11 @@ internal static partial class IdentityApiEndpoints
         user.TelegramUsername = null;
         user.TelegramLinkedAtUtc = null;
         user.TelegramLinkCount = 0;
+        user.DiscordUserId = null;
+        user.DiscordName = null;
+        user.DiscordLinkedAtUtc = null;
+        user.DiscordLinkCount = 0;
+        user.PrimaryMessenger = null;
         user.PasswordSalt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         user.PasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         user.LastLoginAt = null;

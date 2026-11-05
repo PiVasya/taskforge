@@ -46,7 +46,8 @@ function userLabel(user) {
 }
 
 function sourceLabel(source) {
-  if (source === 'TelegramUser') return 'Telegram';
+  if (source === 'TelegramUser' || source === 'TelegramUserPrivate') return 'Telegram';
+  if (source === 'DiscordUser' || source === 'DiscordUserPrivate') return 'Discord';
   if (source === 'TelegramGroup') return 'Telegram-группа';
   if (source === 'Web') return 'Сайт';
   return null;
@@ -98,6 +99,7 @@ export default function SupportChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [messengerRequired, setMessengerRequired] = useState(false);
   const [messageMenu, setMessageMenu] = useState({ open: false, x: 0, y: 0, message: null });
 
   const closeMessageMenu = () => setMessageMenu((current) => current.open ? { ...current, open: false } : current);
@@ -124,6 +126,7 @@ export default function SupportChatPage() {
   const fetchChat = useCallback(async ({ silent = false } = {}) => {
     try {
       const data = ticketId ? await getSupportTicket(ticketId) : await getSupportChat();
+      setMessengerRequired(false);
       if (!isMountedRef.current) return;
 
       const nextChat = data.chat || data.ticket || null;
@@ -140,6 +143,7 @@ export default function SupportChatPage() {
         notifyOnce(`support_msg_${nextChat?.id || ticketId}_${lastId}`, () => notify.info('Техподдержка ответила'), 6000);
       }
     } catch (err) {
+      if (err?.response?.data?.code === 'SUPPORT_MESSENGER_REQUIRED') setMessengerRequired(true);
       if (!silent) {
         const parsed = handleApiError(err, notify, 'Не удалось загрузить чат поддержки');
         setError(parsed);
@@ -153,6 +157,7 @@ export default function SupportChatPage() {
     isMountedRef.current = true;
     setLoading(true);
     setError(null);
+    setMessengerRequired(false);
     setReplyTo(null);
     lastMessageIdRef.current = null;
     fetchChat();
@@ -244,6 +249,7 @@ export default function SupportChatPage() {
       setReplyTo(null);
       await fetchChat({ silent: true });
     } catch (err) {
+      if (err?.response?.data?.code === 'SUPPORT_MESSENGER_REQUIRED') setMessengerRequired(true);
       const parsed = handleApiError(err, notify, 'Не удалось отправить сообщение');
       setError(parsed);
     } finally {
@@ -264,11 +270,19 @@ export default function SupportChatPage() {
           {isAdminView ? <Link to="/admin/support" className="btn-outline">К списку чатов</Link> : null}
         </div>
 
-        {error ? <div className="mb-4"><AppErrorPanel error={error} title="Проблема в чате поддержки" /></div> : null}
+        {messengerRequired && !isAdminView ? (
+          <Card className="mb-4 p-4 space-y-3">
+            <div className="font-semibold">Для доступа к техподдержке нужна привязка</div>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">Привяжи Telegram или Discord в настройках. После этого сможешь писать в поддержку.</p>
+            <Link to="/settings?section=integrations" className="btn-outline inline-flex">Перейти к интеграциям</Link>
+            <Button variant="outline" onClick={() => fetchChat()}>Проверить привязку</Button>
+          </Card>
+        ) : null}
+        {error && !messengerRequired ? <div className="mb-4"><AppErrorPanel error={error} title="Проблема в чате поддержки" /></div> : null}
 
         {loading ? (
           <div>Загрузка…</div>
-        ) : (
+        ) : messengerRequired && !isAdminView ? null : (
           <Card>
             {isAdminView && chat?.user ? (
               <div className="mb-4 rounded-2xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 text-sm">

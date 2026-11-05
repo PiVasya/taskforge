@@ -39,6 +39,8 @@ public sealed class SupportDbContext(DbContextOptions<SupportDbContext> options)
             entity.Property(x => x.Source).HasMaxLength(80);
             entity.HasIndex(x => x.TelegramMessageId);
             entity.HasIndex(x => new { x.TelegramChatId, x.TelegramMessageId });
+            entity.HasIndex(x => x.DiscordMessageId).IsUnique();
+            entity.Property(x => x.DiscordMessageId).HasMaxLength(24);
         });
     }
 }

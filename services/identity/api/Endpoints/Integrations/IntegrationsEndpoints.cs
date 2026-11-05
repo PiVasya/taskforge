@@ -102,6 +102,8 @@ internal static partial class IdentityApiEndpoints
             user.TelegramChatId = null;
             user.TelegramUsername = null;
             user.TelegramLinkedAtUtc = null;
+            if (string.Equals(user.PrimaryMessenger, "telegram", StringComparison.OrdinalIgnoreCase))
+                user.PrimaryMessenger = user.DiscordUserId == null ? null : "discord";
             await db.TelegramLinkCodes.Where(x => x.UserId == user.Id).ExecuteDeleteAsync(ct);
             await db.SaveChangesAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(TelegramStatus(user, cfg));
@@ -156,6 +158,7 @@ internal static partial class IdentityApiEndpoints
             user.TelegramUsername = NormalizeTelegramUsername(req.Username);
             user.TelegramLinkedAtUtc = now;
             user.TelegramLinkCount += 1;
+            user.PrimaryMessenger ??= "telegram";
             linkCode.UsedAtUtc = now;
             await db.TelegramLinkCodes.Where(x => x.UserId == user.Id && x.Id != linkCode.Id).ExecuteDeleteAsync(ct);
             await db.SaveChangesAsync(ct);
@@ -177,6 +180,7 @@ internal static partial class IdentityApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(TelegramContact(user));
         });
 
+        MapMessengerEndpoints(app);
         return app;
     }
 
@@ -186,7 +190,8 @@ internal static partial class IdentityApiEndpoints
         username = user.TelegramUsername,
         linkedAtUtc = user.TelegramLinkedAtUtc,
         linkCount = user.TelegramLinkCount,
-        botUsername = TelegramBotUsername(cfg)
+        botUsername = TelegramBotUsername(cfg),
+        primaryMessenger = EffectivePrimaryMessenger(user)
     };
 
     private static object TelegramContact(IdentityUser user) => new
@@ -194,6 +199,7 @@ internal static partial class IdentityApiEndpoints
         userId = user.Id,
         telegramChatId = user.TelegramChatId,
         telegramUsername = user.TelegramUsername,
+        primaryMessenger = EffectivePrimaryMessenger(user),
         login = UserLoginOrFallback(user),
         email = user.Email,
         maskedEmail = MaskEmail(user.Email),

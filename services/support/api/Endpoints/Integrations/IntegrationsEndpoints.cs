@@ -22,7 +22,7 @@ internal static partial class SupportApiEndpoints
         app.MapGet("/api/internal/support/telegram/pending-user-messages", async (SupportDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             var rows = await db.Messages.AsNoTracking()
-                .Where(x => x.AuthorRole != "admin" && x.TelegramMessageId == null && (x.Source == "Web" || x.Source == "TelegramUser"))
+                .Where(x => x.AuthorRole != "admin" && x.TelegramMessageId == null && (x.Source == "Web" || x.Source == "TelegramUser" || x.Source == "DiscordUser"))
                 .OrderBy(x => x.CreatedAt)
                 .Take(100)
                 .ToListAsync(ct);
@@ -250,6 +250,66 @@ internal static partial class SupportApiEndpoints
             var users = await LoadUserSummariesAsync(new[] { req.UserId }, cfg, httpFactory, ct);
             await BroadcastSupportMessageAsync(hub, ticket.Id, ticket.UserId, ToMessageDto(msg, users.GetValueOrDefault(req.UserId)), ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, ticketId = ticket.Id, messageId = msg.Id });
+        });
+
+        app.MapPost("/api/internal/support/discord/user-message", async (DiscordUserMessageRequest req, SupportDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, IHubContext<SupportHub> hub, CancellationToken ct) =>
+        {
+            var text = (req.Message ?? "").Trim();
+            var messageId = (req.MessageId ?? "").Trim();
+            if (req.UserId == Guid.Empty || text.Length == 0 || text.Length > 8000 || messageId.Length < 16 || messageId.Length > 20 || !messageId.All(char.IsAsciiDigit))
+                return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Некорректное сообщение Discord." });
+            if (await db.Messages.AsNoTracking().AnyAsync(x => x.DiscordMessageId == messageId, ct))
+                return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, duplicate = true });
+
+            var ticket = await db.Tickets.Where(x => x.UserId == req.UserId)
+                .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
+            var now = DateTimeOffset.UtcNow;
+            if (ticket == null)
+            {
+                ticket = new SupportTicket { UserId = req.UserId, Subject = "Чат с поддержкой", Status = "open", CreatedAt = now, UpdatedAt = now };
+                db.Tickets.Add(ticket);
+            }
+            ticket.UpdatedAt = now;
+            var msg = new SupportMessage
+            {
+                TicketId = ticket.Id, UserId = req.UserId, AuthorRole = "user",
+                Text = text, Source = "DiscordUser", DiscordMessageId = messageId, CreatedAt = now
+            };
+            db.Messages.Add(msg);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException)
+            {
+                if (await db.Messages.AsNoTracking().AnyAsync(x => x.DiscordMessageId == messageId, ct))
+                    return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, duplicate = true });
+                throw;
+            }
+            var users = await LoadUserSummariesAsync(new[] { req.UserId }, cfg, httpFactory, ct);
+            await BroadcastSupportMessageAsync(hub, ticket.Id, ticket.UserId, ToMessageDto(msg, users.GetValueOrDefault(req.UserId)), ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, ticketId = ticket.Id, messageId = msg.Id });
+        });
+
+        app.MapPost("/api/internal/support/discord/admin-replies/{messageId:guid}/mark-delivered", async (Guid messageId, SupportDbContext db, CancellationToken ct) =>
+        {
+            var msg = await db.Messages.FindAsync([messageId], ct);
+            if (msg == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (msg.Source == "Web" || msg.Source == "TelegramGroup")
+            {
+                msg.Source = "DiscordUserPrivate";
+                await db.SaveChangesAsync(ct);
+            }
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true });
+        });
+
+        app.MapPost("/api/internal/support/discord/admin-replies/{messageId:guid}/mark-unavailable", async (Guid messageId, SupportDbContext db, CancellationToken ct) =>
+        {
+            var msg = await db.Messages.FindAsync([messageId], ct);
+            if (msg == null) return Microsoft.AspNetCore.Http.Results.NotFound();
+            if (msg.Source == "Web" || msg.Source == "TelegramGroup")
+            {
+                msg.Source = "DiscordRecipientUnavailable";
+                await db.SaveChangesAsync(ct);
+            }
+            return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true });
         });
 
         return app;

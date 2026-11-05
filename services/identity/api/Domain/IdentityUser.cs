@@ -18,6 +18,11 @@ public sealed class IdentityUser
     public string? TelegramUsername { get; set; }
     public DateTimeOffset? TelegramLinkedAtUtc { get; set; }
     public int TelegramLinkCount { get; set; }
+    public string? DiscordUserId { get; set; }
+    public string? DiscordName { get; set; }
+    public DateTimeOffset? DiscordLinkedAtUtc { get; set; }
+    public int DiscordLinkCount { get; set; }
+    public string? PrimaryMessenger { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
     public string AccountStatus { get; set; } = "active";

@@ -43,3 +43,7 @@ public sealed record FeatureRoleRequest(string? Code, string? Title, string? Des
 public sealed record UserIdsRequest(Guid[]? UserIds);
 
 public sealed record TelegramConfirmRequest(string? Code, long ChatId, string? Username);
+
+public sealed record DiscordConfirmRequest(string? Code, string? DiscordUserId, string? Name);
+
+public sealed record MessengerPrimaryRequest(string? Messenger);

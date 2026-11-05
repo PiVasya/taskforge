@@ -16,6 +16,9 @@ builder.Services.AddHttpClient("identity-api", (sp, client) =>
     var cfg = sp.GetRequiredService<IConfiguration>();
     client.BaseAddress = new Uri((cfg["IdentityApi:BaseUrl"] ?? cfg["Services:IdentityApi"] ?? "http://identity-api:8080").TrimEnd('/') + "/");
 });
+builder.Services.AddHttpClient("discord", client => { client.BaseAddress = new Uri("https://discord.com/api/v10/"); client.Timeout = TimeSpan.FromSeconds(15); client.DefaultRequestHeaders.UserAgent.ParseAdd("TaskForgeSupportBot/1.0"); });
+builder.Services.AddSingleton<DiscordIntegration>();
+builder.Services.AddHostedService<DiscordIntegration>(sp => sp.GetRequiredService<DiscordIntegration>());
 builder.Services.AddSingleton<AiAccessDigestAggregator>();
 builder.Services.AddHostedService<GatewayAiAccessLogIngestor>();
 builder.Services.AddSingleton<Worker>();
@@ -30,6 +33,8 @@ app.MapGet("/health/ready", (Worker worker) => Results.Ok(new
     status = "ready",
     service = "taskforge-support-bot",
     telegramReady = worker.TelegramReady,
+    discordConfigured = app.Services.GetRequiredService<DiscordIntegration>().Configured,
+    discordConnected = app.Services.GetRequiredService<DiscordIntegration>().GatewayConnected,
     aiAccessTelemetryEnabled = app.Configuration.GetValue("AiAccessTelemetry:Enabled", true),
     aiAccessPending = app.Services.GetRequiredService<AiAccessDigestAggregator>().PendingCount
 }));

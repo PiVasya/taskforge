@@ -24,6 +24,8 @@ internal static partial class SupportApiEndpoints
             var uid = TaskForgeRequestSecurity.UserId(http, cfg);
             if (uid == null) return Unauthorized();
 
+            var denied = await RequireLinkedMessengerAsync(uid.Value, cfg, httpFactory, ct);
+            if (denied != null) return denied;
             var chat = await EnsureUserChatAsync(uid.Value, db, ct);
             var messages = await db.Messages.AsNoTracking().Where(x => x.TicketId == chat.Id).OrderBy(x => x.CreatedAt).ToListAsync(ct);
             var userIds = messages.Select(x => x.UserId).Concat(new[] { chat.UserId }).Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
@@ -46,6 +48,8 @@ internal static partial class SupportApiEndpoints
             var text = (req.Message ?? req.Text ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(text)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Сообщение не должно быть пустым.", code = "SUPPORT_EMPTY_MESSAGE" });
 
+            var denied = await RequireLinkedMessengerAsync(uid.Value, cfg, httpFactory, ct);
+            if (denied != null) return denied;
             var chat = await EnsureUserChatAsync(uid.Value, db, ct);
             var replyTo = await ResolveReplyToAsync(req.ReplyToMessageId, chat.Id, db, ct);
             var now = DateTimeOffset.UtcNow;
@@ -82,7 +86,9 @@ internal static partial class SupportApiEndpoints
 
             if (!isAdmin)
             {
-                var chat = await EnsureUserChatAsync(uid!.Value, db, ct);
+                var denied = await RequireLinkedMessengerAsync(uid!.Value, cfg, httpFactory, ct);
+                if (denied != null) return denied;
+                var chat = await EnsureUserChatAsync(uid.Value, db, ct);
                 var extra = await LoadTicketExtrasAsync(new[] { chat.Id }, db, ct);
                 var ownUserSummaries = await LoadUserSummariesAsync(new[] { uid.Value }, cfg, httpFactory, ct);
                 return Microsoft.AspNetCore.Http.Results.Ok(new[] { ToChatDto(chat, extra.GetValueOrDefault(chat.Id), ownUserSummaries.GetValueOrDefault(uid.Value)) });
@@ -108,6 +114,8 @@ internal static partial class SupportApiEndpoints
             var text = (req.Message ?? req.Text ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(text)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Сообщение не должно быть пустым.", code = "SUPPORT_EMPTY_MESSAGE" });
 
+            var denied = await RequireLinkedMessengerAsync(uid.Value, cfg, httpFactory, ct);
+            if (denied != null) return denied;
             var chat = await EnsureUserChatAsync(uid.Value, db, ct);
             var replyTo = await ResolveReplyToAsync(req.ReplyToMessageId, chat.Id, db, ct);
             var now = DateTimeOffset.UtcNow;
@@ -131,6 +139,11 @@ internal static partial class SupportApiEndpoints
             var t = await db.Tickets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == ticketId, ct);
             if (t == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Чат не найден.", code = "SUPPORT_CHAT_NOT_FOUND" });
             if (!isAdmin && t.UserId != uid) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому чату.", code = "SUPPORT_CHAT_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!isAdmin && uid.HasValue)
+            {
+                var denied = await RequireLinkedMessengerAsync(uid.Value, cfg, httpFactory, ct);
+                if (denied != null) return denied;
+            }
 
             var messages = await db.Messages.AsNoTracking().Where(x => x.TicketId == ticketId).OrderBy(x => x.CreatedAt).ToListAsync(ct);
             var userIds = messages.Select(x => x.UserId).Concat(new[] { t.UserId }).Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
@@ -152,6 +165,11 @@ internal static partial class SupportApiEndpoints
             var t = await db.Tickets.FindAsync([ticketId], ct);
             if (t == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Чат не найден.", code = "SUPPORT_CHAT_NOT_FOUND" });
             if (!isAdmin && t.UserId != uid) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этому чату.", code = "SUPPORT_CHAT_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+            if (!isAdmin && uid.HasValue)
+            {
+                var denied = await RequireLinkedMessengerAsync(uid.Value, cfg, httpFactory, ct);
+                if (denied != null) return denied;
+            }
 
             var text = (req.Message ?? req.Text ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(text)) return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Сообщение не должно быть пустым.", code = "SUPPORT_EMPTY_MESSAGE" });

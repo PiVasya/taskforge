@@ -10,6 +10,8 @@ services:
       RabbitMq__Host: rabbitmq
       InternalApi__Key: ${TASKFORGE_INTERNAL_KEY:-dev_internal_key_change_me}
       Telegram__BotUsername: ${SUPPORT_BOT_USERNAME:-}
+      Discord__BotUserId: ${DISCORD_BOT_USER_ID:-}
+      Discord__SupportServerInvite: ${DISCORD_SUPPORT_SERVER_INVITE:-}
       Services__SupportBot: http://support-bot:8080
       AiAccessTelemetry__Enabled: ${AI_ACCESS_TELEMETRY_ENABLED:-true}
       AiAccounts__UnlimitedLoginRateLimit: ${AI_ACCOUNTS_UNLIMITED_LOGIN_RATE_LIMIT:-true}

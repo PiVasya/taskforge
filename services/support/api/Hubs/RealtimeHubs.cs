@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Support.Api.Data;
 using TaskForge.Support.Api.Domain;
+using static TaskForge.Support.Api.Services.Common.SupportApiCommonService;
 
 
 namespace TaskForge.Support.Api.Hubs;
@@ -12,11 +13,13 @@ public sealed class SupportHub : Hub
 {
     private readonly SupportDbContext _db;
     private readonly IConfiguration _cfg;
+    private readonly IHttpClientFactory _httpFactory;
 
-    public SupportHub(SupportDbContext db, IConfiguration cfg)
+    public SupportHub(SupportDbContext db, IConfiguration cfg, IHttpClientFactory httpFactory)
     {
         _db = db;
         _cfg = cfg;
+        _httpFactory = httpFactory;
     }
 
     public async Task JoinTicket(string ticketId)
@@ -27,6 +30,7 @@ public sealed class SupportHub : Hub
         var uid = http == null ? null : TaskForgeRequestSecurity.UserId(http, _cfg);
         var isAdmin = Context.User?.Identity?.IsAuthenticated == true && TaskForgeRequestSecurity.HasAnyRole(Context.User, "Admin");
         if (!isAdmin && !uid.HasValue) return;
+        if (!isAdmin && uid.HasValue && await RequireLinkedMessengerAsync(uid.Value, _cfg, _httpFactory, Context.ConnectionAborted) != null) return;
 
         var allowed = await _db.Tickets.AsNoTracking().AnyAsync(x => x.Id == id && (isAdmin || x.UserId == uid), Context.ConnectionAborted);
         if (!allowed) return;
@@ -40,6 +44,7 @@ public sealed class SupportHub : Hub
         var http = Context.GetHttpContext();
         var uid = http == null ? null : TaskForgeRequestSecurity.UserId(http, _cfg);
         if (!uid.HasValue) return;
+        if (await RequireLinkedMessengerAsync(uid.Value, _cfg, _httpFactory, Context.ConnectionAborted) != null) return;
         await Groups.AddToGroupAsync(Context.ConnectionId, SupportHubGroups.ForUser(uid.Value));
     }
 

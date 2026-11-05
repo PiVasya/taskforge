@@ -174,6 +174,8 @@ internal static partial class IdentityApiEndpoints
             user.TelegramChatId = null;
             user.TelegramUsername = null;
             user.TelegramLinkedAtUtc = null;
+            if (string.Equals(user.PrimaryMessenger, "telegram", StringComparison.OrdinalIgnoreCase))
+                user.PrimaryMessenger = user.DiscordUserId == null ? null : "discord";
             await db.TelegramLinkCodes.Where(x => x.UserId == userId).ExecuteDeleteAsync(ct);
             await db.SaveChangesAsync(ct);
             await cache.RemoveAsync(PasswordRecoveryUserChallengeKey(userId), ct);

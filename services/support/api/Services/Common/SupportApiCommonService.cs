@@ -24,6 +24,30 @@ internal static class SupportApiCommonService
         if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
     }
 
+    internal static async Task<IResult?> RequireLinkedMessengerAsync(Guid userId, IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{ServiceUrl(cfg, "IdentityApi", "http://identity-api:8080")}/api/internal/integrations/messengers/users/{userId}");
+            AddInternalKey(request, cfg);
+            using var response = await httpFactory.CreateClient().SendAsync(request, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "SUPPORT_MESSENGER_REQUIRED", message = "Чтобы открыть техподдержку, привяжите Telegram или Discord в настройках." }, statusCode: 403);
+            if (!response.IsSuccessStatusCode)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "SUPPORT_MESSENGER_CHECK_UNAVAILABLE", message = "Не удалось проверить привязку мессенджера. Попробуйте позже." }, statusCode: 503);
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            if (!doc.RootElement.TryGetProperty("linked", out var linked) || linked.ValueKind != System.Text.Json.JsonValueKind.True)
+                return Microsoft.AspNetCore.Http.Results.Json(new { code = "SUPPORT_MESSENGER_REQUIRED", message = "Чтобы открыть техподдержку, привяжите Telegram или Discord в настройках." }, statusCode: 403);
+            return null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch
+        {
+            return Microsoft.AspNetCore.Http.Results.Json(new { code = "SUPPORT_MESSENGER_CHECK_UNAVAILABLE", message = "Не удалось проверить привязку мессенджера. Попробуйте позже." }, statusCode: 503);
+        }
+    }
+
     internal static bool IsClosed(string? status) => string.Equals(status, "closed", StringComparison.OrdinalIgnoreCase) || string.Equals(status, "resolved", StringComparison.OrdinalIgnoreCase);
 
     internal static string TicketType(string? subject)

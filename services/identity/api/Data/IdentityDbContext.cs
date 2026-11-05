@@ -12,6 +12,7 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<FeatureRole> FeatureRoles => Set<FeatureRole>();
     public DbSet<UserFeatureRole> UserFeatureRoles => Set<UserFeatureRole>();
     public DbSet<TelegramLinkCode> TelegramLinkCodes => Set<TelegramLinkCode>();
+    public DbSet<DiscordLinkCode> DiscordLinkCodes => Set<DiscordLinkCode>();
     public DbSet<BlockedAccount> BlockedAccounts => Set<BlockedAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -48,6 +49,10 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             entity.HasIndex(x => x.MergedIntoUserId);
             entity.HasIndex(x => x.TelegramChatId).IsUnique();
             entity.Property(x => x.TelegramUsername).HasMaxLength(80);
+            entity.HasIndex(x => x.DiscordUserId).IsUnique();
+            entity.Property(x => x.DiscordUserId).HasMaxLength(20);
+            entity.Property(x => x.DiscordName).HasMaxLength(160);
+            entity.Property(x => x.PrimaryMessenger).HasMaxLength(16);
         });
 
 
@@ -64,6 +69,15 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         modelBuilder.Entity<TelegramLinkCode>(entity =>
         {
             entity.ToTable("TelegramLinkCodes");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.CodeHash).IsUnique();
+            entity.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<DiscordLinkCode>(entity =>
+        {
+            entity.ToTable("DiscordLinkCodes");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => x.CodeHash).IsUnique();
