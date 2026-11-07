@@ -60,8 +60,9 @@ export function quizDocumentPlainText(value) {
 }
 
 export function hasQuizContent(rich, fallback = '') {
-  const doc = parseQuizDocument(rich);
-  if (!doc) return Boolean(String(fallback || '').trim());
+  // Match the effective document used by the editor and learner viewer: an
+  // empty migrated JSON document must not hide an existing legacy prompt.
+  const doc = parseQuizDocument(quizRichValue(rich, fallback));
   return documentHasVisibleContent(doc);
 }
 

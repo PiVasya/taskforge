@@ -65,6 +65,8 @@ test('an empty migrated document does not hide the original legacy text', () => 
   const richEmpty = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [] }] });
   const recovered = quizRichValue(richEmpty, 'Старый вопрос');
   assert.equal(quizDocumentPlainText(recovered), 'Старый вопрос');
+  assert.equal(hasQuizContent(richEmpty, 'Старый вопрос'), true);
+  assert.equal(hasQuizContent(richEmpty, ''), false);
   const richContent = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: 'Новый вопрос', marks: [{ type: 'bold' }] },
   ] }] });

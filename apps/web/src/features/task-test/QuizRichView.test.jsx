@@ -16,13 +16,23 @@ describe('quiz Tiptap read-only rendering', () => {
   it('renders fractions, roots and superscripts in answer choices', () => {
     const contentJson = asDocument([paragraph([
       { type: 'mathInline', attrs: { kind: 'fraction', numerator: '1', denominator: '7' } },
-      { type: 'text', text: ' 7', marks: [{ type: 'superscript' }] },
+      { type: 'text', text: '7', marks: [{ type: 'superscript' }] },
       { type: 'mathInline', attrs: { kind: 'sqrt', expression: '7' } },
     ])]);
     const html = renderToStaticMarkup(<QuizChoiceView option={{ contentJson }} />);
     expect(html).toContain('<mfrac>');
     expect(html).toContain('<msqrt>');
     expect(html).toContain('<sup>7</sup>');
+    expect(html).not.toContain('contenteditable');
+  });
+
+  it('preserves whitespace inside a superscript rather than silently rewriting authored math text', () => {
+    const contentJson = asDocument([paragraph([
+      { type: 'text', text: 'x', marks: [] },
+      { type: 'text', text: ' 7', marks: [{ type: 'superscript' }] },
+    ])]);
+    const html = renderToStaticMarkup(<QuizChoiceView option={{ contentJson }} />);
+    expect(html).toContain('<sup> 7</sup>');
     expect(html).not.toContain('contenteditable');
   });
 

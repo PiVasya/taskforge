@@ -28,6 +28,7 @@ node scripts/check-architecture.js
 printf '\n========== FRONTEND MODEL TESTS ==========\n'
 node --test scripts/auth-tests/*.test.mjs
 node --test scripts/sql-tests/*.test.mjs
+node --test scripts/quiz-tests/*.test.mjs
 node --test scripts/agent-tests/*.test.mjs
 node --test scripts/shortcuts-tests/*.test.mjs
 node --test scripts/ai-account-tests/*.test.mjs
