@@ -475,7 +475,6 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
         </ToolbarButton>
         <select
           aria-label="Цвет выделения"
-          aria-label="Цвет выделения"
           value={highlightColor}
           className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
           onChange={(event) => {
