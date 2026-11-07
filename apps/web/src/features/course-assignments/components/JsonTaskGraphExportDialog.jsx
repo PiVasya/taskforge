@@ -25,6 +25,10 @@ export default function JsonTaskGraphExportDialog({
   onClose,
   onExport,
   exportOptions = {},
+  exportFormat = 'json',
+  onExportFormatChange,
+  includeGallery = false,
+  onIncludeGalleryChange,
   onExportOptionChange,
   onPreset,
 }) {
@@ -50,8 +54,8 @@ export default function JsonTaskGraphExportDialog({
       <Card className="tf-modal-panel flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl">
         <div className="flex shrink-0 flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <div className="flex items-center gap-2 text-xl font-semibold"><Download size={20} /> Экспорт JSON</div>
-            <div className="mt-1 text-sm text-neutral-500">Скачайте текущий граф курса в отдельный JSON-файл.</div>
+            <div className="flex items-center gap-2 text-xl font-semibold"><Download size={20} /> Экспорт JSON / ZIP</div>
+            
           </div>
           <Button variant="outline" shortcut="close" onClick={onClose} title="Закрыть"><X size={16} /> Закрыть</Button>
         </div>
@@ -60,8 +64,13 @@ export default function JsonTaskGraphExportDialog({
           {progress}
           <div className="mb-3 flex flex-wrap gap-2">
             {Object.entries({ layout: 'Координаты', structure: 'Структура карты',
-              content: 'Условия без тестов', full: 'Полный экспорт' }).map(([key, title], index) =>
+              content: 'Без вопросов и проверок', full: 'Полный экспорт' }).map(([key, title], index) =>
               <Button shortcut={`tab.${index + 1}`} key={key} variant="outline" disabled={busy} onClick={() => onPreset?.(TRANSFER_EXPORT_PRESETS[key])}>{title}</Button>)}
+          </div>
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+            <label className="inline-flex items-center gap-2"><input type="radio" name="course-export-format" checked={exportFormat === 'json'} onChange={() => onExportFormatChange?.('json')} disabled={busy}/> JSON</label>
+            <label className="inline-flex items-center gap-2"><input type="radio" name="course-export-format" checked={exportFormat === 'zip'} onChange={() => onExportFormatChange?.('zip')} disabled={busy}/> ZIP + картинки</label>
+            {exportFormat === 'zip' ? <label className="inline-flex items-center gap-2"><input type="checkbox" checked={includeGallery} disabled={busy} onChange={(e) => onIncludeGalleryChange?.(e.target.checked)}/> Вся галерея</label> : null}
           </div>
           <div className="rounded-2xl border border-[rgba(var(--border)/0.7)] bg-[rgb(var(--muted))]/15">
             <div className="flex items-center gap-2 border-b border-[rgba(var(--border)/0.55)] px-4 py-3 text-sm font-semibold">
@@ -89,7 +98,7 @@ export default function JsonTaskGraphExportDialog({
         <div className="flex shrink-0 flex-col gap-3 border-t border-[rgba(var(--border)/0.65)] bg-[rgb(var(--card))] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="text-xs text-neutral-500">Экспорт ничего не изменяет в курсе.</div>
           <Button shortcut="primary" onClick={onExport} disabled={busy || Boolean(exportIssue)}>
-            <Download size={16} /> {busy ? 'Готовлю файл…' : 'Скачать JSON'}
+            <Download size={16} /> {busy ? 'Готовлю файл…' : exportFormat === 'zip' ? 'Скачать ZIP' : 'Скачать JSON'}
           </Button>
         </div>
       </Card>

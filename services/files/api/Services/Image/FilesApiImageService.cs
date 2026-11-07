@@ -42,6 +42,8 @@ internal static class FilesApiImageService
 
         var bucket = Bucket(cfg);
         var folder = NormalizeFolder((form.TryGetValue("folder", out var f) ? f.ToString() : null) ?? "editor-images");
+        if (!allowPrivateFolders && folder.StartsWith("editor-images/courses/", StringComparison.OrdinalIgnoreCase) && !IsEditorOrAdmin(req.HttpContext))
+            return Problem(403, "COURSE_IMAGE_EDITOR_REQUIRED", "request.authorization", "Изображения курса может загружать только редактор.");
         if (!allowPrivateFolders && !IsEditorOrAdmin(req.HttpContext) && !IsPublicUploadFolder(folder))
             return Problem(403, "FILE_FOLDER_FORBIDDEN", "request.authorization", "Обычный пользователь может загружать изображения только в публичный editor-images namespace.", folder);
         if (!allowPrivateFolders && IsPrivateFileKey(folder + "/") && !IsEditorOrAdmin(req.HttpContext))

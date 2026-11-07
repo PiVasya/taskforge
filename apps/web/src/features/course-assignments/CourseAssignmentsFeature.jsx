@@ -1,12 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-
 import { Card, Button, Input } from "../../components/ui";
-
 import { getCourse, getCourses, createCourse, updateCourseSort, moveCoursePosition } from "../../api/courses";
 import { getApiErrorMessage } from "../../api/http";
 import { getLearningCourseMap, getCourseMap } from "../../api/courseMaps";
-
 import {
   getAssignmentsByCourse,
   getCourseProgressByCourses,
@@ -26,7 +23,6 @@ import { useQueryClient } from '../../data/QueryClientProvider';
 import { useEditorMode } from '../../contexts/EditorModeContext';
 import { useCourseUiSettings } from '../../contexts/UiSettingsContext';
 import { ContextMenu, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, claimContextMenuEvent } from '../../components/ui/ContextMenu';
-
 import {
   isAssignmentSolved,
   resolveCourseContentPresentation,
@@ -89,7 +85,6 @@ const EMPTY_COURSE_BUNDLE = Object.freeze({
   learnerVisibleAssignmentIds: EMPTY_LIST,
   learnerLocks: EMPTY_LIST,
 });
-
 export default function CourseAssignmentsPage() {
   const { courseId } = useParams();
   const nav = useNavigate();
@@ -105,7 +100,6 @@ export default function CourseAssignmentsPage() {
   const courseBundleMode = isEditorMode ? 'editor' : learnerCards ? 'learner-cards' : 'learner-flow';
   const assignmentsKey = useMemo(() => ['course-assignments', courseId], [courseId]);
   const courseBundleKey = useMemo(() => ['course-bundle', courseId, courseBundleMode], [courseId, courseBundleMode]);
-
   const loadAssignmentsForCourse = React.useCallback(async (targetCourseId) => {
     const data = await getAssignmentsByCourse(targetCourseId);
     return (data || []).map((item, index) => ({
@@ -113,7 +107,6 @@ export default function CourseAssignmentsPage() {
       sort: typeof item.sort === 'number' ? item.sort : index,
     }));
   }, []);
-
   const loadCourseBundleFor = React.useCallback(async (targetCourseId, { force = false } = {}) => {
     const courseKey = ['course-meta', targetCourseId];
     const loadedCoursePromise = queryClient.fetchQuery({
@@ -122,7 +115,6 @@ export default function CourseAssignmentsPage() {
       staleTime: 30_000,
       force,
     });
-
     if (!isEditorMode && !learnerCards) {
       const loadedCourse = await loadedCoursePromise;
       return {
@@ -135,7 +127,6 @@ export default function CourseAssignmentsPage() {
         learnerLocks: EMPTY_LIST,
       };
     }
-
     const courseTreePromise = queryClient.fetchQuery({
       queryKey: ['course-tree', 'all'],
       queryFn: () => getCourses({ tree: true }).catch(() => []),
@@ -150,7 +141,6 @@ export default function CourseAssignmentsPage() {
           force,
         })
       : Promise.resolve(null);
-
     const [loadedCourse, coursesPayload, learnerMap] = await Promise.all([
       loadedCoursePromise,
       courseTreePromise,
@@ -175,7 +165,6 @@ export default function CourseAssignmentsPage() {
       learnerLocks: learnerCards ? collectLearnerCardLocks(learnerMap, targetCourseId) : EMPTY_LIST,
     };
   }, [isEditorMode, learnerCards, queryClient]);
-
   const assignmentsQuery = useQuery({
     queryKey: assignmentsKey,
     queryFn: () => loadAssignmentsForCourse(courseId),
@@ -183,7 +172,6 @@ export default function CourseAssignmentsPage() {
     staleTime: 20_000,
     keepPreviousData: false,
   });
-
   const courseBundleQuery = useQuery({
     queryKey: courseBundleKey,
     queryFn: () => loadCourseBundleFor(courseId),
@@ -191,7 +179,6 @@ export default function CourseAssignmentsPage() {
     staleTime: 30_000,
     keepPreviousData: false,
   });
-
   const courseBundle = courseBundleQuery.data || EMPTY_COURSE_BUNDLE;
   const learnerVisibleAssignmentIds = useMemo(
     () => new Set((courseBundle.learnerVisibleAssignmentIds || EMPTY_LIST).map((id) => String(id))),
@@ -211,13 +198,11 @@ export default function CourseAssignmentsPage() {
   const err = courseBundleQuery.error
     ? getApiErrorMessage(courseBundleQuery.error, 'Не удалось загрузить доступное содержимое курса')
     : ((isEditorMode || learnerCards) && assignmentsQuery.error ? getApiErrorMessage(assignmentsQuery.error, 'Не удалось загрузить задания') : '');
-
   const setItems = React.useCallback((updater) => {
     queryClient.setQueryData(assignmentsKey, (previous = []) => (
       typeof updater === 'function' ? updater(previous || []) : updater
     ));
   }, [assignmentsKey, queryClient]);
-
   const setChildCourses = React.useCallback((updater) => {
     queryClient.setQueryData(courseBundleKey, (previous = {}) => {
       const currentChildren = previous.childCourses || [];
@@ -232,7 +217,6 @@ export default function CourseAssignmentsPage() {
       };
     });
   }, [courseBundleKey, queryClient]);
-
   const [childProgressByCourseId, setChildProgressByCourseId] = useState({});
   const [courseProgressByCourseId, setCourseProgressByCourseId] = useState({});
   const [learnerFlowProgress, setLearnerFlowProgress] = useState(null);
@@ -240,7 +224,6 @@ export default function CourseAssignmentsPage() {
   const [contentLayout, setContentLayout] = useState(() => (
     courseContentLayout === 'cards' ? 'grid' : 'flow'
   ));
-
   const [jsonImportDialogOpen, setJsonImportDialogOpen] = useState(false);
   const [jsonExportDialogOpen, setJsonExportDialogOpen] = useState(false);
   const [jsonDocsOpen, setJsonDocsOpen] = useState(false);
@@ -253,6 +236,8 @@ export default function CourseAssignmentsPage() {
   const [jsonImportCurrentExport, setJsonImportCurrentExport] = useState(null);
   const [jsonImportApplyError, setJsonImportApplyError] = useState(null);
   const [jsonExportOptions, setJsonExportOptions] = useState({ ...FULL_JSON_EXPORT_OPTIONS, includeGuide: false });
+  const [jsonExportFormat, setJsonExportFormat] = useState('json');
+  const [jsonExportGallery, setJsonExportGallery] = useState(false);
   const [jsonImportOptions, setJsonImportOptions] = useState({ ...DEFAULT_JSON_IMPORT_OPTIONS });
   const [graphImportRequest, setGraphImportRequest] = useState(null);
   const [jsonMapRecovery, setJsonMapRecovery] = useState(false);
@@ -267,16 +252,15 @@ export default function CourseAssignmentsPage() {
   const hasPendingImport = isImportPending(importJournal.operation) && importJournal.operation?.state !== 'missing';
   const otherPendingImport = importJournal.history.some((entry) => entry.operationId !== importJournal.operation?.operationId && isImportPending(entry));
   const importBlocked = !importJournal.ready || hasPendingImport || otherPendingImport || Boolean(graphImportRequest);
-
   useEffect(() => { setGraphImportRequest(null); setJsonMapRecovery(false); setJsonImportDiffOpen(false); setJsonImportBusy(false); setJsonExportBusy(false); lastImportDiffRef.current = null; jsonPreviewSequenceRef.current++; }, [courseId, importUserId]);
   const jsonPreviewSequenceRef = useRef(0);
   const jsonPreviewMapVersionRef = useRef(null);
   const {
     text: jsonImportText, source: jsonImportSource, preview: jsonImportPreview,
-    loading: jsonInputBusy, onTextChange: handleJsonImportTextChange,
+    loading: jsonInputBusy, assetProgress: jsonAssetProgress, onTextChange: handleJsonImportTextChange,
     onPaste: handleJsonImportPaste, onFile: handleJsonFile,
   } = useTaskGraphJsonInput({
-    notify,
+    notify, courseId,
     onChange: () => {
       setJsonImportOptions((current) => (current.allowDeletes || current.allowConnectionDeletes || current.allowDuplicates)
         ? { ...current, allowDeletes: false, allowConnectionDeletes: false, allowDuplicates: false }
@@ -303,13 +287,11 @@ export default function CourseAssignmentsPage() {
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, entry: null, canEdit: false });
   const [createMenu, setCreateMenu] = useState({ open: false, x: 0, y: 0 });
   const dragStartedRef = useRef(false);
-
   const sortMode = params.get('sort') || 'default';
   const preferredPresentation = resolveCourseContentPresentation(courseContentLayout, isEditorMode, courseCanEdit);
   const presentation = resolveCourseContentPresentation(courseContentLayout, isEditorMode, courseCanEdit, contentLayout);
   const showFlowLayout = presentation.showFlowLayout;
   const mapEditorMode = presentation.mapEditorMode;
-
   const prefetchLearnerCourse = React.useCallback((targetCourseId) => {
     if (!learnerCards || !targetCourseId) return Promise.resolve();
     const id = String(targetCourseId);
@@ -1036,7 +1018,7 @@ export default function CourseAssignmentsPage() {
     await applyJsonImport(jsonImportParsed);
   };
 
-  const handleExportJson = useTaskGraphExport({ courseId, jsonExportOptions, importContextRef, ensureCanManageAssignments,
+  const handleExportJson = useTaskGraphExport({ courseId, jsonExportOptions, jsonExportFormat, jsonExportGallery, importContextRef, ensureCanManageAssignments,
     notify, setJsonExportBusy, setJsonExportDialogOpen });
 
   const activeImportTransfer = transfers.rows.some((row) => isTransferActive(row) && ['import', 'resume', 'map'].includes(row.kind));
@@ -1185,6 +1167,10 @@ export default function CourseAssignmentsPage() {
         onExport={handleExportJson}
         onPreset={(preset) => setJsonExportOptions({ ...preset })}
         exportOptions={jsonExportOptions}
+        exportFormat={jsonExportFormat}
+        onExportFormatChange={setJsonExportFormat}
+        includeGallery={jsonExportGallery}
+        onIncludeGalleryChange={setJsonExportGallery}
         onExportOptionChange={handleJsonExportOptionChange}
       />
 
@@ -1192,6 +1178,9 @@ export default function CourseAssignmentsPage() {
         progress={transferProgress}
         recovery={pendingImportStatus}
         blocked={importBlocked}
+        courseId={courseId}
+        notify={notify}
+        assetProgress={jsonAssetProgress}
         open={jsonImportDialogOpen}
         busy={jsonImportBusy || transferBusy || jsonInputBusy || Boolean(createBusyType)}
         preview={jsonImportPreview}

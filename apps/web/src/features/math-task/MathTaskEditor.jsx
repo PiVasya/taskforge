@@ -59,7 +59,7 @@ function normalizeLimits(x) {
     .map(v => (Number.isFinite(v) && v > 0 ? Math.floor(v) : null));
 }
 
-export default function MathTaskEditor({ settings, setSettings, blocks, setBlocks }) {
+export default function MathTaskEditor({ settings, setSettings, blocks, setBlocks, imageFolder = null }) {
   const s = settings || {
     maxAttempts: 1,
     unlimitedAttempts: false,
@@ -362,7 +362,7 @@ export default function MathTaskEditor({ settings, setSettings, blocks, setBlock
                 </div>
                 <div className="md:col-span-2">
                   <Field label="Rich-условие блока">
-                    <StatementEditor value={b.promptContentJson || ''} onChange={(v) => updateBlock(idx, { promptContentJson: v })} />
+                    <StatementEditor imageFolder={imageFolder} value={b.promptContentJson || ''} onChange={(v) => updateBlock(idx, { promptContentJson: v })} />
                   </Field>
                 </div>
               </div>

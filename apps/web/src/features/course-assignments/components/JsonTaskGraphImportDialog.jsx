@@ -1,12 +1,16 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, FileJson, GitCompare, Sparkles, Upload, X } from 'lucide-react';
+import { Copy, FileJson, GitCompare, Images, Sparkles, Upload, X } from 'lucide-react';
 
 import { Badge, Button, Card, Textarea } from '../../../components/ui';
 import JsonImportHelp from './JsonImportHelp';
+import CourseImageGallery from './CourseImageGallery';
 
 export default function JsonTaskGraphImportDialog({
   open,
+  courseId,
+  notify,
+  assetProgress = null,
   progress = null,
   recovery = null,
   blocked = false,
@@ -40,6 +44,7 @@ export default function JsonTaskGraphImportDialog({
   const inputBytes = React.useMemo(() => new Blob([text]).size, [text]);
   const largeInput = text.length > 350_000;
   const hasText = Boolean(text.trim());
+  const [galleryOpen, setGalleryOpen] = React.useState(false);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -61,8 +66,8 @@ export default function JsonTaskGraphImportDialog({
       <Card className="tf-modal-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-5xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-[rgba(var(--border)/0.8)] bg-[rgb(var(--card))] p-0 shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
         <div className="flex shrink-0 flex-col gap-3 border-b border-[rgba(var(--border)/0.65)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <div className="flex items-center gap-2 text-xl font-semibold"><FileJson size={20} /> Импорт JSON</div>
-            <div className="mt-1 text-sm text-neutral-500">Загрузите файл или вставьте JSON. Перед применением TaskForge покажет точный список изменений.</div>
+            <div className="flex items-center gap-2 text-xl font-semibold"><FileJson size={20} /> Импорт JSON / ZIP</div>
+            
           </div>
           <Button variant="outline" shortcut="close" onClick={onClose} title="Закрыть"><X size={16} /> Закрыть</Button>
         </div>
@@ -70,6 +75,7 @@ export default function JsonTaskGraphImportDialog({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
           {recovery}
           {progress}
+          {assetProgress ? <div role="status" className="mb-3 text-sm">Изображения ZIP: {assetProgress.count}/{assetProgress.total}</div> : null}
           {blocked && !recovery ? <div className="mb-3 rounded-xl border border-[rgba(var(--border)/0.7)] p-3 text-sm" role="status">
             Проверяем предыдущий импорт. Новый импорт будет доступен после завершения или восстановления операции.
           </div> : null}
@@ -84,7 +90,7 @@ export default function JsonTaskGraphImportDialog({
                 <Upload size={16} /> Выбрать файл
                 <input
                   type="file"
-                  accept="application/json,.json"
+                  accept="application/json,application/zip,.json,.zip"
                   className="hidden"
                   disabled={busy}
                   onChange={(event) => {
@@ -94,12 +100,15 @@ export default function JsonTaskGraphImportDialog({
                   }}
                 />
               </label>
+              <Button variant="outline" onClick={() => setGalleryOpen((v) => !v)}><Images size={16}/> {galleryOpen ? 'Скрыть галерею' : 'Изображения'}</Button>
               <Button variant="outline" shortcut="copy" onClick={onCopy} disabled={busy || !hasText}><Copy size={16} /> Копировать</Button>
               <Button variant="outline" shortcut="format" onClick={onFormat} disabled={busy || !hasText || largeInput} title={largeInput ? 'Большой JSON форматируйте в исходном файле' : undefined}>Форматировать</Button>
               {hasText ? <Button variant="outline" onClick={onClear} disabled={busy}>Очистить</Button> : null}
               <Button variant="outline" onClick={onToggleDocs} disabled={busy}><FileJson size={16} /> {docsOpen ? 'Скрыть справку' : 'Справка'}</Button>
             </div>
           </div>
+
+          <CourseImageGallery courseId={courseId} open={galleryOpen} refreshToken={source} notify={notify} disabled={busy} />
 
           {hasText ? <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500" role="status" aria-live="polite">
             <span className="max-w-full truncate" title={source}>{source}</span>

@@ -96,11 +96,11 @@ const HIGHLIGHT_COLORS = [
   { value: "#fbcfe8", label: "Розовый" },
 ];
 
-async function uploadAndInsertImageWithEditor(editor, file) {
+async function uploadAndInsertImageWithEditor(editor, file, folder = null) {
   if (!editor || !file || !file.type?.startsWith("image/")) return false;
 
   try {
-    const res = await uploadImage(file);
+    const res = await uploadImage(file, folder);
     
     const url = res?.url;
     if (!url) return false;
@@ -131,8 +131,10 @@ function pickFirstImageFileFromDataTransfer(dt) {
   return null;
 }
 
-function StatementEditor({ value, onChange, mode = "rich", compact = false, preserveLiteral = false }) {
+function StatementEditor({ value, onChange, mode = "rich", compact = false, preserveLiteral = false, imageFolder = null }) {
   const editorRef = useRef(null);
+  const imageFolderRef = useRef(imageFolder);
+  imageFolderRef.current = imageFolder;
   const lastEmittedValueRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const [highlightColor, setHighlightColor] = useState("#bbf7d0");
@@ -189,7 +191,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
         const file = pickFirstImageFileFromDataTransfer(event.clipboardData);
         if (!file) return false;
         event.preventDefault();
-        void uploadAndInsertImageWithEditor(editorRef.current, file);
+        void uploadAndInsertImageWithEditor(editorRef.current, file, imageFolderRef.current);
         return true;
       },
 
@@ -197,7 +199,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
         const file = pickFirstImageFileFromDataTransfer(event.dataTransfer);
         if (!file) return false;
         event.preventDefault();
-        void uploadAndInsertImageWithEditor(editorRef.current, file);
+        void uploadAndInsertImageWithEditor(editorRef.current, file, imageFolderRef.current);
         return true;
       },
     },
@@ -304,7 +306,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      await uploadAndInsertImageWithEditor(editor, file);
+      await uploadAndInsertImageWithEditor(editor, file, imageFolderRef.current);
     };
     input.click();
   };

@@ -22,7 +22,25 @@ internal static partial class FilesApiEndpoints
         app.MapGet("/api/files", async (HttpContext http, FilesDbContext db) =>
         {
             if (!IsEditorOrAdmin(http)) return Microsoft.AspNetCore.Http.Results.Json(new { status = 403, code = "EDITOR_REQUIRED", message = "Список файлов доступен только редактору или администратору." }, statusCode: StatusCodes.Status403Forbidden);
-            var rows = await db.Files.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync();
+            var prefix = http.Request.Query["prefix"].ToString();
+            var query = db.Files.AsNoTracking().AsQueryable();
+            if (!string.IsNullOrWhiteSpace(prefix))
+            {
+                // Scoped public editor images only. Do not expose private judge files
+                // through the course image gallery or permit arbitrary SQL wildcards.
+                var clean = NormalizeKey(prefix);
+                var segments = clean.Split('/');
+                if (segments.Length != 3 || !string.Equals(segments[0], "editor-images", StringComparison.Ordinal) ||
+                    !string.Equals(segments[1], "courses", StringComparison.Ordinal) ||
+                    !Guid.TryParse(segments[2], out _) || !prefix.EndsWith("/", StringComparison.Ordinal))
+                    return Microsoft.AspNetCore.Http.Results.Json(new { code = "INVALID_IMAGE_PREFIX" }, statusCode: StatusCodes.Status400BadRequest);
+                // Use the separating slash so a prefix cannot match another course.
+                query = query.Where(x => x.Url.StartsWith(clean + "/"));
+            }
+            var offset = int.TryParse(http.Request.Query["offset"], out var requestedOffset) ? Math.Clamp(requestedOffset, 0, 10000) : 0;
+            var limit = int.TryParse(http.Request.Query["limit"], out var requestedLimit) ? Math.Clamp(requestedLimit, 1, 200) : 100;
+            var rows = await query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+                .Skip(offset).Take(limit).ToListAsync();
             return Microsoft.AspNetCore.Http.Results.Ok(rows.Select(ToDto));
         });
 

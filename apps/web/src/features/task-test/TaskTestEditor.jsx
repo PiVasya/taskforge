@@ -19,7 +19,7 @@ function normalizeLimits(x) {
     .map(v => (Number.isFinite(v) && v > 0 ? Math.floor(v) : null));
 }
 
-export default function TaskTestEditor({ settings, setSettings, questions, setQuestions }) {
+export default function TaskTestEditor({ settings, setSettings, questions, setQuestions, imageFolder = null }) {
   const s = settings || {
     maxAttempts: 1,
     unlimitedAttempts: false,
@@ -169,6 +169,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                 </div>
                 {active ? (
                   <StatementEditor
+                    imageFolder={imageFolder}
                     key={optionKey}
                     value={quizRichValue(o.contentJson, o.text)}
                     mode={mode}
@@ -426,6 +427,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                     </div>
                     {activeEditorKey === `question:${idx}` ? (
                       <StatementEditor
+                        imageFolder={imageFolder}
                         key={`question:${idx}`}
                         value={quizRichValue(q.promptContentJson, q.prompt)}
                         mode={q.promptEditorMode === 'rich' ? 'rich' : 'plain'}

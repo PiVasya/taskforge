@@ -9,3 +9,9 @@ export async function uploadImage(file, folder = null) {
   });
   return res?.data;
 }
+
+export async function listCourseImages(courseId, { offset = 0, limit = 100 } = {}) {
+  const prefix = `editor-images/courses/${courseId}/`;
+  const response = await api.get('/api/files', { params: { prefix, offset, limit } });
+  return response.data;
+}

@@ -161,6 +161,57 @@ public sealed class TaskGraphImportRegressionTests
         Assert.Equal($"DATA_INTEGRITY_ERROR: export DTO missing for assignment {Task:D}.", error.Message);
     }
 
+    [Fact]
+    public void RichQuizGraphExportAndImport_PreservesImageAndAnswerDocuments()
+    {
+        const string prompt = """{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/files/editor-images%2Fdiagram.png","monochrome":true,"sourceBackground":"#000000","sourceDark":true}}]}""";
+        const string option = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"mathInline","attrs":{"kind":"fraction","numerator":"1","denominator":"7"}}]}]}""";
+        var questionId = Guid.NewGuid();
+        var dto = new JsonObject
+        {
+            ["id"] = Task.ToString("D"), ["type"] = "test", ["title"] = "Quiz",
+            ["description"] = prompt, ["tags"] = "", ["rating"] = 1, ["isVisible"] = true,
+            ["testSettings"] = new JsonObject { ["passPercent"] = 75 },
+            ["questions"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["id"] = questionId.ToString("D"), ["order"] = 0, ["type"] = "single-choice",
+                    ["prompt"] = "Найдите дробь", ["promptContentJson"] = prompt,
+                    ["promptEditorMode"] = "rich", ["optionsLayout"] = "inline",
+                    ["options"] = new JsonArray
+                    {
+                        new JsonObject { ["key"] = "a", ["text"] = "1/7", ["contentJson"] = option, ["editorMode"] = "rich" },
+                        new JsonObject { ["key"] = "b", ["text"] = "7", ["contentJson"] = prompt, ["editorMode"] = "rich" }
+                    },
+                    ["correctOptionKeys"] = new JsonArray(JsonValue.Create("a")),
+                    ["acceptedAnswers"] = new JsonArray(), ["caseSensitive"] = false, ["trim"] = true
+                }
+            }
+        };
+        var tree = new CourseTreeResponse { CourseIds = [Root], Courses = [new CourseTreeCourseDto { Id = Root, Title = "Root" }] };
+        var assignments = new[] { new Assignment { Id = Task, CourseId = Root, Title = "Quiz", Type = "test" } };
+        var graph = BuildExport(Root, assignments, tree, new CourseMapInternalResponse(),
+            new GraphExportOptions(IncludeGuide: false), assignmentDtos: new Dictionary<Guid, JsonObject> { [Task] = dto });
+        var exported = Assert.Single(graph["tasks"]!.AsArray());
+        var question = Assert.Single(exported!["questions"]!.AsArray());
+        Assert.Equal(prompt, question!["promptContentJson"]!.GetValue<string>());
+        Assert.Equal("inline", question["optionsLayout"]!.GetValue<string>());
+        Assert.Equal(option, question["options"]![0]!["contentJson"]!.GetValue<string>());
+        Assert.Equal(prompt, question["options"]![1]!["contentJson"]!.GetValue<string>());
+        Assert.Equal("a", question["correctOptionKeys"]![0]!.GetValue<string>());
+        var parsed = ParseAndValidate(JsonSerializer.SerializeToElement(graph));
+        Assert.Empty(parsed.Issues);
+        var source = Assert.Single(parsed.Graph!.Tasks).Source;
+        Assert.Equal(prompt, source.GetProperty("questions")[0].GetProperty("promptContentJson").GetString());
+        Assert.Equal(option, source.GetProperty("questions")[0].GetProperty("options")[0].GetProperty("contentJson").GetString());
+
+        var contentOnly = BuildExport(Root, assignments, tree, new CourseMapInternalResponse(),
+            new GraphExportOptions(IncludeChecks: false, IncludeGuide: false),
+            assignmentDtos: new Dictionary<Guid, JsonObject> { [Task] = dto });
+        Assert.Null(contentOnly["tasks"]![0]!["questions"]);
+    }
+
     private static (CourseTreeResponse Tree, Assignment[] Assignments) ExportSample()
     {
         var tree = new CourseTreeResponse { CourseIds = [Root, Sub], Courses = [

@@ -849,7 +849,7 @@ export default function AssignmentEditPage() {
         >
           <Field label="Условие задания (редактор)">
             <div className="min-h-[420px]">
-              <StatementEditor value={description} onChange={setDescription} />
+              <StatementEditor value={description} onChange={setDescription} imageFolder={courseId ? `editor-images/courses/${courseId}` : null} />
             </div>
           </Field>
         </EditorSection>
@@ -1249,6 +1249,7 @@ export default function AssignmentEditPage() {
             onToggle={() => toggleSection("testEditor")}
           >
             <TaskTestEditor
+              imageFolder={courseId ? `editor-images/courses/${courseId}` : null}
               settings={testSettings}
               setSettings={setTestSettings}
               questions={testQuestions}
@@ -1269,6 +1270,7 @@ export default function AssignmentEditPage() {
             onToggle={() => toggleSection("mathEditor")}
           >
             <MathTaskEditor
+              imageFolder={courseId ? `editor-images/courses/${courseId}` : null}
               settings={mathSettings}
               setSettings={setMathSettings}
               blocks={mathBlocks}
