@@ -327,9 +327,14 @@ export default function AssignmentEditPage() {
           if (qType === 'single-choice' || qType === 'multi-choice') {
             const opts = Array.isArray(q?.options) ? q.options : [];
             const nonEmpty = opts.filter((o) => hasQuizContent(o?.contentJson, o?.text));
-            const correct = Array.isArray(q?.correctOptionKeys) ? q.correctOptionKeys.filter(Boolean) : [];
+            const nonEmptyKeys = nonEmpty.map((o) => String(o?.key || '').trim());
+            const validKeys = new Set(nonEmptyKeys.filter(Boolean));
+            const correct = Array.isArray(q?.correctOptionKeys) ? q.correctOptionKeys.map(String).filter(Boolean) : [];
             if (nonEmpty.length < 2) issues.push(`Вопрос #${idx + 1}: нужно минимум два варианта ответа.`);
+            if (validKeys.size !== nonEmpty.length) issues.push(`Вопрос #${idx + 1}: у всех заполненных вариантов должны быть уникальные ключи.`);
             if (correct.length === 0) issues.push(`Вопрос #${idx + 1}: отметь хотя бы один правильный ответ.`);
+            if (qType === 'single-choice' && correct.length > 1) issues.push(`Вопрос #${idx + 1}: можно выбрать только один правильный ответ.`);
+            if (correct.some((key) => !validKeys.has(key))) issues.push(`Вопрос #${idx + 1}: правильный ответ должен быть заполненным вариантом.`);
           }
 
           if (qType === 'fill' || qType === 'text') {

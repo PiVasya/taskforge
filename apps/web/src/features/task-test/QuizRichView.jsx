@@ -1,15 +1,16 @@
 import React from 'react';
-import StatementViewer from '../../components/tiptap/StatementViewer';
+import StaticStatementViewer from '../../components/tiptap/StaticStatementViewer';
 import { quizRichValue, quizHasInlineBlank } from './quizRichContent';
 
-export function QuizQuestionView({ question, fill = null }) {
+const QuizQuestionView = React.memo(function QuizQuestionView({ question, fill = null }) {
   const content = quizRichValue(question?.promptContentJson, question?.prompt);
-  return <StatementViewer value={content} staticOnly preserveLiteral fill={fill} />;
-}
+  return <StaticStatementViewer value={content} preserveLiteral fill={fill} />;
+});
 
-export function QuizChoiceView({ option }) {
+const QuizChoiceView = React.memo(function QuizChoiceView({ option }) {
   const content = quizRichValue(option?.contentJson, option?.text);
-  return <StatementViewer value={content} staticOnly preserveLiteral />;
-}
+  return <StaticStatementViewer value={content} preserveLiteral />;
+});
 
 export { quizHasInlineBlank };
+export { QuizQuestionView, QuizChoiceView };

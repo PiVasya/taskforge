@@ -21,8 +21,18 @@ export function parseQuizDocument(value) {
   }
 }
 
+function documentHasVisibleContent(node) {
+  return node?.type === 'image'
+    || node?.type === 'mathInline'
+    || (node?.type === 'text' && Boolean(String(node.text || '').trim()))
+    || (Array.isArray(node?.content) && node.content.some(documentHasVisibleContent));
+}
+
 export function quizRichValue(rich, fallback = '') {
-  return parseQuizDocument(rich)
+  const doc = parseQuizDocument(rich);
+  // A partially migrated record can have an empty rich document but still have its old prompt.
+  // Never replace a nonempty document: switching editor modes must preserve its formatting.
+  return doc && (documentHasVisibleContent(doc) || !String(fallback || '').trim())
     ? rich
     : JSON.stringify(literalTextDocument(fallback));
 }
@@ -52,11 +62,7 @@ export function quizDocumentPlainText(value) {
 export function hasQuizContent(rich, fallback = '') {
   const doc = parseQuizDocument(rich);
   if (!doc) return Boolean(String(fallback || '').trim());
-  const visit = (node) => node?.type === 'image'
-    || node?.type === 'mathInline'
-    || (node?.type === 'text' && Boolean(String(node.text || '').trim()))
-    || (Array.isArray(node?.content) && node.content.some(visit));
-  return visit(doc);
+  return documentHasVisibleContent(doc);
 }
 
 export function normalizeQuizQuestions(questions) {
@@ -74,6 +80,23 @@ export function normalizeQuizQuestions(questions) {
   }));
 }
 
+// Detect a continuous blank even when styling splits underscores into adjacent text nodes.
+// Image/math/hard-break nodes terminate the run, just as in the static viewer.
 export function quizHasInlineBlank(question) {
-  return String(quizDocumentPlainText(question?.promptContentJson) || question?.prompt || '').includes('___');
+  const doc = parseQuizDocument(quizRichValue(question?.promptContentJson, question?.prompt));
+  const visit = (node) => {
+    if (!node || !Array.isArray(node.content)) return false;
+    let consecutiveText = '';
+    for (const child of node.content) {
+      if (child?.type === 'text') {
+        consecutiveText += String(child.text || '');
+        if (/_{3,}/.test(consecutiveText)) return true;
+      } else {
+        consecutiveText = '';
+        if (visit(child)) return true;
+      }
+    }
+    return false;
+  };
+  return visit(doc);
 }

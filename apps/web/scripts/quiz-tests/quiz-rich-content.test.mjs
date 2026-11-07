@@ -38,3 +38,35 @@ test('images and native MathML nodes count as question/choice content', () => {
   assert.equal(hasQuizContent(JSON.stringify({ type: 'doc', content: [{ type: 'image', attrs: { src: '/api/files/1' } }] })), true);
   assert.equal(hasQuizContent(JSON.stringify(literalTextDocument(''))), false);
 });
+
+test('a fill blank split across marked text nodes remains answerable', () => {
+  const rich = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Вставьте __', marks: [{ type: 'bold' }] },
+    { type: 'text', text: '_ здесь', marks: [{ type: 'italic' }] },
+  ] }] });
+  assert.equal(quizHasInlineBlank({ promptContentJson: rich }), true);
+  const broken = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: '__' }, { type: 'image', attrs: { src: '/api/files/1' } }, { type: 'text', text: '_' },
+  ] }] });
+  assert.equal(quizHasInlineBlank({ promptContentJson: broken }), false);
+});
+
+test('learner and review rendering remains independent of Tiptap editor runtime', () => {
+  const viewSource = readFileSync(new URL('../../src/features/task-test/QuizRichView.jsx', import.meta.url), 'utf8');
+  const staticSource = readFileSync(new URL('../../src/components/tiptap/StaticStatementViewer.jsx', import.meta.url), 'utf8');
+  assert.match(viewSource, /components\/tiptap\/StaticStatementViewer/);
+  assert.doesNotMatch(viewSource, /components\/tiptap\/StatementViewer['"]/);
+  assert.doesNotMatch(staticSource, /@tiptap\//);
+  assert.match(staticSource, /quizAnswerBlank/);
+  assert.match(staticSource, /mathInline/);
+});
+
+test('an empty migrated document does not hide the original legacy text', () => {
+  const richEmpty = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [] }] });
+  const recovered = quizRichValue(richEmpty, 'Старый вопрос');
+  assert.equal(quizDocumentPlainText(recovered), 'Старый вопрос');
+  const richContent = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Новый вопрос', marks: [{ type: 'bold' }] },
+  ] }] });
+  assert.equal(quizRichValue(richContent, 'Старый вопрос'), richContent);
+});
