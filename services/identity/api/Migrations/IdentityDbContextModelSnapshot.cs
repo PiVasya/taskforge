@@ -58,6 +58,39 @@ namespace TaskForge.Identity.Api.Migrations
                     b.ToTable("BlockedAccounts", (string)null);
                 });
 
+            modelBuilder.Entity("TaskForge.Identity.Api.Domain.DiscordLinkCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("UsedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DiscordLinkCodes", (string)null);
+                });
+
             modelBuilder.Entity("TaskForge.Identity.Api.Domain.FeatureRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -149,6 +182,20 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<int>("DiscordLinkCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("DiscordLinkedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DiscordName")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("DiscordUserId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("Email")
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
@@ -187,6 +234,10 @@ namespace TaskForge.Identity.Api.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("PrimaryMessenger")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("ProfilePictureUrl")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
@@ -214,6 +265,9 @@ namespace TaskForge.Identity.Api.Migrations
                     b.HasIndex("AccountStatus");
 
                     b.HasIndex("AccountType");
+
+                    b.HasIndex("DiscordUserId")
+                        .IsUnique();
 
                     b.HasIndex("Email")
                         .IsUnique();

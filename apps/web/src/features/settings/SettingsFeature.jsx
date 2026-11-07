@@ -9,7 +9,7 @@ import { useUiSettingsActions } from '../../contexts/UiSettingsContext';
 import { getProfile, getProfileActivitySummary, updateProfile, changeEmail, changePassword, revealEmail } from '../../api/profile';
 import { getUserBadges } from '../../api/badges';
 import { getTelegramStatus, generateTelegramCode, unlinkTelegram } from '../../api/telegramLink';
-import { getDiscordStatus, generateDiscordCode, unlinkDiscord, getMessengerStatus, setPrimaryMessenger } from '../../api/discordLink';
+import { getMessengerStatus, setPrimaryMessenger } from '../../api/messengerLink';
 import { getMinecraftStatus, requestMinecraftLink, confirmMinecraftLink, unlinkMinecraft } from '../../api/minecraftLink';
 import { getMyUiSettings, saveMyUiSettings } from '../../api/uiSettings';
 import { handleApiError } from '../../utils/handleApiError';
@@ -37,14 +37,12 @@ import DeveloperSettingsSection from './components/DeveloperSettingsSection';
 const PROFILE_QUERY_KEY = ['profile', 'me'];
 const UI_SETTINGS_QUERY_KEY = ['ui-settings', 'me'];
 const TELEGRAM_QUERY_KEY = ['integrations', 'telegram'];
-const DISCORD_QUERY_KEY = ['integrations', 'discord'];
 const MESSENGERS_QUERY_KEY = ['integrations', 'messengers'];
 const MINECRAFT_QUERY_KEY = ['integrations', 'minecraft'];
 
 const loadProfile = () => getProfile();
 const loadUiSettings = () => getMyUiSettings();
 const loadTelegram = () => getTelegramStatus();
-const loadDiscord = () => getDiscordStatus();
 const loadMessengers = () => getMessengerStatus();
 const loadMinecraft = () => getMinecraftStatus();
 
@@ -124,11 +122,9 @@ export default function SettingsFeature() {
   });
   const uiSettingsQuery = useQuery({ queryKey: UI_SETTINGS_QUERY_KEY, queryFn: loadUiSettings, staleTime: 60_000 });
   const telegramQuery = useQuery({ queryKey: TELEGRAM_QUERY_KEY, queryFn: loadTelegram, staleTime: 20_000 });
-  const discordQuery = useQuery({ queryKey: DISCORD_QUERY_KEY, queryFn: loadDiscord, staleTime: 20_000 });
   const messengersQuery = useQuery({ queryKey: MESSENGERS_QUERY_KEY, queryFn: loadMessengers, staleTime: 20_000 });
   const minecraftQuery = useQuery({ queryKey: MINECRAFT_QUERY_KEY, queryFn: loadMinecraft, staleTime: 20_000 });
   const refetchTelegramStatus = telegramQuery.refetch;
-  const refetchDiscordStatus = discordQuery.refetch;
   const refetchMessengersStatus = messengersQuery.refetch;
   const refetchMinecraftStatus = minecraftQuery.refetch;
 
@@ -181,10 +177,6 @@ export default function SettingsFeature() {
   const [tgExpires, setTgExpires] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
   const [tgError, setTgError] = useState(null);
-  const [discordCode, setDiscordCode] = useState(null);
-  const [discordExpires, setDiscordExpires] = useState(null);
-  const [discordLoading, setDiscordLoading] = useState(false);
-  const [discordError, setDiscordError] = useState(null);
   const [primaryLoading, setPrimaryLoading] = useState(false);
   const [primaryError, setPrimaryError] = useState(null);
 
@@ -196,7 +188,6 @@ export default function SettingsFeature() {
   const [mcError, setMcError] = useState(null);
   const minecraftStatus = minecraftQuery.data || null;
   const telegramStatus = telegramQuery.data || null;
-  const discordStatus = discordQuery.data || null;
   const messengersStatus = messengersQuery.data || null;
 
   useEffect(() => {
@@ -401,49 +392,13 @@ export default function SettingsFeature() {
     finally { setTgLoading(false); }
   }, [notify, refreshTelegram]);
 
-  const refreshDiscord = useCallback(async () => {
-    setDiscordError(null);
-    try {
-      const result = await refetchDiscordStatus();
-      await refetchMessengersStatus();
-      return result;
-    } catch (error) { setDiscordError(handleApiError(error, notify, 'Не удалось обновить Discord')); return null; }
-  }, [notify, refetchDiscordStatus, refetchMessengersStatus]);
-
-  const generateDiscord = useCallback(async () => {
-    try {
-      setDiscordLoading(true); setDiscordError(null);
-      const dto = await generateDiscordCode();
-      setDiscordCode(dto.code); setDiscordExpires(dto.expiresAtUtc);
-      queryClient.setQueryData(DISCORD_QUERY_KEY, dto.status || dto);
-      notify.success('Код Discord создан');
-    } catch (error) { setDiscordError(handleApiError(error, notify, 'Не удалось сгенерировать код Discord')); }
-    finally { setDiscordLoading(false); }
-  }, [notify, queryClient]);
-
-  const copyDiscord = useCallback(async () => {
-    if (!discordCode) return;
-    try { await navigator.clipboard.writeText(discordCode); notify.success('Код скопирован'); }
-    catch { notify.warn('Не удалось скопировать код'); }
-  }, [notify, discordCode]);
-
-  const unlinkDiscordAccount = useCallback(async () => {
-    if (!window.confirm('Отвязать Discord от аккаунта?')) return;
-    try {
-      setDiscordLoading(true); setDiscordError(null);
-      await unlinkDiscord(); setDiscordCode(null); setDiscordExpires(null);
-      await refreshDiscord(); notify.success('Discord отвязан');
-    } catch (error) { setDiscordError(handleApiError(error, notify, 'Не удалось отвязать Discord')); }
-    finally { setDiscordLoading(false); }
-  }, [notify, refreshDiscord]);
-
-  const choosePrimaryMessenger = useCallback(async (messenger) => {
+  const selectTelegramReplies = useCallback(async () => {
     try {
       setPrimaryLoading(true); setPrimaryError(null);
-      const status = await setPrimaryMessenger(messenger);
+      const status = await setPrimaryMessenger('telegram');
       queryClient.setQueryData(MESSENGERS_QUERY_KEY, status);
-      notify.success(messenger === 'discord' ? 'Основной мессенджер: Discord' : 'Основной мессенджер: Telegram');
-    } catch (error) { setPrimaryError(handleApiError(error, notify, 'Не удалось выбрать мессенджер')); }
+      notify.success('Ответы поддержки будут приходить в Telegram');
+    } catch (error) { setPrimaryError(handleApiError(error, notify, 'Не удалось выбрать Telegram')); }
     finally { setPrimaryLoading(false); }
   }, [notify, queryClient]);
 
@@ -563,8 +518,7 @@ export default function SettingsFeature() {
     if (activeSection === 'integrations') return (
       <IntegrationsSettingsSection
         telegram={{ status: telegramStatus, code: tgCode, expires: tgExpires, loading: tgLoading || telegramQuery.isFetching, error: tgError, refresh: refreshTelegram, generate: generateTelegram, copy: copyTelegram, unlink: unlinkTelegramAccount }}
-        discord={{ status: discordStatus, code: discordCode, expires: discordExpires, loading: discordLoading || discordQuery.isFetching, error: discordError, refresh: refreshDiscord, generate: generateDiscord, copy: copyDiscord, unlink: unlinkDiscordAccount }}
-        messengers={{ status: messengersStatus, loading: primaryLoading || messengersQuery.isFetching, error: primaryError, choose: choosePrimaryMessenger }}
+        messengers={{ status: messengersStatus, loading: primaryLoading || messengersQuery.isFetching, error: primaryError, chooseTelegram: selectTelegramReplies }}
         minecraft={{ status: minecraftStatus, nick: mcNick, setNick: setMcNick, inputCode: mcInputCode, setInputCode: setMcInputCode, expires: mcExpires, delivery: mcDelivery, loading: mcLoading || minecraftQuery.isFetching, error: mcError, refresh: refreshMinecraft, request: requestMinecraft, confirm: confirmMinecraft, unlink: unlinkMinecraftAccount }}
       />
     );

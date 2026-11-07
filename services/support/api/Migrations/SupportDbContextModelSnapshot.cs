@@ -59,6 +59,10 @@ namespace TaskForge.Support.Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DiscordMessageId")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
                     b.Property<Guid?>("ReplyToMessageId")
                         .HasColumnType("uuid");
 
@@ -84,6 +88,9 @@ namespace TaskForge.Support.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DiscordMessageId")
+                        .IsUnique();
 
                     b.HasIndex("ReplyToMessageId");
 

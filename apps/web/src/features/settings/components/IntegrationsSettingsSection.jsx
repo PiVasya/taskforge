@@ -2,7 +2,7 @@ import React from 'react';
 import { Button, Card, Input } from '../../../components/ui';
 import { InlineError } from './SettingsPrimitives';
 
-function IntegrationsSettingsSection({ telegram, discord, messengers, minecraft }) {
+function IntegrationsSettingsSection({ telegram, messengers, minecraft }) {
   return (
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
@@ -37,61 +37,16 @@ function IntegrationsSettingsSection({ telegram, discord, messengers, minecraft 
         )}
       </Card>
 
-      <Card className="p-4 space-y-3">
-        <div className="font-semibold">Discord</div>
-        <InlineError value={discord.error} />
-        {discord.status?.linked ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm">Привязан: <b>{discord.status.name || 'Discord'}</b></div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={discord.refresh} disabled={discord.loading}>Обновить</Button>
-              <Button variant="outline" onClick={discord.unlink} disabled={discord.loading}>Удалить привязку</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-sm text-neutral-500 dark:text-neutral-400">
-              Сгенерируй код, скопируй его и отправь боту Discord в личные сообщения. Вводить команды не нужно — отправь только код.
-              {discord.status?.botUrl ? <a className="ml-1 underline" href={discord.status.botUrl} target="_blank" rel="noopener noreferrer">Открыть профиль бота</a> : null}
-              {discord.status?.serverInvite ? <a className="ml-2 underline" href={discord.status.serverInvite} target="_blank" rel="noopener noreferrer">Сервер TaskForge в Discord</a> : null}
-            </div>
-            {discord.code ? (
-              <div className="rounded-2xl border border-[rgba(var(--border)/0.65)] p-3">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">Твой код</div>
-                <div className="mt-1 font-mono text-lg tracking-wider">{discord.code}</div>
-                {discord.expires ? <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">Действует до: {new Date(discord.expires).toLocaleString()}</div> : null}
-              </div>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={discord.generate} disabled={discord.loading}>{discord.loading ? 'Генерация…' : 'Сгенерировать код'}</Button>
-              <Button variant="outline" onClick={discord.copy} disabled={!discord.code}>Копировать</Button>
-              <Button variant="outline" onClick={discord.refresh} disabled={discord.loading}>Обновить</Button>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-4 space-y-3">
-        <div className="font-semibold">Основной мессенджер</div>
-        <div className="text-sm text-neutral-500 dark:text-neutral-400">Ответы техподдержки будут приходить сюда. Можно привязать оба мессенджера.</div>
-        <InlineError value={messengers.error} />
-        <fieldset className="space-y-2" disabled={messengers.loading}>
-          {[
-            { key: 'telegram', title: 'Telegram', linked: messengers.status?.telegramLinked },
-            { key: 'discord', title: 'Discord', linked: messengers.status?.discordLinked },
-          ].map((option) => (
-            <label key={option.key} className={`flex items-center gap-3 rounded-xl border border-[rgba(var(--border)/0.65)] px-3 py-2 ${option.linked ? 'cursor-pointer' : 'opacity-55'}`}>
-              <input type="radio" name="primary-messenger" value={option.key}
-                checked={messengers.status?.primaryMessenger === option.key}
-                disabled={!option.linked || messengers.loading}
-                onChange={() => messengers.choose(option.key)} />
-              <span className="text-sm">{option.title}</span>
-              {!option.linked ? <span className="ml-auto text-xs text-neutral-500">Не привязан</span> : null}
-            </label>
-          ))}
-        </fieldset>
-        {!messengers.status?.linked ? <div className="text-sm text-amber-600 dark:text-amber-400">Чтобы открыть техподдержку, привяжи хотя бы один мессенджер.</div> : null}
-      </Card>
+      {messengers.status?.telegramLinked && messengers.status?.primaryMessenger !== 'telegram' ? (
+        <Card className="p-4 space-y-3">
+          <div className="font-semibold">Ответы техподдержки</div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-400">Выбери Telegram для получения ответов поддержки.</div>
+          <InlineError value={messengers.error} />
+          <Button onClick={messengers.chooseTelegram} disabled={messengers.loading}>
+            {messengers.loading ? 'Сохранение…' : 'Сделать Telegram основным'}
+          </Button>
+        </Card>
+      ) : null}
 
       <Card className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">

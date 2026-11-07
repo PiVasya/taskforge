@@ -47,7 +47,6 @@ function userLabel(user) {
 
 function sourceLabel(source) {
   if (source === 'TelegramUser' || source === 'TelegramUserPrivate') return 'Telegram';
-  if (source === 'DiscordUser' || source === 'DiscordUserPrivate') return 'Discord';
   if (source === 'TelegramGroup') return 'Telegram-группа';
   if (source === 'Web') return 'Сайт';
   return null;
@@ -273,7 +272,7 @@ export default function SupportChatPage() {
         {messengerRequired && !isAdminView ? (
           <Card className="mb-4 p-4 space-y-3">
             <div className="font-semibold">Для доступа к техподдержке нужна привязка</div>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">Привяжи Telegram или Discord в настройках. После этого сможешь писать в поддержку.</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">Привяжи Telegram в настройках. После этого сможешь писать в поддержку.</p>
             <Link to="/settings?section=integrations" className="btn-outline inline-flex">Перейти к интеграциям</Link>
             <Button variant="outline" onClick={() => fetchChat()}>Проверить привязку</Button>
           </Card>
