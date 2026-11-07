@@ -18,7 +18,7 @@ const transferSource = readSource('courseImageTransfer.js')
 const transfer = await import(moduleUrl(transferSource));
 const course = '11111111-1111-4111-8111-111111111111';
 const localSrc = '/api/files/editor-images%2Fabc.png';
-const img = (src, attrs = {}) => ({ type: 'image', attrs: { src, alt: 'Геометрия', monochrome: true, sourceBackground: '#000000', sourceDark: true, ...attrs } });
+const img = (src, attrs = {}) => ({ type: 'image', attrs: { src, alt: 'Геометрия', width: 320, height: 180, monochrome: true, sourceBackground: '#000000', sourceDark: true, ...attrs } });
 const tip = (nodes) => JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: nodes }] });
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 function sample() {
@@ -113,6 +113,8 @@ test('course ZIP exports real image bytes and re-imports Tiptap metadata without
   const answer = JSON.parse(restored.tasks[0].questions[0].options[1].contentJson).content[0].content[0];
   assert.ok(answer.attrs.src.startsWith('/api/files/editor-images%2Fcourses%2F'));
   assert.equal(answer.attrs.monochrome, true);
+  assert.equal(answer.attrs.width, 320);
+  assert.equal(answer.attrs.height, 180);
   assert.equal(answer.attrs.sourceBackground, '#000000');
   assert.equal(restored.tasks[0].questions[0].optionsLayout, 'inline');
   assert.deepEqual(restored.tasks[0].questions[0].correctOptionKeys, ['b']);

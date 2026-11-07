@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from './markdownToTiptap';
+import { imageSizingStyle, isSafeLegacyRasterImage } from './imageSizing';
 import './tiptap.css';
 
 function parseStatementDoc(value, preserveLiteral) {
@@ -18,6 +19,10 @@ function safeUrl(value, image = false) {
   const url = String(value || '').trim();
   if (url.startsWith('/') && !url.startsWith('//')) return url;
   if (/^https?:\/\//i.test(url)) return url;
+  // Historical JSON imports may contain embedded raster images. Display those
+  // in read-only quizzes as the editor does, but never accept SVG, arbitrary
+  // data URLs or unbounded payloads. New images should still use Files API URLs.
+  if (image && isSafeLegacyRasterImage(url)) return url;
   if (!image && /^mailto:/i.test(url)) return url;
   return null;
 }
@@ -122,6 +127,7 @@ function renderStaticNode(node, key, context) {
       title={node.attrs?.title || ''}
       loading="lazy"
       decoding="async"
+      style={imageSizingStyle(node.attrs)}
       data-tf-mono={node.attrs?.monochrome ? 'true' : undefined}
       data-tf-mono-bg={node.attrs?.monochrome ? node.attrs?.sourceBackground || '#ffffff' : undefined}
       data-tf-mono-dark={node.attrs?.monochrome ? String(Boolean(node.attrs?.sourceDark)) : undefined}

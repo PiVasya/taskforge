@@ -1,4 +1,5 @@
 import { Image } from '@tiptap/extension-image';
+import { imageDimensionFromElement, normalizeImageDimension } from '../imageSizing';
 
 // An opt-in display property of the existing Tiptap image node.
 // Image bytes are never modified; neobrutal themes compose monochrome diagrams.
@@ -6,6 +7,22 @@ export const AdaptiveImage = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (element) => imageDimensionFromElement(element, 'width', true),
+        renderHTML: (attrs) => {
+          const width = normalizeImageDimension(attrs.width, true);
+          return width ? { style: `width: ${width}` } : {};
+        },
+      },
+      height: {
+        default: null,
+        parseHTML: (element) => imageDimensionFromElement(element, 'height'),
+        renderHTML: (attrs) => {
+          const height = normalizeImageDimension(attrs.height);
+          return height ? { style: `height: ${height}` } : {};
+        },
+      },
       monochrome: {
         default: false,
         parseHTML: (element) => element.getAttribute('data-tf-mono') === 'true',

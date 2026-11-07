@@ -43,6 +43,7 @@ import { uploadImage } from "../../api/files";
 import { FontSize } from "./extensions/FontSize";
 import { InlineMath } from "./extensions/InlineMath";
 import { AdaptiveImage, isDarkMonochromeBackground } from "./extensions/AdaptiveImage";
+import { normalizeImageDimension } from "./imageSizing";
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
@@ -540,6 +541,36 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
 
         {editor.isActive('image') ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 p-1.5">
+            <label className="flex items-center gap-1.5 text-xs">
+              Ширина
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label="Ширина изображения"
+                className="w-16 rounded border border-[rgb(var(--border))] bg-transparent px-1.5 py-1"
+                key={`image-width-${editor.state.selection.from}`}
+                defaultValue={String(editor.getAttributes('image').width || '').replace(/px$/i, '')}
+                onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }}
+                onBlur={(event) => editor.commands.updateAttributes('image', {
+                  width: normalizeImageDimension(event.target.value, true),
+                })}
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs">
+              Высота
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label="Высота изображения"
+                className="w-16 rounded border border-[rgb(var(--border))] bg-transparent px-1.5 py-1"
+                key={`image-height-${editor.state.selection.from}`}
+                defaultValue={String(editor.getAttributes('image').height || '').replace(/px$/i, '')}
+                onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }}
+                onBlur={(event) => editor.commands.updateAttributes('image', {
+                  height: normalizeImageDimension(event.target.value),
+                })}
+              />
+            </label>
             <label className="flex items-center gap-1.5 text-xs cursor-pointer">
               <input
                 type="checkbox"

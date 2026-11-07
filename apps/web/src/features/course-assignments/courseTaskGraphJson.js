@@ -646,7 +646,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
       { field: 'code-test / image-test', text: 'testCases, codeRequiredCalls, codeForbiddenCalls; для image-test также эталон и threshold.' },
       { field: 'test', text: 'testSettings и questions; unlimitedAttempts=true включает бесконечные попытки; типы single-choice, multi-choice, fill, text.' },
       { field: 'test.questions', text: 'Для форматированных вопросов: promptContentJson (Tiptap JSON как строка), promptEditorMode; для вариантов options[].contentJson и optionsLayout. prompt и options[].text сохраняют совместимость со старыми вопросами.' },
-      { field: 'Изображения', text: 'В Tiptap: image.attrs.src — URL файла. Для ZIP: asset://assets/diagram.png; сам файл должен лежать в assets/diagram.png. Настройки Ч/Б: monochrome, sourceBackground, sourceDark.' },
+      { field: 'Изображения', text: 'В Tiptap: image.attrs.src — URL файла, attrs.width — размер в пикселях или процентах, attrs.height — пиксели. Для ZIP: asset://assets/diagram.png; сам файл должен лежать в assets/diagram.png. Настройки Ч/Б: monochrome, sourceBackground, sourceDark.' },
       { field: 'math', text: 'testSettings и blocks; unlimitedAttempts=true включает бесконечные попытки; виды info, single-choice, multi-choice, number, expression, set, order, match.' },
     ],
   },
@@ -719,6 +719,8 @@ Scopes:
 24. Для форматированных вопросов test используй promptContentJson и options[].contentJson — строки с сериализованным JSON-документом Tiptap. Не теряй их при повторном импорте/экспорте.
 25. Для картинок в Tiptap используй узел image с attrs.src. В переносимом ZIP путь может иметь вид asset://assets/diagram.png; приложи файл assets/diagram.png и graph.json в корне ZIP. Обычный JSON поддерживает URL уже загруженной картинки.
 26. Для Ч/Б изображений сохраняй attrs.monochrome, attrs.sourceBackground, attrs.sourceDark: эти параметры влияют на отображение в необрутализме. Варианты правильных ответов определяются correctOptionKeys, не оформлением options[].contentJson.
+27. Размер иллюстраций задавай через attrs.width (пиксели или проценты) и attrs.height (пиксели). Эти атрибуты одинаково отображаются в редакторе и у ученика.
+28. При редактировании существующего теста сохраняй questions[].id из экспорта. Отсутствующий ID означает новый вопрос; автоматическое сопоставление возможно лишь для однозначно совпадающих неизменённых вопросов.
 
 Мега-пример:
 ${JSON.stringify(TASK_GRAPH_MEGA_EXAMPLE, null, 2)}

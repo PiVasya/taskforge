@@ -61,4 +61,40 @@ describe('quiz Tiptap read-only rendering', () => {
     expect(html).toContain('src="/api/files/image.png"');
     expect(html).not.toContain('javascript:');
   });
+
+  it('respects the saved image dimensions for both question and answer choices', () => {
+    const contentJson = asDocument([
+      { type: 'image', attrs: {
+        src: '/api/files/figure.png', width: 320, height: '180px',
+        monochrome: true, sourceBackground: '#ffffff', sourceDark: false,
+      } },
+    ]);
+    const question = renderToStaticMarkup(<QuizQuestionView question={{ promptContentJson: contentJson }} />);
+    const choice = renderToStaticMarkup(<QuizChoiceView option={{ contentJson }} />);
+    expect(question).toContain('style="width:320px;height:180px"');
+    expect(choice).toContain('style="width:320px;height:180px"');
+    expect(question).toContain('data-tf-mono="true"');
+    expect(choice).toContain('data-tf-mono="true"');
+  });
+
+  it('allows bounded percentage widths but ignores injected image styles', () => {
+    const contentJson = asDocument([
+      { type: 'image', attrs: { src: '/api/files/a.png', width: '60%', height: 'calc(100vh)', monochrome: false } },
+    ]);
+    const html = renderToStaticMarkup(<QuizQuestionView question={{ promptContentJson: contentJson }} />);
+    expect(html).toContain('style="width:60%"');
+    expect(html).not.toContain('calc(');
+  });
+
+  it('shows legacy embedded raster diagrams but never embeds SVG or script data URLs', () => {
+    const contentJson = asDocument([
+      { type: 'image', attrs: { src: 'data:image/png;base64,iVBORw0KGgo=' } },
+      { type: 'image', attrs: { src: 'data:image/svg+xml;base64,PHN2Zy8+' } },
+      { type: 'image', attrs: { src: 'data:text/html;base64,PHNjcmlwdD4=' } },
+    ]);
+    const html = renderToStaticMarkup(<QuizQuestionView question={{ promptContentJson: contentJson }} />);
+    expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+    expect(html).not.toContain('data:image/svg+xml');
+    expect(html).not.toContain('data:text/html');
+  });
 });

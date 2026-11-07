@@ -59,6 +59,8 @@ internal static class TestAssignmentSpecService
         CancellationToken ct = default)
     {
         var node = JsonNode.Parse(payload.GetRawText()) as JsonObject ?? new JsonObject();
+        var previous = await ReadNodeAsync(db, assignment, ct);
+        RestoreMatchingQuestionIds(previous["questions"] as JsonArray, node["questions"] as JsonArray);
         NormalizeIds(node, "questions");
         return await StoreNodeAsync(db, assignment, node, ct);
     }
@@ -172,6 +174,20 @@ internal static class TestAssignmentSpecService
 
         var row = db.TestAssignmentSpecs.Local.FirstOrDefault(x => x.AssignmentId == assignment.Id)
                   ?? await db.TestAssignmentSpecs.FirstOrDefaultAsync(x => x.AssignmentId == assignment.Id, ct);
+        if (row is null || row.SettingsJson != settingsJson || row.QuestionsJson != questionsJson)
+        {
+            // Before an author/import replaces the live spec, upgrade still-open
+            // legacy attempts from ID-only order into full immutable snapshots.
+            // Otherwise the old IDs (and answers) may disappear mid-attempt.
+            var previous = row is null ? ReadLegacy(assignment) : ParseTaskSpec(ToNode(row));
+            var active = await db.Attempts
+                .Where(x => x.Kind == "test" && x.TaskAssignmentId == assignment.Id && x.SubmittedAt == null)
+                .ToListAsync(ct);
+            foreach (var attempt in active)
+            {
+                TestAttemptQuestionSnapshot.TryUpgradeLegacy(attempt, previous);
+            }
+        }
         if (row is null)
         {
             row = new TestAssignmentSpec

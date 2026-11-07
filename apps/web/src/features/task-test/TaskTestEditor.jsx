@@ -3,6 +3,7 @@ import { PenLine } from 'lucide-react';
 import { Button, Card, Field, Input, Select, Textarea, Badge } from '../../components/ui';
 import StatementEditor from '../../components/tiptap/StatementEditor';
 import { QuizQuestionView, QuizChoiceView } from './QuizRichView';
+import TaskTestLearnerPreview from './TaskTestLearnerPreview';
 import { hasQuizContent, quizDocumentPlainText, quizRichValue, setQuizQuestionEditorMode } from './quizRichContent';
 import './task-test-editor.css';
 
@@ -32,6 +33,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
 
   const qList = Array.isArray(questions) ? questions : [];
   const [activeEditorKey, setActiveEditorKey] = useState(null);
+  const [showLearnerPreview, setShowLearnerPreview] = useState(false);
 
   const updateOption = (idx, oi, patch) => {
     setQuestions((current) => current.map((question, questionIndex) => {
@@ -351,11 +353,19 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
       <Card>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Вопросы</h2>
-          <Button onClick={addQuestion}>+ Добавить вопрос</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => {
+              setActiveEditorKey(null);
+              setShowLearnerPreview((value) => !value);
+            }}>{showLearnerPreview ? 'Редактор' : 'Предпросмотр'}</Button>
+            {!showLearnerPreview ? <Button onClick={addQuestion}>+ Добавить вопрос</Button> : null}
+          </div>
         </div>
 
         {qList.length === 0 ? (
           <div className="text-neutral-500 mt-3">Вопросов пока нет</div>
+        ) : showLearnerPreview ? (
+          <div className="mt-4"><TaskTestLearnerPreview questions={qList} /></div>
         ) : (
           <div className="space-y-4 mt-4">
             {qList.map((q, idx) => (

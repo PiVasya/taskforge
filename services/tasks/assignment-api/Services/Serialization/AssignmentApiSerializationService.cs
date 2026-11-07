@@ -39,6 +39,49 @@ internal static class AssignmentApiSerializationService
         }
     }
 
+    // An import may omit IDs while leaving an existing question unchanged. Reuse
+    // a persisted ID only for an unambiguous exact content match, never by index:
+    // indices are not identities and courses can reorder/insert questions.
+    internal static void RestoreMatchingQuestionIds(JsonArray? existing, JsonArray? incoming)
+    {
+        if (existing is null || incoming is null) return;
+
+        static string Signature(JsonObject question)
+        {
+            var options = question["options"] is JsonArray items
+                ? string.Join("\u001d", items.OfType<JsonObject>().Select(option => string.Join("\u001e",
+                    option["key"]?.ToString() ?? "",
+                    option["text"]?.ToString() ?? "",
+                    option["contentJson"]?.ToString() ?? "")))
+                : "";
+            return string.Join("\u001f",
+                question["type"]?.ToString() ?? "",
+                question["prompt"]?.ToString() ?? "",
+                question["promptContentJson"]?.ToString() ?? "",
+                options);
+        }
+
+        var existingBySignature = existing.OfType<JsonObject>()
+            .Where(q => Guid.TryParse(q["id"]?.ToString(), out var id) && id != Guid.Empty)
+            .GroupBy(Signature, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single()["id"]!.ToString(), StringComparer.Ordinal);
+
+        var newWithoutId = incoming.OfType<JsonObject>()
+            .Where(q => !Guid.TryParse(q["id"]?.ToString(), out var id) || id == Guid.Empty)
+            .GroupBy(Signature, StringComparer.Ordinal);
+        var used = incoming.OfType<JsonObject>()
+            .Select(q => Guid.TryParse(q["id"]?.ToString(), out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty).ToHashSet();
+
+        foreach (var group in newWithoutId.Where(group => group.Count() == 1))
+        {
+            if (!existingBySignature.TryGetValue(group.Key, out var original)
+                || !Guid.TryParse(original, out var id) || !used.Add(id)) continue;
+            group.Single()["id"] = original;
+        }
+    }
+
     internal static JsonObject ToImportDto(Assignment x, TaskSpec? testSpec = null)
     {
         var type = NormalizeAssignmentType(x.Type);
@@ -322,7 +365,12 @@ internal static class AssignmentApiSerializationService
 
             var arrayName = type == "math" ? "blocks" : "questions";
             if (incoming["settings"] is JsonObject settings) result["settings"] = settings.DeepClone();
-            if (incoming[arrayName] is JsonArray arr) result[arrayName] = arr.DeepClone();
+            if (incoming[arrayName] is JsonArray arr)
+            {
+                var replacement = (JsonArray)arr.DeepClone();
+                if (type == "test") RestoreMatchingQuestionIds(result[arrayName] as JsonArray, replacement);
+                result[arrayName] = replacement;
+            }
             NormalizeIds(result, arrayName);
             return result.ToJsonString(JsonOptions());
         }
