@@ -47,6 +47,9 @@ describe('admin user search combobox', () => {
     const input = container.querySelector('input[role="combobox"]');
     act(() => input.focus());
     expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('.lucide-search')).toBeNull();
+    expect(container.textContent).not.toContain('Поиск учитывает');
+    expect(container.textContent).not.toContain('Аккаунт выбирается');
     const options = [...container.querySelectorAll('[role="option"]')];
     expect(options).toHaveLength(2);
     expect(options[0].textContent).toContain('Валерий Иванов');
@@ -122,21 +125,21 @@ describe('admin user search combobox', () => {
     expect(onSelectUser).not.toHaveBeenCalled();
   });
 
-  test('typos are visible as ranked suggestions with a reason, without selecting an account', () => {
+  test('typos are ranked without visible matching-method hints or auto-selection', () => {
     const onSelectUser = jest.fn();
     renderSearch({ query: 'Валреий', onSelectUser });
     act(() => container.querySelector('input').focus());
     expect(container.querySelectorAll('[role="option"]')).toHaveLength(1);
     expect(container.textContent).toContain('Валерий Иванов');
-    expect(container.textContent).toContain('Возможная опечатка');
+    expect(container.textContent).not.toContain('Возможная опечатка');
     expect(onSelectUser).not.toHaveBeenCalled();
   });
 
-  test('Latin keys in a Russian name produce a keyboard-layout hint', () => {
+  test('Latin keys in a Russian name still find users without explanatory hints', () => {
     renderSearch({ query: 'Dfkthbq' });
     act(() => container.querySelector('input').focus());
     expect(container.textContent).toContain('Валерий Иванов');
-    expect(container.textContent).toContain('Исправлена раскладка');
+    expect(container.textContent).not.toContain('Исправлена раскладка');
     expect(container.textContent).not.toContain('Игорь');
   });
 

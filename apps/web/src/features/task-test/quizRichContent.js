@@ -66,19 +66,28 @@ export function hasQuizContent(rich, fallback = '') {
   return documentHasVisibleContent(doc);
 }
 
+export function setQuizQuestionEditorMode(question, mode) {
+  const selectedMode = mode === 'rich' ? 'rich' : 'plain';
+  return {
+    ...question,
+    promptEditorMode: selectedMode,
+    options: Array.isArray(question?.options)
+      ? question.options.map((option) => ({ ...option, editorMode: selectedMode }))
+      : question?.options,
+  };
+}
+
 export function normalizeQuizQuestions(questions) {
   if (!Array.isArray(questions)) return [];
-  return questions.map((question) => ({
+  return questions.map((question) => setQuizQuestionEditorMode({
     ...question,
     promptContentJson: quizRichValue(question?.promptContentJson, question?.prompt),
-    promptEditorMode: question?.promptEditorMode === 'rich' ? 'rich' : 'plain',
     optionsLayout: question?.optionsLayout === 'inline' ? 'inline' : 'list',
     options: Array.isArray(question?.options) ? question.options.map((option) => ({
       ...option,
       contentJson: quizRichValue(option?.contentJson, option?.text),
-      editorMode: option?.editorMode === 'rich' ? 'rich' : 'plain',
     })) : [],
-  }));
+  }, question?.promptEditorMode));
 }
 
 // Detect a continuous blank even when styling splits underscores into adjacent text nodes.

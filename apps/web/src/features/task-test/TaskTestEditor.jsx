@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { ChevronUp, PenLine } from 'lucide-react';
 import { Button, Card, Field, Input, Select, Textarea, Badge } from '../../components/ui';
 import StatementEditor from '../../components/tiptap/StatementEditor';
 import { QuizQuestionView, QuizChoiceView } from './QuizRichView';
-import { hasQuizContent, quizDocumentPlainText, quizRichValue } from './quizRichContent';
+import { hasQuizContent, quizDocumentPlainText, quizRichValue, setQuizQuestionEditorMode } from './quizRichContent';
+import './task-test-editor.css';
 
 const QUESTION_TYPES = [
   { value: 'single-choice', label: 'A/B/C/D (один вариант)' },
@@ -39,14 +41,21 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     }));
   };
 
-  const activateEditor = (key) => setActiveEditorKey(key === activeEditorKey ? null : key);
+  const toggleQuestionFormatting = (idx) => {
+    // The question is the single source of truth for TXT / full Tiptap in ALL its choices.
+    setQuestions((current) => current.map((question, i) => i === idx
+      ? setQuizQuestionEditorMode(question, question.promptEditorMode === 'rich' ? 'plain' : 'rich')
+      : question));
+    // When an option is currently being edited, keep it mounted and show/hide the same toolbar.
+    setActiveEditorKey((current) => current?.startsWith(`option:${idx}:`) ? current : `question:${idx}`);
+  };
 
-  const renderModeButtons = (mode, activate) => (
-    <div className="inline-flex items-center gap-1" role="group" aria-label="Режим редактирования">
-      <Button variant={mode === 'plain' ? 'primary' : 'outline'} onClick={() => activate('plain')}>TXT</Button>
-      <Button variant={mode === 'rich' ? 'primary' : 'outline'} onClick={() => activate('rich')}>Tiptap</Button>
-    </div>
-  );
+  const openEditorWithKeyboard = (event, key) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActiveEditorKey(key);
+    }
+  };
 
   const updateSettings = (patch) => {
     setSettings({ ...s, ...patch, attemptTimeLimitsSeconds: normalizeLimits(patch.attemptTimeLimitsSeconds ?? s.attemptTimeLimitsSeconds) });
@@ -117,7 +126,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm text-neutral-600 dark:text-neutral-300">
-              Варианты ответа ({isMulti ? 'пометь правильные' : 'пометь правильный'})
+              Варианты ответа
             </span>
             <label className="flex items-center gap-2 text-sm">
               Расположение
@@ -131,7 +140,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
             {opts.map((o, oi) => {
               const optionKey = `option:${idx}:${oi}`;
               const active = activeEditorKey === optionKey;
-              const mode = o.editorMode === 'rich' ? 'rich' : 'plain';
+              const mode = q.promptEditorMode === 'rich' ? 'rich' : 'plain';
               return <div key={o.key || oi} className="rounded-xl border border-[rgb(var(--border))] p-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <input
@@ -150,13 +159,12 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                   />
                   <span className="text-sm font-medium">Вариант {o.key}</span>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
-                    {renderModeButtons(mode, (nextMode) => {
-                      updateOption(idx, oi, { editorMode: nextMode });
-                      setActiveEditorKey(optionKey);
-                    })}
-                    <Button variant="outline" onClick={() => activateEditor(optionKey)}>
-                      {active ? 'Свернуть' : 'Редактировать'}
-                    </Button>
+                    {active ? (
+                      <button type="button" className="quiz-editor-icon" aria-label={`Свернуть вариант ${o.key}`}
+                        onClick={() => setActiveEditorKey(null)}>
+                        <ChevronUp size={14} aria-hidden="true" />
+                      </button>
+                    ) : null}
                     <Button variant="outline" onClick={() => {
                       const next = opts.filter((_, index) => index !== oi);
                       const nextCorrect = (q.correctOptionKeys || []).filter((key) => key !== o.key);
@@ -178,8 +186,11 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                     })}
                   />
                 ) : (
-                  <div className="cursor-text min-h-6" onClick={() => setActiveEditorKey(optionKey)}>
-                    {hasQuizContent(o.contentJson, o.text) ? <QuizChoiceView option={o} /> : <span className="text-sm text-neutral-500">Нажми, чтобы заполнить вариант</span>}
+                  <div className="quiz-editor-preview min-h-[36px] rounded-md border border-[rgb(var(--border))] px-2 py-1" role="button" tabIndex={0}
+                    aria-label={`Редактировать вариант ${o.key}`}
+                    onClick={() => setActiveEditorKey(optionKey)}
+                    onKeyDown={(event) => openEditorWithKeyboard(event, optionKey)}>
+                    {hasQuizContent(o.contentJson, o.text) ? <QuizChoiceView option={o} /> : null}
                   </div>
                 )}
               </div>;
@@ -190,7 +201,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
             onClick={() => {
               const used = new Set(opts.map((opt) => opt.key));
               const nextKey = Array.from('abcdefghijklmnopqrstuvwxyz').find((key) => !used.has(key)) || `v${opts.length + 1}`;
-              updateQuestion(idx, { options: [...opts, { key: nextKey, text: '', contentJson: '', editorMode: 'plain' }] });
+              updateQuestion(idx, { options: [...opts, { key: nextKey, text: '', contentJson: '', editorMode: q.promptEditorMode === 'rich' ? 'rich' : 'plain' }] });
             }}
           >
             + Добавить вариант
@@ -204,7 +215,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     return (
       <div className="space-y-3">
         <div className="text-sm text-neutral-600">
-          Допустимые ответы (по одному на строку)
+          Допустимые ответы
         </div>
         <Textarea
           rows={4}
@@ -212,7 +223,6 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
           
           
           onChange={(e) => updateQuestion(idx, { acceptedAnswers: e.target.value.split(/\r?\n/).map((x) => x) })}
-          placeholder={type === 'fill' ? 'Напр.: apple\nApple' : 'Напр.: 42'}
         />
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
@@ -340,7 +350,6 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
               </div>
             ))}
           </div>
-          <div className="text-xs text-neutral-500 mt-2">Пусто = без таймера.</div>
         </div>
       </Card>
 
@@ -377,12 +386,10 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                         const patch = { type: t };
                         const isChoice = t === 'single-choice' || t === 'multi-choice';
                         if (isChoice && (!q.options || q.options.length === 0)) {
-                          patch.options = [
-                            { key: 'a', text: '' },
-                            { key: 'b', text: '' },
-                            { key: 'c', text: '' },
-                            { key: 'd', text: '' },
-                          ];
+                          patch.options = ['a', 'b', 'c', 'd'].map((key) => ({
+                            key, text: '', contentJson: '',
+                            editorMode: q.promptEditorMode === 'rich' ? 'rich' : 'plain',
+                          }));
                           patch.correctOptionKeys = ['a'];
                         }
                         
@@ -410,36 +417,46 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                 </div>
 
                 <div className="mt-3">
-                  <Field label="Вопрос">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        {renderModeButtons(q.promptEditorMode === 'rich' ? 'rich' : 'plain', (nextMode) => {
-                          updateQuestion(idx, { promptEditorMode: nextMode });
-                          setActiveEditorKey(`question:${idx}`);
-                        })}
-                        <Button variant="outline" onClick={() => activateEditor(`question:${idx}`)}>
-                          {activeEditorKey === `question:${idx}` ? 'Свернуть' : 'Редактировать'}
-                        </Button>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-[rgb(var(--text-muted))]">Вопрос</span>
+                      <div className="flex items-center gap-1">
+                        <button type="button"
+                          className="quiz-editor-icon"
+                          aria-label={q.promptEditorMode === 'rich' ? 'Выключить форматирование вопроса и вариантов' : 'Включить форматирование вопроса и вариантов'}
+                          aria-pressed={q.promptEditorMode === 'rich'}
+                          onClick={() => toggleQuestionFormatting(idx)}>
+                          <PenLine size={14} aria-hidden="true" />
+                        </button>
+                        {activeEditorKey === `question:${idx}` ? (
+                          <button type="button" className="quiz-editor-icon" aria-label="Свернуть редактор вопроса"
+                            onClick={() => setActiveEditorKey(null)}>
+                            <ChevronUp size={14} aria-hidden="true" />
+                          </button>
+                        ) : null}
                       </div>
-                      {activeEditorKey === `question:${idx}` ? (
-                        <StatementEditor
-                          key={`question:${idx}`}
-                          value={quizRichValue(q.promptContentJson, q.prompt)}
-                          mode={q.promptEditorMode === 'rich' ? 'rich' : 'plain'}
-                          compact
-                          preserveLiteral
-                          onChange={(next) => updateQuestion(idx, {
-                            promptContentJson: next,
-                            prompt: quizDocumentPlainText(next),
-                          })}
-                        />
-                      ) : (
-                        <div className="cursor-text rounded-lg border border-[rgb(var(--border))] px-3 py-2 min-h-[72px]" onClick={() => setActiveEditorKey(`question:${idx}`)}>
-                          {hasQuizContent(q.promptContentJson, q.prompt) ? <QuizQuestionView question={q} /> : <span className="text-neutral-500">Нажми, чтобы написать условие вопроса</span>}
-                        </div>
-                      )}
                     </div>
-                  </Field>
+                    {activeEditorKey === `question:${idx}` ? (
+                      <StatementEditor
+                        key={`question:${idx}`}
+                        value={quizRichValue(q.promptContentJson, q.prompt)}
+                        mode={q.promptEditorMode === 'rich' ? 'rich' : 'plain'}
+                        compact
+                        preserveLiteral
+                        onChange={(next) => updateQuestion(idx, {
+                          promptContentJson: next,
+                          prompt: quizDocumentPlainText(next),
+                        })}
+                      />
+                    ) : (
+                      <div className="quiz-editor-preview rounded-lg border border-[rgb(var(--border))] px-3 py-2 min-h-[72px]"
+                        role="button" tabIndex={0} aria-label="Редактировать вопрос"
+                        onClick={() => setActiveEditorKey(`question:${idx}`)}
+                        onKeyDown={(event) => openEditorWithKeyboard(event, `question:${idx}`)}>
+                        {hasQuizContent(q.promptContentJson, q.prompt) ? <QuizQuestionView question={q} /> : null}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4">

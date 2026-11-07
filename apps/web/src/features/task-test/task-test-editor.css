@@ -1,0 +1,52 @@
+/* A single, neutral 22px affordance controls rich formatting for the whole question. */
+.quiz-editor-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(var(--border) / 0.85);
+  border-radius: 4px;
+  background: transparent;
+  color: rgb(var(--text));
+  box-shadow: none;
+  cursor: pointer;
+}
+.quiz-editor-icon:hover,
+.quiz-editor-icon[aria-pressed="true"] {
+  background: rgb(var(--muted));
+  border-color: rgb(var(--text));
+}
+.quiz-editor-icon:focus-visible,
+.quiz-editor-preview:focus-visible {
+  outline: 2px solid rgb(var(--text));
+  outline-offset: 2px;
+}
+.quiz-editor-preview { cursor: text; }
+/* Neo controls normally have heavy shadows; this one deliberately stays tiny. */
+html.neo-brutal .quiz-editor-icon {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  border: 1px solid rgb(var(--neo-ink));
+  border-radius: 4px;
+  background: transparent;
+  color: rgb(var(--text));
+  box-shadow: none;
+  transform: none;
+}
+html.neo-brutal .quiz-editor-icon:hover,
+html.neo-brutal .quiz-editor-icon[aria-pressed="true"] {
+  background: rgb(var(--muted));
+  box-shadow: none;
+  transform: none;
+}
+
+html.neo-brutal .quiz-editor-icon:focus-visible {
+  outline: 2px solid rgb(var(--text)) !important;
+  outline-offset: 2px;
+  box-shadow: none !important;
+}

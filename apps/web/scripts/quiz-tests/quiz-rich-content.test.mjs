@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../../src/features/task-test/quizRichContent.js', import.meta.url), 'utf8');
-const { literalTextDocument, parseQuizDocument, quizRichValue, quizDocumentPlainText, normalizeQuizQuestions, hasQuizContent, quizHasInlineBlank } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { literalTextDocument, parseQuizDocument, quizRichValue, quizDocumentPlainText, normalizeQuizQuestions, setQuizQuestionEditorMode, hasQuizContent, quizHasInlineBlank } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('legacy TXT questions become literal Tiptap documents with blanks intact', () => {
   const old = 'Вставьте ___ в x < 7\nВторая строка `без Markdown`';
@@ -15,7 +15,7 @@ test('legacy TXT questions become literal Tiptap documents with blanks intact', 
   assert.equal(quizHasInlineBlank({ promptContentJson: rich }), true);
 });
 
-test('normalization keeps independently selected TXT/Tiptap modes and rich choices', () => {
+test('one question mode controls all answers without altering their rich documents', () => {
   const rich = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: '7', marks: [{ type: 'superscript' }] },
   ] }] });
@@ -24,9 +24,20 @@ test('normalization keeps independently selected TXT/Tiptap modes and rich choic
   ] }]);
   assert.equal(q.promptEditorMode, 'plain');
   assert.equal(q.options[0].editorMode, 'plain');
-  assert.equal(q.options[1].editorMode, 'rich');
+  assert.equal(q.options[1].editorMode, 'plain'); // Legacy per-option mode is ignored.
   assert.equal(q.options[1].contentJson, rich);
   assert.equal(q.optionsLayout, 'list');
+  const enabled = setQuizQuestionEditorMode(q, 'rich');
+  assert.equal(enabled.promptEditorMode, 'rich');
+  assert.ok(enabled.options.every((option) => option.editorMode === 'rich'));
+  assert.equal(enabled.options[1].contentJson, rich);
+  const disabled = setQuizQuestionEditorMode(enabled, 'plain');
+  assert.equal(disabled.promptEditorMode, 'plain');
+  assert.ok(disabled.options.every((option) => option.editorMode === 'plain'));
+  assert.equal(disabled.options[1].contentJson, rich);
+  assert.equal(q.promptEditorMode, 'plain'); // No accidental mutation of the original.
+  assert.equal(q.options[0].contentJson, quizRichValue('', '7'));
+
 });
 
 test('images and native MathML nodes count as question/choice content', () => {
@@ -71,4 +82,26 @@ test('an empty migrated document does not hide the original legacy text', () => 
     { type: 'text', text: 'Новый вопрос', marks: [{ type: 'bold' }] },
   ] }] });
   assert.equal(quizRichValue(richContent, 'Старый вопрос'), richContent);
+});
+
+test('quiz editor exposes one tiny theme-neutral mode toggle per question, with no choice toggles or visible hints', () => {
+  const editor = readFileSync(new URL('../../src/features/task-test/TaskTestEditor.jsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../src/features/task-test/task-test-editor.css', import.meta.url), 'utf8');
+  assert.match(editor, /toggleQuestionFormatting/);
+  assert.match(editor, /setQuizQuestionEditorMode/);
+  assert.match(editor, /aria-pressed=\{q\.promptEditorMode === 'rich'\}/);
+  assert.match(editor, /mode=\{mode\}/); // Options inherit the parent's mode.
+  assert.match(editor, /const mode = q\.promptEditorMode === 'rich'/);
+  assert.doesNotMatch(editor, /renderModeButtons|>TXT<|>Tiptap<|>Редактировать<|Нажми, чтобы/);
+  assert.match(css, /width: 22px;/);
+  assert.match(css, /box-shadow: none;/);
+  assert.doesNotMatch(css, /brand-300|btn-primary/);
+});
+
+test('authoring surfaces contain no instructional help lines or search decorations', () => {
+  const search = readFileSync(new URL('../../src/features/admin-solutions/components/AdminUserSearchCombobox.jsx', import.meta.url), 'utf8');
+  const tiptap = readFileSync(new URL('../../src/components/tiptap/StatementEditor.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(search, /<Search|\bSearch, X\b|Поиск учитывает|Аккаунт выбирается|Совпадения ранжируются|searchMatchLabel/);
+  assert.doesNotMatch(tiptap, /Можно вставлять картинки/);
+  assert.doesNotMatch(tiptap, /<ToolbarButton[^>]*title=\{/);
 });

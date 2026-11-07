@@ -69,7 +69,7 @@ function ToolbarButton({ title, isActive, disabled, onClick, children }) {
   return (
     <button
       type="button"
-      title={title}
+      aria-label={title}
       onClick={onClick}
       disabled={disabled}
       className={
@@ -324,7 +324,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
 
         <div className="flex items-center gap-2">
           <select
-            title="Стиль текста"
+            aria-label="Стиль текста"
             className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
             value={
               editor.isActive("heading", { level: 1 })
@@ -474,7 +474,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
           <Highlighter size={20} />
         </ToolbarButton>
         <select
-          title="Цвет выделения"
+          aria-label="Цвет выделения"
           aria-label="Цвет выделения"
           value={highlightColor}
           className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
@@ -543,7 +543,6 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
                 Исходный фон
                 <input
                   aria-label="Исходный фон изображения"
-                  title="Цвет фона внутри исходного изображения"
                   type="color"
                   value={editor.getAttributes('image').sourceBackground || '#ffffff'}
                   onChange={(event) => editor.chain().focus().updateAttributes('image', {
@@ -556,9 +555,6 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
           </div>
         ) : null}
 
-        <div className="ml-auto text-xs text-gray-500">
-          Можно вставлять картинки: Ctrl+V / Drag&amp;Drop
-        </div>
       </div> : null}
 
       <div
