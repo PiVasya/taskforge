@@ -140,3 +140,42 @@
   padding: 0;
   color: inherit;
 }
+
+/* The question editor uses the same ProseMirror instance in compact TXT mode. */
+.tiptap-editor-compact .tiptap-content {
+  min-height: 76px !important;
+  padding: 0.65rem 0.85rem;
+}
+.tiptap-content-static {
+  min-height: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tiptap-content-static > p:first-child,
+.tiptap-content-static > :first-child { margin-top: 0; }
+.tiptap-content-static > p:last-child,
+.tiptap-content-static > :last-child { margin-bottom: 0; }
+.tiptap-content-static img { max-width: 100%; height: auto; }
+.tiptap-inline-math, .tiptap-content-static math {
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tiptap-inline-math math { font-size: 1.08em; }
+
+/* An opt-in monochrome diagram blends into neobrutal cards without altering the file.
+   The ordinary site style always displays the original image. */
+html.neo-brutal:not(.dark) .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark="false"] {
+  mix-blend-mode: multiply;
+}
+html.neo-brutal:not(.dark) .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark="true"] {
+  filter: invert(1);
+  mix-blend-mode: multiply;
+}
+html.neo-brutal.dark .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark="false"] {
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+html.neo-brutal.dark .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark="true"] {
+  mix-blend-mode: screen;
+}

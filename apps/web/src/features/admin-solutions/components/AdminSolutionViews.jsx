@@ -1,5 +1,6 @@
 import React from 'react';
 import { Badge, Card } from '../../../components/ui';
+import { QuizQuestionView, QuizChoiceView, quizHasInlineBlank } from '../../task-test/QuizRichView';
 import {
   getRunnerText,
   getSolutionCases,
@@ -185,19 +186,6 @@ export function RunnerOutput({ item }) {
   );
 }
 
-function splitFillPrompt(prompt) {
-  const value = String(prompt || '');
-  const match = value.match(/_{3,}/);
-  if (!match) return null;
-  const blank = match[0];
-  const index = value.indexOf(blank);
-  return {
-    before: value.slice(0, index),
-    after: value.slice(index + blank.length),
-    blankLen: blank.length,
-  };
-}
-
 export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) {
   if (!dto) return null;
   const questions = Array.isArray(dto.questions) ? dto.questions : [];
@@ -217,7 +205,7 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
           const type = String(question.type || '').toLowerCase();
           const isCorrect = Boolean(question.isCorrect);
           const userAnswer = question.userAnswer || {};
-          const split = type === 'fill' ? splitFillPrompt(question.prompt) : null;
+          const hasBlank = type === 'fill' && quizHasInlineBlank(question);
           const userText = String(userAnswer.text || '');
           const selected = new Set(Array.isArray(userAnswer.selectedOptionKeys) ? userAnswer.selectedOptionKeys : []);
           const correctKeys = new Set(Array.isArray(question.correctOptionKeys) ? question.correctOptionKeys : []);
@@ -231,26 +219,13 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
               <div className="flex items-start justify-between gap-3">
                 <div className="font-medium">
                   {index + 1}.{' '}
-                  {split ? (
-                    <span className="fill-line">
-                      {split.before}
-                      <input
-                        className="fill-input"
-                        value={userText}
-                        readOnly
-                        style={{ width: `${Math.min(30, Math.max(6, (split.blankLen || 3) * 2))}ch` }}
-                      />
-                      {split.after}
-                    </span>
-                  ) : (
-                    <span>{question.prompt}</span>
-                  )}
+                  <QuizQuestionView question={question} fill={hasBlank ? { value: userText, readOnly: true } : null} />
                 </div>
                 <Badge intent={isCorrect ? 'success' : 'danger'}>{isCorrect ? 'Верно' : 'Неверно'}</Badge>
               </div>
 
               {(type === 'single-choice' || type === 'multi-choice') ? (
-                <div className="mt-3 space-y-2">
+                <div className={question.optionsLayout === 'inline' ? "mt-3 flex flex-wrap items-start gap-4" : "mt-3 space-y-2"}>
                   {options.map((option) => {
                     const isSelected = selected.has(option.key);
                     const isCorrectOption = correctKeys.has(option.key);
@@ -263,7 +238,7 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
                     return (
                       <div key={option.key} className={className}>
                         <input type={type === 'multi-choice' ? 'checkbox' : 'radio'} checked={isSelected} readOnly />
-                        <span>{option.text}</span>
+                        <div className="min-w-0 flex-1"><QuizChoiceView option={option} /></div>
                         {isCorrectOption ? <span className="text-xs opacity-80">(правильный)</span> : null}
                         {isSelected && !isCorrectOption ? <span className="text-xs opacity-80">(выбрано)</span> : null}
                       </div>
@@ -272,7 +247,7 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
                 </div>
               ) : null}
 
-              {(type === 'text' || type === 'fill') && !split ? (
+              {(type === 'text' || type === 'fill') && !hasBlank ? (
                 <div className="mt-3 space-y-2 text-sm">
                   <div>
                     <span className="text-neutral-500 dark:text-neutral-400">Ответ:</span>{' '}

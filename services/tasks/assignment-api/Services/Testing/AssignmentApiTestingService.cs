@@ -268,7 +268,11 @@ internal static class AssignmentApiTestingService
             question.Order,
             question.Type,
             question.Prompt,
-            options = question.Type is "single-choice" or "multi-choice" ? opts : null
+            question.PromptContentJson,
+            question.OptionsLayout,
+            options = question.Type is "single-choice" or "multi-choice"
+                ? opts.Select(option => new { option.Key, option.Text, option.ContentJson }).ToList()
+                : null
         };
     }
 
@@ -278,6 +282,8 @@ internal static class AssignmentApiTestingService
         ["order"] = question.Order,
         ["type"] = question.Type,
         ["prompt"] = question.Prompt,
+        ["promptContentJson"] = question.PromptContentJson,
+        ["optionsLayout"] = question.OptionsLayout,
         ["options"] = JsonSerializer.SerializeToNode(question.Options, JsonOptions()),
         ["correctOptionKeys"] = JsonSerializer.SerializeToNode(question.CorrectOptionKeys, JsonOptions()),
         ["acceptedAnswers"] = JsonSerializer.SerializeToNode(question.AcceptedAnswers, JsonOptions()),

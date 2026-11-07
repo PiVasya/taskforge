@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button, Card, Field, Input, Select, Textarea, Badge } from '../../components/ui';
+import StatementEditor from '../../components/tiptap/StatementEditor';
+import { QuizQuestionView, QuizChoiceView } from './QuizRichView';
+import { hasQuizContent, quizDocumentPlainText, quizRichValue } from './quizRichContent';
 
 const QUESTION_TYPES = [
   { value: 'single-choice', label: 'A/B/C/D (один вариант)' },
@@ -26,6 +29,24 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
   };
 
   const qList = Array.isArray(questions) ? questions : [];
+  const [activeEditorKey, setActiveEditorKey] = useState(null);
+
+  const updateOption = (idx, oi, patch) => {
+    setQuestions((current) => current.map((question, questionIndex) => {
+      if (questionIndex !== idx) return question;
+      return { ...question, options: (question.options || []).map((option, optionIndex) =>
+        optionIndex === oi ? { ...option, ...patch } : option) };
+    }));
+  };
+
+  const activateEditor = (key) => setActiveEditorKey(key === activeEditorKey ? null : key);
+
+  const renderModeButtons = (mode, activate) => (
+    <div className="inline-flex items-center gap-1" role="group" aria-label="Режим редактирования">
+      <Button variant={mode === 'plain' ? 'primary' : 'outline'} onClick={() => activate('plain')}>TXT</Button>
+      <Button variant={mode === 'rich' ? 'primary' : 'outline'} onClick={() => activate('rich')}>Tiptap</Button>
+    </div>
+  );
 
   const updateSettings = (patch) => {
     setSettings({ ...s, ...patch, attemptTimeLimitsSeconds: normalizeLimits(patch.attemptTimeLimitsSeconds ?? s.attemptTimeLimitsSeconds) });
@@ -43,11 +64,14 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         order: nextOrder,
         type: 'single-choice',
         prompt: '',
+        promptContentJson: quizRichValue('', ''),
+        promptEditorMode: 'plain',
+        optionsLayout: 'list',
         options: [
-          { key: 'a', text: '' },
-          { key: 'b', text: '' },
-          { key: 'c', text: '' },
-          { key: 'd', text: '' },
+          { key: 'a', text: '', contentJson: '', editorMode: 'plain' },
+          { key: 'b', text: '', contentJson: '', editorMode: 'plain' },
+          { key: 'c', text: '', contentJson: '', editorMode: 'plain' },
+          { key: 'd', text: '', contentJson: '', editorMode: 'plain' },
         ],
         correctOptionKeys: ['a'],
         acceptedAnswers: [],
@@ -55,12 +79,12 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         trim: true,
       },
     ]);
+    setActiveEditorKey(`question:${qList.length}`);
   };
 
   const removeQuestion = (idx) => {
-    const copy = [...qList];
-    copy.splice(idx, 1);
-    setQuestions(copy);
+    setActiveEditorKey(null);
+    setQuestions((current) => current.filter((_, i) => i !== idx));
   };
 
   const moveQuestion = (idx, dir) => {
@@ -73,13 +97,12 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
     
     
     const withOrder = copy.map((x, i) => ({ ...x, order: i }));
+    setActiveEditorKey(null);
     setQuestions(withOrder);
   };
 
   const updateQuestion = (idx, patch) => {
-    const copy = [...qList];
-    copy[idx] = { ...copy[idx], ...patch };
-    setQuestions(copy);
+    setQuestions((current) => current.map((question, i) => i === idx ? { ...question, ...patch } : question));
   };
 
   const renderQuestionBody = (q, idx) => {
@@ -92,57 +115,82 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
 
       return (
         <div className="space-y-3">
-          <div className="text-sm text-neutral-600">
-            Варианты ответа ({isMulti ? 'пометь правильные' : 'пометь правильный'})
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm text-neutral-600 dark:text-neutral-300">
+              Варианты ответа ({isMulti ? 'пометь правильные' : 'пометь правильный'})
+            </span>
+            <label className="flex items-center gap-2 text-sm">
+              Расположение
+              <Select value={q.optionsLayout === 'inline' ? 'inline' : 'list'} onChange={(e) => updateQuestion(idx, { optionsLayout: e.target.value })}>
+                <option value="list">Столбиком</option>
+                <option value="inline">В строку</option>
+              </Select>
+            </label>
           </div>
-          <div className="space-y-2">
-            {opts.map((o, oi) => (
-              <div key={oi} className="flex items-center gap-2">
-                <input
-                  type={isMulti ? 'checkbox' : 'radio'}
-                  name={`q_${idx}_correct`}
-                  checked={correct.has(o.key)}
-                  onChange={() => {
-                    if (!isMulti) {
-                      updateQuestion(idx, { correctOptionKeys: [o.key] });
-                      return;
-                    }
-                    const next = new Set(correct);
-                    const has = next.has(o.key);
-                    
-                    if (has && next.size === 1) return;
-                    if (has) next.delete(o.key);
-                    else next.add(o.key);
-                    updateQuestion(idx, { correctOptionKeys: Array.from(next) });
-                  }}
-                />
-                <Input
-                  value={o.text || ''}
-                  placeholder={`Вариант ${o.key}`}
-                  onChange={(e) => {
-                    const next = opts.map((x, k) => (k === oi ? { ...x, text: e.target.value } : x));
-                    updateQuestion(idx, { options: next });
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const next = [...opts];
-                    next.splice(oi, 1);
-                    const nextCorrect = (q.correctOptionKeys || []).filter((k) => k !== o.key);
-                    updateQuestion(idx, { options: next, correctOptionKeys: nextCorrect.length ? nextCorrect : (next[0] ? [next[0].key] : []) });
-                  }}
-                >
-                  Удалить
-                </Button>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {opts.map((o, oi) => {
+              const optionKey = `option:${idx}:${oi}`;
+              const active = activeEditorKey === optionKey;
+              const mode = o.editorMode === 'rich' ? 'rich' : 'plain';
+              return <div key={o.key || oi} className="rounded-xl border border-[rgb(var(--border))] p-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type={isMulti ? 'checkbox' : 'radio'}
+                    name={`q_${idx}_correct`}
+                    checked={correct.has(o.key)}
+                    aria-label={`Правильный вариант ${o.key}`}
+                    onChange={() => {
+                      if (!isMulti) return updateQuestion(idx, { correctOptionKeys: [o.key] });
+                      const next = new Set(correct);
+                      if (next.has(o.key) && next.size === 1) return;
+                      if (next.has(o.key)) next.delete(o.key);
+                      else next.add(o.key);
+                      updateQuestion(idx, { correctOptionKeys: Array.from(next) });
+                    }}
+                  />
+                  <span className="text-sm font-medium">Вариант {o.key}</span>
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
+                    {renderModeButtons(mode, (nextMode) => {
+                      updateOption(idx, oi, { editorMode: nextMode });
+                      setActiveEditorKey(optionKey);
+                    })}
+                    <Button variant="outline" onClick={() => activateEditor(optionKey)}>
+                      {active ? 'Свернуть' : 'Редактировать'}
+                    </Button>
+                    <Button variant="outline" onClick={() => {
+                      const next = opts.filter((_, index) => index !== oi);
+                      const nextCorrect = (q.correctOptionKeys || []).filter((key) => key !== o.key);
+                      updateQuestion(idx, { options: next, correctOptionKeys: nextCorrect.length ? nextCorrect : (next[0] ? [next[0].key] : []) });
+                      setActiveEditorKey(null);
+                    }}>Удалить</Button>
+                  </div>
+                </div>
+                {active ? (
+                  <StatementEditor
+                    key={optionKey}
+                    value={quizRichValue(o.contentJson, o.text)}
+                    mode={mode}
+                    compact
+                    preserveLiteral
+                    onChange={(next) => updateOption(idx, oi, {
+                      contentJson: next,
+                      text: quizDocumentPlainText(next),
+                    })}
+                  />
+                ) : (
+                  <div className="cursor-text min-h-6" onClick={() => setActiveEditorKey(optionKey)}>
+                    {hasQuizContent(o.contentJson, o.text) ? <QuizChoiceView option={o} /> : <span className="text-sm text-neutral-500">Нажми, чтобы заполнить вариант</span>}
+                  </div>
+                )}
+              </div>;
+            })}
           </div>
           <Button
             variant="outline"
             onClick={() => {
-              const nextKey = String.fromCharCode(97 + opts.length); 
-              updateQuestion(idx, { options: [...opts, { key: nextKey, text: '' }] });
+              const used = new Set(opts.map((opt) => opt.key));
+              const nextKey = Array.from('abcdefghijklmnopqrstuvwxyz').find((key) => !used.has(key)) || `v${opts.length + 1}`;
+              updateQuestion(idx, { options: [...opts, { key: nextKey, text: '', contentJson: '', editorMode: 'plain' }] });
             }}
           >
             + Добавить вариант
@@ -363,12 +411,34 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
 
                 <div className="mt-3">
                   <Field label="Вопрос">
-                    <Textarea
-                      rows={3}
-                      value={q.prompt || ''}
-                      onChange={(e) => updateQuestion(idx, { prompt: e.target.value })}
-                      placeholder="Текст вопроса..."
-                    />
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        {renderModeButtons(q.promptEditorMode === 'rich' ? 'rich' : 'plain', (nextMode) => {
+                          updateQuestion(idx, { promptEditorMode: nextMode });
+                          setActiveEditorKey(`question:${idx}`);
+                        })}
+                        <Button variant="outline" onClick={() => activateEditor(`question:${idx}`)}>
+                          {activeEditorKey === `question:${idx}` ? 'Свернуть' : 'Редактировать'}
+                        </Button>
+                      </div>
+                      {activeEditorKey === `question:${idx}` ? (
+                        <StatementEditor
+                          key={`question:${idx}`}
+                          value={quizRichValue(q.promptContentJson, q.prompt)}
+                          mode={q.promptEditorMode === 'rich' ? 'rich' : 'plain'}
+                          compact
+                          preserveLiteral
+                          onChange={(next) => updateQuestion(idx, {
+                            promptContentJson: next,
+                            prompt: quizDocumentPlainText(next),
+                          })}
+                        />
+                      ) : (
+                        <div className="cursor-text rounded-lg border border-[rgb(var(--border))] px-3 py-2 min-h-[72px]" onClick={() => setActiveEditorKey(`question:${idx}`)}>
+                          {hasQuizContent(q.promptContentJson, q.prompt) ? <QuizQuestionView question={q} /> : <span className="text-neutral-500">Нажми, чтобы написать условие вопроса</span>}
+                        </div>
+                      )}
+                    </div>
                   </Field>
                 </div>
 

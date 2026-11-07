@@ -590,7 +590,10 @@ internal static class AssignmentApiSerializationService
         StringList(q, "correctOptionKeys"),
         StringList(q, "acceptedAnswers"),
         Bool(q, "caseSensitive", false),
-        Bool(q, "trim", true));
+        Bool(q, "trim", true),
+        Str(q, "promptContentJson", ""),
+        Str(q, "promptEditorMode", "plain"),
+        Str(q, "optionsLayout", "list"));
 
     internal static MathBlock ParseBlock(JsonObject b) => new(
         GuidV(b, "id"),

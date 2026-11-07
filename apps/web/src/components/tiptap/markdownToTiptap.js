@@ -193,7 +193,7 @@ function collectPlainLinesFromDoc(node, out) {
 
 function docHasRealRichNodes(node) {
   if (!node || typeof node !== "object") return false;
-  if (["orderedList", "bulletList", "codeBlock", "blockquote", "heading", "image"].includes(node.type)) return true;
+  if (["orderedList", "bulletList", "codeBlock", "blockquote", "heading", "image", "mathInline"].includes(node.type)) return true;
   if (Array.isArray(node.marks) && node.marks.length > 0) return true;
   return Array.isArray(node.content) && node.content.some(docHasRealRichNodes);
 }

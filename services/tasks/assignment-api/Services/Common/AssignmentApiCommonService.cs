@@ -526,7 +526,7 @@ internal static class AssignmentApiCommonService
 
     internal static List<int?> IntList(JsonObject o, string n) => o[n] is JsonArray a ? a.Select(x => int.TryParse(x?.ToString(), out var v) && v > 0 ? (int?)v : null).ToList() : [];
 
-    internal static List<Option> Options(JsonObject o, string n = "options") => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new Option(Str(x, "key", Guid.NewGuid().ToString("N")[..4]), Str(x, "text", ""))).ToList() : [];
+    internal static List<Option> Options(JsonObject o, string n = "options") => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new Option(Str(x, "key", Guid.NewGuid().ToString("N")[..4]), Str(x, "text", ""), Str(x, "contentJson", ""), Str(x, "editorMode", "plain"))).ToList() : [];
 
     internal static List<MatchPair> MatchPairList(JsonObject o, string n) => o[n] is JsonArray a ? a.OfType<JsonObject>().Select(x => new MatchPair(Str(x, "leftKey", ""), Str(x, "rightKey", ""))).ToList() : [];
 

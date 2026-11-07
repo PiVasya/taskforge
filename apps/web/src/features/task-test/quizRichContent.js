@@ -1,0 +1,79 @@
+// Quiz question/choice documents use the same Tiptap JSON as assignment statements.
+// Plain legacy values are interpreted as literal text, not Markdown source.
+export function literalTextDocument(value) {
+  const lines = String(value ?? '').replace(/\r/g, '').split('\n');
+  return {
+    type: 'doc',
+    content: lines.map((line) => ({
+      type: 'paragraph',
+      content: line ? [{ type: 'text', text: line }] : [],
+    })),
+  };
+}
+
+export function parseQuizDocument(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const doc = JSON.parse(value);
+    return doc && doc.type === 'doc' && Array.isArray(doc.content) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+export function quizRichValue(rich, fallback = '') {
+  return parseQuizDocument(rich)
+    ? rich
+    : JSON.stringify(literalTextDocument(fallback));
+}
+
+export function quizDocumentPlainText(value) {
+  const doc = typeof value === 'string' ? parseQuizDocument(value) : value;
+  if (!doc) return String(value ?? '');
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return '';
+    if (node.type === 'text') return String(node.text || '');
+    if (node.type === 'hardBreak') return '\n';
+    if (node.type === 'image') return '[Изображение]';
+    if (node.type === 'mathInline') {
+      const attrs = node.attrs || {};
+      return attrs.kind === 'sqrt'
+        ? `√(${attrs.expression || ''})`
+        : `(${attrs.numerator || ''})/(${attrs.denominator || ''})`;
+    }
+    const parts = Array.isArray(node.content) ? node.content.map(visit) : [];
+    return ['doc', 'paragraph', 'heading', 'listItem', 'bulletList', 'orderedList', 'blockquote', 'codeBlock'].includes(node.type)
+      ? parts.join(['doc', 'bulletList', 'orderedList', 'blockquote'].includes(node.type) ? '\n' : '')
+      : parts.join('');
+  };
+  return visit(doc).trim();
+}
+
+export function hasQuizContent(rich, fallback = '') {
+  const doc = parseQuizDocument(rich);
+  if (!doc) return Boolean(String(fallback || '').trim());
+  const visit = (node) => node?.type === 'image'
+    || node?.type === 'mathInline'
+    || (node?.type === 'text' && Boolean(String(node.text || '').trim()))
+    || (Array.isArray(node?.content) && node.content.some(visit));
+  return visit(doc);
+}
+
+export function normalizeQuizQuestions(questions) {
+  if (!Array.isArray(questions)) return [];
+  return questions.map((question) => ({
+    ...question,
+    promptContentJson: quizRichValue(question?.promptContentJson, question?.prompt),
+    promptEditorMode: question?.promptEditorMode === 'rich' ? 'rich' : 'plain',
+    optionsLayout: question?.optionsLayout === 'inline' ? 'inline' : 'list',
+    options: Array.isArray(question?.options) ? question.options.map((option) => ({
+      ...option,
+      contentJson: quizRichValue(option?.contentJson, option?.text),
+      editorMode: option?.editorMode === 'rich' ? 'rich' : 'plain',
+    })) : [],
+  }));
+}
+
+export function quizHasInlineBlank(question) {
+  return String(quizDocumentPlainText(question?.promptContentJson) || question?.prompt || '').includes('___');
+}

@@ -24,9 +24,9 @@ public sealed record MathAnswer(Guid BlockId, string? Text, List<string>? Select
 
 public sealed record MatchPair(string LeftKey, string RightKey);
 
-public sealed record TestQuestion(Guid Id, int Order, string Type, string Prompt, List<Option> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool Trim);
+public sealed record TestQuestion(Guid Id, int Order, string Type, string Prompt, List<Option> Options, List<string> CorrectOptionKeys, List<string> AcceptedAnswers, bool CaseSensitive, bool Trim, string? PromptContentJson = null, string? PromptEditorMode = null, string? OptionsLayout = null);
 
-public sealed record Option(string Key, string Text);
+public sealed record Option(string Key, string Text, string? ContentJson = null, string? EditorMode = null);
 
 public sealed record TaskSpec(TestSettings Settings, List<TestQuestion> Questions);
 

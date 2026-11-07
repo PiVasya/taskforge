@@ -900,9 +900,9 @@ function validateQuestions(value, path, issues, required = false) {
     }
     const type = String(question.type || 'single-choice').trim().toLowerCase();
     if (!allowed.has(type)) issues.push({ path: `${itemPath}.type`, message: 'Допустимы single-choice, multi-choice, fill и text.' });
-    if (!String(question.prompt || '').trim()) issues.push({ path: `${itemPath}.prompt`, message: 'Укажите текст вопроса.' });
+    if (!String(question.prompt || '').trim() && !String(question.promptContentJson || '').trim()) issues.push({ path: `${itemPath}.prompt`, message: 'Укажите текст вопроса.' });
     if (type === 'single-choice' || type === 'multi-choice') {
-      const options = Array.isArray(question.options) ? question.options.filter((item) => String(item?.text || '').trim()) : [];
+      const options = Array.isArray(question.options) ? question.options.filter((item) => String(item?.text || '').trim() || String(item?.contentJson || '').trim()) : [];
       const optionKeys = new Set(options.map((item) => String(item?.key || '').trim()).filter(Boolean));
       const correct = Array.isArray(question.correctOptionKeys) ? question.correctOptionKeys.map(String).filter(Boolean) : [];
       if (options.length < 2) issues.push({ path: `${itemPath}.options`, message: 'Нужно минимум два варианта ответа.' });

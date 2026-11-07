@@ -3,7 +3,6 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import { Link } from "@tiptap/extension-link";
-import { Image } from "@tiptap/extension-image";
 
 import { TextAlign } from "@tiptap/extension-text-align";
 import { Highlight } from "@tiptap/extension-highlight";
@@ -35,20 +34,24 @@ import {
   Superscript as SupIcon,
   RemoveFormatting,
   Minus,
+  Divide,
+  Sigma,
 } from "lucide-react";
 
 import { uploadImage } from "../../api/files";
 
 import { FontSize } from "./extensions/FontSize";
+import { InlineMath } from "./extensions/InlineMath";
+import { AdaptiveImage, isDarkMonochromeBackground } from "./extensions/AdaptiveImage";
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
 
 import "./tiptap.css";
 
-function safeParseJson(str) {
+function safeParseJson(str, preserveLiteral = false) {
   if (!str) return null;
   try {
     const o = JSON.parse(str);
-    if (o && typeof o === "object" && o.type === "doc") return normalizeLegacyTiptapDoc(o);
+    if (o && typeof o === "object" && o.type === "doc") return preserveLiteral ? o : normalizeLegacyTiptapDoc(o);
   } catch {
     
   }
@@ -121,14 +124,15 @@ function pickFirstImageFileFromDataTransfer(dt) {
   return null;
 }
 
-function StatementEditor({ value, onChange }) {
+function StatementEditor({ value, onChange, mode = "rich", compact = false, preserveLiteral = false }) {
   const editorRef = useRef(null);
   const lastEmittedValueRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
+  const [highlightColor, setHighlightColor] = useState("#bbf7d0");
   const initialContent = useMemo(() => {
-    const doc = safeParseJson(value);
+    const doc = safeParseJson(value, preserveLiteral);
     return doc ?? plainTextToDoc(value ?? "");
-  }, [value]);
+  }, [value, preserveLiteral]);
 
   const editor = useEditor({
     extensions: [
@@ -137,9 +141,10 @@ function StatementEditor({ value, onChange }) {
         link: false,
       }),
 
-      Highlight,
+      Highlight.configure({ multicolor: true }),
       TextStyle,
       FontSize,
+      InlineMath,
       Color,
       Subscript,
       Superscript,
@@ -159,7 +164,7 @@ function StatementEditor({ value, onChange }) {
         },
       }),
 
-      Image.configure({
+      AdaptiveImage.configure({
         inline: false,
         allowBase64: false,
       }),
@@ -207,7 +212,7 @@ function StatementEditor({ value, onChange }) {
     const incomingValue = String(value ?? "");
     if (incomingValue === lastEmittedValueRef.current) return;
 
-    const nextContent = safeParseJson(value) ?? plainTextToDoc(value ?? "");
+    const nextContent = safeParseJson(value, preserveLiteral) ?? plainTextToDoc(value ?? "");
     if (typeof nextContent === "object" && nextContent !== null) {
       const currentValue = JSON.stringify(editor.getJSON());
       const normalizedNextValue = JSON.stringify(nextContent);
@@ -219,7 +224,7 @@ function StatementEditor({ value, onChange }) {
 
     editor.commands.setContent(nextContent, { emitUpdate: false });
     lastEmittedValueRef.current = incomingValue;
-  }, [editor, value]);
+  }, [editor, value, preserveLiteral]);
 
   useEffect(() => {
     if (!ctxMenu.open) return;
@@ -257,6 +262,28 @@ function StatementEditor({ value, onChange }) {
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   };
 
+  const insertFraction = () => {
+    const selected = editor.state.selection.node;
+    const current = selected?.type?.name === 'mathInline' && selected.attrs.kind === 'fraction' ? selected.attrs : null;
+    const numerator = window.prompt("Числитель дроби", current?.numerator || "1");
+    if (numerator === null) return;
+    const denominator = window.prompt("Знаменатель дроби", current?.denominator || "7");
+    if (denominator === null || !denominator.trim()) return;
+    const attrs = { kind: 'fraction', numerator: numerator.trim(), denominator: denominator.trim() };
+    if (current) editor.chain().focus().updateAttributes('mathInline', attrs).run();
+    else editor.chain().focus().insertContent({ type: 'mathInline', attrs }).run();
+  };
+
+  const insertRoot = () => {
+    const selected = editor.state.selection.node;
+    const current = selected?.type?.name === 'mathInline' && selected.attrs.kind === 'sqrt' ? selected.attrs : null;
+    const expression = window.prompt("Выражение под корнем", current?.expression || "7");
+    if (expression === null || !expression.trim()) return;
+    const attrs = { kind: 'sqrt', expression: expression.trim() };
+    if (current) editor.chain().focus().updateAttributes('mathInline', attrs).run();
+    else editor.chain().focus().insertContent({ type: 'mathInline', attrs }).run();
+  };
+
   const insertImageByUrl = () => {
     const url = window.prompt("URL картинки", "https://");
     if (!url) return;
@@ -276,8 +303,8 @@ function StatementEditor({ value, onChange }) {
   };
 
   return (
-    <div className="w-full">
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/60 px-3 py-2 backdrop-blur">
+    <div className={`w-full ${compact || mode === "plain" ? "tiptap-editor-compact" : ""}`}>
+      {mode !== "plain" ? <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/60 px-3 py-2 backdrop-blur">
         <ToolbarButton
           title="Отменить"
           disabled={!editor.can().chain().focus().undo().run()}
@@ -432,13 +459,35 @@ function StatementEditor({ value, onChange }) {
 
         <ToolbarDivider />
 
+        <ToolbarButton title="Вставить дробь" onClick={insertFraction}>
+          <Divide size={20} />
+        </ToolbarButton>
+        <ToolbarButton title="Вставить корень" onClick={insertRoot}>
+          <Sigma size={20} />
+        </ToolbarButton>
+
         <ToolbarButton
           title="Подсветка"
           isActive={editor.isActive("highlight")}
-          onClick={() => editor.chain().focus().toggleHighlight().run()}
+          onClick={() => editor.chain().focus().toggleHighlight({ color: highlightColor }).run()}
         >
           <Highlighter size={20} />
         </ToolbarButton>
+        <select
+          title="Цвет выделения"
+          aria-label="Цвет выделения"
+          value={highlightColor}
+          className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
+          onChange={(event) => {
+            setHighlightColor(event.target.value);
+            editor.chain().focus().setHighlight({ color: event.target.value }).run();
+          }}
+        >
+          <option value="#bbf7d0">Зелёный</option>
+          <option value="#fef08a">Жёлтый</option>
+          <option value="#bfdbfe">Синий</option>
+          <option value="#fbcfe8">Розовый</option>
+        </select>
         <ToolbarButton
           title="Нижний индекс"
           isActive={editor.isActive("subscript")}
@@ -479,14 +528,43 @@ function StatementEditor({ value, onChange }) {
           <Minus size={20} />
         </ToolbarButton>
 
+        {editor.isActive('image') ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 p-1.5">
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(editor.getAttributes('image').monochrome)}
+                onChange={(event) => editor.chain().focus().updateAttributes('image', { monochrome: event.target.checked }).run()}
+              />
+              Ч/Б схема
+            </label>
+            {editor.getAttributes('image').monochrome ? (
+              <label className="flex items-center gap-1.5 text-xs">
+                Исходный фон
+                <input
+                  aria-label="Исходный фон изображения"
+                  title="Цвет фона внутри исходного изображения"
+                  type="color"
+                  value={editor.getAttributes('image').sourceBackground || '#ffffff'}
+                  onChange={(event) => editor.chain().focus().updateAttributes('image', {
+                    sourceBackground: event.target.value,
+                    sourceDark: isDarkMonochromeBackground(event.target.value),
+                  }).run()}
+                />
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="ml-auto text-xs text-gray-500">
           Можно вставлять картинки: Ctrl+V / Drag&amp;Drop
         </div>
-      </div>
+      </div> : null}
 
       <div
-        className="mt-3"
+        className={mode === "plain" ? "mt-0" : "mt-3"}
         onContextMenuCapture={(e) => {
+          if (mode === "plain") return;
           const inside = e.target.closest(".tiptap");
           if (!inside) return;
           e.preventDefault();

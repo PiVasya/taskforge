@@ -6,6 +6,7 @@ import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTe
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
 import MathAttemptReview from '../components/math/MathAttemptReview';
+import { QuizQuestionView, QuizChoiceView, quizHasInlineBlank } from '../features/task-test/QuizRichView';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
 import {
@@ -474,15 +475,6 @@ export default function MySolutionsPage() {
     if ((tab === 'math' || tab === 'all') && !loadedTabs.math) loadMathAttempts({ reset: true });
   }, [tab, filterDays, loadedTabs.code, loadedTabs.sql, loadedTabs.tests, loadedTabs.images, loadedTabs.math, loadSolutions, loadSqlSolutions, loadTestAttempts, loadImageSolutions, loadMathAttempts]);
 
-  const splitFillPrompt = (prompt) => {
-    const p = String(prompt || '');
-    const m = p.match(/_{3,}/);
-    if (!m) return null;
-    const blank = m[0];
-    const i = p.indexOf(blank);
-    return { before: p.slice(0, i), after: p.slice(i + blank.length), blankLen: blank.length };
-  };
-
   const withAssignmentMeta = useCallback((item) => item, []);
 
   const displayedSolutions = useMemo(() => {
@@ -705,7 +697,7 @@ export default function MySolutionsPage() {
             const type = String(q.type || '').toLowerCase();
             const isCorrect = !!q.isCorrect;
             const user = q.userAnswer || {};
-            const split = type === 'fill' ? splitFillPrompt(q.prompt) : null;
+            const hasBlank = type === 'fill' && quizHasInlineBlank(q);
             const userText = (user.text || '').toString();
             const selected = new Set(Array.isArray(user.selectedOptionKeys) ? user.selectedOptionKeys : []);
             const correctKeys = new Set(Array.isArray(q.correctOptionKeys) ? q.correctOptionKeys : []);
@@ -716,26 +708,13 @@ export default function MySolutionsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="font-medium">
                     {i + 1}.{' '}
-                    {split ? (
-                      <span className="fill-line">
-                        {split.before}
-                        <input
-                          className="fill-input"
-                          value={userText}
-                          readOnly
-                          style={{ width: `${Math.min(30, Math.max(6, (split.blankLen || 3) * 2))}ch` }}
-                        />
-                        {split.after}
-                      </span>
-                    ) : (
-                      <span>{q.prompt}</span>
-                    )}
+                    <QuizQuestionView question={q} fill={hasBlank ? { value: userText, readOnly: true } : null} />
                   </div>
                   <Badge intent={isCorrect ? 'success' : 'danger'}>{isCorrect ? 'Верно' : 'Неверно'}</Badge>
                 </div>
 
                 {(type === 'single-choice' || type === 'multi-choice') && (
-                  <div className="mt-3 space-y-2">
+                  <div className={q.optionsLayout === 'inline' ? "mt-3 flex flex-wrap items-start gap-4" : "mt-3 space-y-2"}>
                     {options.map((o) => {
                       const isSel = selected.has(o.key);
                       const isCorr = correctKeys.has(o.key);
@@ -747,7 +726,7 @@ export default function MySolutionsPage() {
                       return (
                         <div key={o.key} className={cls}>
                           <input type={type === 'multi-choice' ? 'checkbox' : 'radio'} checked={isSel} readOnly />
-                          <span>{o.text}</span>
+                          <div className="min-w-0 flex-1"><QuizChoiceView option={o} /></div>
                           {isCorr ? <span className="text-xs opacity-80">(правильный)</span> : null}
                           {isSel && !isCorr ? <span className="text-xs opacity-80">(ваш выбор)</span> : null}
                         </div>
@@ -756,7 +735,7 @@ export default function MySolutionsPage() {
                   </div>
                 )}
 
-                {(type === 'text' || type === 'fill') && !split && (
+                {(type === 'text' || type === 'fill') && !hasBlank && (
                   <div className="mt-3 space-y-2 text-sm">
                     <div>
                       <span className="text-neutral-500 dark:text-neutral-400">Ваш ответ:</span>{' '}

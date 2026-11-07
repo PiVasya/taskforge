@@ -15,6 +15,7 @@ import { TaskTestEditor } from "../task-test";
 import SqlTaskEditor from '../sql-task/SqlTaskEditor';
 import { MathTaskEditor } from "../math-task";
 import StatementEditor from "../../components/tiptap/StatementEditor";
+import { hasQuizContent, normalizeQuizQuestions, quizRichValue } from "../task-test/quizRichContent";
 import { uploadImageReference, uploadImageExpectedImage } from "../../api/imageAssignments";
 import { EditorSection, SmallCheck } from './components/EditorSection';
 import { normalizeCodeTestCases, LANGS_BY_TYPE, DEFAULT_ANALYTICS_SETTINGS, ANALYTICS_MODE_LABELS } from './assignmentEditModel';
@@ -243,7 +244,7 @@ export default function AssignmentEditPage() {
         allowReview: true,
         attemptTimeLimitsSeconds: [],
       });
-      setTestQuestions(Array.isArray(payload.testEdit.questions) ? payload.testEdit.questions : []);
+      setTestQuestions(normalizeQuizQuestions(payload.testEdit.questions));
     }
     if (payload.mathEdit) {
       setMathSettings(payload.mathEdit.settings || {
@@ -319,13 +320,13 @@ export default function AssignmentEditPage() {
         issues.push('Добавь хотя бы один вопрос в тест.');
       } else {
         testQuestions.forEach((q, idx) => {
-          const prompt = String(q?.prompt ?? '').trim();
+          const prompt = hasQuizContent(q?.promptContentJson, q?.prompt);
           const qType = String(q?.type || 'single-choice');
           if (!prompt) issues.push(`Вопрос #${idx + 1}: заполни текст вопроса.`);
 
           if (qType === 'single-choice' || qType === 'multi-choice') {
             const opts = Array.isArray(q?.options) ? q.options : [];
-            const nonEmpty = opts.filter((o) => String(o?.text ?? '').trim());
+            const nonEmpty = opts.filter((o) => hasQuizContent(o?.contentJson, o?.text));
             const correct = Array.isArray(q?.correctOptionKeys) ? q.correctOptionKeys.filter(Boolean) : [];
             if (nonEmpty.length < 2) issues.push(`Вопрос #${idx + 1}: нужно минимум два варианта ответа.`);
             if (correct.length === 0) issues.push(`Вопрос #${idx + 1}: отметь хотя бы один правильный ответ.`);
@@ -475,7 +476,8 @@ export default function AssignmentEditPage() {
                   .map((x) => x.replace(/\r/g, ""))
                   .filter((x) => x.trim().length > 0)
               : [];
-            return { ...q, acceptedAnswers };
+            return { ...q, promptContentJson: quizRichValue(q?.promptContentJson, q?.prompt), acceptedAnswers,
+              options: Array.isArray(q?.options) ? q.options.map((option) => ({ ...option, contentJson: quizRichValue(option?.contentJson, option?.text) })) : [] };
           })
         : undefined;
       const cleanedBlocks = normalizedType === "math"

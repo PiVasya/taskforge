@@ -43,6 +43,41 @@ public sealed class TestAssignmentSpecTests
     }
 
     [Fact]
+    public void RichQuizQuestionAndOptions_RoundTripThroughSpecAndLearnerDtos()
+    {
+        var content = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Пример"}]}]}""";
+        var fraction = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"mathInline","attrs":{"kind":"fraction","numerator":"1","denominator":"7"}}]}]}""";
+        var question = new TestQuestion(
+            Guid.NewGuid(), 0, "single-choice", "Найдите дробь",
+            [new Option("a", "1/7", fraction, "rich"), new Option("b", "7", null, "plain")],
+            ["a"], [], false, true, content, "rich", "inline");
+        var spec = new TaskSpec(new TestSettings(1, false, 60, false, false, true, []), [question]);
+
+        var json = AssignmentApiSerializationService.TaskSpecToJsonObject(spec);
+        var restored = AssignmentApiSerializationService.ParseTaskSpec(json);
+        var parsed = Assert.Single(restored.Questions);
+
+        Assert.Equal(content, parsed.PromptContentJson);
+        Assert.Equal("rich", parsed.PromptEditorMode);
+        Assert.Equal("inline", parsed.OptionsLayout);
+        Assert.Equal(fraction, parsed.Options[0].ContentJson);
+        Assert.Equal("rich", parsed.Options[0].EditorMode);
+
+        var publicDto = JsonSerializer.SerializeToElement(
+            AssignmentApiTestingService.TestQuestionPublicDto(parsed, false, Guid.NewGuid()),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(content, publicDto.GetProperty("promptContentJson").GetString());
+        Assert.Equal("inline", publicDto.GetProperty("optionsLayout").GetString());
+        Assert.Equal(fraction, publicDto.GetProperty("options")[0].GetProperty("contentJson").GetString());
+        Assert.False(publicDto.TryGetProperty("correctOptionKeys", out _));
+        Assert.False(publicDto.GetProperty("options")[0].TryGetProperty("editorMode", out _));
+
+        var review = AssignmentApiTestingService.TestQuestionReviewNode(parsed, null, false);
+        Assert.Equal(content, review["promptContentJson"]?.GetValue<string>());
+        Assert.Equal("inline", review["optionsLayout"]?.GetValue<string>());
+    }
+
+    [Fact]
     public void LegacyTestJson_RemainsReadableDuringTransition()
     {
         var questionId = Guid.NewGuid();
