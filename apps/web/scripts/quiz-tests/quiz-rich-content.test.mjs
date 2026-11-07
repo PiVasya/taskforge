@@ -90,6 +90,8 @@ test('quiz editor exposes one tiny theme-neutral mode toggle per question, with 
   assert.match(editor, /toggleQuestionFormatting/);
   assert.match(editor, /setQuizQuestionEditorMode/);
   assert.match(editor, /aria-pressed=\{q\.promptEditorMode === 'rich'\}/);
+  assert.doesNotMatch(editor, /ChevronUp|Свернуть редактор вопроса|Свернуть вариант/);
+  assert.equal((editor.match(/<PenLine\b/g) || []).length, 1);
   assert.match(editor, /mode=\{mode\}/); // Options inherit the parent's mode.
   assert.match(editor, /const mode = q\.promptEditorMode === 'rich'/);
   assert.doesNotMatch(editor, /renderModeButtons|>TXT<|>Tiptap<|>Редактировать<|Нажми, чтобы/);
@@ -104,4 +106,15 @@ test('authoring surfaces contain no instructional help lines or search decoratio
   assert.doesNotMatch(search, /<Search|\bSearch, X\b|Поиск учитывает|Аккаунт выбирается|Совпадения ранжируются|searchMatchLabel/);
   assert.doesNotMatch(tiptap, /Можно вставлять картинки/);
   assert.doesNotMatch(tiptap, /<ToolbarButton[^>]*title=\{/);
+});
+
+test('Tiptap highlight color picker uses compact theme-aware swatches instead of a wide native select', () => {
+  const editor = readFileSync(new URL('../../src/components/tiptap/StatementEditor.jsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../../src/components/tiptap/tiptap.css', import.meta.url), 'utf8');
+  assert.match(editor, /HIGHLIGHT_COLORS\.map/);
+  assert.match(editor, /aria-pressed=\{highlightColor === color\}/);
+  assert.match(editor, /setHighlight\(\{ color \}\)/);
+  assert.match(styles, /\.tiptap-highlight-swatches/);
+  assert.match(styles, /background: rgb\(var\(--card\)\)/);
+  assert.doesNotMatch(editor, /<option value="#bbf7d0"/);
 });

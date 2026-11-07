@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronUp, PenLine } from 'lucide-react';
+import { PenLine } from 'lucide-react';
 import { Button, Card, Field, Input, Select, Textarea, Badge } from '../../components/ui';
 import StatementEditor from '../../components/tiptap/StatementEditor';
 import { QuizQuestionView, QuizChoiceView } from './QuizRichView';
@@ -159,12 +159,6 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                   />
                   <span className="text-sm font-medium">Вариант {o.key}</span>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
-                    {active ? (
-                      <button type="button" className="quiz-editor-icon" aria-label={`Свернуть вариант ${o.key}`}
-                        onClick={() => setActiveEditorKey(null)}>
-                        <ChevronUp size={14} aria-hidden="true" />
-                      </button>
-                    ) : null}
                     <Button variant="outline" onClick={() => {
                       const next = opts.filter((_, index) => index !== oi);
                       const nextCorrect = (q.correctOptionKeys || []).filter((key) => key !== o.key);
@@ -428,12 +422,6 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                           onClick={() => toggleQuestionFormatting(idx)}>
                           <PenLine size={14} aria-hidden="true" />
                         </button>
-                        {activeEditorKey === `question:${idx}` ? (
-                          <button type="button" className="quiz-editor-icon" aria-label="Свернуть редактор вопроса"
-                            onClick={() => setActiveEditorKey(null)}>
-                            <ChevronUp size={14} aria-hidden="true" />
-                          </button>
-                        ) : null}
                       </div>
                     </div>
                     {activeEditorKey === `question:${idx}` ? (

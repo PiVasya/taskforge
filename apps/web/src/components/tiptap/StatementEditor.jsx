@@ -89,6 +89,13 @@ function ToolbarDivider() {
   return <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-700 mx-2" />;
 }
 
+const HIGHLIGHT_COLORS = [
+  { value: "#bbf7d0", label: "Зелёный" },
+  { value: "#fef08a", label: "Жёлтый" },
+  { value: "#bfdbfe", label: "Синий" },
+  { value: "#fbcfe8", label: "Розовый" },
+];
+
 async function uploadAndInsertImageWithEditor(editor, file) {
   if (!editor || !file || !file.type?.startsWith("image/")) return false;
 
@@ -473,20 +480,22 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
         >
           <Highlighter size={20} />
         </ToolbarButton>
-        <select
-          aria-label="Цвет выделения"
-          value={highlightColor}
-          className="h-9 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-2 text-sm"
-          onChange={(event) => {
-            setHighlightColor(event.target.value);
-            editor.chain().focus().setHighlight({ color: event.target.value }).run();
-          }}
-        >
-          <option value="#bbf7d0">Зелёный</option>
-          <option value="#fef08a">Жёлтый</option>
-          <option value="#bfdbfe">Синий</option>
-          <option value="#fbcfe8">Розовый</option>
-        </select>
+        <div className="tiptap-highlight-swatches" role="group" aria-label="Цвет выделения">
+          {HIGHLIGHT_COLORS.map(({ value: color, label }) => (
+            <button
+              key={color}
+              type="button"
+              className="tiptap-highlight-swatch"
+              aria-label={`Выделить цветом: ${label}`}
+              aria-pressed={highlightColor === color}
+              style={{ backgroundColor: color }}
+              onClick={() => {
+                setHighlightColor(color);
+                editor.chain().focus().setHighlight({ color }).run();
+              }}
+            />
+          ))}
+        </div>
         <ToolbarButton
           title="Нижний индекс"
           isActive={editor.isActive("subscript")}

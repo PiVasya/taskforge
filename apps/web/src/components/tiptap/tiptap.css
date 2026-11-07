@@ -179,3 +179,43 @@ html.neo-brutal.dark .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark=
 html.neo-brutal.dark .tiptap-content img[data-tf-mono="true"][data-tf-mono-dark="true"] {
   mix-blend-mode: screen;
 }
+
+/* Highlight color samples inherit the TaskForge surface; no browser-native select. */
+.tiptap-highlight-swatches {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid rgba(var(--border) / 0.85);
+  border-radius: 7px;
+  background: rgb(var(--card));
+}
+.tiptap-highlight-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 1px solid rgba(20 20 24 / 0.6);
+  border-radius: 50%;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+.tiptap-highlight-swatch[aria-pressed="true"] {
+  outline: 2px solid rgb(var(--text));
+  outline-offset: 2px;
+}
+.tiptap-highlight-swatch:focus-visible {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 2px;
+}
+html.neo-brutal .tiptap-highlight-swatch,
+html.neo-brutal .tiptap-highlight-swatch:hover,
+html.neo-brutal .tiptap-highlight-swatch:active {
+  border-radius: 50%;
+  box-shadow: none;
+  transform: none;
+}
