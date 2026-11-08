@@ -6,7 +6,7 @@ import { getMyTaskTestAttempts, getMyTaskTestAttemptReview } from '../api/taskTe
 import { getMyImageSolutions, getMyImageSolutionDetails } from '../api/imageSolutions';
 import { getMyMathAttempts, getMyMathAttemptReview } from '../api/mathTaskAttempts';
 import MathAttemptReview from '../components/math/MathAttemptReview';
-import { QuizQuestionView, QuizChoiceView, quizHasInlineBlank } from '../features/task-test/QuizRichView';
+import QuizAttemptReviewQuestions from '../features/task-test/QuizAttemptReviewQuestions';
 import { useNotify } from '../components/notify/NotifyProvider';
 import { handleApiError } from '../utils/handleApiError';
 import {
@@ -682,8 +682,6 @@ export default function MySolutionsPage() {
 
   const renderAttemptReview = (dto) => {
     if (!dto) return null;
-    const qs = Array.isArray(dto.questions) ? dto.questions : [];
-
     return (
       <div className="mt-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -691,68 +689,7 @@ export default function MySolutionsPage() {
           <Badge intent="secondary">{dto.scorePercent}% • {dto.correctQuestions}/{dto.totalQuestions}</Badge>
           {dto.timeExpired ? <Badge intent="danger">Время вышло</Badge> : null}
         </div>
-
-        <div className="space-y-4">
-          {qs.map((q, i) => {
-            const type = String(q.type || '').toLowerCase();
-            const isCorrect = !!q.isCorrect;
-            const user = q.userAnswer || {};
-            const hasBlank = type === 'fill' && quizHasInlineBlank(q);
-            const userText = (user.text || '').toString();
-            const selected = new Set(Array.isArray(user.selectedOptionKeys) ? user.selectedOptionKeys : []);
-            const correctKeys = new Set(Array.isArray(q.correctOptionKeys) ? q.correctOptionKeys : []);
-            const options = Array.isArray(q.options) ? q.options : [];
-
-            return (
-              <div key={q.id || i} className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-4 bg-[rgb(var(--card))]">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="font-medium">
-                    {i + 1}.{' '}
-                    <QuizQuestionView question={q} fill={hasBlank ? { value: userText, readOnly: true } : null} />
-                  </div>
-                  <Badge intent={isCorrect ? 'success' : 'danger'}>{isCorrect ? 'Верно' : 'Неверно'}</Badge>
-                </div>
-
-                {(type === 'single-choice' || type === 'multi-choice') && (
-                  <div className={q.optionsLayout === 'inline' ? "mt-3 flex flex-wrap items-start gap-4" : "mt-3 space-y-2"}>
-                    {options.map((o) => {
-                      const isSel = selected.has(o.key);
-                      const isCorr = correctKeys.has(o.key);
-                      const cls = [
-                        'flex items-center gap-2 text-sm',
-                        isCorr ? 'text-emerald-700 dark:text-emerald-300 font-medium' : '',
-                        isSel && !isCorr ? 'text-rose-700 dark:text-rose-300' : '',
-                      ].filter(Boolean).join(' ');
-                      return (
-                        <div key={o.key} className={cls}>
-                          <input type={type === 'multi-choice' ? 'checkbox' : 'radio'} checked={isSel} readOnly />
-                          <div className="min-w-0 flex-1"><QuizChoiceView option={o} /></div>
-                          {isCorr ? <span className="text-xs opacity-80">(правильный)</span> : null}
-                          {isSel && !isCorr ? <span className="text-xs opacity-80">(ваш выбор)</span> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {(type === 'text' || type === 'fill') && !hasBlank && (
-                  <div className="mt-3 space-y-2 text-sm">
-                    <div>
-                      <span className="text-neutral-500 dark:text-neutral-400">Ваш ответ:</span>{' '}
-                      {userText ? <span style={{ whiteSpace: 'pre-wrap' }}>{userText}</span> : <i>—</i>}
-                    </div>
-                    {Array.isArray(q.acceptedAnswers) && q.acceptedAnswers.length > 0 ? (
-                      <div>
-                        <span className="text-neutral-500 dark:text-neutral-400">Правильные ответы:</span>{' '}
-                        <span style={{ whiteSpace: 'pre-wrap' }}>{q.acceptedAnswers.join(', ')}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {dto.allowReview !== false ? <QuizAttemptReviewQuestions questions={dto.questions} /> : null}
       </div>
     );
   };

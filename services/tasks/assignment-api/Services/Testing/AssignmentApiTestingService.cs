@@ -113,7 +113,7 @@ internal static class AssignmentApiTestingService
             ("timeExpired", attempt.TimeExpired),
             ("submittedAt", attempt.SubmittedAt));
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
-        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, totalQuestions = total, correctQuestions = correct, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
+        return Microsoft.AspNetCore.Http.Results.Ok(TestSubmissionDto(attempt, spec.Settings, total, correct, unlimitedAttempts, currentSpec.Settings.AllowReview, review));
     }
 
     internal static object TestStartDto(TaskAttempt attempt, TaskSpec spec, bool unlimitedAttempts = false, bool ignoreTimeLimit = false)
@@ -126,6 +126,23 @@ internal static class AssignmentApiTestingService
         var timeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds;
         return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, timeLimitSeconds, attemptTimeLimitSeconds = timeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
     }
+
+    internal static object TestSubmissionDto(TaskAttempt attempt, TestSettings settings, int total, int correct,
+        bool unlimitedAttempts, bool allowReview, JsonArray review) => new
+    {
+        attemptId = attempt.Id,
+        attempt.AttemptNumber,
+        maxAttempts = unlimitedAttempts ? 0 : settings.MaxAttempts,
+        unlimitedAttempts,
+        passPercent = settings.PassPercent,
+        totalQuestions = total,
+        correctQuestions = correct,
+        scorePercent = attempt.ScorePercent,
+        attempt.TimeExpired,
+        attempt.Passed,
+        allowReview,
+        questions = allowReview ? review : new JsonArray()
+    };
 
     internal static bool IsTestCorrect(TestQuestion q, TestAnswer? a)
     {
@@ -291,6 +308,7 @@ internal static class AssignmentApiTestingService
         ["type"] = question.Type,
         ["prompt"] = question.Prompt,
         ["promptContentJson"] = question.PromptContentJson,
+        ["explanationContentJson"] = question.ExplanationContentJson,
         ["optionsLayout"] = question.OptionsLayout,
         ["options"] = JsonSerializer.SerializeToNode(question.Options, JsonOptions()),
         ["correctOptionKeys"] = JsonSerializer.SerializeToNode(question.CorrectOptionKeys, JsonOptions()),

@@ -166,6 +166,7 @@ public sealed class TaskGraphImportRegressionTests
     {
         const string prompt = """{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/files/editor-images%2Fdiagram.png","monochrome":true,"sourceBackground":"#000000","sourceDark":true}}]}""";
         const string option = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"mathInline","attrs":{"kind":"fraction","numerator":"1","denominator":"7"}}]}]}""";
+        const string explanation = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Объяснение"}]},{"type":"image","attrs":{"src":"/api/files/editor-images%2Fexplanation.png"}}]}""";
         var questionId = Guid.NewGuid();
         var dto = new JsonObject
         {
@@ -177,7 +178,7 @@ public sealed class TaskGraphImportRegressionTests
                 new JsonObject
                 {
                     ["id"] = questionId.ToString("D"), ["order"] = 0, ["type"] = "single-choice",
-                    ["prompt"] = "Найдите дробь", ["promptContentJson"] = prompt,
+                    ["prompt"] = "Найдите дробь", ["promptContentJson"] = prompt, ["explanationContentJson"] = explanation,
                     ["promptEditorMode"] = "rich", ["optionsLayout"] = "inline",
                     ["options"] = new JsonArray
                     {
@@ -196,6 +197,7 @@ public sealed class TaskGraphImportRegressionTests
         var exported = Assert.Single(graph["tasks"]!.AsArray());
         var question = Assert.Single(exported!["questions"]!.AsArray());
         Assert.Equal(prompt, question!["promptContentJson"]!.GetValue<string>());
+        Assert.Equal(explanation, question["explanationContentJson"]!.GetValue<string>());
         Assert.Equal("inline", question["optionsLayout"]!.GetValue<string>());
         Assert.Equal(option, question["options"]![0]!["contentJson"]!.GetValue<string>());
         Assert.Equal(prompt, question["options"]![1]!["contentJson"]!.GetValue<string>());
@@ -204,6 +206,7 @@ public sealed class TaskGraphImportRegressionTests
         Assert.Empty(parsed.Issues);
         var source = Assert.Single(parsed.Graph!.Tasks).Source;
         Assert.Equal(prompt, source.GetProperty("questions")[0].GetProperty("promptContentJson").GetString());
+        Assert.Equal(explanation, source.GetProperty("questions")[0].GetProperty("explanationContentJson").GetString());
         Assert.Equal(option, source.GetProperty("questions")[0].GetProperty("options")[0].GetProperty("contentJson").GetString());
 
         var contentOnly = BuildExport(Root, assignments, tree, new CourseMapInternalResponse(),

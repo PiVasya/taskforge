@@ -11,6 +11,7 @@ import {
   subscribeAttemptAnswers,
 } from '../attempts/attemptAnswerStore';
 import TaskTestQuestion from './TaskTestQuestion';
+import QuizAttemptReviewQuestions from './QuizAttemptReviewQuestions';
 import { recoverSubmittedAttempt, shouldRecoverSubmittedAttempt } from '../attempts/recoverSubmittedAttempt';
 
 function hashActivityText(value) {
@@ -245,6 +246,10 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
             </div>
           </div>
         </Card>
+      ) : null}
+
+      {result?.allowReview === true && Array.isArray(result?.questions) && result.questions.length > 0 ? (
+        <QuizAttemptReviewQuestions questions={result.questions} />
       ) : null}
 
       {startData && !result ? (

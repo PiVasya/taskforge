@@ -641,7 +641,8 @@ internal static class AssignmentApiSerializationService
         Bool(q, "trim", true),
         Str(q, "promptContentJson", ""),
         Str(q, "promptEditorMode", "plain"),
-        Str(q, "optionsLayout", "list"));
+        Str(q, "optionsLayout", "list"),
+        Str(q, "explanationContentJson", ""));
 
     internal static MathBlock ParseBlock(JsonObject b) => new(
         GuidV(b, "id"),

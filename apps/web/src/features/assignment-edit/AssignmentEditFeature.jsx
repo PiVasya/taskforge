@@ -481,7 +481,8 @@ export default function AssignmentEditPage() {
                   .map((x) => x.replace(/\r/g, ""))
                   .filter((x) => x.trim().length > 0)
               : [];
-            return { ...q, promptContentJson: quizRichValue(q?.promptContentJson, q?.prompt), acceptedAnswers,
+            return { ...q, promptContentJson: quizRichValue(q?.promptContentJson, q?.prompt),
+              explanationContentJson: hasQuizContent(q?.explanationContentJson) ? q.explanationContentJson : "", acceptedAnswers,
               options: Array.isArray(q?.options) ? q.options.map((option) => ({ ...option, contentJson: quizRichValue(option?.contentJson, option?.text) })) : [] };
           })
         : undefined;

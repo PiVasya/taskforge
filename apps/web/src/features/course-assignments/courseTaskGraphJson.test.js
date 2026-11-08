@@ -1,4 +1,4 @@
-import { buildTaskGraphImportDiff } from './courseTaskGraphJson';
+import { buildTaskGraphImportDiff, validateTaskGraphPayload } from './courseTaskGraphJson';
 
 const id = '11111111-1111-4111-8111-111111111111';
 
@@ -244,4 +244,25 @@ test('GUID matching is case-insensitive in deletion preview', () => {
   expect(diff.deleteCount).toBe(1);
   expect(diff.deleteMissingCount).toBe(0);
   expect(diff.requiresDeleteConfirmation).toBe(true);
+});
+
+
+test('quiz explanations accept Tiptap documents and reject malformed import content', () => {
+  const incoming = graph('test');
+  const explanation = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Решение' }] }] });
+  incoming.tasks[0].questions = [{
+    type: 'single-choice', prompt: '2 + 2?',
+    options: [{ key: 'a', text: '3' }, { key: 'b', text: '4' }],
+    correctOptionKeys: ['b'], explanationContentJson: explanation,
+  }];
+  const issues = validateTaskGraphPayload(incoming).issues;
+  expect(issues.filter((issue) => issue.path.endsWith('.explanationContentJson'))).toHaveLength(0);
+
+  incoming.tasks[0].questions[0].explanationContentJson = '{bad json';
+  const malformed = validateTaskGraphPayload(incoming).issues;
+  expect(malformed.some((issue) => issue.path === '$.tasks[0].questions[0].explanationContentJson')).toBe(true);
+
+  incoming.tasks[0].questions[0].explanationContentJson = { type: 'doc', content: [] };
+  const wrongType = validateTaskGraphPayload(incoming).issues;
+  expect(wrongType.some((issue) => issue.path === '$.tasks[0].questions[0].explanationContentJson')).toBe(true);
 });

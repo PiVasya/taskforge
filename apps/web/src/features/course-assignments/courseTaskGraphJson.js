@@ -645,7 +645,7 @@ export const TASK_GRAPH_GUIDE_SECTIONS = [
     items: [
       { field: 'code-test / image-test', text: 'testCases, codeRequiredCalls, codeForbiddenCalls; для image-test также эталон и threshold.' },
       { field: 'test', text: 'testSettings и questions; unlimitedAttempts=true включает бесконечные попытки; типы single-choice, multi-choice, fill, text.' },
-      { field: 'test.questions', text: 'Для форматированных вопросов: promptContentJson (Tiptap JSON как строка), promptEditorMode; для вариантов options[].contentJson и optionsLayout. prompt и options[].text сохраняют совместимость со старыми вопросами.' },
+      { field: 'test.questions', text: 'Для форматированных вопросов: promptContentJson (Tiptap JSON как строка), promptEditorMode; для вариантов options[].contentJson и optionsLayout. Необязательное explanationContentJson — Tiptap JSON с пояснением после ответа. prompt и options[].text сохраняют совместимость со старыми вопросами.' },
       { field: 'Изображения', text: 'В Tiptap: image.attrs.src — URL файла, attrs.width — размер в пикселях или процентах, attrs.height — пиксели. Для ZIP: asset://assets/diagram.png; сам файл должен лежать в assets/diagram.png. Настройки Ч/Б: monochrome, sourceBackground, sourceDark.' },
       { field: 'math', text: 'testSettings и blocks; unlimitedAttempts=true включает бесконечные попытки; виды info, single-choice, multi-choice, number, expression, set, order, match.' },
     ],
@@ -716,7 +716,7 @@ Scopes:
 21. Удаляй задания только в schemaVersion 5 через deleteTasks: ["uuid", ...]. Никогда не считай отсутствие задания в tasks командой удаления.
 22. Один id нельзя одновременно оставлять в tasks и добавлять в deleteTasks. Для deleteTasks обязательно сохрани scope ids.
 23. SQL-задания с сохранённой revision history не удаляй через deleteTasks; если их нужно убрать для учеников, ставь isVisible=false.
-24. Для форматированных вопросов test используй promptContentJson и options[].contentJson — строки с сериализованным JSON-документом Tiptap. Не теряй их при повторном импорте/экспорте.
+24. Для форматированных вопросов test используй promptContentJson, options[].contentJson и необязательное questions[].explanationContentJson — строки с сериализованным JSON-документом Tiptap. Пояснение показывается только в разрешённом разборе после отправки ответа. Не теряй их при повторном импорте/экспорте.
 25. Для картинок в Tiptap используй узел image с attrs.src. В переносимом ZIP путь может иметь вид asset://assets/diagram.png; приложи файл assets/diagram.png и graph.json в корне ZIP. Обычный JSON поддерживает URL уже загруженной картинки.
 26. Для Ч/Б изображений сохраняй attrs.monochrome, attrs.sourceBackground, attrs.sourceDark: эти параметры влияют на отображение в необрутализме. Варианты правильных ответов определяются correctOptionKeys, не оформлением options[].contentJson.
 27. Размер иллюстраций задавай через attrs.width (пиксели или проценты) и attrs.height (пиксели). Эти атрибуты одинаково отображаются в редакторе и у ученика.
@@ -908,6 +908,15 @@ function validateQuestions(value, path, issues, required = false) {
     const type = String(question.type || 'single-choice').trim().toLowerCase();
     if (!allowed.has(type)) issues.push({ path: `${itemPath}.type`, message: 'Допустимы single-choice, multi-choice, fill и text.' });
     if (!String(question.prompt || '').trim() && !String(question.promptContentJson || '').trim()) issues.push({ path: `${itemPath}.prompt`, message: 'Укажите текст вопроса.' });
+    if (question.explanationContentJson !== undefined && question.explanationContentJson !== null && question.explanationContentJson !== '') {
+      let explanation = null;
+      if (typeof question.explanationContentJson === 'string') {
+        try { explanation = JSON.parse(question.explanationContentJson); } catch { /* malformed Tiptap JSON */ }
+      }
+      if (explanation?.type !== 'doc' || !Array.isArray(explanation?.content)) {
+        issues.push({ path: `${itemPath}.explanationContentJson`, message: 'Пояснение должно быть строкой с JSON-документом Tiptap.' });
+      }
+    }
     if (type === 'single-choice' || type === 'multi-choice') {
       const options = Array.isArray(question.options) ? question.options.filter((item) => String(item?.text || '').trim() || String(item?.contentJson || '').trim()) : [];
       const optionKeys = new Set(options.map((item) => String(item?.key || '').trim()).filter(Boolean));

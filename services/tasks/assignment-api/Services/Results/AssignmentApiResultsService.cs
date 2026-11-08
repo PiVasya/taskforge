@@ -60,11 +60,14 @@ internal static class AssignmentApiResultsService
         }).ToList();
     }
 
+    internal static bool CanReadAttemptReview(TaskAttempt attempt, Guid? userId, bool isAdmin)
+        => isAdmin || (userId.HasValue && attempt.UserId == userId.Value);
+
     internal static async Task<IResult> ReviewAttempt(Guid attemptId, string kind, Guid? userId, bool isAdmin, TasksDbContext db)
     {
         var attempt = await db.Attempts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == kind);
         if (attempt == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
-        if (!isAdmin && userId.HasValue && attempt.UserId != userId.Value) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этой попытке.", code = "ATTEMPT_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
+        if (!CanReadAttemptReview(attempt, userId, isAdmin)) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Нет доступа к этой попытке.", code = "ATTEMPT_FORBIDDEN" }, statusCode: StatusCodes.Status403Forbidden);
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == attempt.TaskAssignmentId);
         var review = ParseJson(attempt.ReviewJson);
 

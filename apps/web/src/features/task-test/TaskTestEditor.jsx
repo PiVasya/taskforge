@@ -3,6 +3,7 @@ import { PenLine } from 'lucide-react';
 import { Button, Card, Field, Input, Select, Textarea, Badge } from '../../components/ui';
 import StatementEditor from '../../components/tiptap/StatementEditor';
 import { QuizQuestionView, QuizChoiceView } from './QuizRichView';
+import TaskTestExplanationEditor from './TaskTestExplanationEditor';
 import TaskTestLearnerPreview from './TaskTestLearnerPreview';
 import { hasQuizContent, quizDocumentPlainText, quizRichValue, setQuizQuestionEditorMode } from './quizRichContent';
 import './task-test-editor.css';
@@ -76,6 +77,7 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
         type: 'single-choice',
         prompt: '',
         promptContentJson: quizRichValue('', ''),
+        explanationContentJson: '',
         promptEditorMode: 'plain',
         optionsLayout: 'list',
         options: [
@@ -462,6 +464,15 @@ export default function TaskTestEditor({ settings, setSettings, questions, setQu
                 <div className="mt-4">
                   {renderQuestionBody(q, idx)}
                 </div>
+
+                <TaskTestExplanationEditor
+                  question={q}
+                  index={idx}
+                  imageFolder={imageFolder}
+                  active={activeEditorKey === `explanation:${idx}`}
+                  onActivate={() => setActiveEditorKey(`explanation:${idx}`)}
+                  onChange={(value) => updateQuestion(idx, { explanationContentJson: value })}
+                />
               </div>
             ))}
           </div>

@@ -17,7 +17,7 @@ public sealed class TestAttemptSnapshotRegressionTests
                 [new Option("a", "Wrong"), new Option("b", "Right")],
                 [answer], [], false, true,
                 """{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/files/img","width":240,"monochrome":true}}]}""",
-                "rich", "inline")]);
+                "rich", "inline", JsonSerializer.Serialize(new { type = "doc", content = new[] { new { type = "paragraph", content = new[] { new { type = "text", text = $"{prompt} explanation" } } } } }))]);
 
     [Fact]
     public void InProgressAttempt_UsesOriginalQuestionsAndScoringEvenAfterImportReplacesIds()
@@ -33,6 +33,8 @@ public sealed class TestAttemptSnapshotRegressionTests
         Assert.Equal(75, resolved.Settings.PassPercent);
         var question = Assert.Single(resolved.Questions);
         Assert.Equal("Original question", question.Prompt);
+        Assert.Contains("Original question explanation", question.ExplanationContentJson!);
+        Assert.DoesNotContain("New question explanation", question.ExplanationContentJson!);
         Assert.Contains("\"width\":240", question.PromptContentJson!);
         Assert.True(AssignmentApiTestingService.IsTestCorrect(question,
             new TestAnswer(originalId, "b", [], null)));
@@ -45,6 +47,7 @@ public sealed class TestAttemptSnapshotRegressionTests
         Assert.Equal(originalId.ToString(), view.GetProperty("questions")[0].GetProperty("id").GetString());
         Assert.Equal("Original question", view.GetProperty("questions")[0].GetProperty("prompt").GetString());
         Assert.False(view.GetProperty("questions")[0].TryGetProperty("correctOptionKeys", out _));
+        Assert.False(view.GetProperty("questions")[0].TryGetProperty("explanationContentJson", out _));
     }
 
     [Fact]

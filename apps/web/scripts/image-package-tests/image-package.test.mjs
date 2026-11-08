@@ -27,6 +27,7 @@ function sample() {
       testSettings: { passPercent: 70 }, questions: [{
         id: '22222222-2222-4222-8222-222222222222', prompt: 'Какой ответ?', promptEditorMode: 'rich',
         promptContentJson: tip([img(localSrc), { type: 'mathInline', attrs: { kind: 'sqrt', expression: '7' } }]),
+        explanationContentJson: tip([img(localSrc), { type: 'text', text: 'Разбор' }]),
         correctOptionKeys: ['b'], optionsLayout: 'inline',
         options: [{ key: 'a', text: '1', contentJson: tip([{ type: 'text', text: '1' }]) },
           { key: 'b', text: '7', contentJson: tip([img(localSrc)]) }],
@@ -36,10 +37,10 @@ function sample() {
 test('all Tiptap image sources are discovered in descriptions, quiz prompts, and answer options', () => {
   const input = sample();
   const sources = graph.referencedImageSources(input);
-  assert.equal(sources.get(localSrc), 3);
+  assert.equal(sources.get(localSrc), 4);
   assert.equal(input.tasks[0].questions[0].correctOptionKeys[0], 'b');
   const replaced = graph.mapGraphImageSources(input, () => 'asset://assets/00001.png').graph;
-  assert.equal(graph.referencedImageSources(replaced).get('asset://assets/00001.png'), 3);
+  assert.equal(graph.referencedImageSources(replaced).get('asset://assets/00001.png'), 4);
   assert.equal(replaced.tasks[0].questions[0].options[1].key, 'b');
   assert.equal(JSON.parse(replaced.tasks[0].questions[0].options[1].contentJson).content[0].content[0].attrs.sourceDark, true);
   assert.equal(JSON.parse(input.tasks[0].description).content[0].content[0].attrs.src, localSrc);
@@ -103,7 +104,7 @@ test('course ZIP exports real image bytes and re-imports Tiptap metadata without
   assert.equal(fetchCount, 1);
   const entries = await zip.readImageZip(exported.blob);
   const packagedGraph = JSON.parse(new TextDecoder().decode(entries.get('graph.json')));
-  assert.equal(graph.referencedImageSources(packagedGraph).get('asset://assets/00001.png'), 3);
+  assert.equal(graph.referencedImageSources(packagedGraph).get('asset://assets/00001.png'), 4);
   assert.equal(packagedGraph.tasks[0].questions[0].correctOptionKeys[0], 'b');
   assert.deepEqual(entries.get('assets/00001.png'), png);
   const imported = await transfer.importGraphImagePackage(exported.blob, course);
@@ -119,6 +120,10 @@ test('course ZIP exports real image bytes and re-imports Tiptap metadata without
   assert.equal(restored.tasks[0].questions[0].optionsLayout, 'inline');
   assert.deepEqual(restored.tasks[0].questions[0].correctOptionKeys, ['b']);
   assert.equal(JSON.parse(restored.tasks[0].questions[0].promptContentJson).content[0].content[1].type, 'mathInline');
+  const explanation = JSON.parse(restored.tasks[0].questions[0].explanationContentJson).content[0].content;
+  assert.equal(explanation[0].attrs.monochrome, true);
+  assert.ok(explanation[0].attrs.src.startsWith('/api/files/editor-images%2Fcourses%2F'));
+  assert.equal(explanation[1].text, 'Разбор');
 });
 
 test('broken image placeholders fail before any upload, and unreferenced archive assets remain gallery imports', async (t) => {
@@ -134,6 +139,7 @@ test('broken image placeholders fail before any upload, and unreferenced archive
   const valid = sample();
   valid.tasks[0].description = tip([]);
   valid.tasks[0].questions[0].promptContentJson = tip([]);
+  valid.tasks[0].questions[0].explanationContentJson = tip([]);
   valid.tasks[0].questions[0].options[1].contentJson = tip([]);
   const noRefs = await zip.writeImageZip([
     { path: 'graph.json', bytes: new TextEncoder().encode(JSON.stringify(valid)) },

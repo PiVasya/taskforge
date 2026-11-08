@@ -1,6 +1,6 @@
 // Task Graph v5 image references: edit only Tiptap image attrs, including
-// serialized documents in description, promptContentJson and contentJson.
-const TYPED_DOCUMENT_FIELDS = new Set(['description', 'promptContentJson', 'contentJson']);
+// serialized documents in description, promptContentJson, contentJson and explanationContentJson.
+const TYPED_DOCUMENT_FIELDS = new Set(['description', 'promptContentJson', 'contentJson', 'explanationContentJson']);
 const ASSET_PREFIX = 'asset://assets/';
 
 function visit(value, changeSrc, sources) {

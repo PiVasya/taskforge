@@ -19,7 +19,7 @@ test('one question mode controls all answers without altering their rich documen
   const rich = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: '7', marks: [{ type: 'superscript' }] },
   ] }] });
-  const [q] = normalizeQuizQuestions([{ prompt: 'Сколько?', options: [
+  const [q] = normalizeQuizQuestions([{ prompt: 'Сколько?', explanationContentJson: rich, options: [
     { key: 'a', text: '7' }, { key: 'b', text: '7', contentJson: rich, editorMode: 'rich' },
   ] }]);
   assert.equal(q.promptEditorMode, 'plain');
@@ -31,10 +31,12 @@ test('one question mode controls all answers without altering their rich documen
   assert.equal(enabled.promptEditorMode, 'rich');
   assert.ok(enabled.options.every((option) => option.editorMode === 'rich'));
   assert.equal(enabled.options[1].contentJson, rich);
+  assert.equal(enabled.explanationContentJson, rich);
   const disabled = setQuizQuestionEditorMode(enabled, 'plain');
   assert.equal(disabled.promptEditorMode, 'plain');
   assert.ok(disabled.options.every((option) => option.editorMode === 'plain'));
   assert.equal(disabled.options[1].contentJson, rich);
+  assert.equal(disabled.explanationContentJson, rich);
   assert.equal(q.promptEditorMode, 'plain'); // No accidental mutation of the original.
   assert.equal(q.options[0].contentJson, quizRichValue('', '7'));
 
