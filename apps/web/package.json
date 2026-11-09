@@ -34,6 +34,7 @@
     "axios": "^1.12.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.16",
+    "katex": "^0.16.47",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.544.0",
     "monaco-editor": "0.52.2",

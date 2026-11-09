@@ -42,6 +42,9 @@ import { uploadImage } from "../../api/files";
 
 import { FontSize } from "./extensions/FontSize";
 import { InlineMath } from "./extensions/InlineMath";
+import { InlineLatexMath, BlockLatexMath } from "./extensions/LatexMath";
+import LatexMathInput from "./LatexMathInput";
+import { renderLatexMathHtml } from "./latexMath";
 import { AdaptiveImage, isDarkMonochromeBackground } from "./extensions/AdaptiveImage";
 import { normalizeImageDimension } from "./imageSizing";
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
@@ -139,6 +142,7 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
   const lastEmittedValueRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const [highlightColor, setHighlightColor] = useState("#bbf7d0");
+  const [mathDraft, setMathDraft] = useState(null);
   const initialContent = useMemo(() => {
     const doc = safeParseJson(value, preserveLiteral);
     return doc ?? plainTextToDoc(value ?? "");
@@ -155,6 +159,8 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
       TextStyle,
       FontSize,
       InlineMath,
+      InlineLatexMath,
+      BlockLatexMath,
       Color,
       Subscript,
       Superscript,
@@ -292,6 +298,29 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
     const attrs = { kind: 'sqrt', expression: expression.trim() };
     if (current) editor.chain().focus().updateAttributes('mathInline', attrs).run();
     else editor.chain().focus().insertContent({ type: 'mathInline', attrs }).run();
+  };
+
+  const openLatexEditor = (kind) => {
+    const { selection, doc } = editor.state;
+    const node = selection.node;
+    const existing = node && (node.type.name === 'inlineMath' || node.type.name === 'blockMath');
+    const latex = existing
+      ? String(node.attrs.latex || '')
+      : doc.textBetween(selection.from, selection.to, ' ');
+    setMathDraft({ kind, latex, from: selection.from, to: selection.to, editing: Boolean(existing), originalDoc: doc });
+  };
+
+  const saveLatexFormula = () => {
+    if (!mathDraft || !renderLatexMathHtml(mathDraft.latex, mathDraft.kind === 'blockMath')) return;
+    if (!editor.state.doc.eq(mathDraft.originalDoc)) {
+      setMathDraft(null);
+      return;
+    }
+    editor.chain().focus().insertContentAt(
+      { from: mathDraft.from, to: mathDraft.to },
+      { type: mathDraft.kind, attrs: { latex: mathDraft.latex } },
+    ).run();
+    setMathDraft(null);
   };
 
   const insertImageByUrl = () => {
@@ -475,6 +504,20 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
         <ToolbarButton title="Вставить корень" onClick={insertRoot}>
           <Sigma size={20} />
         </ToolbarButton>
+        <ToolbarButton
+          title="LaTeX в тексте"
+          isActive={editor.isActive('inlineMath')}
+          onClick={() => openLatexEditor('inlineMath')}
+        >
+          <span className="text-sm font-semibold">ƒx</span>
+        </ToolbarButton>
+        <ToolbarButton
+          title="LaTeX отдельным блоком"
+          isActive={editor.isActive('blockMath')}
+          onClick={() => openLatexEditor('blockMath')}
+        >
+          <span className="text-xl">∑</span>
+        </ToolbarButton>
 
         <ToolbarButton
           title="Подсветка"
@@ -617,6 +660,14 @@ function StatementEditor({ value, onChange, mode = "rich", compact = false, pres
           setCtxMenu({ open: true, x, y });
         }}
       >
+        {mathDraft && (
+          <LatexMathInput
+            draft={mathDraft}
+            onChange={(latex) => setMathDraft((current) => current ? { ...current, latex } : current)}
+            onSave={saveLatexFormula}
+            onCancel={() => setMathDraft(null)}
+          />
+        )}
         <EditorContent editor={editor} />
 
         {ctxMenu.open && (

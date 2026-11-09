@@ -11,6 +11,7 @@ import { Superscript } from "@tiptap/extension-superscript";
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from "./markdownToTiptap";
 import { FontSize } from "./extensions/FontSize";
 import { InlineMath } from "./extensions/InlineMath";
+import { InlineLatexMath, BlockLatexMath } from "./extensions/LatexMath";
 import { AdaptiveImage } from "./extensions/AdaptiveImage";
 import StaticStatementViewer from "./StaticStatementViewer";
 
@@ -36,6 +37,8 @@ function TiptapDocViewer({ doc }) {
       TextStyle,
       FontSize,
       InlineMath,
+      InlineLatexMath,
+      BlockLatexMath,
       Color,
       Subscript,
       Superscript,

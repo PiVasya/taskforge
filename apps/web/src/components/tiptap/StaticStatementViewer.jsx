@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { normalizeLegacyTiptapDoc, plainTextToTiptapDoc } from './markdownToTiptap';
 import { imageSizingStyle, isSafeLegacyRasterImage } from './imageSizing';
+import LatexFormula from './LatexFormula';
 import './tiptap.css';
 
 function parseStatementDoc(value, preserveLiteral) {
@@ -133,6 +134,10 @@ function renderStaticNode(node, key, context) {
       data-tf-mono-dark={node.attrs?.monochrome ? String(Boolean(node.attrs?.sourceDark)) : undefined}
     />;
     return <React.Fragment key={key}>{markedText(image, node.marks)}</React.Fragment>;
+  }
+  if (node.type === 'inlineMath' || node.type === 'blockMath') {
+    const formula = <LatexFormula latex={node.attrs?.latex} displayMode={node.type === 'blockMath'} />;
+    return <React.Fragment key={key}>{markedText(formula, node.marks)}</React.Fragment>;
   }
   if (node.type === 'mathInline') {
     const { kind, numerator, denominator, expression } = node.attrs || {};

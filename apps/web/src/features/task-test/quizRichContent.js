@@ -24,6 +24,7 @@ export function parseQuizDocument(value) {
 function documentHasVisibleContent(node) {
   return node?.type === 'image'
     || node?.type === 'mathInline'
+    || ((node?.type === 'inlineMath' || node?.type === 'blockMath') && Boolean(String(node.attrs?.latex || '').trim()))
     || (node?.type === 'text' && Boolean(String(node.text || '').trim()))
     || (Array.isArray(node?.content) && node.content.some(documentHasVisibleContent));
 }
@@ -45,6 +46,7 @@ export function quizDocumentPlainText(value) {
     if (node.type === 'text') return String(node.text || '');
     if (node.type === 'hardBreak') return '\n';
     if (node.type === 'image') return '[Изображение]';
+    if (node.type === 'inlineMath' || node.type === 'blockMath') return String(node.attrs?.latex || '');
     if (node.type === 'mathInline') {
       const attrs = node.attrs || {};
       return attrs.kind === 'sqrt'

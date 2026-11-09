@@ -36,6 +36,40 @@ describe('quiz Tiptap read-only rendering', () => {
     expect(html).not.toContain('contenteditable');
   });
 
+  it('renders KaTeX inline fractions and display-mode integrals in questions and choices', () => {
+    const contentJson = asDocument([
+      paragraph([
+        { type: 'text', text: 'Вычислите ' },
+        { type: 'inlineMath', attrs: { latex: '\\frac{x^2+1}{\\sqrt{7}}' } },
+      ]),
+      { type: 'blockMath', attrs: { latex: '\\int_0^1 x^2\\,dx' } },
+    ]);
+    for (const html of [
+      renderToStaticMarkup(<QuizQuestionView question={{ promptContentJson: contentJson }} />),
+      renderToStaticMarkup(<QuizChoiceView option={{ contentJson }} />),
+    ]) {
+      expect(html).toContain('data-type="inlineMath"');
+      expect(html).toContain('data-type="blockMath"');
+      expect(html).toContain('class="katex"');
+      expect(html).toContain('<mfrac>');
+      expect(html).toContain('<msqrt>');
+      expect(html).toContain('katex-display');
+      expect(html).not.toContain('contenteditable');
+    }
+  });
+
+  it('does not interpret malformed LaTeX as HTML or remove its source', () => {
+    const invalid = String.raw`\notARealCommand{<img src=x onerror=alert(1)>}`;
+    const contentJson = asDocument([paragraph([
+      { type: 'inlineMath', attrs: { latex: invalid } },
+    ])]);
+    const html = renderToStaticMarkup(<QuizQuestionView question={{ promptContentJson: contentJson }} />);
+    expect(html).toContain('tiptap-latex-invalid');
+    expect(html).toContain('&lt;img');
+    expect(html).not.toContain('<img ');
+    expect(html).not.toContain('<img src=x'); // Unsafe markup must remain encoded text.
+  });
+
   it('renders exactly one inline fill answer even when its underscores have different marks', () => {
     const question = { promptContentJson: asDocument([paragraph([
       { type: 'text', text: 'A__', marks: [{ type: 'bold' }] },

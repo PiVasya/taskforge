@@ -52,6 +52,48 @@ test('images and native MathML nodes count as question/choice content', () => {
   assert.equal(hasQuizContent(JSON.stringify(literalTextDocument(''))), false);
 });
 
+test('LaTeX inline and display nodes remain visible and retain their source through editor modes', () => {
+  const rich = JSON.stringify({ type: 'doc', content: [
+    { type: 'paragraph', content: [
+      { type: 'text', text: 'Решите: ' },
+      { type: 'inlineMath', attrs: { latex: '\\frac{x^2+1}{7}' } },
+    ] },
+    { type: 'blockMath', attrs: { latex: '\\int_0^1 x^2\\,dx' } },
+  ] });
+  assert.equal(hasQuizContent(rich), true);
+  assert.match(quizDocumentPlainText(rich), /frac\{x\^2\+1\}\{7\}/);
+  assert.match(quizDocumentPlainText(rich), /int_0\^1/);
+  const [q] = normalizeQuizQuestions([{ prompt: 'Условие', promptContentJson: rich, options: [
+    { key: 'a', text: 'Ответ', contentJson: rich },
+  ] }]);
+  const toggle = setQuizQuestionEditorMode(q, 'rich');
+  assert.equal(toggle.promptContentJson, rich);
+  assert.equal(toggle.options[0].contentJson, rich);
+  assert.equal(setQuizQuestionEditorMode(toggle, 'plain').options[0].contentJson, rich);
+  assert.equal(quizRichValue(rich, 'Старый текст'), rich);
+});
+
+test('legacy Markdown normalization does not rewrite a Tiptap document containing LaTeX', async () => {
+  const markdownSource = readFileSync(new URL('../../src/components/tiptap/markdownToTiptap.js', import.meta.url), 'utf8');
+  const { normalizeLegacyTiptapDoc } = await import(`data:text/javascript;base64,${Buffer.from(markdownSource).toString('base64')}`);
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: '### Заголовок' },
+      { type: 'inlineMath', attrs: { latex: '\\frac{1}{2}' } }] },
+    { type: 'blockMath', attrs: { latex: '\\sum_{i=1}^n i' } },
+  ] };
+  assert.equal(normalizeLegacyTiptapDoc(doc), doc);
+});
+
+test('math-only documents are not mistaken for empty TXT, and latex blanks cannot become fill inputs', () => {
+  const latexDoc = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'inlineMath', attrs: { latex: 'x___y' } },
+  ] }] });
+  assert.equal(hasQuizContent(latexDoc), true);
+  assert.equal(quizHasInlineBlank({ promptContentJson: latexDoc }), false);
+  assert.equal(hasQuizContent(JSON.stringify({ type: 'doc', content: [{ type: 'blockMath', attrs: { latex: '\\sum_{i=1}^n i' } }] })), true);
+  assert.equal(hasQuizContent(JSON.stringify({ type: 'doc', content: [{ type: 'blockMath', attrs: { latex: ' ' } }] })), false);
+});
+
 test('a fill blank split across marked text nodes remains answerable', () => {
   const rich = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: 'Вставьте __', marks: [{ type: 'bold' }] },

@@ -219,3 +219,84 @@ html.neo-brutal .tiptap-highlight-swatch:active {
   box-shadow: none;
   transform: none;
 }
+
+.tiptap-latex-math {
+  color: inherit;
+  line-height: normal;
+  max-width: 100%;
+}
+.tiptap-latex-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+.tiptap-latex-block {
+  display: block;
+  text-align: center;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0;
+}
+.tiptap-latex-math .katex {
+  font-size: 1.08em;
+  color: inherit;
+}
+.tiptap-latex-math.ProseMirror-selectednode {
+  outline: 2px solid rgb(var(--brand));
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.tiptap-latex-invalid {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tiptap-latex-input {
+  padding: 0.75rem;
+  border: 1px solid rgb(var(--border));
+  border-radius: 10px;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  display: grid;
+  gap: 0.5rem;
+}
+.tiptap-latex-input-header,
+.tiptap-latex-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.tiptap-latex-input-header {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.tiptap-latex-input-header button,
+.tiptap-latex-actions button {
+  border: 1px solid rgb(var(--border));
+  border-radius: 6px;
+  padding: 0.2rem 0.65rem;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  font-size: 0.8rem;
+}
+.tiptap-latex-actions { justify-content: flex-end; }
+.tiptap-latex-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tiptap-latex-input textarea {
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.5rem;
+  resize: vertical;
+  border: 1px solid rgb(var(--border));
+  border-radius: 6px;
+  background: rgb(var(--background));
+  color: rgb(var(--text));
+  font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.tiptap-latex-preview {
+  padding: 0.5rem;
+  min-height: 2.5rem;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(var(--muted) / 0.45);
+}
+.tiptap-latex-error { font-size: 0.8rem; color: rgb(var(--text-muted)); }

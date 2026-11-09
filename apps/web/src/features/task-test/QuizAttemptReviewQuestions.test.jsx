@@ -42,6 +42,21 @@ describe('post-submission Tiptap explanations', () => {
     expect(html.indexOf('(правильный)')).toBeLessThan(html.indexOf('Пояснение'));
   });
 
+  it('renders LaTeX expressions in the explanation only after a review is available', () => {
+    const withLatex = { ...exampleQuestion(false), explanationContentJson: doc(
+      paragraph({ type: 'text', text: 'По формуле ' }, { type: 'inlineMath', attrs: { latex: '\\frac{1}{7}' } }),
+      { type: 'blockMath', attrs: { latex: '\\sum_{i=1}^{n}i^2' } },
+    ) };
+    const review = renderToStaticMarkup(<QuizAttemptReviewQuestions questions={[withLatex]} />);
+    const learner = renderToStaticMarkup(<TaskTestLearnerPreview questions={[withLatex]} />);
+    expect(review).toContain('data-type="inlineMath"');
+    expect(review).toContain('data-type="blockMath"');
+    expect(review).toContain('class="katex"');
+    expect(review.indexOf('правильный')).toBeLessThan(review.indexOf('По формуле'));
+    expect(learner).not.toContain('По формуле');
+    expect(learner).not.toContain('katex');
+  });
+
   it('shows accepted text answers even for inline fill blanks, with an optional explanation', () => {
     const html = renderToStaticMarkup(<QuizAttemptReviewQuestions questions={[{
       id: 'fill', type: 'fill', prompt: 'Вставьте ___', isCorrect: false,

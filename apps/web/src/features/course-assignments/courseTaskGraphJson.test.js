@@ -266,3 +266,21 @@ test('quiz explanations accept Tiptap documents and reject malformed import cont
   const wrongType = validateTaskGraphPayload(incoming).issues;
   expect(wrongType.some((issue) => issue.path === '$.tasks[0].questions[0].explanationContentJson')).toBe(true);
 });
+
+test('course graph JSON accepts inline and display LaTeX in quiz prompts, choices and explanations', () => {
+  const incoming = graph('test');
+  const latexDoc = JSON.stringify({ type: 'doc', content: [
+    { type: 'paragraph', content: [
+      { type: 'text', text: 'Решите ' },
+      { type: 'inlineMath', attrs: { latex: '\\frac{x^2+1}{7}' } },
+    ] },
+    { type: 'blockMath', attrs: { latex: '\\int_0^1 x^2\\,dx' } },
+  ] });
+  incoming.tasks[0].questions = [{
+    type: 'single-choice', prompt: 'Задача', promptContentJson: latexDoc,
+    options: [{ key: 'a', text: '1', contentJson: latexDoc }, { key: 'b', text: '2', contentJson: latexDoc }],
+    correctOptionKeys: ['b'], explanationContentJson: latexDoc,
+  }];
+  expect(validateTaskGraphPayload(incoming).issues.filter((issue) => issue.path.includes('questions'))).toHaveLength(0);
+  expect(JSON.parse(incoming.tasks[0].questions[0].explanationContentJson).content[1].attrs.latex).toBe('\\int_0^1 x^2\\,dx');
+});

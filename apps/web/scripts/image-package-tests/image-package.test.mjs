@@ -26,8 +26,12 @@ function sample() {
     tasks: [{ key: 'quiz', type: 'test', title: 'Геометрия', description: tip([img(localSrc)]),
       testSettings: { passPercent: 70 }, questions: [{
         id: '22222222-2222-4222-8222-222222222222', prompt: 'Какой ответ?', promptEditorMode: 'rich',
-        promptContentJson: tip([img(localSrc), { type: 'mathInline', attrs: { kind: 'sqrt', expression: '7' } }]),
-        explanationContentJson: tip([img(localSrc), { type: 'text', text: 'Разбор' }]),
+        promptContentJson: tip([img(localSrc), { type: 'mathInline', attrs: { kind: 'sqrt', expression: '7' } },
+          { type: 'inlineMath', attrs: { latex: '\\frac{x^2+1}{7}' } }]),
+        explanationContentJson: JSON.stringify({ type: 'doc', content: [
+          { type: 'paragraph', content: [img(localSrc), { type: 'text', text: 'Разбор' }] },
+          { type: 'blockMath', attrs: { latex: '\\sum_{i=1}^n i' } },
+        ] }),
         correctOptionKeys: ['b'], optionsLayout: 'inline',
         options: [{ key: 'a', text: '1', contentJson: tip([{ type: 'text', text: '1' }]) },
           { key: 'b', text: '7', contentJson: tip([img(localSrc)]) }],
@@ -119,8 +123,14 @@ test('course ZIP exports real image bytes and re-imports Tiptap metadata without
   assert.equal(answer.attrs.sourceBackground, '#000000');
   assert.equal(restored.tasks[0].questions[0].optionsLayout, 'inline');
   assert.deepEqual(restored.tasks[0].questions[0].correctOptionKeys, ['b']);
-  assert.equal(JSON.parse(restored.tasks[0].questions[0].promptContentJson).content[0].content[1].type, 'mathInline');
-  const explanation = JSON.parse(restored.tasks[0].questions[0].explanationContentJson).content[0].content;
+  const promptNodes = JSON.parse(restored.tasks[0].questions[0].promptContentJson).content[0].content;
+  assert.equal(promptNodes[1].type, 'mathInline');
+  assert.equal(promptNodes[2].type, 'inlineMath');
+  assert.equal(promptNodes[2].attrs.latex, '\\frac{x^2+1}{7}');
+  const explanationDoc = JSON.parse(restored.tasks[0].questions[0].explanationContentJson);
+  assert.equal(explanationDoc.content[1].type, 'blockMath');
+  assert.equal(explanationDoc.content[1].attrs.latex, '\\sum_{i=1}^n i');
+  const explanation = explanationDoc.content[0].content;
   assert.equal(explanation[0].attrs.monochrome, true);
   assert.ok(explanation[0].attrs.src.startsWith('/api/files/editor-images%2Fcourses%2F'));
   assert.equal(explanation[1].text, 'Разбор');
