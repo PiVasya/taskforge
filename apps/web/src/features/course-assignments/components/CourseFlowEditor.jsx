@@ -64,6 +64,7 @@ import {
 import { fetchRecentSolvedForCourseMap } from '../courseMapRecentSolved';
 import { prepareTaskGraphImport } from '../courseTaskGraphImport';
 import { hasIntentionalNodeChanges, loadFreshEditorMap } from '../courseMapEditorChanges';
+import { measureCourseMapViewportHeight } from '../courseMapViewport';
 import { buildCompletedCourseLearnerView, findCourseLearnerAssignmentAction } from '../courseMapLearnerViewModel';
 import CourseNode from '../nodes/CourseNode';
 import CodeTestNode from '../nodes/CodeTestNode';
@@ -631,22 +632,22 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   }, [unplacedOpen]);
 
   React.useLayoutEffect(() => {
-    if (loading) return undefined;
     let frame = 0;
     const updateHeight = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        const rect = shellRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const available = Math.floor(window.innerHeight - rect.top - 14);
-        setMapHeight(Math.max(360, Math.min(1000, available)));
-      });
+      const height = measureCourseMapViewportHeight(shellRef.current, window.innerHeight);
+      if (height !== null) setMapHeight((current) => current === height ? current : height);
     };
+    const scheduleHeightUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateHeight);
+    };
+    // The loader and the map share the same frame. Measure before the browser
+    // paints either one, so React Flow never appears at its smaller CSS fallback.
     updateHeight();
-    window.addEventListener('resize', updateHeight);
+    window.addEventListener('resize', scheduleHeightUpdate);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', updateHeight);
+      window.removeEventListener('resize', scheduleHeightUpdate);
     };
   }, [editorMode, loading, rootId]);
 
@@ -3204,13 +3205,23 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     dropUnplaced(entry, flow.screenToFlowPosition(screenPoint));
   }, [dropUnplaced, editorMode, flow]);
 
-  if (loading) return <div className="course-map-loading">Загрузка карты…</div>;
+  if (loading) return (
+    <div
+      className={`course-map-shell is-loading${editorMode ? ' is-editor' : ' is-viewer'}`}
+      ref={shellRef}
+      style={mapHeight !== null ? { height: `${mapHeight}px` } : undefined}
+      role="status"
+      aria-live="polite"
+    >
+      Загрузка карты…
+    </div>
+  );
 
   return (
     <div
       className={`course-map-shell${editorMode ? ' is-editor' : ' is-viewer'}${interacting || context.open ? ' is-interacting' : ''}${sceneReady && (editorMode || learnerCameraReady || focusCourseId) ? ' is-layout-ready' : ' is-layout-pending'}`}
       ref={shellRef}
-      style={mapHeight ? { height: `${mapHeight}px` } : undefined}
+      style={mapHeight !== null ? { height: `${mapHeight}px` } : undefined}
       data-taskforge-agent-role="course-map"
       data-taskforge-ready="true"
     >

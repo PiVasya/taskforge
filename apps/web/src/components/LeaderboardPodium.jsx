@@ -41,7 +41,8 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
   const popoverRef = useRef(null);
   const hideTimerRef = useRef(0);
   const [activeRank, setActiveRank] = useState(null);
-  const selected = entries.find((entry) => Number(entry.rank) === activeRank) || null;
+  const [renderRank, setRenderRank] = useState(null);
+  const selected = entries.find((entry) => Number(entry.rank) === renderRank) || null;
 
   useEffect(() => {
     if (!sceneRef.current || !canvasRef.current) return undefined;
@@ -63,15 +64,27 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
   const open = useCallback((entry) => {
     if (profileOpen) return;
     clearHide();
-    setActiveRank(Number(entry.rank));
+    const rank = Number(entry.rank);
+    setRenderRank(rank);
+    setActiveRank(rank);
   }, [clearHide, profileOpen]);
+
+  // Retain the row briefly while its exit animation plays. Re-entering or
+  // moving between winners cancels the pending removal automatically.
+  useEffect(() => {
+    if (activeRank !== null || renderRank === null) return undefined;
+    const timer = window.setTimeout(() => {
+      setRenderRank((current) => current === renderRank ? null : current);
+    }, 190);
+    return () => window.clearTimeout(timer);
+  }, [activeRank, renderRank]);
 
   const scheduleHide = useCallback(() => {
     clearHide();
     hideTimerRef.current = window.setTimeout(() => {
       const pop = popoverRef.current;
       const focused = document.activeElement;
-      const focusedTrigger = Array.from(triggerRefs.current.values()).some((element) => element === focused);
+      const focusedTrigger = Boolean(focused?.closest?.('.tf-top3-portrait'));
       if (!pop?.matches(':hover') && !pop?.contains(focused) && !focusedTrigger) {
         setActiveRank(null);
       }
@@ -81,17 +94,17 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
   useEffect(() => () => clearHide(), [clearHide]);
   useEffect(() => { if (profileOpen) close(); }, [profileOpen, close]);
 
-  // The same compact card used by the rows below is revealed beside the
-  // *existing* portrait.  A clipped copy of its avatar is never shown, so
-  // the levitating portrait does not jump or change on hover.
+  // Follow the real portrait without repainting the whole React scene. The
+  // visible information area is the actual LeaderboardCard, without its
+  // redundant avatar; its border and rounded corners are never sliced.
   useLayoutEffect(() => {
-    if (!activeRank) return undefined;
+    if (renderRank === null) return undefined;
     let frame = 0;
     let lastLayout = '';
     let lastViewportWidth = 0;
     let preferredWidth = 520;
     const reposition = () => {
-      const trigger = triggerRefs.current.get(activeRank);
+      const trigger = triggerRefs.current.get(renderRank);
       const popup = popoverRef.current;
       if (!trigger || !popup) return;
 
@@ -100,6 +113,7 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
       if (window.innerWidth <= 800) return;
 
       const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = document.documentElement.clientHeight;
       if (lastViewportWidth !== viewportWidth) {
         lastViewportWidth = viewportWidth;
         const firstRow = document.querySelector('.tf-leaderboard-grid .tf-leaderboard-card');
@@ -109,13 +123,15 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
       const next = positionLeaderboardInlinePreview({
         avatar: rect,
         viewportWidth,
+        viewportHeight,
         preferredWidth,
       });
-      const layout = `${next.left}|${next.top}|${next.width}`;
+      const layout = `${next.left}|${next.top}|${next.width}|${next.side}`;
       if (layout !== lastLayout) {
         popup.style.left = `${next.left}px`;
         popup.style.top = `${next.top}px`;
         popup.style.width = `${next.width}px`;
+        popup.dataset.side = next.side;
         lastLayout = layout;
       }
     };
@@ -126,10 +142,10 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
     reposition();
     frame = window.requestAnimationFrame(followLevitation);
     return () => window.cancelAnimationFrame(frame);
-  }, [activeRank]);
+  }, [renderRank]);
 
   useEffect(() => {
-    if (!activeRank) return undefined;
+    if (renderRank === null) return undefined;
     const onPointerDown = (event) => {
       const withinStage = sceneRef.current?.contains(event.target);
       if (!withinStage && !popoverRef.current?.contains(event.target)) close();
@@ -141,7 +157,7 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [activeRank, close]);
+  }, [renderRank, close]);
 
   const handlePortraitClick = (entry, sourceElement) => {
     if (!entry.userId) return;
@@ -200,6 +216,9 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
       {selected && createPortal(
         <div
           className="tf-top3-inline-popover"
+          key={renderRank}
+          data-closing={activeRank !== renderRank ? 'true' : 'false'}
+          aria-hidden={activeRank !== renderRank}
           ref={popoverRef}
           role="group"
           aria-label={`Карточка пользователя ${getLeaderboardName(selected)}`}

@@ -189,38 +189,78 @@ html.neo-brutal .tf-top3-avatar { border-color: rgb(var(--neo-ink)); box-shadow:
 .tf-top3-stage--webgl .tf-top3-ether-anchor::before,
 .tf-top3-stage--canvas .tf-top3-ether-anchor::before { opacity: 0; }
 
-/* The preview renders the REAL LeaderboardCard, not a separately styled
-   profile popup. Only the part to the right of the floating original avatar
-   is revealed. Its name, badges, icons, stats, rank and marquee are identical
-   to the ordinary cards below. */
+/* Keep the actual leaderboard row content and styling. The separate floating
+   portrait already supplies its avatar, so the extension is its own rounded
+   panel instead of a clipped slice of a second card. */
 .tf-top3-inline-popover {
   position: fixed;
   z-index: 1400;
   left: -10000px;
   top: -10000px;
-  width: 520px;
+  width: 450px;
   height: var(--tf-leaderboard-card-height);
-  clip-path: inset(0 0 0 calc(var(--tf-leaderboard-avatar-size) + var(--tf-leaderboard-card-padding) + var(--tf-leaderboard-card-stroke)));
-  pointer-events: none;
+  pointer-events: auto;
+  animation: tf-top3-inline-in-right 270ms cubic-bezier(.2, .85, .24, 1) both;
+  will-change: clip-path, opacity, transform;
 }
+
+.tf-top3-inline-popover[data-side='left'] {
+  animation-name: tf-top3-inline-in-left;
+}
+
+.tf-top3-inline-popover[data-closing='true'] {
+  pointer-events: none;
+  animation: tf-top3-inline-out-right 185ms cubic-bezier(.5, 0, .8, .4) both;
+}
+
+.tf-top3-inline-popover[data-closing='true'][data-side='left'] {
+  animation-name: tf-top3-inline-out-left;
+}
+
 .tf-top3-inline-popover .tf-leaderboard-card {
   width: 100%;
   height: 100%;
+  padding-left: 12px;
+  border-radius: var(--tf-leaderboard-card-radius);
   pointer-events: auto;
-  /* Hover shows the card but never highlights, moves or enlarges it. */
+  /* Hover never changes the participant itself; the reveal is the only motion. */
   transition: none !important;
   transform: none !important;
-  box-shadow: 0 10px 30px rgba(2, 6, 23, .08) !important;
+  box-shadow: 0 10px 30px rgb(2 6 23 / .08) !important;
 }
+
+.tf-top3-inline-popover .tf-leaderboard-avatar {
+  display: none;
+}
+
 .tf-top3-inline-popover .tf-leaderboard-card:hover,
 .tf-top3-inline-popover .tf-leaderboard-card:active {
   transform: none !important;
-  box-shadow: 0 10px 30px rgba(2, 6, 23, .08) !important;
+  box-shadow: 0 10px 30px rgb(2 6 23 / .08) !important;
 }
 
 html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card,
 html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card:hover {
   box-shadow: var(--neo-shadow-sm) !important;
+}
+
+/* Reveal the entire *finished* rounded edge. Oversized final clip bounds
+   retain the card's border and neo-brutal shadow on every side. */
+@keyframes tf-top3-inline-in-right {
+  from { opacity: 0; transform: translate3d(-9px, 0, 0); clip-path: inset(-14px 100% -14px -14px); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); clip-path: inset(-14px -14px -14px -14px); }
+}
+@keyframes tf-top3-inline-out-right {
+  from { opacity: 1; transform: translate3d(0, 0, 0); clip-path: inset(-14px -14px -14px -14px); }
+  to { opacity: 0; transform: translate3d(-7px, 0, 0); clip-path: inset(-14px 100% -14px -14px); }
+}
+@keyframes tf-top3-inline-in-left {
+  from { opacity: 0; transform: translate3d(9px, 0, 0); clip-path: inset(-14px -14px -14px 100%); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); clip-path: inset(-14px -14px -14px -14px); }
+}
+@keyframes tf-top3-inline-out-left {
+  from { opacity: 1; transform: translate3d(0, 0, 0); clip-path: inset(-14px -14px -14px -14px); }
+  to { opacity: 0; transform: translate3d(7px, 0, 0); clip-path: inset(-14px -14px -14px 100%); }
 }
 
 @media (max-width: 1240px) {
@@ -240,14 +280,32 @@ html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card:hover {
   .tf-top3-name { font-size: 12px; margin-top: 10px; }
   .tf-top3-login { font-size: 10px; }
   .tf-top3-crown { width: 40px; height: 36px; top: -36px; }
-  .tf-top3-inline-popover {
+  .tf-top3-inline-popover,
+  .tf-top3-inline-popover[data-side='left'] {
     top: auto !important;
     bottom: max(16px, env(safe-area-inset-bottom)) !important;
     left: 50% !important;
     width: min(540px, calc(100vw - 24px)) !important;
     transform: translateX(-50%);
     clip-path: none;
+    animation: tf-top3-inline-mobile-in 210ms ease-out both;
   }
+  .tf-top3-inline-popover[data-closing='true'],
+  .tf-top3-inline-popover[data-closing='true'][data-side='left'] {
+    animation: tf-top3-inline-mobile-out 185ms ease-in both;
+  }
+  .tf-top3-inline-popover .tf-leaderboard-avatar { display: block; }
+  .tf-top3-inline-popover .tf-leaderboard-card {
+    padding-left: var(--tf-leaderboard-card-padding);
+  }
+}
+@keyframes tf-top3-inline-mobile-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes tf-top3-inline-mobile-out {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; transform: translate(-50%, 12px); }
 }
 @media (max-width: 500px) {
   .tf-top3-scene { height: 330px; }
@@ -262,5 +320,18 @@ html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .tf-top3-portrait { animation: none; }
-  .tf-top3-inline-popover .tf-leaderboard-card { transition: none; }
+  .tf-top3-inline-popover,
+  .tf-top3-inline-popover[data-side='left'],
+  .tf-top3-inline-popover[data-closing='true'],
+  .tf-top3-inline-popover[data-closing='true'][data-side='left'] {
+    animation: none;
+    clip-path: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 800px) and (prefers-reduced-motion: reduce) {
+  .tf-top3-inline-popover,
+  .tf-top3-inline-popover[data-closing='true'],
+  .tf-top3-inline-popover[data-closing='true'][data-side='left'] { transform: translateX(-50%); }
 }
