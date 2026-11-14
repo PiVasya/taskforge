@@ -1,0 +1,33 @@
+.bgfx-aether-canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 1;
+}
+
+html:not(.dark) .bgfx-aether-canvas {
+  opacity: 0.25;
+  mix-blend-mode: multiply;
+}
+
+html[data-aether-bg='1'] .landing-hero-bg {
+  display: none;
+}
+
+html.dark[data-aether-bg='1'] .landing-hero {
+  background: linear-gradient(123deg, rgba(var(--card) / 0.68), rgba(var(--card) / 0.30));
+}
+
+html.dark.neo-brutal[data-aether-bg='1'] .landing-hero {
+  background: linear-gradient(123deg, rgba(var(--neo-paper-alt) / 0.72), rgba(var(--neo-paper-alt) / 0.39)) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bgfx-aether-canvas {
+    transition: none;
+  }
+}

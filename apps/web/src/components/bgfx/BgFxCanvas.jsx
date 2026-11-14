@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import BgFxNeuralWebgl from './BgFxNeuralWebgl';
 import BgFxSolarWebgl from './BgFxSolarWebgl';
+import BgFxAetherWebgl from './BgFxAetherWebgl';
 
 
 
@@ -78,14 +79,14 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
   const preset = useMemo(() => {
     if (variant === 'random') {
       
-      return Math.floor(Math.random() * 9);
+      return Math.floor(Math.random() * 10);
     }
     const v = Number(variant);
     return Number.isFinite(v) ? v : 0;
   }, [variant]);
 
   useEffect(() => {
-    if (!enabled || preset === 2 || preset === 8) return;
+    if (!enabled || preset === 2 || preset === 8 || preset === 9) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1051,6 +1052,10 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
 
   if (preset === 8) {
     return <BgFxSolarWebgl enabled={enabled} intensity={intensity} paletteKey={paletteKey} />;
+  }
+
+  if (preset === 9) {
+    return <BgFxAetherWebgl enabled={enabled} />;
   }
 
   return (
