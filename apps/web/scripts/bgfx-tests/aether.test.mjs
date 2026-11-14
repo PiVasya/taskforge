@@ -295,7 +295,8 @@ test('AETHER makes the neo-brutal atmosphere visibly different in every color th
       const input = { fx1, fx2, fx3, page: base, card, dark };
       const classic = makeAetherThemePalette(input);
       const neo = makeAetherThemePalette({ ...input, neo: true });
-      assert.deepEqual(neo.a, classic.a, `${name} particles unchanged`);
+      if (dark) assert.deepEqual(neo.a, classic.a, `${name} dark particles unchanged`);
+      else assert.ok(neo.a.every((channel) => channel >= 0 && channel <= 1), `${name} light colors are bounded`);
       assert.notDeepEqual(neo.backgroundA, classic.backgroundA, `${name} richer neo space`);
       assert.notDeepEqual(neo.backgroundB, classic.backgroundB, `${name} richer neo atmosphere`);
       assert.ok(neo.backgroundA.every((v) => dark ? v < .25 : v > .73),
@@ -344,4 +345,61 @@ test('AETHER keeps Identity API default background settings unchanged', {
   const server = await readFile(identityApiSource, 'utf8');
   assert.match(server, /\\\"bgFx\\\":false/);
   assert.match(server, /\\\"fxVariant\\\":\\\"2\\\"/);
+});
+
+function srgbLuminance01(rgb) {
+  const linear = rgb.map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+  return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+}
+function inkContrastRatio(ink, background) {
+  return (srgbLuminance01(background) + .05) / (srgbLuminance01(ink) + .05);
+}
+
+test('AETHER light mode: all six theme families have visible ink particles on both classic and neo paper', () => {
+  const accents = {
+    blue: [[14, 165, 233], [34, 211, 238], [167, 139, 250]],
+    pink: [[236, 72, 153], [168, 85, 247], [251, 113, 133]],
+    apple: [[16, 185, 129], [52, 211, 153], [167, 243, 208]],
+    red: [[239, 68, 68], [251, 113, 133], [245, 158, 11]],
+    honey: [[245, 158, 11], [251, 191, 36], [253, 230, 138]],
+    violet: [[168, 85, 247], [244, 114, 182], [34, 211, 238]],
+  };
+  for (const neo of [false, true]) {
+    const backgrounds = neo
+      ? { page: [238, 235, 250], card: [255, 253, 247] }
+      : { page: [248, 250, 252], card: [255, 255, 255] };
+    for (const [name, [fx1, fx2, fx3]] of Object.entries(accents)) {
+      const p = makeAetherThemePalette({ fx1, fx2, fx3, ...backgrounds, neo, dark: false });
+      const darkerSky = srgbLuminance01(p.backgroundA) < srgbLuminance01(p.backgroundB)
+        ? p.backgroundA : p.backgroundB;
+      for (const key of ['a', 'b', 'c']) {
+        assert.ok(inkContrastRatio(p[key], darkerSky) >= 3.1, `${name} ${neo ? 'neo' : 'classic'} ${key} should not wash out on light paper`);
+      }
+      assert.ok(inkContrastRatio(p.star, darkerSky) >= 4.0, `${name} ${neo ? 'neo' : 'classic'} stars should be crisp`);
+      assert.ok(srgbLuminance01(p.backgroundA) > .5, 'light-mode sky remains light');
+    }
+  }
+});
+
+test('AETHER light-mode WebGL has separate high-contrast wave, stroke, and particle rendering without changing dark-mode constants', async () => {
+  // These conditions guard against future refactors accidentally reducing the
+  // light branch back to almost invisible waves or disabling ink points.
+  assert.match(source, /float haze=clamp\(dot\(atmosphere,vec3\(\.333\)\)\*\.78\*uWave,0\.,\.26\)/);
+  assert.match(source, /gl_PointSize=min\(9\.,[\s\S]*?mix\(1\.28,1\.,uDark\)/);
+  assert.match(source, /mix\(\.26,\.105,uDark\)/);
+  assert.match(source, /float alpha=vAlpha\*\(\.18\*glow\+\.90\*hot\)\*mix\(\.98,1\.,uDark\)/);
+  const h = makeHarness();
+  await withHarness(h, () => {
+    h.document.documentElement.className = 'honey neo-brutal';
+    const stop = createAetherRenderer(h.canvas);
+    h.step(performance.now() + 150);
+    assert.equal(h.floats.uDark, 0);
+    assert.deepEqual(h.blendModes.at(-1), [h.gl.SRC_ALPHA, h.gl.ONE_MINUS_SRC_ALPHA]);
+    assert.ok(h.vectors.uColorA[0] > h.vectors.uColorA[2], 'warm honey ink remains warm');
+    h.document.documentElement.className = 'dark honey neo-brutal';
+    h.step(performance.now() + 400);
+    assert.equal(h.floats.uDark, 1);
+    assert.deepEqual(h.blendModes.at(-1), [h.gl.SRC_ALPHA, h.gl.ONE]);
+    stop();
+  });
 });

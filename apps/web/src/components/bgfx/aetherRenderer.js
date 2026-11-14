@@ -17,6 +17,32 @@ function lighten(rgb, amount) { return mixRgb(rgb, [255, 255, 255], amount); }
 function darken(rgb, amount) { return mixRgb(rgb, [0, 0, 0], amount); }
 function rgb01(rgb) { return rgb.map((value) => Math.max(0, Math.min(1, value / 255))); }
 
+// On a pale surface luminous accent colors disappear. In light mode retain
+// their hue but give every particle/filament a minimum contrast against the
+// actual AETHER sky. This is deliberately not applied to dark-mode colors.
+function luminance(rgb) {
+  const [r, g, b] = rgb.map((value) => {
+    const s = Math.max(0, Math.min(1, value / 255));
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function inkWithContrast(rgb, background, minimumRatio) {
+  const sky = luminance(background);
+  const contrast = (color) => (sky + 0.05) / (luminance(color) + 0.05);
+  if (contrast(rgb) >= minimumRatio) return rgb;
+  let lo = 0;
+  let hi = 1;
+  // Binary search for the least darkening that still passes the threshold.
+  for (let i = 0; i < 14; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (contrast(darken(rgb, mid)) >= minimumRatio) hi = mid;
+    else lo = mid;
+  }
+  return darken(rgb, hi);
+}
+
 function cssRgb(styles, name, fallback) {
   const source = styles?.getPropertyValue?.(name) || '';
   const values = source.replace(/,/g, ' ').trim().split(/\s+/).map(Number);
@@ -28,9 +54,7 @@ export function makeAetherThemePalette({
   fx1 = [14, 165, 233], fx2 = [34, 211, 238], fx3 = [167, 139, 250],
   page = [15, 23, 42], card = [15, 23, 42], fg = [203, 213, 225], dark = true, neo = false,
 } = {}) {
-  const primary = dark ? lighten(fx1, .20) : darken(fx1, .22);
-  const secondary = dark ? lighten(mixRgb(fx2, fx3, .32), .16) : darken(mixRgb(fx2, fx3, .32), .30);
-  const tertiary = dark ? lighten(mixRgb(fx3, fg, .34), .12) : darken(mixRgb(fx3, fx1, .26), .34);
+  // Keep the original dark-mode palette pixel-for-pixel unchanged.
   // Neo-brutal intentionally uses the SAME paper/ink backgrounds in every
   // color theme. A tiny 4-5% tint made the full-screen field look blue/gray
   // for all six themes. Only AETHER gets a richer ambient tint; the actual
@@ -45,7 +69,17 @@ export function makeAetherThemePalette({
       ? darken(mixRgb(card, mixRgb(fx1, fx2, .50), .30), .52)
       : mixRgb(card, mixRgb(fx1, fx2, .30), .15))
     : (dark ? darken(mixRgb(card, fx2, .055), .48) : mixRgb(card, fx2, .032));
-  const star = dark ? lighten(mixRgb(fg, fx2, .38), .08) : darken(mixRgb(fg, fx1, .65), .20);
+  // The lighter of the two sky shades is not the problem: use the darker
+  // one so accents remain legible across the whole viewport.
+  const inkBackdrop = luminance(backgroundA) < luminance(backgroundB) ? backgroundA : backgroundB;
+  const primary = dark ? lighten(fx1, .20)
+    : inkWithContrast(darken(fx1, .22), inkBackdrop, 3.25);
+  const secondary = dark ? lighten(mixRgb(fx2, fx3, .32), .16)
+    : inkWithContrast(darken(mixRgb(fx2, fx3, .32), .30), inkBackdrop, 3.15);
+  const tertiary = dark ? lighten(mixRgb(fx3, fg, .34), .12)
+    : inkWithContrast(darken(mixRgb(fx3, fx1, .26), .34), inkBackdrop, 3.15);
+  const star = dark ? lighten(mixRgb(fg, fx2, .38), .08)
+    : inkWithContrast(darken(mixRgb(fg, fx1, .65), .20), inkBackdrop, 4.10);
   return {
     a: rgb01(primary), b: rgb01(secondary), c: rgb01(tertiary),
     backgroundA: rgb01(backgroundA), backgroundB: rgb01(backgroundB),
@@ -150,7 +184,9 @@ const fragmentSpace = `
       if(uDark>.5) {
         color += atmosphere*uWave*.255;
       } else {
-        float haze=clamp(dot(atmosphere,vec3(.333))*.18*uWave,0.,.13);
+        // Pale screens need ink-like translucent waves, not a 2% tint.
+        // The mask is smoothly driven by the existing volumetric field.
+        float haze=clamp(dot(atmosphere,vec3(.333))*.78*uWave,0.,.26);
         color=mix(color,mix(uColorA,uColorB,.42),haze);
       }
       // Faint independent star dust all over the screen, independent of waves.
@@ -161,7 +197,7 @@ const fragmentSpace = `
       float tiny=1.-smoothstep(.01,.075,length(starLocal-starPos));
       float stardust=tiny*step(.984,s)*(.24+.37*hash(starCell+17.));
       if(uDark>.5) color+=uStarColor*stardust*.23;
-      else color=mix(color,uStarColor,stardust*.34);
+      else color=mix(color,uStarColor,stardust*.62);
       // Soft, short-lived cursor energy. Crucially no cutout or empty spot.
       float radius=length((p-uMouse));
       float interaction=exp(-radius*radius*1.55)*uPresence;
@@ -175,7 +211,7 @@ const vertexCloud = `
     precision highp float;
     attribute vec3 aPos;
     attribute vec2 aMeta;
-    uniform float uTime, uAspect, uDpr, uPresence, uEnergy, uPulse, uReactivity;
+    uniform float uTime, uAspect, uDpr, uPresence, uEnergy, uPulse, uReactivity, uDark;
     uniform vec2 uMouse, uView;
     varying float vAlpha, vSeed, vDepth, vKind, vField;
     mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
@@ -210,10 +246,12 @@ const vertexCloud = `
       vAlpha=mix(.20+.25*depth, .31+.35*depth, ribbon);
       vAlpha=mix(vAlpha,.43+.39*depth,stellar);
       vAlpha*=.55+.45*pow(.5+.5*sin(p.y*1.45+p.x*.55+seed*6.8),1.7);
+      // Slightly denser ink points on pale screens; dark mode is unchanged.
+      vAlpha*=mix(1.18,1.,uDark);
       vAlpha+=influence*(.16+.13*uEnergy);
       float size=mix(.9+1.3*depth,1.15+1.75*depth,ribbon);
       size=mix(size,1.55+2.6*depth,stellar);
-      gl_PointSize=min(9.,uDpr*size*(.86+.24*perspective)*(1.+influence*.45));
+      gl_PointSize=min(9.,uDpr*size*(.86+.24*perspective)*(1.+influence*.45)*mix(1.28,1.,uDark));
     }
   `;
 
@@ -221,14 +259,14 @@ const fragmentCloud = `
     precision mediump float;
     varying float vAlpha,vSeed,vDepth,vKind,vField;
     uniform vec3 uColorA,uColorB,uColorC,uStarColor;
-    uniform float uDark;
+    uniform highp float uDark;
     void main(){
       vec2 p=gl_PointCoord*2.-1.;
       float r2=dot(p,p);
       if(r2>1.)discard;
       float hot=pow(1.-r2,3.3);
       float glow=exp(-r2*3.85);
-      float alpha=vAlpha*(.18*glow+.90*hot)*mix(.78,1.,uDark);
+      float alpha=vAlpha*(.18*glow+.90*hot)*mix(.98,1.,uDark);
       vec3 col=mix(uColorA,uColorB,smoothstep(.07,.93,vSeed));
       col=mix(col,uColorC,vDepth*.23+vField*.16);
       col=mix(col,uStarColor,smoothstep(.85,1.,vDepth)*.23);
@@ -241,10 +279,11 @@ const fragmentStreaks = `
     precision mediump float;
     varying float vAlpha,vSeed,vDepth,vKind,vField;
     uniform vec3 uColorA,uColorB,uColorC;
+    uniform highp float uDark;
     void main(){
       vec3 col=mix(uColorA,uColorB,vSeed);
       col=mix(col,uColorC,.22);
-      gl_FragColor=vec4(col,vAlpha*.105*(.45+.55*vDepth));
+      gl_FragColor=vec4(col,vAlpha*mix(.26,.105,uDark)*(.45+.55*vDepth));
     }
   `;
 
