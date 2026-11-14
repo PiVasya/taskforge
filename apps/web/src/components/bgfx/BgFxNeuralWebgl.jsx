@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createNeuralPointerTracker } from './neuralPointerCoordinates';
 
 function cssVar(name, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -90,15 +91,9 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
     let shockwaveRadius = 0;
     let shockwavePower = 0;
 
-    const pointer = {
-      x: 0,
-      y: 0,
-      vx: 0,
-      vy: 0,
-      down: false,
-      rdown: false,
-      has: false,
-    };
+    const { pointer, setPointer, reprojectPointer } = createNeuralPointerTracker(
+      canvas, () => ({ width: w, height: h }),
+    );
 
     rand(0, 9999);
     rand(0, 9999);
@@ -273,19 +268,17 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
       -1, 1, 1, -1, 1, 1,
     ]), gl.STATIC_DRAW);
 
-    function setPointer(px, py) {
-      pointer.has = true;
-      const nx = px * dpr;
-      const ny = py * dpr;
-      pointer.vx = nx - pointer.x;
-      pointer.vy = ny - pointer.y;
-      pointer.x = nx;
-      pointer.y = ny;
-    }
-
     const handleMouseMove = (e) => setPointer(e.clientX, e.clientY);
-    const handleMouseDown = (e) => { if (e?.button === 2) pointer.rdown = true; else pointer.down = true; };
-    const handleMouseUp = (e) => { if (e?.button === 2) pointer.rdown = false; else pointer.down = false; };
+    const handleMouseDown = (e) => {
+      setPointer(e.clientX, e.clientY);
+      if (e?.button === 2) pointer.rdown = true;
+      else pointer.down = true;
+    };
+    const handleMouseUp = (e) => {
+      setPointer(e.clientX, e.clientY);
+      if (e?.button === 2) pointer.rdown = false;
+      else pointer.down = false;
+    };
     const handleTouchStart = (e) => {
       pointer.down = true;
       pointer.rdown = !!(e.touches && e.touches.length >= 2);
@@ -306,12 +299,22 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
 
     function resize() {
       const rect = canvas.getBoundingClientRect();
-      w = Math.max(1, Math.floor(rect.width));
-      h = Math.max(1, Math.floor(rect.height));
-      dpr = clamp(window.devicePixelRatio || 1, 1, 2);
+      const nextW = Math.max(1, Math.floor(rect.width));
+      const nextH = Math.max(1, Math.floor(rect.height));
+      const nextDpr = clamp(window.devicePixelRatio || 1, 1, 2);
+      const nextCanvasWidth = Math.max(1, Math.floor(nextW * nextDpr));
+      const nextCanvasHeight = Math.max(1, Math.floor(nextH * nextDpr));
 
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
+      const sizeChanged = w !== nextW || h !== nextH || dpr !== nextDpr
+        || canvas.width !== nextCanvasWidth || canvas.height !== nextCanvasHeight;
+      w = nextW;
+      h = nextH;
+      dpr = nextDpr;
+      reprojectPointer();
+      if (!sizeChanged) return;
+
+      canvas.width = nextCanvasWidth;
+      canvas.height = nextCanvasHeight;
       gl.viewport(0, 0, canvas.width, canvas.height);
 
       nodes.length = 0;
@@ -827,6 +830,7 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
 
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
+    window.addEventListener('resize', resize, { passive: true });
     resize();
 
     raf = requestAnimationFrame((t) => {
@@ -838,6 +842,7 @@ export default function BgFxNeuralWebgl({ enabled, intensity = 1, paletteKey = '
       disposed = true;
       cancelAnimationFrame(raf);
       if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
