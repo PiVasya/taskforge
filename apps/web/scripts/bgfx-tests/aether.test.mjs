@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
@@ -168,11 +169,10 @@ test('AETHER handles WebGL context loss and restoration without stale listeners'
 
 test('AETHER integration keeps 0-8 effects and registration in the existing settings system', async () => {
   const root = new URL('../../src/', import.meta.url);
-  const [settings, canvas, persistent, server] = await Promise.all([
+  const [settings, canvas, persistent] = await Promise.all([
     readFile(new URL('features/settings/settingsModel.js', root), 'utf8'),
     readFile(new URL('components/bgfx/BgFxCanvas.jsx', root), 'utf8'),
     readFile(new URL('components/shell/PersistentBackground.jsx', root), 'utf8'),
-    readFile(new URL('../../../services/identity/api/Services/Serialization/IdentityApiSerializationService.cs', root), 'utf8'),
   ]);
   for (let variant = 0; variant < 10; variant++) {
     assert.match(settings, new RegExp(`key: '${variant}'`), `variant ${variant} remains selectable`);
@@ -181,6 +181,19 @@ test('AETHER integration keeps 0-8 effects and registration in the existing sett
   assert.match(canvas, /if \(preset === 9\)[\s\S]*?<BgFxAetherWebgl enabled=\{enabled\}/);
   assert.match(persistent, /Math\.floor\(Math\.random\(\) \* 10\)/);
   assert.match(persistent, /aetherActive = bgFx && variant === 9/);
+});
+
+// The frontend Docker build context contains only apps/web. Validate the
+// cross-service default contract only when running from a full source checkout.
+// This explicitly reports a skip in Docker without hiding frontend failures.
+const identityApiSource = new URL(
+  '../../../services/identity/api/Services/Serialization/IdentityApiSerializationService.cs',
+  new URL('../../src/', import.meta.url),
+);
+test('AETHER keeps Identity API default background settings unchanged', {
+  skip: !existsSync(identityApiSource) && 'Identity API sources are outside the frontend Docker build context',
+}, async () => {
+  const server = await readFile(identityApiSource, 'utf8');
   assert.match(server, /\\\"bgFx\\\":false/);
   assert.match(server, /\\\"fxVariant\\\":\\\"2\\\"/);
 });
