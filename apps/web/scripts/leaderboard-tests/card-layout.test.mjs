@@ -11,7 +11,9 @@ const layoutCss = await readFile(new URL('../../src/components/LeaderboardCard.c
 
 test('entire leaderboard card opens the profile without a redundant statistics link', () => {
   assert.match(card, /<button[\s\S]*?onClick=\{handleOpenProfile\}/);
-  assert.match(card, /nav\(`\/users\/\$\{entry\.userId\}`\)/);
+  assert.match(card, /if \(onOpenProfile\) onOpenProfile\(entry, event\?\.currentTarget\)/);
+  assert.match(card, /else nav\(`\/users\/\$\{entry\.userId\}`\)/);
+  assert.match(page, /<LeaderboardCard entry=\{e\} onOpenProfile=\{openProfile\} \/>/);
   assert.doesNotMatch(card, /Смотреть статистику|Открыть статистику/);
 });
 

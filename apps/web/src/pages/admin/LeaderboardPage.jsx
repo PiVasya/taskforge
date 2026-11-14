@@ -7,6 +7,7 @@ import { getCourses } from '../../api/courses';
 import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
 import LeaderboardPodium from '../../components/LeaderboardPodium';
+import LeaderboardProfileDialog from '../../components/LeaderboardProfileDialog';
 import { splitLeaderboardEntries } from '../../components/leaderboardPodiumModel.mjs';
 import QuotaPill from '../../components/QuotaPill';
 import { Card, Input, Select, Button } from '../../components/ui';
@@ -46,6 +47,14 @@ export default function LeaderboardPage() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const { podium, regular } = useMemo(() => splitLeaderboardEntries(entries), [entries]);
+  const [profileEntry, setProfileEntry] = useState(null);
+  const profileTriggerRef = useRef(null);
+  const openProfile = useCallback((entry, trigger) => {
+    if (!entry?.userId) return;
+    profileTriggerRef.current = trigger || document.activeElement;
+    setProfileEntry(entry);
+  }, []);
+  const closeProfile = useCallback(() => setProfileEntry(null), []);
   const leaderboardViewId = useRef(null);
   if (!leaderboardViewId.current) leaderboardViewId.current = createLeaderboardViewId();
 
@@ -252,11 +261,11 @@ export default function LeaderboardPage() {
         {!loading && !error && (
           
           <>
-            {podium.length === 3 && <LeaderboardPodium entries={podium} />}
+            {podium.length === 3 && <LeaderboardPodium entries={podium} onOpenProfile={openProfile} profileOpen={Boolean(profileEntry)} />}
             <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
               {regular.map((e, index) => (
                 <div key={e.userId || index} className="tf-reveal-item h-full min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
-                  <LeaderboardCard entry={e} />
+                  <LeaderboardCard entry={e} onOpenProfile={openProfile} />
                 </div>
               ))}
             </div>
@@ -273,6 +282,13 @@ export default function LeaderboardPage() {
           </>
         )}
       </div>
+      {profileEntry && (
+        <LeaderboardProfileDialog
+          userId={profileEntry.userId}
+          onClose={closeProfile}
+          returnFocusElement={profileTriggerRef.current}
+        />
+      )}
     </>
   );
 }

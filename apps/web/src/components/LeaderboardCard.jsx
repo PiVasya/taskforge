@@ -6,7 +6,7 @@ import { useNotify } from './notify/NotifyProvider';
 import LeaderboardMarquee from './LeaderboardMarquee';
 import './LeaderboardCard.css';
 
-export default function LeaderboardCard({ entry }) {
+export default function LeaderboardCard({ entry, onOpenProfile }) {
   const nav = useNavigate();
   const notify = useNotify();
   const [contextMenu, setContextMenu] = React.useState({ open: false, x: 0, y: 0 });
@@ -22,7 +22,11 @@ export default function LeaderboardCard({ entry }) {
   ].filter(Boolean).join(' · ');
   const hasBadges = Array.isArray(entry.badges) && entry.badges.length > 0;
 
-  const handleOpenProfile = () => nav(`/users/${entry.userId}`);
+  const handleOpenProfile = (event) => {
+    if (!entry.userId) return;
+    if (onOpenProfile) onOpenProfile(entry, event?.currentTarget);
+    else nav(`/users/${entry.userId}`);
+  };
 
   const rankColors = {
     1: 'from-amber-400 to-yellow-500',
@@ -36,6 +40,7 @@ export default function LeaderboardCard({ entry }) {
       <button
         type="button"
         onClick={handleOpenProfile}
+        data-leaderboard-user-id={entry.userId}
         onContextMenuCapture={(event) => {
           if (!claimContextMenuEvent(event)) return;
           setContextMenu({ open: true, x: event.clientX, y: event.clientY });

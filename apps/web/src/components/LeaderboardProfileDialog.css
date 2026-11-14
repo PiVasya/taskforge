@@ -1,0 +1,94 @@
+.tf-leaderboard-profile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 2.4vw, 30px);
+  background: rgb(10 8 17 / .74);
+  backdrop-filter: blur(6px);
+}
+
+.tf-leaderboard-profile-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border));
+  border-radius: 20px;
+  background: rgb(var(--card));
+  color: rgb(var(--text));
+  box-shadow: 0 24px 90px rgb(0 0 0 / .38);
+}
+
+html.neo-brutal .tf-leaderboard-profile-dialog {
+  border: 2px solid rgb(var(--neo-ink));
+  border-radius: var(--neo-radius-lg);
+  box-shadow: var(--neo-shadow);
+}
+
+.tf-leaderboard-profile-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 72px;
+  padding: 12px clamp(16px, 2vw, 26px);
+  border-bottom: 1px solid rgb(var(--border) / .65);
+}
+
+.tf-leaderboard-profile-header h2 {
+  margin: 0;
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 700;
+}
+
+.tf-leaderboard-profile-close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgb(var(--border) / .7);
+  border-radius: 12px;
+  background: rgb(var(--muted));
+  color: rgb(var(--text));
+  cursor: pointer;
+}
+
+.tf-leaderboard-profile-close:hover { background: rgb(var(--muted) / .7); }
+.tf-leaderboard-profile-close:focus-visible { outline: 3px solid rgb(var(--accent)); outline-offset: 2px; }
+
+html.neo-brutal .tf-leaderboard-profile-close {
+  border: 2px solid rgb(var(--neo-ink));
+  box-shadow: var(--neo-shadow-sm);
+}
+
+.tf-leaderboard-profile-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: clamp(16px, 3vw, 36px);
+}
+
+.tf-leaderboard-profile-content {
+  width: 100%;
+  max-width: 1152px;
+  margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+  .tf-leaderboard-profile-backdrop {
+    padding: max(7px, env(safe-area-inset-top)) 7px max(7px, env(safe-area-inset-bottom));
+  }
+  .tf-leaderboard-profile-dialog { border-radius: 15px; }
+  .tf-leaderboard-profile-header { min-height: 60px; padding: 9px 14px; }
+  .tf-leaderboard-profile-scroll { padding: 14px; }
+}

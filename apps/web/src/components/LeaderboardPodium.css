@@ -189,64 +189,39 @@ html.neo-brutal .tf-top3-avatar { border-color: rgb(var(--neo-ink)); box-shadow:
 .tf-top3-stage--webgl .tf-top3-ether-anchor::before,
 .tf-top3-stage--canvas .tf-top3-ether-anchor::before { opacity: 0; }
 
-.tf-top3-popover {
+/* The preview renders the REAL LeaderboardCard, not a separately styled
+   profile popup. Only the part to the right of the floating original avatar
+   is revealed. Its name, badges, icons, stats, rank and marquee are identical
+   to the ordinary cards below. */
+.tf-top3-inline-popover {
   position: fixed;
   z-index: 1400;
-  width: 340px;
-  max-width: calc(100vw - 20px);
-  padding: 13px;
-  border: 1px solid rgb(var(--border) / .7);
-  border-radius: 16px;
-  background: rgb(var(--card));
-  color: rgb(var(--text));
-  box-shadow: 0 14px 40px rgb(0 0 0 / .22);
-  transition: opacity 140ms ease, transform 140ms ease;
+  left: -10000px;
+  top: -10000px;
+  width: 520px;
+  height: var(--tf-leaderboard-card-height);
+  clip-path: inset(0 0 0 calc(var(--tf-leaderboard-avatar-size) + var(--tf-leaderboard-card-padding) + var(--tf-leaderboard-card-stroke)));
+  pointer-events: none;
 }
-html.neo-brutal .tf-top3-popover { border: 2px solid rgb(var(--neo-ink)); box-shadow: 6px 6px 0 rgb(var(--neo-ink)), 0 14px 40px rgb(0 0 0 / .22); }
-.tf-top3-pop-head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
-.tf-top3-pop-head .tf-top3-avatar { width: 64px; height: 64px; flex: 0 0 64px; border-width: 2px; border-radius: 17px; font-size: 27px; }
-.tf-top3-pop-identity { min-width: 0; flex: 1; padding-top: 8px; }
-.tf-top3-pop-name { font-size: 14px; font-weight: 850; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tf-top3-pop-login { font-size: 12px; color: rgb(var(--text-muted)); margin-top: 5px; overflow: hidden; text-overflow: ellipsis; }
-.tf-top3-pop-rank {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: linear-gradient(135deg, #fbfbfe, #d5d9e5);
-  color: #2b2930;
-  font-size: 11px;
-  font-weight: 850;
+.tf-top3-inline-popover .tf-leaderboard-card {
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  /* Hover shows the card but never highlights, moves or enlarges it. */
+  transition: none !important;
+  transform: none !important;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, .08) !important;
 }
-.tf-top3-pop-rank[data-place='1'] { background: linear-gradient(135deg, #fff0bb, #ffc655); }
-.tf-top3-pop-rank[data-place='3'] { background: linear-gradient(135deg, #ffe1c9, #d9a078); }
-.tf-top3-pop-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; color: rgb(var(--text-muted)); font-size: 11px; }
-.tf-top3-pop-meta span { display: inline-flex; align-items: center; min-width: 0; gap: 4px; }
-.tf-top3-pop-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-.tf-top3-pop-chip { padding: 7px 8px; border-radius: 999px; background: rgb(var(--muted)); font-size: 10px; font-weight: 800; }
-.tf-top3-pop-divider { height: 1px; margin: 12px 0 11px; background: rgb(var(--border) / .4); }
-.tf-top3-pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.tf-top3-pop-activity { min-width: 0; color: rgb(var(--text-muted)); font-size: 11px; line-height: 1.4; }
-.tf-top3-pop-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  gap: 5px;
-  min-height: 34px;
-  padding: 0 11px;
-  border: 2px solid rgb(var(--neo-ink, var(--border)));
-  border-radius: 10px;
-  background: rgb(var(--brand-300));
-  color: rgb(var(--accent-foreground));
-  font-size: 11px;
-  font-weight: 850;
-  box-shadow: 3px 3px 0 rgb(var(--neo-ink, var(--border)));
-  cursor: pointer;
+.tf-top3-inline-popover .tf-leaderboard-card:hover,
+.tf-top3-inline-popover .tf-leaderboard-card:active {
+  transform: none !important;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, .08) !important;
 }
-.tf-top3-pop-link:focus-visible { outline: 3px solid rgb(var(--accent)); outline-offset: 3px; }
+
+html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card,
+html.neo-brutal .tf-top3-inline-popover .tf-leaderboard-card:hover {
+  box-shadow: var(--neo-shadow-sm) !important;
+}
 
 @media (max-width: 1240px) {
   .tf-top3-scene { height: 440px; }
@@ -265,11 +240,13 @@ html.neo-brutal .tf-top3-popover { border: 2px solid rgb(var(--neo-ink)); box-sh
   .tf-top3-name { font-size: 12px; margin-top: 10px; }
   .tf-top3-login { font-size: 10px; }
   .tf-top3-crown { width: 40px; height: 36px; top: -36px; }
-  .tf-top3-popover {
+  .tf-top3-inline-popover {
     top: auto !important;
-    bottom: 16px !important;
+    bottom: max(16px, env(safe-area-inset-bottom)) !important;
     left: 50% !important;
+    width: min(540px, calc(100vw - 24px)) !important;
     transform: translateX(-50%);
+    clip-path: none;
   }
 }
 @media (max-width: 500px) {
@@ -281,9 +258,9 @@ html.neo-brutal .tf-top3-popover { border: 2px solid rgb(var(--neo-ink)); box-sh
   .tf-top3-winner[data-place='1'] .tf-top3-avatar { width: 59px; height: 59px; border-radius: 17px; font-size: 28px; }
   .tf-top3-name { font-size: 10px; margin-top: 7px; }
   .tf-top3-login { font-size: 9px; }
-  .tf-top3-popover { max-height: calc(100dvh - 32px); overflow: auto; }
+
 }
 @media (prefers-reduced-motion: reduce) {
   .tf-top3-portrait { animation: none; }
-  .tf-top3-popover { transition: none; }
+  .tf-top3-inline-popover .tf-leaderboard-card { transition: none; }
 }

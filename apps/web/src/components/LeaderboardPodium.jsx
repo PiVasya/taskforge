@@ -1,28 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, MapPin, BookOpen, ExternalLink } from 'lucide-react';
+import LeaderboardCard from './LeaderboardCard';
 import { mountLeaderboardParticles } from './leaderboardParticles';
-import { getLeaderboardName, getLeaderboardLogin, getLeaderboardSolved } from './leaderboardPodiumModel.mjs';
+import { getLeaderboardName, getLeaderboardLogin } from './leaderboardPodiumModel.mjs';
+import { positionLeaderboardInlinePreview } from './leaderboardInlinePreviewPosition.mjs';
 import './LeaderboardPodium.css';
-
-const numberFormatter = new Intl.NumberFormat('ru-RU');
-
-function formattedNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? numberFormatter.format(number) : null;
-}
-
-function lastActivity(date) {
-  if (!date) return 'нет данных';
-  const elapsed = Date.now() - new Date(date).getTime();
-  if (!Number.isFinite(elapsed)) return 'нет данных';
-  if (elapsed < 86400000) return 'сегодня';
-  const days = Math.floor(elapsed / 86400000);
-  if (days === 1) return 'вчера';
-  if (days < 30) return `${days} дн. назад`;
-  return new Date(date).toLocaleDateString('ru-RU');
-}
 
 function PortraitAvatar({ entry }) {
   const name = getLeaderboardName(entry);
@@ -50,29 +33,7 @@ function Crown() {
   );
 }
 
-function popoverCoordinates(trigger, popup) {
-  const rect = trigger.getBoundingClientRect();
-  const width = popup?.offsetWidth || 340;
-  const height = popup?.offsetHeight || 205;
-  const margin = 12;
-  const gap = 15;
-  const viewportWidth = document.documentElement.clientWidth;
-  const viewportHeight = window.innerHeight;
-
-  let left = rect.right + gap;
-  if (left + width > viewportWidth - margin) left = rect.left - width - gap;
-  if (left < margin) left = Math.max(margin, Math.min(viewportWidth - width - margin, rect.left + (rect.width - width) / 2));
-
-  let top = rect.bottom + gap;
-  if (top + height > viewportHeight - margin) {
-    top = rect.top - height - gap >= margin
-      ? rect.top - height - gap
-      : Math.max(margin, viewportHeight - height - margin);
-  }
-  return { left: Math.round(left), top: Math.round(top) };
-}
-
-export default function LeaderboardPodium({ entries }) {
+export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen = false }) {
   const navigate = useNavigate();
   const sceneRef = useRef(null);
   const canvasRef = useRef(null);
@@ -80,7 +41,6 @@ export default function LeaderboardPodium({ entries }) {
   const popoverRef = useRef(null);
   const hideTimerRef = useRef(0);
   const [activeRank, setActiveRank] = useState(null);
-  const [position, setPosition] = useState({ left: -1000, top: -1000 });
   const selected = entries.find((entry) => Number(entry.rank) === activeRank) || null;
 
   useEffect(() => {
@@ -101,9 +61,10 @@ export default function LeaderboardPodium({ entries }) {
   }, [clearHide]);
 
   const open = useCallback((entry) => {
+    if (profileOpen) return;
     clearHide();
     setActiveRank(Number(entry.rank));
-  }, [clearHide]);
+  }, [clearHide, profileOpen]);
 
   const scheduleHide = useCallback(() => {
     clearHide();
@@ -118,24 +79,53 @@ export default function LeaderboardPodium({ entries }) {
   }, [clearHide]);
 
   useEffect(() => () => clearHide(), [clearHide]);
+  useEffect(() => { if (profileOpen) close(); }, [profileOpen, close]);
 
+  // The same compact card used by the rows below is revealed beside the
+  // *existing* portrait.  A clipped copy of its avatar is never shown, so
+  // the levitating portrait does not jump or change on hover.
   useLayoutEffect(() => {
     if (!activeRank) return undefined;
+    let frame = 0;
+    let lastLayout = '';
+    let lastViewportWidth = 0;
+    let preferredWidth = 520;
     const reposition = () => {
       const trigger = triggerRefs.current.get(activeRank);
-      if (!trigger || !popoverRef.current) return;
-      setPosition((previous) => {
-        const next = popoverCoordinates(trigger, popoverRef.current);
-        return next.left === previous.left && next.top === previous.top ? previous : next;
+      const popup = popoverRef.current;
+      if (!trigger || !popup) return;
+
+      // CSS displays the complete compact row near the bottom on touch/small
+      // screens, where there is no room for a rightward horizontal reveal.
+      if (window.innerWidth <= 800) return;
+
+      const viewportWidth = document.documentElement.clientWidth;
+      if (lastViewportWidth !== viewportWidth) {
+        lastViewportWidth = viewportWidth;
+        const firstRow = document.querySelector('.tf-leaderboard-grid .tf-leaderboard-card');
+        preferredWidth = firstRow?.getBoundingClientRect().width || 520;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const next = positionLeaderboardInlinePreview({
+        avatar: rect,
+        viewportWidth,
+        preferredWidth,
       });
+      const layout = `${next.left}|${next.top}|${next.width}`;
+      if (layout !== lastLayout) {
+        popup.style.left = `${next.left}px`;
+        popup.style.top = `${next.top}px`;
+        popup.style.width = `${next.width}px`;
+        lastLayout = layout;
+      }
+    };
+    const followLevitation = () => {
+      reposition();
+      frame = window.requestAnimationFrame(followLevitation);
     };
     reposition();
-    window.addEventListener('scroll', reposition, true);
-    window.addEventListener('resize', reposition);
-    return () => {
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('resize', reposition);
-    };
+    frame = window.requestAnimationFrame(followLevitation);
+    return () => window.cancelAnimationFrame(frame);
   }, [activeRank]);
 
   useEffect(() => {
@@ -153,17 +143,11 @@ export default function LeaderboardPodium({ entries }) {
     };
   }, [activeRank, close]);
 
-  const handlePortraitClick = (entry) => {
-    const touch = window.matchMedia('(hover: none)').matches;
-    if (touch) open(entry);
-    else if (entry.userId) navigate(`/users/${entry.userId}`);
-  };
-
-  const showProfile = () => {
-    if (!selected?.userId) return;
-    const userId = selected.userId;
+  const handlePortraitClick = (entry, sourceElement) => {
+    if (!entry.userId) return;
     close();
-    navigate(`/users/${userId}`);
+    if (onOpenProfile) onOpenProfile(entry, sourceElement);
+    else navigate(`/users/${entry.userId}`);
   };
 
   return (
@@ -182,21 +166,24 @@ export default function LeaderboardPodium({ entries }) {
                   className="tf-top3-portrait"
                   aria-label={`Открыть профиль: ${name}`}
                   aria-expanded={activeRank === rank}
-                  ref={(node) => { if (node) triggerRefs.current.set(rank, node); else triggerRefs.current.delete(rank); }}
-                  onPointerEnter={(event) => { if (event.pointerType === 'mouse' || event.pointerType === 'pen') open(entry); }}
-                  onPointerLeave={(event) => { if (event.pointerType === 'mouse' || event.pointerType === 'pen') scheduleHide(); }}
                   onFocus={() => open(entry)}
                   onBlur={() => scheduleHide()}
-                  onClick={() => handlePortraitClick(entry)}
+                  onClick={(event) => handlePortraitClick(entry, event.currentTarget)}
+                  data-leaderboard-user-id={entry.userId}
                   onKeyDown={(event) => {
-                    if (event.key === 'ArrowDown' || event.key === ' ') {
+                    if (event.key === 'ArrowDown') {
                       event.preventDefault();
                       open(entry);
-                      requestAnimationFrame(() => popoverRef.current?.querySelector('.tf-top3-pop-link')?.focus());
+                      requestAnimationFrame(() => popoverRef.current?.querySelector('.tf-leaderboard-card')?.focus());
                     }
                   }}
                 >
-                  <span className="tf-top3-avatar-wrap">
+                  <span
+                    className="tf-top3-avatar-wrap"
+                    ref={(node) => { if (node) triggerRefs.current.set(rank, node); else triggerRefs.current.delete(rank); }}
+                    onPointerEnter={(event) => { if (event.pointerType === 'mouse' || event.pointerType === 'pen') open(entry); }}
+                    onPointerLeave={(event) => { if (event.pointerType === 'mouse' || event.pointerType === 'pen') scheduleHide(); }}
+                  >
                     {rank === 1 && <Crown />}
                     <PortraitAvatar entry={entry} />
                   </span>
@@ -212,9 +199,8 @@ export default function LeaderboardPodium({ entries }) {
 
       {selected && createPortal(
         <div
-          className="tf-top3-popover"
+          className="tf-top3-inline-popover"
           ref={popoverRef}
-          style={position}
           role="group"
           aria-label={`Карточка пользователя ${getLeaderboardName(selected)}`}
           onPointerEnter={clearHide}
@@ -222,36 +208,7 @@ export default function LeaderboardPodium({ entries }) {
           onFocusCapture={clearHide}
           onBlurCapture={scheduleHide}
         >
-          <div className="tf-top3-pop-head">
-            <PortraitAvatar entry={selected} />
-            <div className="tf-top3-pop-identity">
-              <div className="tf-top3-pop-name">{getLeaderboardName(selected)}</div>
-              {getLeaderboardLogin(selected) && <div className="tf-top3-pop-login">@{getLeaderboardLogin(selected)}</div>}
-            </div>
-            <div className="tf-top3-pop-rank" data-place={selected.rank}>
-              <Trophy size={13} aria-hidden="true" /> #{selected.rank}
-            </div>
-          </div>
-          {(selected.location || selected.education) && (
-            <div className="tf-top3-pop-meta">
-              {selected.location && <span><MapPin size={13} aria-hidden="true" />{selected.location}</span>}
-              {selected.education && <span><BookOpen size={13} aria-hidden="true" />{selected.education}</span>}
-            </div>
-          )}
-          <div className="tf-top3-pop-chips">
-            {formattedNumber(selected.totalScore ?? selected.score) !== null && (
-              <span className="tf-top3-pop-chip">{formattedNumber(selected.totalScore ?? selected.score)} рейтинга</span>
-            )}
-            <span className="tf-top3-pop-chip">{formattedNumber(getLeaderboardSolved(selected))} решено</span>
-            {selected.totalAttempts != null && <span className="tf-top3-pop-chip">{formattedNumber(selected.totalAttempts)} попыток</span>}
-          </div>
-          <div className="tf-top3-pop-divider" />
-          <div className="tf-top3-pop-foot">
-            <span className="tf-top3-pop-activity">Последняя активность: {lastActivity(selected.lastSubmitAt)}</span>
-            <button type="button" className="tf-top3-pop-link" onClick={showProfile}>
-              <ExternalLink size={13} aria-hidden="true" /> Профиль
-            </button>
-          </div>
+          <LeaderboardCard entry={selected} onOpenProfile={onOpenProfile} />
         </div>,
         document.body,
       )}
