@@ -110,7 +110,7 @@ export function mountLeaderboardParticles({ scene, canvas, winners }) {
       }
       function makeVertices() {
         const rand=randomGenerator(20261114), result=[];
-        const narrow=innerWidth<610;
+        const narrow=window.innerWidth<610;
         const count=(n)=>Math.round(n*(narrow?.67:1));
         const add=(g,k,a,r,p,s,v,o,d)=>result.push(k,a,r,p,s,v,o,d,g);
         for(let g=0;g<3;g++){
