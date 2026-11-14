@@ -11,7 +11,10 @@ function PersistentBackground() {
   } = useUiBackgroundSettings();
 
   const variant = useMemo(
-    () => (fxMode === 'random' ? Math.floor(Math.random() * 10) : Number(fxVariant) || 0),
+    () => {
+      if (!bgFx) return 0;
+      return fxMode === 'random' ? Math.floor(Math.random() * 10) : Number(fxVariant) || 0;
+    },
     [bgFx, fxMode, fxVariant],
   );
 
