@@ -1,11 +1,13 @@
 import { ShortcutHint, shortcutAttributes } from '../../features/shortcuts/ShortcutControls';
 
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getLeaderboard } from '../../api/leaderboard';
 import { getCourses } from '../../api/courses';
 import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
+import LeaderboardPodium from '../../components/LeaderboardPodium';
+import { splitLeaderboardEntries } from '../../components/leaderboardPodiumModel.mjs';
 import QuotaPill from '../../components/QuotaPill';
 import { Card, Input, Select, Button } from '../../components/ui';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -43,6 +45,7 @@ export default function LeaderboardPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const { podium, regular } = useMemo(() => splitLeaderboardEntries(entries), [entries]);
   const leaderboardViewId = useRef(null);
   if (!leaderboardViewId.current) leaderboardViewId.current = createLeaderboardViewId();
 
@@ -249,8 +252,9 @@ export default function LeaderboardPage() {
         {!loading && !error && (
           
           <>
+            {podium.length === 3 && <LeaderboardPodium entries={podium} />}
             <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {entries.map((e, index) => (
+              {regular.map((e, index) => (
                 <div key={e.userId || index} className="tf-reveal-item h-full min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
                   <LeaderboardCard entry={e} />
                 </div>
