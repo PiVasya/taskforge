@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import BgFxNeuralWebgl from './BgFxNeuralWebgl';
 import BgFxSolarWebgl from './BgFxSolarWebgl';
 import BgFxAetherWebgl from './BgFxAetherWebgl';
+import { makeMatrixThemePalette } from './matrixPalette';
 
 
 
@@ -556,14 +557,16 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
       if (preset === 5) {
         
         const chars = 'アイウエオカキクケコサシスセソタチツテト0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$@%#&*+=<>[]{}|';
+        const darkTheme = isDarkTheme();
+        const matrixPalette = makeMatrixThemePalette(darkTheme, fg, fx1);
         
         ctx.save();
         
-        ctx.fillStyle = isDarkTheme() ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.fillStyle = darkTheme ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
         ctx.fillRect(0, 0, w, h);
         
         ctx.font = '14px monospace';
-        ctx.globalCompositeOperation = isDarkTheme() ? 'lighter' : 'multiply';
+        ctx.globalCompositeOperation = darkTheme ? 'lighter' : 'multiply';
         
         for (const drop of state.matrix) {
           
@@ -587,13 +590,9 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
             
             
             if (i === 0) {
-              ctx.fillStyle = isDarkTheme() 
-                ? `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha * 1.2})`
-                : `rgba(${fx1[0]}, ${fx1[1]}, ${fx1[2]}, ${alpha * 0.9})`;
+              ctx.fillStyle = rgba(matrixPalette.head, alpha * (darkTheme ? 1.2 : 0.9));
             } else {
-              
-              const [r, g, b] = isDarkTheme() ? [100, 255, 150] : fx1;
-              ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * (isDarkTheme() ? 0.85 : 0.6)})`;
+              ctx.fillStyle = rgba(matrixPalette.trail, alpha * (darkTheme ? 0.85 : 0.6));
             }
             
             
