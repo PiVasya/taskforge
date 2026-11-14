@@ -1,13 +1,73 @@
 // Pure WebGL renderer; the React component owns its lifecycle.
-// Default colors and intensities match the selected AETHER Arctic field preset.
+// Colors come from the same CSS theme tokens used by the other background effects.
 
 export const AETHER_PRESET = Object.freeze({
-  palette: 'arctic',
+  palette: 'theme',
   reactivity: 28,
   density: 100,
   bloom: 100,
   waves: 100,
 });
+
+function mixRgb(a, b, amount) {
+  return a.map((value, i) => value + (b[i] - value) * amount);
+}
+
+function lighten(rgb, amount) { return mixRgb(rgb, [255, 255, 255], amount); }
+function darken(rgb, amount) { return mixRgb(rgb, [0, 0, 0], amount); }
+function rgb01(rgb) { return rgb.map((value) => Math.max(0, Math.min(1, value / 255))); }
+
+function cssRgb(styles, name, fallback) {
+  const source = styles?.getPropertyValue?.(name) || '';
+  const values = source.replace(/,/g, ' ').trim().split(/\s+/).map(Number);
+  return values.length >= 3 && values.slice(0, 3).every((x) => Number.isFinite(x) && x >= 0 && x <= 255)
+    ? values.slice(0, 3) : fallback;
+}
+
+export function makeAetherThemePalette({
+  fx1 = [14, 165, 233], fx2 = [34, 211, 238], fx3 = [167, 139, 250],
+  page = [15, 23, 42], card = [15, 23, 42], fg = [203, 213, 225], dark = true, neo = false,
+} = {}) {
+  const primary = dark ? lighten(fx1, .20) : darken(fx1, .22);
+  const secondary = dark ? lighten(mixRgb(fx2, fx3, .32), .16) : darken(mixRgb(fx2, fx3, .32), .30);
+  const tertiary = dark ? lighten(mixRgb(fx3, fg, .34), .12) : darken(mixRgb(fx3, fx1, .26), .34);
+  // Neo-brutal intentionally uses the SAME paper/ink backgrounds in every
+  // color theme. A tiny 4-5% tint made the full-screen field look blue/gray
+  // for all six themes. Only AETHER gets a richer ambient tint; the actual
+  // neo-brutal CSS surfaces, buttons and all other effects stay untouched.
+  const backgroundA = neo
+    ? (dark
+      ? darken(mixRgb(page, mixRgb(fx1, fx2, .14), .32), .55)
+      : mixRgb(page, fx1, .18))
+    : (dark ? darken(mixRgb(page, fx1, .045), .55) : mixRgb(page, fx1, .025));
+  const backgroundB = neo
+    ? (dark
+      ? darken(mixRgb(card, mixRgb(fx1, fx2, .50), .30), .52)
+      : mixRgb(card, mixRgb(fx1, fx2, .30), .15))
+    : (dark ? darken(mixRgb(card, fx2, .055), .48) : mixRgb(card, fx2, .032));
+  const star = dark ? lighten(mixRgb(fg, fx2, .38), .08) : darken(mixRgb(fg, fx1, .65), .20);
+  return {
+    a: rgb01(primary), b: rgb01(secondary), c: rgb01(tertiary),
+    backgroundA: rgb01(backgroundA), backgroundB: rgb01(backgroundB),
+    star: rgb01(star), dark, neo,
+  };
+}
+
+export function readAetherThemePalette() {
+  const root = typeof document !== 'undefined' ? document.documentElement : null;
+  const isDark = root?.classList?.contains?.('dark') ?? true;
+  const styles = root && typeof getComputedStyle === 'function' ? getComputedStyle(root) : null;
+  return makeAetherThemePalette({
+    fx1: cssRgb(styles, '--fx-1', [14, 165, 233]),
+    fx2: cssRgb(styles, '--fx-2', [34, 211, 238]),
+    fx3: cssRgb(styles, '--fx-3', [167, 139, 250]),
+    page: cssRgb(styles, '--page-bg', isDark ? [15, 23, 42] : [248, 250, 252]),
+    card: cssRgb(styles, '--card', isDark ? [15, 23, 42] : [255, 255, 255]),
+    fg: cssRgb(styles, '--fg', isDark ? [203, 213, 225] : [100, 116, 139]),
+    dark: isDark,
+    neo: root?.classList?.contains?.('neo-brutal') ?? false,
+  });
+}
 
 export function createAetherRenderer(canvas, { onFailure, onRestore } = {}) {
   const gl = canvas.getContext('webgl2', {
@@ -38,7 +98,8 @@ const fragmentSpace = `
     varying vec2 vUv;
     uniform vec2 uResolution, uMouse;
     uniform float uTime, uWave, uPresence, uEnergy, uPulse;
-    uniform vec3 uColorA, uColorB, uColorC;
+    uniform vec3 uColorA, uColorB, uColorC, uBgA, uBgB, uStarColor;
+    uniform float uDark;
     float hash(vec2 p) {
       vec3 v=fract(vec3(p.x,p.y,p.x)*.1031);
       v+=dot(v,v.yzx+33.33);
@@ -58,12 +119,12 @@ const fragmentSpace = `
       vec2 p=(vUv-.5)*vec2(aspect,1.)*4.06;
       float time=uTime;
       // No sphere-ray intersection, radial contour or circular mask.
-      vec3 color=mix(vec3(.0035,.0055,.013),vec3(.010,.011,.026),vUv.y*.56+.22);
+      vec3 color=mix(uBgA,uBgB,vUv.y*.56+.22);
       float grain=noise2(vUv*uResolution*.18);
-      color+=vec3(.003,.004,.009)*grain;
+      color+=vec3(.003,.004,.009)*grain*uDark;
       vec2 atLeft=p-vec2(-3.0,1.5), atRight=p-vec2(2.9,.9);
-      color+=uColorA*.0068*exp(-dot(atLeft,atLeft)*.12);
-      color+=uColorB*.0100*exp(-dot(atRight,atRight)*.11);
+      color+=uColorA*.0068*exp(-dot(atLeft,atLeft)*.12)*uDark;
+      color+=uColorB*.0100*exp(-dot(atRight,atRight)*.11)*uDark;
       // Broad, dark, translucent 3D-like ribbons through the entire viewport.
       // They remain low contrast while particles carry the sparkle.
       vec3 atmosphere=vec3(0.);
@@ -86,19 +147,27 @@ const fragmentSpace = `
         atmosphere+=tint*(haze+folded)*(.39-.038*k);
       }
       // An atmospheric field, not the surface of a drawn planet.
-      color += atmosphere*uWave*.255;
+      if(uDark>.5) {
+        color += atmosphere*uWave*.255;
+      } else {
+        float haze=clamp(dot(atmosphere,vec3(.333))*.18*uWave,0.,.13);
+        color=mix(color,mix(uColorA,uColorB,.42),haze);
+      }
       // Faint independent star dust all over the screen, independent of waves.
       vec2 starCell=floor(vUv*uResolution/19.);
       vec2 starLocal=fract(vUv*uResolution/19.);
       float s=hash(starCell);
       vec2 starPos=vec2(hash(starCell+11.9),hash(starCell+28.7));
       float tiny=1.-smoothstep(.01,.075,length(starLocal-starPos));
-      color += vec3(.18,.20,.31)*tiny*step(.984,s)*(.24+.37*hash(starCell+17.));
+      float stardust=tiny*step(.984,s)*(.24+.37*hash(starCell+17.));
+      if(uDark>.5) color+=uStarColor*stardust*.23;
+      else color=mix(color,uStarColor,stardust*.34);
       // Soft, short-lived cursor energy. Crucially no cutout or empty spot.
       float radius=length((p-uMouse));
       float interaction=exp(-radius*radius*1.55)*uPresence;
-      color+=uColorC*interaction*(.005+.008*uEnergy+.005*uPulse);
-      gl_FragColor=vec4(max(color,vec3(0.)),1.);
+      if(uDark>.5) color+=uColorC*interaction*(.005+.008*uEnergy+.005*uPulse);
+      else color=mix(color,uColorC,interaction*(.028+.018*uEnergy+.015*uPulse));
+      gl_FragColor=vec4(clamp(color,0.,1.),1.);
     }
   `;
 
@@ -151,18 +220,19 @@ const vertexCloud = `
 const fragmentCloud = `
     precision mediump float;
     varying float vAlpha,vSeed,vDepth,vKind,vField;
-    uniform vec3 uColorA,uColorB,uColorC;
+    uniform vec3 uColorA,uColorB,uColorC,uStarColor;
+    uniform float uDark;
     void main(){
       vec2 p=gl_PointCoord*2.-1.;
       float r2=dot(p,p);
       if(r2>1.)discard;
       float hot=pow(1.-r2,3.3);
       float glow=exp(-r2*3.85);
-      float alpha=vAlpha*(.18*glow+.90*hot);
+      float alpha=vAlpha*(.18*glow+.90*hot)*mix(.78,1.,uDark);
       vec3 col=mix(uColorA,uColorB,smoothstep(.07,.93,vSeed));
       col=mix(col,uColorC,vDepth*.23+vField*.16);
-      col=mix(col,vec3(.88,.91,1.),smoothstep(.85,1.,vDepth)*.23);
-      if(vKind>1.5)col=mix(col,vec3(.90,.95,1.),.37);
+      col=mix(col,uStarColor,smoothstep(.85,1.,vDepth)*.23);
+      if(vKind>1.5)col=mix(col,uStarColor,.37);
       gl_FragColor=vec4(col,alpha);
     }
   `;
@@ -183,11 +253,17 @@ const fragmentPost = `
     varying vec2 vUv;
     uniform sampler2D uScene;
     uniform vec2 uResolution;
-    uniform float uBloom;
+    uniform float uBloom,uDark;
     vec3 read(vec2 uv){return texture2D(uScene,clamp(uv,0.,1.)).rgb;}
     vec3 bright(vec3 p){return max(p-vec3(.16),vec3(0.));}
     void main(){
       vec3 col=read(vUv);
+      // Preserve the actual page background in light mode; dark-space bloom
+      // would otherwise turn white backgrounds muddy grey.
+      if(uDark<.5){
+        gl_FragColor=vec4(clamp(col,0.,1.),1.);
+        return;
+      }
       vec2 px=1./uResolution;
       vec3 bloom=vec3(0.);
       bloom+=bright(read(vUv+vec2(px.x*4.,0.)));
@@ -269,16 +345,19 @@ const fragmentPost = `
     background: locations(programs.background, [
       'uResolution', 'uMouse', 'uTime', 'uWave', 'uPresence', 'uEnergy',
       'uPulse', 'uColorA', 'uColorB', 'uColorC',
+      'uBgA', 'uBgB', 'uStarColor', 'uDark',
     ]),
     particles: locations(programs.particles, [
       'uTime', 'uAspect', 'uDpr', 'uPresence', 'uEnergy', 'uPulse',
       'uReactivity', 'uMouse', 'uView', 'uColorA', 'uColorB', 'uColorC',
+      'uStarColor', 'uDark',
     ]),
     streaks: locations(programs.streaks, [
       'uTime', 'uAspect', 'uDpr', 'uPresence', 'uEnergy', 'uPulse',
       'uReactivity', 'uMouse', 'uView', 'uColorA', 'uColorB', 'uColorC',
+      'uStarColor', 'uDark',
     ]),
-    post: locations(programs.post, ['uScene', 'uResolution', 'uBloom']),
+    post: locations(programs.post, ['uScene', 'uResolution', 'uBloom', 'uDark']),
   };
 
   const quad = gl.createBuffer();
@@ -341,12 +420,16 @@ const fragmentPost = `
 
 
 
-  const palettes = {
-    arctic: { a: [.24, .68, 1.], b: [.47, .32, 1.], c: [.53, .95, 1.] },
-    violet: { a: [.44, .32, 1.], b: [.90, .28, .78], c: [.67, .77, 1.] },
-    ember: { a: [1., .35, .25], b: [1., .66, .32], c: [1., .83, .63] },
-  };
-  const palette = palettes[AETHER_PRESET.palette];
+  let palette = readAetherThemePalette();
+  let themeSignature = typeof document !== 'undefined' ? (document.documentElement?.className || '') : '';
+
+  function refreshThemePalette() {
+    const nextSignature = typeof document !== 'undefined' ? (document.documentElement?.className || '') : '';
+    if (nextSignature !== themeSignature) {
+      themeSignature = nextSignature;
+      palette = readAetherThemePalette();
+    }
+  }
   const mouse = {
     pos: [0, 0], goal: [0, 0], presence: 0, goalPresence: 0,
     energy: 0, pulse: 0, drag: false, lastX: 0, lastY: 0,
@@ -458,6 +541,12 @@ const fragmentPost = `
     gl.uniform3fv(locations.uColorA, palette.a);
     gl.uniform3fv(locations.uColorB, palette.b);
     gl.uniform3fv(locations.uColorC, palette.c);
+    if (locations.uStarColor !== undefined && locations.uStarColor !== null) {
+      gl.uniform3fv(locations.uStarColor, palette.star);
+    }
+    if (locations.uDark !== undefined && locations.uDark !== null) {
+      gl.uniform1f(locations.uDark, palette.dark ? 1 : 0);
+    }
   }
 
   function bindCloud(program, buffer, attribute) {
@@ -505,6 +594,7 @@ const fragmentPost = `
     mouse.presence += (mouse.goalPresence - mouse.presence) * .1;
     mouse.energy *= .93;
     mouse.pulse *= .944;
+    refreshThemePalette();
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.viewport(0, 0, width, height);
@@ -518,12 +608,15 @@ const fragmentPost = `
     gl.uniform1f(bg.uPresence, mouse.presence);
     gl.uniform1f(bg.uEnergy, mouse.energy);
     gl.uniform1f(bg.uPulse, mouse.pulse);
+    gl.uniform3fv(bg.uBgA, palette.backgroundA);
+    gl.uniform3fv(bg.uBgB, palette.backgroundB);
     colors(bg);
     drawQuad(attrs.background.aPosition);
 
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    if (palette.dark) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     bindCloud(programs.streaks, lineBuffer, attrs.streaks);
     cloudUniforms(uniforms.streaks);
     for (const [start, count] of ranges) gl.drawArrays(gl.LINE_STRIP, start, count);
@@ -547,6 +640,7 @@ const fragmentPost = `
     gl.uniform1i(post.uScene, 0);
     gl.uniform2f(post.uResolution, width, height);
     gl.uniform1f(post.uBloom, AETHER_PRESET.bloom / 100 * 1.85);
+    gl.uniform1f(post.uDark, palette.dark ? 1 : 0);
     drawQuad(attrs.post.aPosition);
   }
 

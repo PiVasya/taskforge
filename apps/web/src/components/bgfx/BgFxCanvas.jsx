@@ -1055,7 +1055,7 @@ export default function BgFxCanvas({ enabled, variant, intensity = 1, paletteKey
   }
 
   if (preset === 9) {
-    return <BgFxAetherWebgl enabled={enabled} />;
+    return <BgFxAetherWebgl enabled={enabled} paletteKey={paletteKey} />;
   }
 
   return (

@@ -16,7 +16,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
 export const SETTINGS_SECTION_KEYS = new Set(SETTINGS_SECTIONS.map((section) => section.key));
 
 export const FX_OPTIONS = Object.freeze([
-  { key: '9', title: 'AETHER · WebGL', desc: 'Полноэкранное поле частиц: Arctic, реакция 28%, плотность 100%, свечение 100%, волны 100%.' },
+  { key: '9', title: 'Звёздные потоки', desc: 'Объёмные частицы и световые волны в цветах выбранной темы. Реагируют на курсор.' },
   { key: 'random', title: 'Случайный эффект при включении', desc: 'Каждый раз выбирается новый фон.' },
   { key: '0', title: 'Туман', desc: 'Мягкий туман и блёстки.' },
   { key: '1', title: 'Пыль + кометы', desc: 'Пыль, искры и редкие кометы.' },

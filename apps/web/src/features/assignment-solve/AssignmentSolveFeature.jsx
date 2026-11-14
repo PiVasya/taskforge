@@ -1,6 +1,6 @@
 import { ShortcutAnchor } from '../shortcuts/ShortcutControls';
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Card, Button, Badge } from '../../components/ui';
 import { TaskTestSolve } from '../task-test';
 import SqlTaskSolve from '../sql-task/SqlTaskSolve';
@@ -19,6 +19,8 @@ import { useEditorUiSettings } from '../../contexts/UiSettingsContext';
 import SolveDraftEditor from './components/SolveDraftEditor';
 import SolveDraftLanguageSelect from './components/SolveDraftLanguageSelect';
 import { useAssignmentNextNavigation } from './useAssignmentNextNavigation';
+import { rememberCourseMapReturn } from '../course-assignments/courseMapCameraFocus';
+import { useAuth } from '../../auth/AuthContext';
 import AssignmentTaskConstraints from './components/AssignmentTaskConstraints';
 import { getSolveDraftStore, getSolveDraftSnapshot, initializeSolveDraft, releaseSolveDraftStore } from './solveDraftStore';
 import {
@@ -92,6 +94,8 @@ async function recoverRecentCodeSubmission(assignmentId, language, code, submitS
 export default function AssignmentSolvePage() {
   const { assignmentId } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const notify = useNotify();
   const { codeSolveLayout } = useEditorUiSettings();
 
@@ -123,6 +127,16 @@ export default function AssignmentSolvePage() {
   const codeSolveLayoutRef = React.useRef(codeSolveLayout);
   codeSolveLayoutRef.current = codeSolveLayout;
   const currentAssignmentIdRef = React.useRef('');
+
+  React.useEffect(() => {
+    const rootCourseId = location.state?.courseMapRootId;
+    const mapLocationKey = location.state?.courseMapEntryKey;
+    if (!rootCourseId || !mapLocationKey || !assignmentId) return;
+    rememberCourseMapReturn({
+      userId: user?.id || user?.userId || user?.uuid,
+      rootCourseId, mapLocationKey, assignmentId,
+    });
+  }, [assignmentId, location.state?.courseMapEntryKey, location.state?.courseMapRootId, user?.id, user?.userId, user?.uuid]);
 
   
   const [imgBusy, setImgBusy] = useState(false);

@@ -9,11 +9,6 @@
   opacity: 1;
 }
 
-html:not(.dark) .bgfx-aether-canvas {
-  opacity: 0.25;
-  mix-blend-mode: multiply;
-}
-
 html[data-aether-bg='1'] .landing-hero-bg {
   display: none;
 }

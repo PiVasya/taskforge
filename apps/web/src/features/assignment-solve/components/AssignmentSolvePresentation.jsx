@@ -1,6 +1,6 @@
 import { ShortcutLink as Link } from '../../shortcuts/ShortcutControls';
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Card, Button } from '../../../components/ui';
 import { useEditorMode } from '../../../contexts/EditorModeContext';
@@ -227,10 +227,13 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
   canEdit = false,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isEditorMode } = useEditorMode();
+  const mapCourseId = String(location.state?.courseMapRootId || courseId || '');
+  const returnHref = `/course/${mapCourseId}?focusAssignment=${encodeURIComponent(assignmentId)}`;
   const goBack = React.useCallback(() => {
-    navigate(`/course/${courseId}`);
-  }, [courseId, navigate]);
+    navigate(`/course/${mapCourseId}`, { state: { courseMapReturnAssignmentId: assignmentId } });
+  }, [assignmentId, mapCourseId, navigate]);
 
   return (
     <div className="flex items-center justify-between mb-6">
@@ -238,7 +241,7 @@ const AssignmentSolveHeader = React.memo(function AssignmentSolveHeader({
         <Button
           variant="ghost"
           className="inline-flex items-center gap-1"
-          shortcut="course" shortcutHref={`/course/${courseId}`} onClick={goBack}
+          shortcut="course" shortcutHref={returnHref} onClick={goBack}
         >
           <ArrowLeft size={16} /> к заданиям курса
         </Button>

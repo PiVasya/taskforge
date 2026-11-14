@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { useQueryClient } from '../../data/QueryClientProvider';
 import { getAssignmentsByCourse } from '../../api/assignments';
@@ -78,6 +78,7 @@ function mergeDeltaIntoCache(cached, delta) {
 
 export function useAssignmentNextNavigation({ assignment, assignmentId }) {
   const nav = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [nextOptions, setNextOptions] = React.useState([]);
@@ -256,8 +257,15 @@ export function useAssignmentNextNavigation({ assignment, assignmentId }) {
   const goNextAssignment = React.useCallback((option = null) => {
     const target = option?.id ? option : nextOptions.find((item) => item?.id && !item.disabled);
     if (!target?.id) return;
-    nav(`/assignment/${target.id}`);
-  }, [nav, nextOptions]);
+    const context = location.state || {};
+    nav(`/assignment/${target.id}`, {
+      state: context.courseMapRootId && context.courseMapEntryKey ? {
+        courseMapRootId: context.courseMapRootId,
+        courseMapRequestedCourseId: context.courseMapRequestedCourseId || context.courseMapRootId,
+        courseMapEntryKey: context.courseMapEntryKey,
+      } : undefined,
+    });
+  }, [location.state, nav, nextOptions]);
 
   return {
     nextOptions,
