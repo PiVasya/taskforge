@@ -509,11 +509,11 @@ function AssignmentFirstLoadSkeleton() {
             <div className="solve-skeleton-pill tf-skeleton w-28" />
           </div>
         </div>
-        <div className="grid lg:grid-cols-3 gap-6">
-          <Card className="lg:col-span-2 min-h-[420px] tf-skeleton-card">
+        <div className="solve-two-panel-grid">
+          <Card className="solve-content-column min-h-[420px] tf-skeleton-card">
             <SolveSkeletonLines lines={8} />
           </Card>
-          <Card className="min-h-[420px] tf-skeleton-card">
+          <Card className="solve-code-column min-h-[420px] tf-skeleton-card">
             <SolveSkeletonLines lines={7} />
           </Card>
         </div>

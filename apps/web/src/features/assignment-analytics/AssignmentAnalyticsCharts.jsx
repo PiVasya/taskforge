@@ -5,14 +5,12 @@ import {
 } from 'recharts';
 import { Badge, Card } from '../../components/ui';
 import { attemptSummary, dailyChartRows, statusLabel } from './assignmentInsightsModel';
+import { chartColors, resultFill } from './assignmentChartPalette.mjs';
 
-const SUCCESS = '#34d399';
-const FAILURE = '#fb7185';
-const PENDING = '#94a3b8';
-const INK = '#94a3b8';
+const { passed: SUCCESS, failed: FAILURE, pending: PENDING, axes: INK } = chartColors;
 const tooltipStyle = {
-  background: '#22252e', border: '1px solid #4b5563', borderRadius: '14px',
-  color: '#f8fafc', boxShadow: '0 10px 25px rgba(0,0,0,.2)',
+  background: 'rgb(var(--card))', border: '1px solid rgba(var(--border) / 0.72)', borderRadius: '14px',
+  color: 'rgb(var(--text))', boxShadow: '0 10px 25px rgba(0,0,0,.2)',
 };
 
 function ChartEmpty({ children = 'Пока нет попыток для построения графика.' }) {
@@ -40,7 +38,7 @@ export default function AssignmentAnalyticsCharts({ data }) {
   const maxStatus = Math.max(1, ...statuses.map((x) => Number(x.value || 0)));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 tf-assignment-charts">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,1fr)]">
         <Card>
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -62,7 +60,7 @@ export default function AssignmentAnalyticsCharts({ data }) {
             <div role="img" aria-label="Столбчатый график успешных и неуспешных решений по дням">
               <ResponsiveContainer width="100%" height={270}>
                 <BarChart data={daily} margin={{ top: 8, right: 4, bottom: 0, left: -24 }} barCategoryGap="28%">
-                  <CartesianGrid stroke="rgba(148,163,184,.14)" strokeDasharray="3 6" vertical={false} />
+                  <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 6" vertical={false} />
                   <XAxis dataKey="label" stroke={INK} tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
                     interval={range >= 30 ? 4 : range >= 14 ? 1 : 0} />
                   <YAxis stroke={INK} allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
@@ -86,7 +84,7 @@ export default function AssignmentAnalyticsCharts({ data }) {
                 <ResponsiveContainer width="100%" height={230}>
                   <PieChart>
                     <Pie data={donut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={77} outerRadius={96} stroke="none" paddingAngle={2}>
-                      {donut.map((item) => <Cell key={item.name} fill={item.name === 'Успешные' ? SUCCESS : item.name === 'Неуспешные' ? FAILURE : PENDING} />)}
+                      {donut.map((item) => <Cell key={item.name} fill={resultFill(item.name)} />)}
                     </Pie>
                     <Tooltip contentStyle={tooltipStyle} />
                   </PieChart>
@@ -136,7 +134,7 @@ export default function AssignmentAnalyticsCharts({ data }) {
                   <b className="tabular-nums">{item.value}</b>
                 </div>
                 <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                  <div className="h-full rounded-full bg-sky-400" style={{ width: `${Math.max(1, Number(item.value || 0) / maxStatus * 100)}%` }} />
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(1, Number(item.value || 0) / maxStatus * 100)}%`, background: chartColors.status }} />
                 </div>
               </div>
             ))}

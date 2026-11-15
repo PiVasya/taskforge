@@ -78,7 +78,7 @@ function CodeModal({ activity, onClose }) {
   if (!activity) return null;
   const code = activity.fullCode || activity.codeSample || '';
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={onClose}>
+    <div className="assignment-analytics-page fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={onClose}>
       <div className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-3xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div>
@@ -105,7 +105,7 @@ function CodeModal({ activity, onClose }) {
 function TimelineModal({ user, rows, loading, onClose }) {
   if (!user) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={onClose}>
+    <div className="assignment-analytics-page fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={onClose}>
       <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div>
@@ -234,7 +234,7 @@ export default function AdminAssignmentInsightsPage() {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-6 assignment-analytics-page">
         {pageError ? <AppErrorPanel error={pageError} title="Не удалось загрузить админ-раздел" /> : null}
 
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -404,7 +404,7 @@ export default function AdminAssignmentInsightsPage() {
                     <div className="font-medium mb-3">Подозрительные события</div>
                     <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                       {(data.suspiciousEvents || []).length ? data.suspiciousEvents.map((x, idx) => (
-                        <div key={`${x.eventId || idx}`} className="rounded-2xl border border-amber-300/50 bg-amber-500/5 px-3 py-2 text-sm">
+                        <div key={`${x.eventId || idx}`} className="assignment-risk-event rounded-2xl border px-3 py-2 text-sm">
                           <div className="flex flex-wrap items-center justify-between gap-2"><b>{x.displayName || x.email || 'Пользователь'}</b><span className="text-xs opacity-60">{fmtDate(x.createdAtUtc)}</span></div>
                           <div className="mt-1 opacity-80">{behaviorLabel(x.eventType)} · риск {x.riskPoints}: {riskReasonLabel(x.riskReason) || 'подозрительное событие'}</div>
                           {x.textLength ? <div className="text-xs opacity-60 mt-1">длина текста: {x.textLength}</div> : null}

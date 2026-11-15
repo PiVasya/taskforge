@@ -1,0 +1,18 @@
+/* Statuses retain their semantic labels; visual emphasis belongs to the current palette. */
+.assignment-analytics-page .badge-success {
+  border-color: rgba(var(--accent) / 0.48);
+  background: rgba(var(--accent) / 0.11);
+  color: rgb(var(--text));
+}
+
+.assignment-analytics-page .badge-danger {
+  border-color: rgba(var(--accent3) / 0.68);
+  border-style: dashed;
+  background: rgba(var(--accent3) / 0.14);
+  color: rgb(var(--text));
+}
+
+.assignment-analytics-page .assignment-risk-event {
+  border-color: rgba(var(--accent3) / 0.46);
+  background: rgba(var(--accent3) / 0.07);
+}

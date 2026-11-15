@@ -79,12 +79,57 @@ test('Ctrl Alt letter never invokes a mutation button', () => {
 test('Cyrillic input layout uses the physical C key', () => {
   setup(); press('KeyC', { key: 'с' }); expect(calls.nav).toEqual(['/courses']);
 });
-test('AltGr and the right Alt key do not trigger commands', () => {
-  setup(); press('AltRight'); press('KeyC', { ctrlKey: true }); expect(calls.tabs.length).toBe(0);
-  release('AltRight', { altKey: false });
-  const event = new KeyboardEvent('keydown', { code: 'KeyC', key: 'c', altKey: true, ctrlKey: true, bubbles: true });
+test('right Alt opens hints, navigates and releases without retaining a held modifier', () => {
+  setup();
+  press('AltRight');
+  expect(document.documentElement.dataset.tfShortcuts).toBe('on');
+  press('KeyC', { ctrlKey: true, altKey: false });
+  expect(calls.nav).toEqual(['/courses']);
+  expect(calls.tabs).toEqual([]);
+  release('KeyC', { ctrlKey: true, altKey: false });
+  release('AltRight', { altKey: false, ctrlKey: false });
+  expect(document.documentElement.dataset.tfShortcuts).toBe('off');
+  expect(press('KeyR', { altKey: false }).defaultPrevented).toBe(false);
+});
+test('AltGraph with synthetic Ctrl dispatches commands rather than new tabs', () => {
+  setup();
+  const event = new KeyboardEvent('keydown', { code: 'KeyC', key: 'c', altKey: true, ctrlKey: true, bubbles: true, cancelable: true });
   Object.defineProperty(event, 'getModifierState', { value: name => name === 'AltGraph' });
-  document.body.dispatchEvent(event); expect(calls.tabs.length).toBe(0); expect(calls.nav.length).toBe(0);
+  document.body.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(calls.nav).toEqual(['/courses']);
+  expect(calls.tabs).toEqual([]);
+});
+test('right Alt supports help, editor actions, Shift navigation and focused submit', () => {
+  setup('<textarea id="editor"></textarea><button data-tf-shortcut="primary">Submit</button><button data-tf-shortcut="save">Save</button>');
+  press('AltRight');
+  press('Slash');
+  expect(calls.help).toBe(1);
+  release('Slash');
+  press('KeyW');
+  expect(calls.clicks).toContain('save');
+  release('KeyW');
+  document.getElementById('editor').focus();
+  press('Enter');
+  expect(calls.clicks).toContain('primary');
+  release('Enter');
+  press('KeyA', { shiftKey: true });
+  expect(calls.nav).toContain('/admin/analytics');
+});
+test('physical Ctrl plus right Alt opens a new tab without firing a mutation', () => {
+  setup('<button data-tf-shortcut="save">Save</button><a href="/leaderboard" id="link">Leaderboard</a>');
+  press('ControlLeft', { ctrlKey: true, altKey: false });
+  press('AltRight', { ctrlKey: true });
+  expect(document.documentElement.dataset.tfShortcuts).toBe('new-tab');
+  press('KeyL', { ctrlKey: true });
+  expect(calls.tabs).toEqual(['/leaderboard']);
+  release('KeyL', { ctrlKey: true });
+  press('KeyW', { ctrlKey: true });
+  expect(calls.clicks).toEqual([]);
+  release('KeyW', { ctrlKey: true });
+  document.getElementById('link').focus();
+  press('Enter', { ctrlKey: true });
+  expect(calls.tabs).toEqual(['/leaderboard', '/leaderboard']);
 });
 test('IME composition never submits', () => {
   setup(); press('Enter', { isComposing: true }); expect(calls.clicks.length).toBe(0);

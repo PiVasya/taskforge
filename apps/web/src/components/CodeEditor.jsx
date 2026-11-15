@@ -299,6 +299,7 @@ function MonacoCodeEditor({
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const roRef = useRef(null);
+  const layoutFrameRef = useRef(0);
   const cleanupRef = useRef(null);
   const applyThemeRef = useRef(null);
 
@@ -391,15 +392,18 @@ function MonacoCodeEditor({
   }, [applyTheme]);
 
   const relayout = useCallback(() => {
-    const ed = editorRef.current;
-    const el = wrapperRef.current;
-    if (!ed || !el) return;
-    const w = Math.max(0, el.clientWidth);
-    const h = typeof height === "number" ? height : el.clientHeight || 0;
-    requestAnimationFrame(() => {
-      try {
-        ed.layout({ width: w, height: h });
-      } catch {}
+    if (!editorRef.current || !wrapperRef.current || layoutFrameRef.current) return;
+    layoutFrameRef.current = window.requestAnimationFrame(() => {
+      layoutFrameRef.current = 0;
+      const ed = editorRef.current;
+      const el = wrapperRef.current;
+      if (!ed || !el) return;
+      // Measure in the next paint frame, after browser zoom has recalculated CSS layout.
+      const w = Math.max(0, el.clientWidth);
+      const h = typeof height === "number" ? height : el.clientHeight || 0;
+      if (w > 0 && h > 0) {
+        try { ed.layout({ width: w, height: h }); } catch {}
+      }
     });
   }, [height]);
 
@@ -427,6 +431,8 @@ function MonacoCodeEditor({
     cleanupRef.current = () => {
       window.removeEventListener("resize", onWinResize);
       window.removeEventListener("orientationchange", onWinResize);
+      if (layoutFrameRef.current) window.cancelAnimationFrame(layoutFrameRef.current);
+      layoutFrameRef.current = 0;
       roRef.current?.disconnect();
       roRef.current = null;
     };

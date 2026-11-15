@@ -6,7 +6,7 @@ function SolveDraftLanguageSelect({ assignmentId, languages, allowedLangs, class
   const draft = useSolveDraft(assignmentId);
   const store = getSolveDraftStore(assignmentId);
   return (
-    <div className={className}>
+    <div className={`min-w-0 ${className}`}>
       <label className="label">Язык</label>
       <Select value={draft.language} onChange={(event) => store?.setLanguage(event.target.value)}>
         {languages.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}

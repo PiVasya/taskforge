@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import CodeEditor from '../../../components/CodeEditor';
+import ResizableSolveCodeEditor from './ResizableSolveCodeEditor';
 import { Button, Select } from '../../../components/ui';
 import { getSolveDraftStore, useSolveDraft } from '../solveDraftStore';
 
@@ -26,9 +26,9 @@ function SolveDraftEditor({
   }, [canReset, draft.code, onReset, starterCode, store]);
 
   return (
-    <div className="grid gap-3">
+    <div className="solve-draft-editor grid gap-3 min-w-0 w-full">
       {showLanguage ? (
-        <div>
+        <div className="min-w-0">
           <label className="label">Язык</label>
           <Select
             value={draft.language}
@@ -45,17 +45,19 @@ function SolveDraftEditor({
           ) : null}
         </div>
       ) : null}
-      <div>
+      <div className="min-w-0">
         <div className="mb-1 flex items-center justify-between gap-3">
           <label className="label mb-0">Ваш код</label>
           {hasStarterCode ? <Button type="button" variant="ghost" className="px-2 py-1 text-xs" onClick={reset} disabled={!canReset}>Вернуть заготовку</Button> : null}
         </div>
-        <CodeEditor
+        <ResizableSolveCodeEditor
+          key={assignmentId}
+          assignmentId={assignmentId}
+          defaultHeight={height}
           modelPath={`taskforge://solve/${assignmentId}`}
           language={draft.language}
           value={draft.code}
           onChange={(value) => store?.setCode(value || '')}
-          height={height}
           automationId="solution-code-editor"
           automationRole="code-editor"
           automationAction="fill-solution-code"

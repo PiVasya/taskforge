@@ -710,3 +710,110 @@ html.neo-brutal .solve-constraint-chip.is-forbidden {
 .animated-statement-rich {
   line-height: 1.7;
 }
+
+/* The solution editor must not retain Monaco's old width after browser zoom.
+   A narrower visual viewport switches the entire two-panel editor to one column. */
+.solve-two-panel-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .solve-two-panel-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+
+.solve-two-panel-grid > *,
+.solve-code-column,
+.solve-content-column,
+.solve-code-column > .card,
+.solve-code-column .grid,
+.solve-draft-editor,
+.solve-draft-editor > *,
+.solve-draft-editor .code-editor-shell {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.solve-code-column .select,
+.solve-draft-editor .select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.solve-code-column .code-editor-shell,
+.solve-draft-editor .code-editor-shell {
+  width: 100%;
+  overflow: hidden;
+}
+
+/* The answer editor is vertically resizable, with an independent local height per task. */
+.solve-editor-resizable,
+.solve-editor-resizable__surface {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.solve-editor-resizable__surface {
+  position: relative;
+  min-height: 200px;
+  max-height: 1600px;
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+
+.solve-editor-resizable__surface > .code-editor-shell {
+  height: 100%;
+  min-height: 0;
+}
+
+.solve-editor-resizable__surface .code-editor-plain-textarea {
+  display: block;
+  box-sizing: border-box;
+  height: 100%;
+}
+
+/* A small resize corner, like a textarea: no full-width drag bar. */
+.solve-editor-resizable__handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  color: rgb(var(--text-muted) / 0.78);
+  background: transparent;
+  border-radius: 0 0 0.7rem 0;
+}
+
+.solve-editor-resizable__handle:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: -2px;
+}
+
+.solve-editor-resizable__grip {
+  display: block;
+  width: 15px;
+  height: 15px;
+  pointer-events: none;
+}
+
+.solve-editor-resizable__handle:hover,
+.solve-editor-resizable__handle:focus-visible {
+  color: rgb(var(--accent));
+}

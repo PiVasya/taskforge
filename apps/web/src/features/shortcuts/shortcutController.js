@@ -54,6 +54,11 @@ export function createShortcutController({
   let altHeld = false;
   let ctrlHeld = false;
   let rightAlt = false;
+  let leftAlt = false;
+  let physicalCtrl = false;
+  // AltGr is often reported as Ctrl+Alt. Only a separately held Ctrl means "new tab".
+  const commandCtrl = (event) => Boolean(event.ctrlKey && !(rightAlt || event.getModifierState?.('AltGraph')))
+    || Boolean(event.ctrlKey && physicalCtrl);
   let frame = 0;
   let activeScope = null;
   const pressed = new Set();
@@ -77,7 +82,7 @@ export function createShortcutController({
     frame = win.requestAnimationFrame(() => { frame = 0; refresh(); });
   };
   const reset = () => {
-    altHeld = false; ctrlHeld = false; rightAlt = false; pressed.clear();
+    altHeld = false; ctrlHeld = false; rightAlt = false; leftAlt = false; physicalCtrl = false; pressed.clear();
     clearPinned?.();
     refresh();
     root.dataset.tfShortcuts = 'off';
@@ -86,21 +91,29 @@ export function createShortcutController({
   const keydown = (event) => {
     const state = getState();
     if (event.defaultPrevented) return;
-    if (event.code === 'AltRight') { rightAlt = true; altHeld = false; refresh(); return; }
-    if (event.isComposing || event.keyCode === 229 || event.getModifierState?.('AltGraph') || rightAlt) {
-      altHeld = false; refresh(); return;
-    }
+    if (event.isComposing || event.keyCode === 229) return;
     if (state.enabled === false) return;
-    if (event.key === 'Escape' && state.pinned) { clearPinned?.(); altHeld = false; refresh(); return; }
-    if (event.key === 'Alt' || event.code === 'AltLeft') {
-      altHeld = true; ctrlHeld = event.ctrlKey; refresh();
-      // Prevent the menu bar from taking focus after a bare Alt release.
+    if (event.key === 'Escape' && state.pinned) { clearPinned?.(); refresh(); return; }
+    if (event.code === 'AltRight' || event.key === 'AltGraph' || event.code === 'AltLeft' || event.key === 'Alt') {
+      if (event.code === 'AltRight' || event.key === 'AltGraph') rightAlt = true;
+      else leftAlt = true;
+      altHeld = true;
+      ctrlHeld = commandCtrl(event);
+      refresh();
       event.preventDefault();
       return;
     }
-    if (event.key === 'Control') { ctrlHeld = true; refresh(); return; }
-    if (!event.altKey || event.metaKey) return;
-    altHeld = true; ctrlHeld = event.ctrlKey; refresh();
+    if (event.key === 'Control') {
+      physicalCtrl = true;
+      ctrlHeld = commandCtrl(event);
+      refresh();
+      return;
+    }
+    if (!(event.altKey || rightAlt || event.getModifierState?.('AltGraph')) || event.metaKey) return;
+    const newTab = commandCtrl(event);
+    altHeld = true;
+    ctrlHeld = newTab;
+    refresh();
     const code = eventKeyCode(event);
     const modal = topShortcutModal(doc, visible);
     const scope = modal || doc;
@@ -109,7 +122,7 @@ export function createShortcutController({
     const inside = (element) => !modal || modal.contains(element);
 
     // Ctrl+Alt+Enter operates only on an actually focused link, not on a submit button.
-    if (event.ctrlKey && !event.shiftKey && code === 'Enter') {
+    if (newTab && !event.shiftKey && code === 'Enter') {
       const link = focused?.closest?.('a[href],[data-tf-shortcut-href]');
       const href = link && inside(link) && visible(link) && !blocked(link) ? hrefOf(link, origin) : null;
       consume(event);
@@ -122,7 +135,7 @@ export function createShortcutController({
     };
     if (matches('help')) {
       consume(event);
-      if (!event.ctrlKey && !event.repeat && !pressed.has(code)) { pressed.add(code); openHelp(); }
+      if (!newTab && !event.repeat && !pressed.has(code)) { pressed.add(code); openHelp(); }
       return;
     }
     const candidates = [...scope.querySelectorAll(CONTROL)]
@@ -149,7 +162,7 @@ export function createShortcutController({
     if (Date.now() - (lastRun.get(id) || 0) < 350) return;
     if (element && blocked(element)) return;
     const href = element ? hrefOf(element, origin) : navigation?.href;
-    if (event.ctrlKey) {
+    if (newTab) {
       if (href) { lastRun.set(id, Date.now()); openTab(href); }
       return;
     }
@@ -162,12 +175,13 @@ export function createShortcutController({
   };
   const keyup = (event) => {
     pressed.delete(eventKeyCode(event));
-    if (event.code === 'AltRight') rightAlt = false;
-    if (event.key === 'Alt' || event.code === 'AltLeft' || !event.altKey) {
-      if (altHeld && getState().enabled !== false) event.preventDefault();
-      altHeld = false;
-    }
-    ctrlHeld = event.ctrlKey;
+    if (event.code === 'AltRight' || event.key === 'AltGraph') rightAlt = false;
+    if (event.code === 'AltLeft') leftAlt = false;
+    if (event.key === 'Control') physicalCtrl = false;
+    const isAltRelease = event.code === 'AltRight' || event.code === 'AltLeft' || event.key === 'AltGraph' || event.key === 'Alt';
+    if (isAltRelease && altHeld && getState().enabled !== false) event.preventDefault();
+    altHeld = leftAlt || rightAlt || (!isAltRelease && Boolean(event.altKey));
+    ctrlHeld = commandCtrl(event);
     refresh();
   };
   const visibility = () => { if (doc.hidden) reset(); };

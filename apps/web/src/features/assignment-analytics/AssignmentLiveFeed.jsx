@@ -52,7 +52,7 @@ export default function AssignmentLiveFeed({ assignmentId, data, liveItems, live
       <div className={`space-y-2 overflow-y-auto pr-1 ${compact ? 'max-h-[480px]' : 'max-h-[850px]'}`} aria-live="polite" aria-relevant="additions">
         {filtered.length ? filtered.map((item) => (
           <div key={item.key} className="relative">
-            {liveItems.some((live) => live.key === item.key) ? <span className="absolute -left-1 top-3 z-10 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-card" aria-label="Получено в эфире" title="Получено в эфире" /> : null}
+            {liveItems.some((live) => live.key === item.key) ? <span className="absolute -left-1 top-3 z-10 h-2.5 w-2.5 rounded-full bg-[rgb(var(--accent))] ring-2 ring-card" aria-label="Получено в эфире" title="Получено в эфире" /> : null}
             <AdminSolutionLiveCard item={item} compact />
           </div>
         )) : (

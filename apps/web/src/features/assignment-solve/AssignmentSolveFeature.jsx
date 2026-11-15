@@ -1174,9 +1174,9 @@ export default function AssignmentSolvePage() {
           canEdit={a?.canEdit === true}
         />
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="solve-two-panel-grid">
           
-          <div className="lg:col-span-2 space-y-5">
+          <div className="solve-content-column space-y-5">
             <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
               <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
@@ -1221,7 +1221,7 @@ export default function AssignmentSolvePage() {
           </div>
 
           
-          <div className="space-y-4">
+          <div className="solve-code-column space-y-4">
             <Card>
               <div className="grid gap-3">
                 <SolveDraftLanguageSelect
@@ -1419,9 +1419,9 @@ export default function AssignmentSolvePage() {
 
       
       {codeSolveLayout !== 'editorTop' ? (
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="solve-two-panel-grid">
           
-          <div className="lg:col-span-2 space-y-5">
+          <div className="solve-content-column space-y-5">
             <Card className="assignment-reveal" data-taskforge-automation-id="assignment-statement" data-taskforge-agent-role="assignment-statement" data-taskforge-agent-kind={a?.type || "code-test"}>
               <SolvePart loading={partLoading.statement} delay={60}>
                 <AnimatedHeading text={a.title} playKey={revealKey} onDone={completeTitleReveal} />
@@ -1445,7 +1445,7 @@ export default function AssignmentSolvePage() {
           </div>
 
           
-          <div className="space-y-4">
+          <div className="solve-code-column space-y-4">
             <Card>
               <div className="grid gap-3">
                 <SolveDraftEditor
