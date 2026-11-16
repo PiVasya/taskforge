@@ -689,6 +689,9 @@ export default function MySolutionsPage() {
           <Badge intent="secondary">{dto.scorePercent}% • {dto.correctQuestions}/{dto.totalQuestions}</Badge>
           {dto.timeExpired ? <Badge intent="danger">Время вышло</Badge> : null}
         </div>
+        {dto.questionsReflectCurrentVersion && dto.allowReview !== false ? (
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Вопросы показаны в текущей редакции. Итоговый балл сохранён с момента сдачи.</div>
+        ) : null}
         {dto.allowReview !== false ? <QuizAttemptReviewQuestions questions={dto.questions} /> : null}
       </div>
     );

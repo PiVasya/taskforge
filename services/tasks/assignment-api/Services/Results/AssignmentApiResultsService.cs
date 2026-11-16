@@ -80,7 +80,7 @@ internal static class AssignmentApiResultsService
 
         var testSpec = assignment == null ? null : await TestAssignmentSpecService.ReadAsync(db, assignment);
         var testAllowReview = isAdmin || testSpec?.Settings.AllowReview == true;
-        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = testSpec?.Settings.PassPercent ?? 60, totalQuestions = attempt.TotalUnits, correctQuestions = attempt.CorrectUnits, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview = testAllowReview, questions = testAllowReview ? JsonPropArray(review, "questions") : Array.Empty<object>() });
+        return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.TaskAssignmentId, courseId = assignment?.CourseId ?? Guid.Empty, courseTitle = "", assignmentTitle = assignment?.Title ?? "Задание", attempt.UserId, attempt.AttemptNumber, attempt.StartedAt, submittedAt = attempt.SubmittedAt, passPercent = testSpec?.Settings.PassPercent ?? 60, totalQuestions = attempt.TotalUnits, correctQuestions = attempt.CorrectUnits, attempt.ScorePercent, attempt.Passed, attempt.TimeExpired, allowReview = testAllowReview, questionsReflectCurrentVersion = true, questions = testAllowReview && testSpec is not null ? CurrentTestReview(attempt, testSpec) : new JsonArray() });
     }
 
     internal static IQueryable<TaskAttempt> SubmittedAttemptsForUser(IQueryable<TaskAttempt> attempts, Guid userId, string kind)

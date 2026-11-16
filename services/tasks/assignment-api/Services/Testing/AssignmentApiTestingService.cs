@@ -29,24 +29,25 @@ internal static class AssignmentApiTestingService
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         if (!string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является обычным тестом.", code = "TEST_ASSIGNMENT_TYPE_REQUIRED" });
-        var spec = await TestAssignmentSpecService.ReadAsync(db, assignment, ct);
+        var (spec, revision) = await TestAssignmentSpecService.ReadVersionedAsync(db, assignment, ct);
+        if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
         var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
         if (active != null)
         {
-            if (!TestAttemptQuestionSnapshot.TryResolve(active, spec, out var savedSpec, out _))
-                return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "ATTEMPT_QUESTION_SET_CHANGED", message = "Вопросы текущей попытки больше не доступны. Обратитесь к редактору курса." });
-            var existingUnlimited = savedSpec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
-            return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(active, spec, existingUnlimited, ignoreTimeLimit));
+            var existingUnlimited = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
+            var limitChanged = RefreshTimeLimit(active, spec, ignoreTimeLimit, revision);
+            var orderChanged = TestAttemptQuestionOrder.Refresh(active, spec);
+            if (orderChanged || limitChanged) await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(active, spec, existingUnlimited, ignoreTimeLimit, revision));
         }
-        if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
         var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         var used = await db.Attempts.CountAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
         var max = unlimitedAttempts ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start", ct) is { } quotaProblem) return quotaProblem;
         var attempt = new TaskAttempt { Kind = "test", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = ignoreTimeLimit ? null : TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
-        attempt.OrderJson = TestAttemptQuestionSnapshot.Create(spec, OrderedIds(spec.Questions.Select(x => x.Id), spec.Settings.ShuffleQuestions, attempt.Id));
+        attempt.OrderJson = TestAttemptQuestionOrder.Create(OrderedIds(spec.Questions.Select(x => x.Id), spec.Settings.ShuffleQuestions, attempt.Id));
         db.Attempts.Add(attempt);
         try
         {
@@ -57,7 +58,7 @@ internal static class AssignmentApiTestingService
             await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start-failed", CancellationToken.None);
             throw;
         }
-        return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit));
+        return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit, revision));
     }
 
     internal static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct)
@@ -72,9 +73,25 @@ internal static class AssignmentApiTestingService
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         if (!string.Equals(assignment.Type, "test", StringComparison.OrdinalIgnoreCase)) return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является обычным тестом.", code = "TEST_ASSIGNMENT_TYPE_REQUIRED" });
-        var currentSpec = await TestAssignmentSpecService.ReadAsync(db, assignment, ct);
-        if (!TestAttemptQuestionSnapshot.TryResolve(attempt, currentSpec, out var spec, out var order))
-            return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "ATTEMPT_QUESTION_SET_CHANGED", message = "Вопросы текущей попытки больше не доступны. Обратитесь к редактору курса." });
+        var (spec, revision) = await TestAssignmentSpecService.ReadVersionedAsync(db, assignment, ct);
+        if (spec.Questions.Count == 0)
+            return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "TEST_HAS_NO_QUESTIONS", message = "В тесте пока нет вопросов." });
+        var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
+        RefreshTimeLimit(attempt, spec, ignoreTimeLimit, revision);
+        TestAttemptQuestionOrder.Refresh(attempt, spec);
+        var order = TestAttemptQuestionOrder.Resolve(attempt, spec);
+        var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
+        var clientRevision = StringProp(payload, "testRevision");
+        if (!string.IsNullOrWhiteSpace(clientRevision) && !string.Equals(clientRevision, revision, StringComparison.Ordinal))
+        {
+            await db.SaveChangesAsync(ct);
+            return Microsoft.AspNetCore.Http.Results.Json(new
+            {
+                code = "TEST_UPDATED_RELOAD_REQUIRED",
+                message = "Тест изменился. Перед отправкой ответов загрузите актуальные вопросы.",
+                latestTest = TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit, revision)
+            }, statusCode: StatusCodes.Status409Conflict);
+        }
         var answers = AnswersArray(payload, "answers");
         var byAnswer = answers.GroupBy(x => x.QuestionId).ToDictionary(x => x.Key, x => x.First());
         var map = spec.Questions.ToDictionary(x => x.Id);
@@ -90,8 +107,6 @@ internal static class AssignmentApiTestingService
             review.Add(TestQuestionReviewNode(q, ans, ok));
         }
         var score = total == 0 ? 0 : (int)System.Math.Floor(correct * 100.0 / total);
-        var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
-        var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         attempt.SubmittedAt = DateTimeOffset.UtcNow;
         attempt.TimeExpired = !ignoreTimeLimit && IsTimeExpired(attempt);
         attempt.TotalUnits = total; attempt.CorrectUnits = correct; attempt.TotalScore = total; attempt.EarnedScore = correct;
@@ -99,7 +114,7 @@ internal static class AssignmentApiTestingService
         attempt.ScorePercent = outcome.ScorePercent;
         attempt.Passed = outcome.Passed;
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
-        attempt.ReviewJson = new JsonObject { ["questions"] = review }.ToJsonString(JsonOptions());
+        attempt.ReviewJson = null;
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await live.PublishAsync("test", attempt.Id, userId.Value, assignmentId, attempt.Passed ? "Accepted" : "Rejected", attempt.ScorePercent);
@@ -113,18 +128,61 @@ internal static class AssignmentApiTestingService
             ("timeExpired", attempt.TimeExpired),
             ("submittedAt", attempt.SubmittedAt));
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
-        return Microsoft.AspNetCore.Http.Results.Ok(TestSubmissionDto(attempt, spec.Settings, total, correct, unlimitedAttempts, currentSpec.Settings.AllowReview, review));
+        return Microsoft.AspNetCore.Http.Results.Ok(TestSubmissionDto(attempt, spec.Settings, total, correct, unlimitedAttempts, spec.Settings.AllowReview, review));
     }
 
-    internal static object TestStartDto(TaskAttempt attempt, TaskSpec spec, bool unlimitedAttempts = false, bool ignoreTimeLimit = false)
+    internal static object TestStartDto(TaskAttempt attempt, TaskSpec spec, bool unlimitedAttempts = false, bool ignoreTimeLimit = false, string? revision = null)
     {
-        if (!TestAttemptQuestionSnapshot.TryResolve(attempt, spec, out var attemptSpec, out var order))
-            throw new InvalidOperationException("The attempt's original questions are no longer available.");
-        spec = attemptSpec;
+        var order = TestAttemptQuestionOrder.Resolve(attempt, spec);
         var map = spec.Questions.ToDictionary(x => x.Id);
         var questions = order.Select(id => map[id]).Select(x => TestQuestionPublicDto(x, spec.Settings.ShuffleAnswers, attempt.Id)).ToList();
         var timeLimitSeconds = ignoreTimeLimit ? null : attempt.TimeLimitSeconds;
-        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, timeLimitSeconds, attemptTimeLimitSeconds = timeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
+        return new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, testRevision = revision, timeLimitSeconds, attemptTimeLimitSeconds = timeLimitSeconds, startedAt = attempt.StartedAt, startedAtUtc = attempt.StartedAt, spec.Settings.ShuffleQuestions, spec.Settings.ShuffleAnswers, questions };
+    }
+
+    internal static bool RefreshTimeLimit(TaskAttempt attempt, TaskSpec current, bool ignoreTimeLimit, string revision)
+    {
+        var changed = false;
+        // A new live test must grant the learner its full time limit, even when
+        // the question IDs did not change. No new attempt or energy is consumed.
+        if (long.TryParse(revision, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var ticks)
+            && ticks > attempt.UpdatedAt.ToUniversalTime().Ticks)
+        {
+            attempt.StartedAt = DateTimeOffset.UtcNow;
+            attempt.TimeExpired = false;
+            changed = true;
+        }
+        if (!ignoreTimeLimit)
+        {
+            var latest = TimeLimitFor(current.Settings.AttemptTimeLimitsSeconds, attempt.AttemptNumber);
+            if (attempt.TimeLimitSeconds != latest)
+            {
+                attempt.TimeLimitSeconds = latest;
+                changed = true;
+            }
+        }
+        if (changed) attempt.UpdatedAt = DateTimeOffset.UtcNow;
+        return changed;
+    }
+
+    // Historical scores remain stored, but question presentation is always current.
+    internal static JsonArray CurrentTestReview(TaskAttempt attempt, TaskSpec spec)
+    {
+        List<TestAnswer> answers;
+        try { answers = JsonSerializer.Deserialize<List<TestAnswer>>(attempt.AnswersJson ?? "[]", JsonOptions()) ?? []; }
+        catch (JsonException) { answers = []; }
+        var byAnswer = answers.Where(x => x.QuestionId != Guid.Empty)
+            .GroupBy(x => x.QuestionId).ToDictionary(x => x.Key, x => x.First());
+        var map = spec.Questions.ToDictionary(x => x.Id);
+        var review = new JsonArray();
+        foreach (var id in TestAttemptQuestionOrder.Resolve(attempt, spec))
+        {
+            var question = map[id];
+            byAnswer.TryGetValue(id, out var answer);
+            review.Add(TestQuestionReviewNode(question, answer, IsTestCorrect(question, answer)));
+        }
+        return review;
     }
 
     internal static object TestSubmissionDto(TaskAttempt attempt, TestSettings settings, int total, int correct,

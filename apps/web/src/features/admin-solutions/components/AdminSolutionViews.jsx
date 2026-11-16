@@ -196,6 +196,9 @@ export const TestAttemptReview = React.memo(function TestAttemptReview({ dto }) 
         <Badge intent="secondary">{dto.scorePercent}% • {dto.correctQuestions}/{dto.totalQuestions}</Badge>
         {dto.timeExpired ? <Badge intent="danger">Время вышло</Badge> : null}
       </div>
+      {dto.questionsReflectCurrentVersion ? (
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">Вопросы показаны в текущей редакции. Итоговый балл сохранён с момента сдачи.</div>
+      ) : null}
       <QuizAttemptReviewQuestions questions={questions} />
     </div>
   );

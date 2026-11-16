@@ -108,12 +108,15 @@ fn find_call_pos(cleaned: &str, call: &str) -> Option<usize> {
 
     let hay_chars: Vec<char> = cleaned.chars().collect();
     let pat_chars: Vec<char> = call_norm.chars().collect();
+    let member_call_rule = pat_chars.first() == Some(&'.');
 
     for start in 0..hay_chars.len() {
         if hay_chars[start].is_whitespace() { continue; }
 
-        // boundary: previous character must not be identifier char
-        if start > 0 && is_ident_char(hay_chars[start - 1]) {
+        // For a standalone name, avoid matching the suffix of a longer identifier.
+        // A rule beginning with '.' instead describes a member call: in s.lower(),
+        // the dot naturally follows the identifier 's', so that boundary is valid.
+        if !member_call_rule && start > 0 && is_ident_char(hay_chars[start - 1]) {
             continue;
         }
 
@@ -2062,6 +2065,58 @@ mod tests {
         assert!(!hits.iter().any(|h| h.id == "c.system"));
     }
 
+
+    #[test]
+    fn python_required_member_calls_match_after_variable_or_expression() {
+        for method in ["lower", "upper", "capitalize", "swapcase"] {
+            let rule = format!(".{method}(");
+            for source in [
+                format!("s = input()\nprint(s.{method}())"),
+                format!("print(input().{method}())"),
+                format!("s = input()\nprint(s . {method} ())"),
+                format!("print('Text'.{method}())"),
+            ] {
+                let cleaned = strip_comments_and_strings("python", &source);
+                let without_comments = strip_comments_only("python", &source);
+                assert!(
+                    find_task_rule_pos(&cleaned, &without_comments, &rule).is_some(),
+                    "required method {rule:?} missing in {source:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn python_member_call_rules_do_not_match_comments_strings_or_longer_names() {
+        for method in ["lower", "upper", "capitalize", "swapcase"] {
+            let rule = format!(".{method}(");
+            for source in [
+                format!("# s.{method}()\nprint('nothing')"),
+                format!("print('s.{method}()')"),
+                format!("s = input()\nprint(s.{method}_other())"),
+                format!("s = input()\nprint(s.other_{method}())"),
+            ] {
+                let cleaned = strip_comments_and_strings("python", &source);
+                let without_comments = strip_comments_only("python", &source);
+                assert!(
+                    find_task_rule_pos(&cleaned, &without_comments, &rule).is_none(),
+                    "rule {rule:?} unexpectedly matched {source:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn call_rules_preserve_standalone_identifier_boundaries_and_dotted_paths() {
+        for source in ["println(value)", "my_print(value)"] {
+            assert!(find_task_rule_pos(source, source, "print(").is_none());
+        }
+        assert!(find_task_rule_pos("print(value)", "print(value)", "print(").is_some());
+        assert!(find_task_rule_pos("namespace.print(value)", "namespace.print(value)", "print(").is_some());
+        assert!(find_task_rule_pos("obj.method()", "obj.method()", "obj.method(").is_some());
+        assert!(find_task_rule_pos("obj.method()", "obj.method()", ".method(").is_some());
+        assert!(find_task_rule_pos("obj.method()", "obj.method()", ".methods(").is_none());
+    }
 
     #[test]
     fn task_identifier_rules_use_token_boundaries() {

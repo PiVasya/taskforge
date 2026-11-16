@@ -61,6 +61,7 @@ using (var assignmentSpecScope = app.Services.CreateScope())
 {
     var db = assignmentSpecScope.ServiceProvider.GetRequiredService<TasksDbContext>();
     await TaskForge.Tasks.Api.Services.Specs.AssignmentSpecBackfillService.BackfillAsync(db);
+    await TaskForge.Tasks.Api.Services.Testing.TestAttemptStorageCleanupService.CleanupAsync(db, app.Logger);
 }
 
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }

@@ -12,9 +12,10 @@ export function literalTextDocument(value) {
 }
 
 export function parseQuizDocument(value) {
-  if (!value || typeof value !== 'string') return null;
+  if (!value) return null;
   try {
-    const doc = JSON.parse(value);
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    const doc = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
     return doc && doc.type === 'doc' && Array.isArray(doc.content) ? doc : null;
   } catch {
     return null;
@@ -34,7 +35,7 @@ export function quizRichValue(rich, fallback = '') {
   // A partially migrated record can have an empty rich document but still have its old prompt.
   // Never replace a nonempty document: switching editor modes must preserve its formatting.
   return doc && (documentHasVisibleContent(doc) || !String(fallback || '').trim())
-    ? rich
+    ? (typeof rich === 'string' && rich.trimStart().startsWith('{') ? rich : JSON.stringify(doc))
     : JSON.stringify(literalTextDocument(fallback));
 }
 

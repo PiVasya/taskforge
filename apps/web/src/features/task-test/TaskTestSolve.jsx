@@ -11,6 +11,8 @@ import {
   subscribeAttemptAnswers,
 } from '../attempts/attemptAnswerStore';
 import TaskTestQuestion from './TaskTestQuestion';
+import { normalizeQuizQuestions } from './quizRichContent';
+import { currentTestFromConflict } from './latestTestRevision';
 import QuizAttemptReviewQuestions from './QuizAttemptReviewQuestions';
 import { recoverSubmittedAttempt, shouldRecoverSubmittedAttempt } from '../attempts/recoverSubmittedAttempt';
 
@@ -58,7 +60,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
   const lastAnswerActivityRef = useRef({ signature: '', at: 0 });
 
   const storeKey = startData?.attemptId ? `test:${startData.attemptId}` : '';
-  const questions = useMemo(() => startData?.questions ?? [], [startData?.questions]);
+  const questions = useMemo(() => normalizeQuizQuestions(startData?.questions), [startData?.questions]);
   const timeLimitSeconds = startData?.timeLimitSeconds ?? startData?.attemptTimeLimitSeconds ?? null;
 
   useEffect(() => () => {
@@ -127,6 +129,7 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       });
       const payload = {
         attemptId: startData.attemptId,
+        testRevision: startData.testRevision,
         answers: Object.entries(answers).map(([questionId, value]) => ({
           questionId,
           selectedOptionKey: value?.selectedOptionKey ?? (value?.selectedOptionKeys?.[0] ?? null),
@@ -137,6 +140,14 @@ function TaskTestSolve({ assignmentId, assignment, onActivity, onCompleted }) {
       const response = await submitTestAttempt(assignmentId, startData.attemptId, payload);
       applySubmittedResult(response, false);
     } catch (error) {
+      const latest = currentTestFromConflict(error, startData?.attemptId);
+      if (latest) {
+        resetAttemptAnswers(storeKey);
+        lastAnswerActivityRef.current = { signature: '', at: 0 };
+        setStartData(latest);
+        notify.info('Автор обновил тест. Загружены актуальные вопросы; заполните ответы заново.');
+        return;
+      }
       if (shouldRecoverSubmittedAttempt(error) && startData?.attemptId) {
         const recovered = await recoverSubmittedAttempt(() => getTestAttempt(assignmentId, startData.attemptId));
         if (recovered) {

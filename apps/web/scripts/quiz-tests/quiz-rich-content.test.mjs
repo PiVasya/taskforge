@@ -15,6 +15,27 @@ test('legacy TXT questions become literal Tiptap documents with blanks intact', 
   assert.equal(quizHasInlineBlank({ promptContentJson: rich }), true);
 });
 
+test('learner normalizes TipTap from an API object or doubly serialized value before showing images', () => {
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Выберите рисунок:' },
+    { type: 'image', attrs: { src: '/api/files/figure.png', width: 240 } },
+  ] }] };
+  const cases = [doc, JSON.stringify(doc), JSON.stringify(JSON.stringify(doc))];
+  for (const incoming of cases) {
+    const [question] = normalizeQuizQuestions([{
+      id: 'q1', type: 'single-choice', prompt: 'Выберите рисунок: [Изображение]',
+      promptContentJson: incoming,
+      options: [{ key: 'a', text: '[Изображение]', contentJson: incoming }],
+    }]);
+    const renderedDoc = parseQuizDocument(question.promptContentJson);
+    const choiceDoc = parseQuizDocument(question.options[0].contentJson);
+    assert.equal(renderedDoc.content[0].content[1].attrs.src, '/api/files/figure.png');
+    assert.equal(choiceDoc.content[0].content[1].attrs.src, '/api/files/figure.png');
+    assert.notEqual(quizDocumentPlainText(question.promptContentJson), question.prompt);
+    assert.equal(question.id, 'q1');
+  }
+});
+
 test('one question mode controls all answers without altering their rich documents', () => {
   const rich = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [
     { type: 'text', text: '7', marks: [{ type: 'superscript' }] },

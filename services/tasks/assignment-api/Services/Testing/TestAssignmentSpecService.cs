@@ -14,14 +14,21 @@ internal static class TestAssignmentSpecService
         TasksDbContext db,
         Assignment assignment,
         CancellationToken ct = default)
+        => (await ReadVersionedAsync(db, assignment, ct)).Spec;
+
+    // An edit/re-import advances this token even if a question keeps its ID.
+    // The token is a database timestamp, not a hash of private answer keys.
+    internal static async Task<(TaskSpec Spec, string Revision)> ReadVersionedAsync(
+        TasksDbContext db,
+        Assignment assignment,
+        CancellationToken ct = default)
     {
         var row = await db.TestAssignmentSpecs
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.AssignmentId == assignment.Id, ct);
-
         return row is null
-            ? ReadLegacy(assignment)
-            : ParseTaskSpec(ToNode(row));
+            ? (ReadLegacy(assignment), assignment.UpdatedAt.ToUniversalTime().Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            : (ParseTaskSpec(ToNode(row)), row.UpdatedAt.ToUniversalTime().Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     internal static async Task<Dictionary<Guid, TaskSpec>> LoadAsync(
@@ -174,20 +181,6 @@ internal static class TestAssignmentSpecService
 
         var row = db.TestAssignmentSpecs.Local.FirstOrDefault(x => x.AssignmentId == assignment.Id)
                   ?? await db.TestAssignmentSpecs.FirstOrDefaultAsync(x => x.AssignmentId == assignment.Id, ct);
-        if (row is null || row.SettingsJson != settingsJson || row.QuestionsJson != questionsJson)
-        {
-            // Before an author/import replaces the live spec, upgrade still-open
-            // legacy attempts from ID-only order into full immutable snapshots.
-            // Otherwise the old IDs (and answers) may disappear mid-attempt.
-            var previous = row is null ? ReadLegacy(assignment) : ParseTaskSpec(ToNode(row));
-            var active = await db.Attempts
-                .Where(x => x.Kind == "test" && x.TaskAssignmentId == assignment.Id && x.SubmittedAt == null)
-                .ToListAsync(ct);
-            foreach (var attempt in active)
-            {
-                TestAttemptQuestionSnapshot.TryUpgradeLegacy(attempt, previous);
-            }
-        }
         if (row is null)
         {
             row = new TestAssignmentSpec
