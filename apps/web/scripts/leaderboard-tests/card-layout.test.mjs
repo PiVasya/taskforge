@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { measureLeaderboardMarquee } from '../../src/components/leaderboardMarqueeMotion.mjs';
+import { getLeaderboardRowRevealDelay } from '../../src/components/leaderboardPodiumModel.mjs';
 
 const card = await readFile(new URL('../../src/components/LeaderboardCard.jsx', import.meta.url), 'utf8');
 const page = await readFile(new URL('../../src/pages/admin/LeaderboardPage.jsx', import.meta.url), 'utf8');
@@ -137,5 +138,10 @@ test('leaderboard requests 24 students initially and 24 more per click', () => {
   assert.match(page, /params\.pageSize = LEADERBOARD_PAGE_SIZE;/);
   assert.match(page, /const nextPage = reset \? 1 : currentPage \+ 1;/);
   assert.match(page, /setEntries\(\(prev\) => reset \? parsed\.items : \[\.\.\.prev, \.\.\.parsed\.items\]\)/);
-  assert.match(page, /index % LEADERBOARD_PAGE_SIZE/);
+  // The podium occupies three slots of page one. Newly fetched rows must not
+  // be delayed behind that offset on page two.
+  assert.equal(getLeaderboardRowRevealDelay(20, 3, 24), 700);
+  assert.equal(getLeaderboardRowRevealDelay(21, 3, 24), null);
+  assert.equal(getLeaderboardRowRevealDelay(22, 3, 24), null);
+  assert.equal(getLeaderboardRowRevealDelay(23, 3, 24), null);
 });

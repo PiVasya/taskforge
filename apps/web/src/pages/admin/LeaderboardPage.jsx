@@ -8,7 +8,7 @@ import { getGroups } from '../../api/groups';
 import LeaderboardCard from '../../components/LeaderboardCard';
 import LeaderboardPodium from '../../components/LeaderboardPodium';
 import LeaderboardProfileDialog from '../../components/LeaderboardProfileDialog';
-import { splitLeaderboardEntries } from '../../components/leaderboardPodiumModel.mjs';
+import { splitLeaderboardEntries, getLeaderboardRowRevealDelay } from '../../components/leaderboardPodiumModel.mjs';
 import QuotaPill from '../../components/QuotaPill';
 import { Card, Input, Select, Button } from '../../components/ui';
 import { useNotify } from '../../components/notify/NotifyProvider';
@@ -263,11 +263,18 @@ export default function LeaderboardPage() {
           <>
             {podium.length === 3 && <LeaderboardPodium entries={podium} onOpenProfile={openProfile} profileOpen={Boolean(profileEntry)} />}
             <div className="tf-leaderboard-grid grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {regular.map((e, index) => (
-                <div key={e.userId || index} className="tf-reveal-item h-full min-w-0" style={{ "--tf-reveal-delay": `${(index % LEADERBOARD_PAGE_SIZE) * 35}ms` }}>
-                  <LeaderboardCard entry={e} onOpenProfile={openProfile} />
-                </div>
-              ))}
+              {regular.map((e, index) => {
+                const revealDelay = getLeaderboardRowRevealDelay(index, podium.length, LEADERBOARD_PAGE_SIZE);
+                return (
+                  <div
+                    key={e.userId || index}
+                    className={`${revealDelay === null ? '' : 'tf-reveal-item '}h-full min-w-0`}
+                    style={revealDelay === null ? undefined : { '--tf-reveal-delay': `${revealDelay}ms` }}
+                  >
+                    <LeaderboardCard entry={e} onOpenProfile={openProfile} />
+                  </div>
+                );
+              })}
             </div>
             {entries.length > 0 && (
               <div className="mt-4 flex flex-col items-center gap-2">

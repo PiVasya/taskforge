@@ -525,7 +525,7 @@ export default function CoursesPage() {
         </div>
       )}
       {loading && (
-        <div className="auto-fill-grid">
+        <div className="auto-fill-grid pb-3 pr-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <div key={index} className="tf-skeleton-card tf-reveal-item" style={{ "--tf-reveal-delay": `${index * 45}ms` }}>
               <div className="tf-skeleton tf-skeleton-line mb-4 w-2/3" />
@@ -539,7 +539,7 @@ export default function CoursesPage() {
 
       {!loading && (
         <div
-          className="auto-fill-grid"
+          className="auto-fill-grid pb-3 pr-3"
           onContextMenuCapture={(event) => { if (event.target === event.currentTarget) openContextMenu(event, null); }}
           onDragOver={(event) => {
             if (!draggedCourseId || !editorTools) return;

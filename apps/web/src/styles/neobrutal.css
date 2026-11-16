@@ -961,10 +961,23 @@ html.neo-brutal .settings-nav-item:hover {
 }
 
 html.neo-brutal .settings-nav-item.is-active {
+  position: relative;
   border-color: rgb(var(--neo-ink));
   background: rgb(var(--brand-200));
   color: rgb(20 20 22);
-  box-shadow: inset 5px 0 0 rgb(var(--neo-ink)), 4px 4px 0 0 rgb(var(--neo-ink));
+  box-shadow: var(--neo-shadow-xs);
+}
+
+html.neo-brutal .settings-nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 4px;
+  width: 3px;
+  border-radius: 999px;
+  background: rgb(var(--neo-ink));
+  pointer-events: none;
 }
 
 

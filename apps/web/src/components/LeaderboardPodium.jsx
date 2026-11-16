@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import LeaderboardCard from './LeaderboardCard';
 import { mountLeaderboardParticles } from './leaderboardParticles';
-import { getLeaderboardName, getLeaderboardLogin } from './leaderboardPodiumModel.mjs';
+import { getLeaderboardName, getLeaderboardLogin, getLeaderboardPodiumIdentity } from './leaderboardPodiumModel.mjs';
 import { positionLeaderboardInlinePreview } from './leaderboardInlinePreviewPosition.mjs';
 import './LeaderboardPodium.css';
 
@@ -43,13 +43,14 @@ export default function LeaderboardPodium({ entries, onOpenProfile, profileOpen 
   const [activeRank, setActiveRank] = useState(null);
   const [renderRank, setRenderRank] = useState(null);
   const selected = entries.find((entry) => Number(entry.rank) === renderRank) || null;
+  const podiumIdentity = getLeaderboardPodiumIdentity(entries);
 
   useEffect(() => {
     if (!sceneRef.current || !canvasRef.current) return undefined;
     const scene = sceneRef.current;
     const winners = Array.from(scene.querySelectorAll('.tf-top3-winner'));
     return mountLeaderboardParticles({ scene, canvas: canvasRef.current, winners });
-  }, [entries]);
+  }, [podiumIdentity]);
 
   const clearHide = useCallback(() => {
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);

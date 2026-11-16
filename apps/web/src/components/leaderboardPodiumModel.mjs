@@ -29,3 +29,18 @@ export function getLeaderboardLogin(entry) {
 export function getLeaderboardSolved(entry) {
   return entry?.solvedAssignments ?? entry?.solvedCount ?? entry?.solved ?? 0;
 }
+
+// The first server page is animated once. Later pages render immediately so
+// appended entries never leave empty grid cells waiting for staggered delays.
+export function getLeaderboardRowRevealDelay(gridIndex, podiumCount = 0, pageSize = 24) {
+  if (!Number.isInteger(gridIndex) || gridIndex < 0 || !Number.isInteger(pageSize) || pageSize < 1) return null;
+  const firstPageOffset = Math.max(0, Number(podiumCount) || 0);
+  return gridIndex + firstPageOffset < pageSize ? gridIndex * 35 : null;
+}
+
+// Rebuilding the GPU scene when more rows are appended causes avoidable gaps
+// and lost animation state. Only a change in the actual winners requires it.
+export function getLeaderboardPodiumIdentity(entries) {
+  if (!Array.isArray(entries)) return '';
+  return entries.map((entry) => `${Number(entry?.rank)}:${String(entry?.userId || '')}`).join('|');
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitLeaderboardEntries, getLeaderboardName, getLeaderboardLogin, getLeaderboardSolved } from '../../src/components/leaderboardPodiumModel.mjs';
+import { splitLeaderboardEntries, getLeaderboardName, getLeaderboardLogin, getLeaderboardSolved, getLeaderboardRowRevealDelay, getLeaderboardPodiumIdentity } from '../../src/components/leaderboardPodiumModel.mjs';
 
 test('three ranked users are separated and shown in levitation display in 2-1-3 order', () => {
   const entries = Array.from({ length: 24 }, (_, i) => ({ userId: String(i + 1), rank: i + 1 }));
@@ -25,4 +25,36 @@ test('leaderboard data uses server names, logins, and solved counts including ze
   assert.equal(getLeaderboardLogin({ userLogin: 'Maria' }), 'Maria');
   assert.equal(getLeaderboardSolved({ solvedAssignments: 0, solvedCount: 100 }), 0);
   assert.equal(getLeaderboardSolved({ solvedCount: 12 }), 12);
+});
+
+
+test('each added page appears without the three long empty slots left by the top podium', () => {
+  const entries = Array.from({ length: 48 }, (_, i) => ({ userId: String(i + 1), rank: i + 1 }));
+  const { podium, regular } = splitLeaderboardEntries(entries);
+  assert.equal(podium.length, 3);
+  assert.equal(regular.length, 45);
+  assert.equal(getLeaderboardRowRevealDelay(0, podium.length), 0);
+  assert.equal(getLeaderboardRowRevealDelay(20, podium.length), 700);
+  for (let index = 21; index < regular.length; index++) {
+    assert.equal(getLeaderboardRowRevealDelay(index, podium.length), null, `new row at index ${index} must not be hidden`);
+  }
+  assert.equal(getLeaderboardRowRevealDelay(0, 0), 0);
+  assert.equal(getLeaderboardRowRevealDelay(23, 0), 805);
+  assert.equal(getLeaderboardRowRevealDelay(24, 0), null);
+  assert.equal(getLeaderboardRowRevealDelay(-1, 3), null);
+});
+
+test('existing winners keep their GPU particle scene when another leaderboard page arrives', () => {
+  const initial = [
+    { rank: 2, userId: 'b' },
+    { rank: 1, userId: 'a' },
+    { rank: 3, userId: 'c' },
+  ];
+  const afterLoadingMore = initial.map((entry) => ({ ...entry }));
+  assert.equal(getLeaderboardPodiumIdentity(initial), getLeaderboardPodiumIdentity(afterLoadingMore));
+  assert.notEqual(getLeaderboardPodiumIdentity(initial), getLeaderboardPodiumIdentity([
+    { rank: 2, userId: 'b' },
+    { rank: 1, userId: 'other' },
+    { rank: 3, userId: 'c' },
+  ]));
 });
