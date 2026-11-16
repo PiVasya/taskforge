@@ -43,7 +43,9 @@ public sealed class TestAttemptCurrentVersionTests
             ["spec"] = AssignmentApiSerializationService.TaskSpecToJsonObject(old)
         };
         var attempt = new TaskAttempt { OrderJson = legacy.ToJsonString() };
-        var displayed = JsonSerializer.SerializeToElement(AssignmentApiTestingService.TestStartDto(attempt, live));
+        var displayed = JsonSerializer.SerializeToElement(
+            AssignmentApiTestingService.TestStartDto(attempt, live),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var question = displayed.GetProperty("questions")[0];
         Assert.Equal("NEW QUESTION", question.GetProperty("prompt").GetString());
         Assert.Equal(45, displayed.GetProperty("passPercent").GetInt32());
@@ -87,7 +89,9 @@ public sealed class TestAttemptCurrentVersionTests
         var a = Guid.NewGuid();
         var b = Guid.NewGuid();
         var old = new TaskAttempt { OrderJson = JsonSerializer.Serialize(new[] { b, a }) };
-        var spec = new TaskSpec(Spec(a, "A").Settings, [Spec(a, "A").Questions[0], Spec(b, "B").Questions[0]]);
+        var spec = new TaskSpec(
+            Spec(a, "A").Settings with { ShuffleQuestions = false },
+            [Spec(a, "A").Questions[0], Spec(b, "B").Questions[0]]);
         Assert.Equal(new[] { a, b }, TestAttemptQuestionOrder.Resolve(old, spec));
     }
 
