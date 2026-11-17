@@ -1,10 +1,11 @@
 name: K3s sandbox / YugabyteDB CI + isolated images
 
-# This workflow belongs ONLY to the experimental K3s branch. It never deploys
-# onto TaskForge production hosts and never pushes :develop or :latest images.
+# Builds the isolated K3s lab branch (currently cluster-v2), never develop/main.
+# It never deploys onto TaskForge production hosts and never publishes :develop/:latest.
 on:
   push:
     branches:
+      - 'cluster-v2'
       - 'k3s-*'
       - 'k3s/**'
   workflow_dispatch:
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   k3s-manifests:
     name: Sandbox manifests / invariants
-    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -41,6 +42,8 @@ jobs:
           test ! -f .github/workflows/develop-build.yml
           test ! -f .github/workflows/develop-full-rebuild.yml
           test ! -f .github/workflows/minecraft-plugins-build.yml
+      - name: Check exact CI branch triggers and isolation
+        run: python3 scripts/ci/check-k3s-workflow-trigger.py
       - name: Check actual Docker build-stage source coverage
         run: python3 scripts/ci/check-k3s-docker-context.py
       - name: Check Yugabyte migration job / lock compatibility contract
@@ -77,7 +80,7 @@ jobs:
 
   dotnet-build:
     name: Build ${{ matrix.service }}
-    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -128,7 +131,7 @@ jobs:
 
   frontend:
     name: React frontend
-    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -152,7 +155,7 @@ jobs:
   yugabyte-migrations:
     name: Real YugabyteDB YSQL + EF Core migrations
     needs: k3s-manifests
-    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
     runs-on: ubuntu-latest
     timeout-minutes: 38
     env:
@@ -238,7 +241,7 @@ jobs:
   docker-build-smoke:
     name: Docker image builds / ${{ matrix.name }} (no push)
     needs: k3s-manifests
-    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -282,7 +285,7 @@ jobs:
   publish-lab-images:
     name: Publish only k3s-lab/${{ matrix.name }}
     needs: [k3s-manifests, dotnet-build, frontend, yugabyte-migrations, docker-build-smoke]
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/'))
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:

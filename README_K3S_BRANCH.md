@@ -14,37 +14,46 @@
 
 **Важно:** живую совместимость каждого EF Core migration с YugabyteDB и запуск сайта можно подтвердить только на реальном K3s. Локальные Node-тесты и статические проверки не заменяют этот запуск. Данные со старого PostgreSQL здесь НЕ импортированы.
 
-## 1. Поместить именно этот ПОЛНЫЙ архив в новую ветку GitHub
+## 1. Обновить существующую ветку `cluster-v2` (НЕ `develop`)
 
-Архив распаковывается в каталог `taskforge-k3s-yugabyte-full/` (внутри уже лежат `.github`, `apps`, `services`, `tools` и т. п.). В нём нет `.git` и сохранённых секретов. **Не копируй файлы в рабочую production-папку.**
+В `cluster-v2` сейчас есть старая копия архива, где GitHub Actions не был подписан на имя ветки, а старые workflows остались после загрузки поверх файлов. **Обычное копирование новых файлов без удаления старых недостаточно.**
 
-Самый безопасный вариант — создать отдельный **новый** каталог для checkout. На Linux:
+1. Распакуй данный ZIP в **отдельный каталог**, содержащий `.github`, `apps`, `services`, `tools` и т. д.
+2. Сделай **свежий checkout только ветки `cluster-v2`** в новую папку:
 
 ```bash
-# Внимание: выполняй в отдельной временной папке; ниже происходит
-# замена файлов ТОЛЬКО внутри только что созданного checkout.
-git clone https://github.com/PiVasya/taskforge.git taskforge-k3s-new
-cd taskforge-k3s-new
-git switch -c k3s-local
+git clone --branch cluster-v2 --single-branch https://github.com/PiVasya/taskforge.git taskforge-cluster-v2-new
+cd taskforge-cluster-v2-new
+test "$(git branch --show-current)" = cluster-v2 || exit 1
+test -z "$(git status --porcelain)" || { echo 'Checkout is not clean'; exit 1; }
 
-# ЗАМЕНИ путь ниже на каталог, в который распаковал ЭТОТ ZIP.
-SRC=/absolute/path/to/taskforge-k3s-yugabyte-full
-[ -f "$SRC/README_K3S_BRANCH.md" ] || { echo 'Неверная папка SRC'; exit 1; }
+# УКАЖИ ПУТЬ К РАСПАКОВАННОМУ НОВОМУ ZIP (каталог с README_K3S_BRANCH.md)
+SRC=/absolute/path/to/taskforge-cluster-v2-k3s-fixed
+test -f "$SRC/.github/workflows/k3s-sandbox-ci.yml" || exit 1
+# Удалить только старые файлы В ЭТОМ НОВОМ CHECKOUT, сохранив .git.
 rsync -a --delete --exclude='.git/' "$SRC/" ./
 
+# Проверка: остался только workflow K3s, старый production отсутствует.
+ls .github/workflows/
+test ! -f .github/workflows/develop-build.yml || exit 1
+test ! -f .github/workflows/minecraft-plugins-build.yml || exit 1
+python3 scripts/ci/check-k3s-workflow-trigger.py
+
 git add -A
-git status --short
-git commit -m 'Separate local K3s YugabyteDB TaskForge'
-git push -u origin k3s-local
+git diff --cached --stat
+git commit -m 'Fix cluster-v2 K3s YugabyteDB CI and remove legacy stack'
+git push origin cluster-v2
 ```
 
-`rsync --delete` здесь нужен, чтобы **в новой ветке** не остались старые production-файлы, которых в нашем полном архиве уже нет. Применяй эту команду исключительно к свежему checkout `taskforge-k3s-new`, а не к другим директориям. Если ветка `k3s-local` уже занята, выбери другое имя с префиксом `k3s-`.
+Не выполняй `rsync --delete` в каталоге работающего сервера или в рабочем `develop`. Эта команда предназначена **исключительно** для свежего checkout `cluster-v2`.
 
-GitHub сам не распакует ZIP, загруженный как один файл через веб-интерфейс: нужно залить содержимое каталога через Git.
+После push GitHub Actions должен запустить `K3s sandbox / YugabyteDB CI + isolated images`. Запускается сам CI, **не** развёртывание на домашнем ПК. Если какой-либо job упадёт, его лог покажет ошибку; публикация образов будет заблокирована.
+
+**Если ты хочешь ветку с другим именем:** автоматический trigger допускает `k3s-*` и `k3s/**`. Ветки `main` и `develop` сознательно исключены.
 
 ## 2. Что делает новый CI/CD
 
-При push ветки `k3s-*` выполняется `.github/workflows/k3s-sandbox-ci.yml`:
+При push ветки `cluster-v2` или `k3s-*`/`k3s/**` выполняется `.github/workflows/k3s-sandbox-ci.yml`:
 
 1. Проверяет изоляцию манифестов, Docker-контексты и скрипты K3s.
 2. Собирает шесть API на .NET 10, запускает их тесты и **все** фронтенд-тесты; собирает React.

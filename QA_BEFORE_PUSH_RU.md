@@ -1,3 +1,15 @@
+# Исправление CI на `cluster-v2` — 18 ноября 2026
+
+**Почему не было сборки:** `.github/workflows/k3s-sandbox-ci.yml` слушал только `k3s-*` и `k3s/**`, а ветка называется `cluster-v2`. Его шесть job также имели такие же ограничительные `if:`. На этом основании новый workflow не запускался. Старый `minecraft-plugins-build.yml` не имел такого ограничения и показался в Actions.
+
+**Дополнительно:** в загруженной ветке остались старые `deploy/*`, `apps/web-ct`, `services/ai/worker`, три старых workflows; в ней отсутствовали два bootstrap SQL-файла YugabyteDB. Они удалены/восстановлены в этом полном ZIP. Изоляция CI требует реального удаления старых путей из ветки — используй `rsync --delete` из `README_K3S_BRANCH.md`.
+
+**Исправления:** push `cluster-v2` добавлен в workflow; все 6 job теперь разрешены для `cluster-v2`; добавлен `scripts/ci/check-k3s-workflow-trigger.py`, проверяющий triggers, legacy-файлы и YSQL SQL bootstrap; публикация остаётся отделённой от `develop`.
+
+**Ограничение:** сборка .NET/Docker и живые миграции YugabyteDB должны пройти в GitHub Actions — в этой среде соответствующие движки не установлены. Сохранённые ранее проверки исходников не являются доказательством успешного CI.
+
+---
+
 # TaskForge K3s / YugabyteDB: аудит перед push
 
 Это полный исходный код для отдельной ветки `k3s-local`. Его нельзя смешивать с `develop` или действующим Docker Compose production.
