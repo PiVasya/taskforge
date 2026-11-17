@@ -11,7 +11,7 @@ The browser must talk to the backend through same-origin URLs only:
 /hubs/*
 ```
 
-Do not hardcode `localhost`, `taskforge.by`, `ct.taskforge.by`, gateway ports, or direct microservice URLs in frontend code. In dev the public origin is usually `http://localhost:18080`; in production it is `https://taskforge.by`. The gateway owns all routing.
+Do not hardcode `localhost`, `taskforge.by`, gateway ports, or direct microservice URLs in frontend code. In dev the public origin is usually `http://localhost:18080`; in production it is `https://taskforge.by`. The gateway owns all routing.
 
 ## Local development
 

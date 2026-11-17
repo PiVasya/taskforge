@@ -42,6 +42,24 @@ builder.Services.AddHostedService<StudentBotHostedService>();
 
 var app = builder.Build();
 
+// The standalone Telegram quiz bot is preserved, but its K3s database is YSQL.
+if (builder.Configuration.GetValue("Database:RequireYugabyte", false))
+{
+    using var ysqlGuardScope = app.Services.CreateScope();
+    var ysqlGuardDb = ysqlGuardScope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
+    var ysqlConnection = ysqlGuardDb.Database.GetDbConnection();
+    await ysqlConnection.OpenAsync();
+    try
+    {
+        await using var ysqlCommand = ysqlConnection.CreateCommand();
+        ysqlCommand.CommandText = "SELECT version()";
+        var ysqlVersion = (await ysqlCommand.ExecuteScalarAsync())?.ToString();
+        if (ysqlVersion is null || !ysqlVersion.Contains("-YB-", global::System.StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("K3s Telegram quiz bot requires YugabyteDB YSQL.");
+    }
+    finally { await ysqlConnection.CloseAsync(); }
+}
+
 app.UseTaskForgeDebugRequestLogging("telegram-quiz-bot");
 
 if (args.Length >= 2 && args[0] == "--import-old-sqlite")
@@ -81,4 +99,15 @@ app.MapGet("/ready", async (IServiceProvider services, IConfiguration configurat
         : Microsoft.AspNetCore.Http.Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
 
-app.Run();
+// K3s migration Job migrates this bot DB without starting Telegram polling.
+if (builder.Configuration.GetValue("Database:MigrationJobOnly", false))
+{
+    using var migrationScope = app.Services.CreateScope();
+    var migrationDb = migrationScope.ServiceProvider.GetRequiredService<TelegramQuizDbContext>();
+    await migrationDb.Database.MigrateAsync();
+    app.Logger.LogInformation("Telegram quiz bot migrations completed; exiting without polling.");
+}
+else
+{
+    app.Run();
+}

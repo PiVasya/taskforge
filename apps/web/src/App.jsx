@@ -13,7 +13,6 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
-const AgentPage = lazy(() => import('./pages/AgentPage'));
 const AdminAiAccountManagerPage = lazy(() => import('./pages/admin/AdminAiAccountManagerPage'));
 const NewsPage = lazy(() => import('./pages/NewsPage'));
 const UpdatePostPage = lazy(() => import('./pages/UpdatePostPage'));
@@ -48,11 +47,6 @@ const AdminUserActionsPage = lazy(() => import('./pages/admin/AdminUserActionsPa
 const MinecraftChatPage = lazy(() => import('./pages/minecraft/MinecraftChatPage'));
 const CompilerPage = lazy(() => import('./pages/CompilerPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
-
-function AdminAiRedirect() {
-  const location = useLocation();
-  return <Navigate to={`/admin/ai/account-manager${location.search || ''}`} replace />;
-}
 
 export default function App() {
   const location = useLocation();
@@ -115,9 +109,6 @@ export default function App() {
               <Route path="/admin/system-status" element={<Navigate to="/admin/cluster" replace />} />
               <Route path="/admin/ai" element={<Navigate to="/admin/ai/account-manager" replace />} />
               <Route path="/admin/ai/account-manager" element={<AdminAiAccountManagerPage />} />
-              <Route path="/admin/ai/assistant" element={<AgentPage />} />
-              <Route path="/agent" element={<AdminAiRedirect />} />
-              <Route path="/ai" element={<AdminAiRedirect />} />
               <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
               <Route path="/admin/activity" element={<AdminUserActionsPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />

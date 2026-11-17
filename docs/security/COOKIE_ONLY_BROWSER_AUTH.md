@@ -1,3 +1,7 @@
+# Historical auth design note
+
+> Stage 4 retired the separate CT/Masha frontend. References to `apps/web-ct` below describe a historical rollout, not current build or deployment instructions. See `docs/architecture/CT_RETIREMENT_STAGE4.md`.
+
 # Cookie-only browser authentication
 
 ## Scope

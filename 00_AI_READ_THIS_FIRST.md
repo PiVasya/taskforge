@@ -1,3 +1,15 @@
+## MultiNode source branch: LLM assistant retired
+
+This branch deliberately removes the former LLM agent/assistant and ai-worker.
+Only the deterministic Account Intelligence / Account Manager subsystem remains
+in the legacy ai-api image. Do not restore removed LLM endpoints, assistant UI,
+agent-worker dependencies, OpenAI model configuration, or agent Docker images.
+The Account Manager still owns its existing HTTP contract and PostgreSQL schema;
+committed migrations and ModelSnapshots are preserved. Browser API is independent
+of LLM inference and retained for now.
+
+See docs/architecture/LLM_REMOVAL_STAGE3.md.
+
 ## Current SQL release and production entrypoint
 
 The Go SQL runtime release originated from user source develop(212), including the user's three

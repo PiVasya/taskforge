@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Ai.Api.Data;
+using TaskForge.Shared.Import;
 
 namespace TaskForge.Ai.Api.Services.AccountIntelligence;
 
+// Multi-replica safe: an operation can be executed by only one API instance at
+// a time. Recovery happens only after its PostgreSQL session lock is released.
+// Completed step receipts remain intact, so the coordinator can resume them.
 internal sealed class AccountLifecycleWorker(
     IServiceScopeFactory scopeFactory,
     AccountLifecycleCoordinator coordinator,
@@ -10,64 +14,73 @@ internal sealed class AccountLifecycleWorker(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await RecoverInterruptedOperationsAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var operationId = await ClaimNextOperationAsync(stoppingToken);
-                if (operationId.HasValue)
-                {
-                    await coordinator.ProcessOperationAsync(operationId.Value, stoppingToken);
-                    continue;
-                }
+                if (await RunOneAsync(stoppingToken)) continue;
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Account lifecycle worker loop failed");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            try { await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
-    private async Task<Guid?> ClaimNextOperationAsync(CancellationToken ct)
+    private async Task<bool> RunOneAsync(CancellationToken ct)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AiDbContext>();
-        var operation = await db.AccountManagementOperations
-            .Where(x => x.Status == "queued" && !x.CancelRequested)
-            .OrderBy(x => x.CreatedAtUtc)
-            .FirstOrDefaultAsync(ct);
-        if (operation == null) return null;
-        operation.Status = "starting";
-        operation.Phase = "starting";
-        operation.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return operation.Id;
-    }
+        await using var scanScope = scopeFactory.CreateAsyncScope();
+        var scanDb = scanScope.ServiceProvider.GetRequiredService<AiDbContext>();
+        var ids = await scanDb.AccountManagementOperations.AsNoTracking()
+            .Where(x => x.Status == "queued" || x.Status == "starting" || x.Status == "running")
+            .OrderBy(x => x.Status == "queued" ? 0 : 1)
+            .ThenBy(x => x.CreatedAtUtc)
+            .Select(x => x.Id)
+            .Take(128)
+            .ToArrayAsync(ct);
 
-    private async Task RecoverInterruptedOperationsAsync(CancellationToken ct)
-    {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AiDbContext>();
-        var interrupted = await db.AccountManagementOperations
-            .Where(x => x.Status == "running" || x.Status == "starting")
-            .ToListAsync(ct);
-        foreach (var operation in interrupted)
+        foreach (var id in ids)
         {
-            operation.Status = operation.CancelRequested ? "cancelled" : "queued";
-            operation.Phase = operation.CancelRequested ? "cancelled-after-restart" : "recovered-after-restart";
-            operation.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            ct.ThrowIfCancellationRequested();
+            await using var lockScope = scopeFactory.CreateAsyncScope();
+            var lockDb = lockScope.ServiceProvider.GetRequiredService<AiDbContext>();
+            await using var guard = await PostgresImportLock.TryAcquireAsync(lockDb, $"ai-account-lifecycle:{id:N}", ct);
+            if (guard is null) continue;
+
+            var operation = await lockDb.AccountManagementOperations.AsNoTracking()
+                .Where(x => x.Id == id)
+                .Select(x => new { x.Status, x.CancelRequested })
+                .SingleOrDefaultAsync(ct);
+            if (operation is null || operation.Status is not ("queued" or "starting" or "running")) continue;
+            if (operation.CancelRequested)
+            {
+                await lockDb.AccountManagementOperations
+                    .Where(x => x.Id == id && (x.Status == "queued" || x.Status == "starting" || x.Status == "running"))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(x => x.Status, "cancelled")
+                        .SetProperty(x => x.Phase, "cancelled")
+                        .SetProperty(x => x.CompletedAtUtc, DateTimeOffset.UtcNow)
+                        .SetProperty(x => x.UpdatedAtUtc, DateTimeOffset.UtcNow), ct);
+                return true;
+            }
+
+            var updated = await lockDb.AccountManagementOperations
+                .Where(x => x.Id == id && !x.CancelRequested &&
+                    (x.Status == "queued" || x.Status == "starting" || x.Status == "running"))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.Status, "starting")
+                    .SetProperty(x => x.Phase, "starting")
+                    .SetProperty(x => x.UpdatedAtUtc, DateTimeOffset.UtcNow), ct);
+            if (updated == 0) continue;
+
+            logger.LogInformation("Claimed account lifecycle {OperationId} under PostgreSQL advisory lock", id);
+            await AccountWorkerLease.RunAsync(lockDb, token => coordinator.ProcessOperationAsync(id, token), logger, ct);
+            return true;
         }
-        if (interrupted.Count > 0)
-        {
-            await db.SaveChangesAsync(ct);
-            logger.LogWarning("Recovered {Count} interrupted account lifecycle operations", interrupted.Count);
-        }
+        return false;
     }
 }

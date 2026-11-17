@@ -11,7 +11,6 @@ ITEMS=(
   "education|services/education/api/TaskForge.Education.Api.csproj|EducationDbContext|Migrations"
   "content|services/content/api/learning-content-service.csproj|LearningDbContext|Migrations"
   "assignment|services/tasks/assignment-api/TaskForge.Tasks.Api.csproj|TasksDbContext|Migrations"
-  "quiz|services/tasks/quiz-api/quiz-task-service.csproj|QuizDbContext|Migrations"
   "solutions|services/solutions/api/TaskForge.Solutions.Api.csproj|SolutionsDbContext|Migrations"
   "execution|services/execution/api/TaskForge.Execution.Api.csproj|ExecutionDbContext|Migrations"
   "ai|services/ai/api/TaskForge.Ai.Api.csproj|AiDbContext|Migrations"

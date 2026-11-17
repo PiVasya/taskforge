@@ -1001,7 +1001,7 @@ export default function AdminAiAccountManagerPage() {
     <div className="space-y-5 sm:space-y-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500"><span>ИИ</span><span>›</span><span>Менеджер аккаунтов</span></div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500"><span>Администрирование</span><span>›</span><span>Менеджер аккаунтов</span></div>
           <h1 className="flex items-center gap-3 text-2xl font-semibold sm:text-3xl"><span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgb(var(--border))]"><BrainCircuit size={23} /></span>Менеджер аккаунтов</h1>
           <p className="mt-2 max-w-4xl text-sm text-neutral-500">Поиск дублей теперь связан с полным управлением жизненным циклом: проверка, блокировка, разблокировка, объединение, безопасное удаление и обратимое управление решениями.</p>
         </div>

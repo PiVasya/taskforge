@@ -10,9 +10,6 @@ const FULL_WIDTH_ROUTES = [
   '/assignment/:assignmentId/edit',
   '/admin/ai',
   '/admin/ai/account-manager',
-  '/admin/ai/assistant',
-  '/agent',
-  '/ai',
   '/compiler',
 ];
 

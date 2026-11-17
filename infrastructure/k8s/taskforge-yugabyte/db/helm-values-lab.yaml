@@ -1,0 +1,58 @@
+# ONE K3s CLUSTER / THREE DISTINCT PHYSICAL STORAGE NODES.
+# LAB ONLY: local-path PVC and unencrypted default YSQL aren't suitable for internet-facing production.
+# For multi-country K3s, deploy ONE YB universe using YBA provider/operator and private multi-cluster networking.
+# Chart version pinned by install-lab.sh: yugabytedb/yugabyte 2026.1.3.
+# Stable, explicit naming under the current Helm chart naming model.
+fullnameOverride: taskforge-yb
+oldNamingStyle: false
+enableLoadBalancer: false
+replicas:
+  master: 3
+  tserver: 3
+nodeSelector:
+  taskforge.io/db-node: 'true'
+storage:
+  ephemeral: false
+  master:
+    count: 1
+    size: 10Gi
+    storageClass: local-path
+  tserver:
+    count: 1
+    size: 30Gi
+    storageClass: local-path
+resource:
+  master:
+    requests:
+      cpu: '500m'
+      memory: 1Gi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  tserver:
+    requests:
+      cpu: '1'
+      memory: 2Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+master:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [yb-master]
+          topologyKey: kubernetes.io/hostname
+tserver:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [yb-tserver]
+          topologyKey: kubernetes.io/hostname

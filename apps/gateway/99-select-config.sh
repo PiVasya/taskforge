@@ -11,7 +11,13 @@ GATEWAY_TLS_KEY_FILE="${GATEWAY_TLS_KEY_FILE:-/etc/letsencrypt/live/${DOMAIN}/pr
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
 BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
 BROWSER_API_UPSTREAM="${BROWSER_API_UPSTREAM:-browser-api:8080}"
-export BROWSER_API_UPSTREAM
+# Docker Compose uses its embedded DNS; multi-node deploys inject their CoreDNS service IP.
+TASKFORGE_UPSTREAM_DNS="${TASKFORGE_UPSTREAM_DNS:-127.0.0.11}"
+if [ -z "$TASKFORGE_UPSTREAM_DNS" ] || ! printf '%s' "$TASKFORGE_UPSTREAM_DNS" | grep -Eq '^[0-9A-Fa-f:.]+$'; then
+  echo '[nginx] TASKFORGE_UPSTREAM_DNS must be one numeric DNS IP address' >&2
+  exit 1
+fi
+export BROWSER_API_UPSTREAM TASKFORGE_UPSTREAM_DNS
 
 case "$BROWSER_EDGE_RATE_RPS" in
   ''|*[!0-9]*) echo "[nginx] BROWSER_EDGE_RATE_RPS must be an integer" >&2; exit 1 ;;
@@ -23,7 +29,7 @@ fi
 export BROWSER_EDGE_RATE_RPS
 
 if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
-  echo "[taskforge-debug] logs=on service=gateway mode=${GATEWAY_MODE} role=${TASKFORGE_NODE_ROLE} ha_dynamic=${TASKFORGE_HA_DYNAMIC_READY} node=${HA_NODE_ID} domain=${DOMAIN} ct=${CT_DOMAIN:-}"
+  echo "[taskforge-debug] logs=on service=gateway mode=${GATEWAY_MODE} role=${TASKFORGE_NODE_ROLE} ha_dynamic=${TASKFORGE_HA_DYNAMIC_READY} node=${HA_NODE_ID} domain=${DOMAIN}"
 else
   echo "[taskforge-debug] logs=off service=gateway"
 fi
@@ -83,7 +89,7 @@ render_conf () {
     < /etc/nginx/snippets/api-routes.conf \
     > /etc/nginx/snippets/api-routes.rendered.conf
   export GATEWAY_TLS_CERT_FILE GATEWAY_TLS_KEY_FILE
-  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
+  envsubst '${DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${TASKFORGE_UPSTREAM_DNS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "/etc/nginx/templates/$1" > /etc/nginx/conf.d/default.conf
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     cat > /tmp/taskforge-debug-nginx-prefix.conf <<'EOF'
 log_format taskforge_debug 'TFDBG GATEWAY request_id=$request_id remote=$remote_addr host=$host method=$request_method path="$uri" status=$status bytes=$body_bytes_sent request_time=$request_time upstream="$upstream_addr" upstream_status="$upstream_status" upstream_time="$upstream_response_time" ua="$http_user_agent"';

@@ -4,7 +4,8 @@ set -eu
 DOMAIN="${DOMAIN:-taskforge.example.com}"
 TASKFORGE_DEBUG_LOGS="${TASKFORGE_DEBUG_LOGS:-0}"
 BROWSER_EDGE_RATE_RPS="${BROWSER_EDGE_RATE_RPS:-25}"
-export BROWSER_EDGE_RATE_RPS
+TASKFORGE_UPSTREAM_DNS="${TASKFORGE_UPSTREAM_DNS:-127.0.0.11}"
+export BROWSER_EDGE_RATE_RPS TASKFORGE_UPSTREAM_DNS
 TPL_DIR=/etc/nginx/templates
 CONF=/etc/nginx/conf.d/default.conf
 GATEWAY_TLS_CERT_FILE="${GATEWAY_TLS_CERT_FILE:-/etc/letsencrypt/live/${DOMAIN}/fullchain.pem}"
@@ -13,7 +14,7 @@ LIVE_DIR="$(dirname "$GATEWAY_TLS_CERT_FILE")"
 export GATEWAY_TLS_CERT_FILE GATEWAY_TLS_KEY_FILE
 
 render_https() {
-  envsubst '${DOMAIN} ${CT_DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "${TPL_DIR}/https.conf" > "${CONF}"
+  envsubst '${DOMAIN} ${BROWSER_EDGE_RATE_RPS} ${TASKFORGE_UPSTREAM_DNS} ${GATEWAY_TLS_CERT_FILE} ${GATEWAY_TLS_KEY_FILE}' < "${TPL_DIR}/https.conf" > "${CONF}"
   if [ "$TASKFORGE_DEBUG_LOGS" = "1" ]; then
     sed -i '1i error_log /var/log/nginx/error.log info;' "${CONF}"
   fi

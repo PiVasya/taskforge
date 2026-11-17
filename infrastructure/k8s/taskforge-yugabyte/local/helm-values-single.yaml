@@ -1,0 +1,39 @@
+# Real single-machine K3s development profile, YugabyteDB YSQL RF=1.
+# Do not use for production or advertise as fault-tolerant. RF=1 loses writes
+# when the only data node/storage fails. The app still uses real YSQL.
+fullnameOverride: taskforge-k3s-lab-yb
+oldNamingStyle: false
+enableLoadBalancer: false
+isMultiAz: false
+yugabytedUi:
+  enabled: false
+tls:
+  enabled: false
+replicas:
+  master: 1
+  tserver: 1
+storage:
+  ephemeral: false
+  master:
+    count: 1
+    size: 6Gi
+    storageClass: local-path
+  tserver:
+    count: 1
+    size: 15Gi
+    storageClass: local-path
+resource:
+  master:
+    requests:
+      cpu: '250m'
+      memory: 1Gi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  tserver:
+    requests:
+      cpu: '500m'
+      memory: 2Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi

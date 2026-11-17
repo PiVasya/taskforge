@@ -10,7 +10,7 @@ This file describes the current public/internal route ownership. Some prefixes a
 | public assignment lifecycle under `/api/code-assignments/*`, `/api/image-assignments/*`, `/api/test-assignments/*`, `/api/math-assignments/*`, `/api/sql-assignments/*`; common assignment list/graph/metadata/activity under `/api/assignments/*` | tasks / assignment-api |
 | user-wide solution history `/api/me/solutions*`, admin solution history, `/api/judge/*`, `/api/leaderboard/*`, `/api/badges/*`, `/api/quotas/*`, `/api/me/quotas`; code/SQL task execution endpoints are internal compatibility targets during migration and are not public gateway ownership | solutions |
 | `/api/compiler/*`, `/api/image-runners/*`, `/api/execution/*` | execution |
-| `/api/agent/*`, `/api/admin/ai/account-manager/*`, `/api/internal/agent/*` | ai-api |
+| `/api/admin/ai/account-manager/*` | account intelligence (legacy ai-api image) |
 | `/.well-known/taskforge-ai.json`, `/.well-known/taskforge-ai-browser.json`, `/llms.txt`, `/ai-access`, `/ai-browser`, `/api/site/*`, `/api/browser/*`, `/api/ai/browser/*`, `/ai-artifacts/*` | browser-api |
 | `/api/support/*` | support |
 | `/api/minecraft/*` | minecraft |

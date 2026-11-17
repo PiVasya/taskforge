@@ -44,34 +44,14 @@ public sealed class SiteRouteCatalog
         new("main", "/admin/feature-roles", "Функциональные роли", true, "admin", "Admin"),
         new("main", "/admin/cluster", "Кластер", true, "admin", "Admin"),
         new("main", "/admin/system-status", "Состояние системы", true, "redirect", "Admin", "Перенаправляет на /admin/cluster."),
-        new("main", "/admin/ai", "AI-раздел", true, "redirect", "Admin", "Перенаправляет на /admin/ai/account-manager."),
-        new("main", "/admin/ai/account-manager", "AI Account Manager", true, "admin", "Admin"),
-        new("main", "/admin/ai/assistant", "AI-ассистент", true, "admin", "Admin"),
+        new("main", "/admin/ai", "Менеджер аккаунтов", true, "redirect", "Admin", "Перенаправляет на /admin/ai/account-manager."),
+        new("main", "/admin/ai/account-manager", "Менеджер аккаунтов", true, "admin", "Admin"),
         new("main", "/admin/analytics", "Аналитика", true, "admin", "Admin"),
         new("main", "/admin/activity", "Действия пользователей", true, "admin", "Admin"),
         new("main", "/admin/users", "Пользователи", true, "admin", "Admin"),
         new("main", "/admin/users/:userId", "Управление пользователем", true, "admin", "Admin"),
         new("main", "/admin/minecraft-links", "Minecraft-привязки", true, "admin", "Admin"),
         new("main", "/admin/assignments/:assignmentId/insights", "Аналитика задания", true, "admin", "Admin"),
-        new("main", "/agent", "AI-ассистент", true, "redirect", "Admin", "Перенаправляет в административный AI-раздел."),
-        new("main", "/ai", "AI-ассистент", true, "redirect", "Admin", "Перенаправляет в административный AI-раздел."),
-
-        // CT frontend.
-        new("ct", "/login", "Вход CT", false, "auth"),
-        new("ct", "/register", "Регистрация CT", false, "auth", Notes: "Добавьте ?accountType=ai для регистрации AI-аккаунта через интерфейс."),
-        new("ct", "/privacy", "Политика конфиденциальности CT", false, "document"),
-        new("ct", "/", "Главная CT", true),
-        new("ct", "/courses", "Курсы CT", true),
-        new("ct", "/courses/:courseSlug", "Курс CT", true, "dynamic"),
-        new("ct", "/courses/:courseSlug/conspects/:slug", "Конспект CT", true, "dynamic"),
-        new("ct", "/courses/:courseSlug/tasks", "Задания курса CT", true, "dynamic"),
-        new("ct", "/tasks", "Задания CT", true, "redirect", Notes: "Перенаправляет на главную CT."),
-        new("ct", "/conspects/:slug", "Конспект CT", true, "dynamic"),
-        new("ct", "/editor", "Редактор CT", true, "editor", Notes: "Маршрут перенаправляет в редактор доступного раздела."),
-        new("ct", "/editor/:sectionCode", "Редактор раздела CT", true, "editor"),
-        new("ct", "/editor/courses/:courseSlug", "Редактор курса CT", true, "editor"),
-        new("ct", "/:sectionCode", "Раздел CT", true, "dynamic"),
-        new("ct", "/admin/conspects", "Администрирование конспектов CT", true, "admin", "Admin")
     };
 
     public IReadOnlyList<SiteRouteDto> GetRoutes(string? site = null)

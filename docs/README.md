@@ -128,7 +128,7 @@ Repeat only this service: ./build.sh tasks-api
 ## Структура
 
 ```text
-apps/                 web, web-ct, gateway
+apps/                 web, gateway
 services/             доменные сервисы, workers, runners, analyzers
 contracts/            HTTP/event contracts
 infrastructure/       postgres init, k8s заготовки
@@ -156,7 +156,6 @@ First server bootstrap can also be one command by passing public values. The scr
 ```bash
 IMAGE_REPOSITORY=ghcr.io/OWNER/REPO \
 DOMAIN=taskforge.by \
-CT_DOMAIN=ct.taskforge.by \
 LETSENCRYPT_EMAIL=admin@example.com \
 BOOTSTRAP_ADMIN_EMAILS=admin@example.com \
 S3_PUBLIC_ENDPOINT=https://s3.taskforge.by \

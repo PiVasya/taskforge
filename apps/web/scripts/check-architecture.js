@@ -52,8 +52,6 @@ const requiredFiles = [
   'features/math-task/MathTaskSolve.jsx',
   'features/math-task/MathTaskEditor.jsx',
   'features/settings/SettingsFeature.jsx',
-  'features/agent/AgentFeature.jsx',
-  'features/agent/components/AgentComposer.jsx',
   'features/course-assignments/CourseAssignmentsFeature.jsx',
   'features/course-assignments/courseMapDebug.js',
   'features/assignment-edit/AssignmentEditFeature.jsx',
@@ -196,7 +194,6 @@ const featureLineLimits = {
   'features/assignment-edit/AssignmentEditFeature.jsx': 1500,
   'features/course-assignments/CourseAssignmentsFeature.jsx': 1400,
   'features/settings/SettingsFeature.jsx': 600,
-  'features/agent/AgentFeature.jsx': 800,
   'features/admin-solutions/AdminSolutionsFeature.jsx': 1000,
   'features/task-test/TaskTestSolve.jsx': 350,
   'features/math-task/MathTaskSolve.jsx': 350,
@@ -278,12 +275,6 @@ if (!/TaskTestQuestion/.test(taskTest) || !/MathTaskBlock/.test(mathTask) || !/A
   fail('attempt questions or countdown are not isolated into narrow render components');
 }
 
-const agent = read('features/agent/AgentFeature.jsx');
-if (/const \[text, setText\] = useState/.test(agent) || /const \[files, setFiles\] = useState/.test(agent)) {
-  fail('agent composer input returned to the large conversation feature');
-}
-if (!/AgentComposer/.test(agent)) fail('agent composer boundary is missing');
-
 const pageWrappers = [
   'pages/AssignmentSolvePage.jsx',
   'pages/AssignmentEditPage.jsx',
@@ -293,7 +284,6 @@ const pageWrappers = [
   'pages/TaskTestEditor.jsx',
   'pages/MathTaskEditor.jsx',
   'pages/SettingsPage.jsx',
-  'pages/AgentPage.jsx',
   'pages/admin/AdminAnalyticsPage.jsx',
   'pages/admin/AdminSolutionsPage.jsx',
 ];

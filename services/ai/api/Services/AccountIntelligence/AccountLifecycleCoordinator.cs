@@ -252,7 +252,6 @@ internal sealed class AccountLifecycleCoordinator(
                 "IdentityApi", "http://identity-api:8080", $"/api/internal/account-lifecycle/prepare-{action}", mutation),
             new($"education-{action}", "Учебные группы и владельцы курсов", "EducationApi", "http://education-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),
             new($"tasks-{action}", "Попытки, сессии и история работы", "TasksApi", "http://tasks-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),
-            new($"quiz-{action}", "Quiz-попытки и прогресс", "QuizApi", "http://quiz-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),
             new($"solutions-{action}", "Решения, рейтинг, награды и энергия", "SolutionsApi", "http://solutions-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),
             new($"observability-{action}", "История активности", "ObservabilityApi", "http://observability-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),
             new($"minecraft-{action}", "Minecraft-привязки и баланс", "MinecraftApi", "http://minecraft-api:8080", $"/api/internal/account-lifecycle/{action}", mutation),

@@ -9,7 +9,7 @@ var options = new BrowserOptions
     Sites = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["main"] = "https://taskforge.by",
-        ["ct"] = "https://ct.taskforge.by"
+
     },
     AllowedExternalOrigins = "https://s3.taskforge.by"
 };
@@ -70,7 +70,6 @@ foreach (var value in rejected)
 }
 
 Assert(policy.IsAllowedRequest(new Uri("https://taskforge.by/assets/app.js")), "main origin must be allowed");
-Assert(policy.IsAllowedRequest(new Uri("https://ct.taskforge.by/assets/app.js")), "CT origin must be allowed");
 Assert(policy.IsAllowedRequest(new Uri("https://s3.taskforge.by/file.png")), "configured asset origin must be allowed");
 Assert(!policy.IsAllowedRequest(new Uri("https://evil.example/file.png")), "unknown origin must be rejected");
 Assert(policy.IsBrowserApiEndpoint(new Uri("https://taskforge.by/api/site/render")), "Browser API recursion must be detected");

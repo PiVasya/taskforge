@@ -1,0 +1,50 @@
+# TEMPLATE ONLY: DO NOT kubectl apply before completing prerequisites.
+# Requires YugabyteDB Anywhere 2026.1.3 Kubernetes Operator, an existing
+# YBProvider 'taskforge-geo-provider' with three kubeConfigSecrets (one per K3s cluster),
+# *working* private intercluster routing and DNS, TLS certificates, and YSQL auth.
+# Confirm the exact YBUniverse CRD schema on YOUR operator with kubectl explain.
+apiVersion: operator.yugabyte.io/v1alpha1
+kind: YBUniverse
+metadata:
+  name: taskforge-geo
+spec:
+  providerName: taskforge-geo-provider
+  placementInfo:
+    defaultRegion: poland
+    regions:
+      - code: poland
+        zones:
+          - code: pl-k3s
+            numNodes: 1
+            leaderPreference: 1
+      - code: rb
+        zones:
+          - code: rb-k3s
+            numNodes: 1
+            leaderPreference: 1
+      - code: israel
+        zones:
+          - code: il-k3s
+            numNodes: 1
+            leaderPreference: 1
+  numNodes: 3
+  replicationFactor: 3
+  enableYSQL: true
+  enableYCQL: false
+  enableYCQLAuth: false
+  enableYSQLAuth: true
+  enableNodeToNodeEncrypt: true
+  enableClientToNodeEncrypt: true
+  enableLoadBalancer: false
+  ybSoftwareVersion: '2026.1.3.0-b100'
+  deviceInfo:
+    numVolumes: 1
+    volumeSize: 100
+  gFlags:
+    masterGFlags: {}
+    tserverGFlags: {}
+  # REQUIRED BEFORE APPLY: reference a protected YSQL password Secret via
+  # `ysqlPassword` (schema varies with operator version); choose TLS rootCA,
+  # storage class, private YSQL endpoints, backup policy, and network policies.
+  # This template intentionally omits the YSQL credential and is not deployable
+  # without an explicit security review and operator-side validation.

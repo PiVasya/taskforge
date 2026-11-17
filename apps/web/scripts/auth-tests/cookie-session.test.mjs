@@ -249,7 +249,6 @@ async function hubModules(t, path) {
 }
 
 for (const [file, get, ensure, stop, path] of [
-  ['agentHub', 'getAgentHub', 'ensureAgentHubStarted', 'stopAgentHub', '/hubs/agent'],
   ['supportHub', 'getSupportHub', 'ensureSupportHubStarted', 'stopSupportHub', '/hubs/support'],
   ['minecraftChatHub', 'getMinecraftChatHub', 'ensureMinecraftChatHubStarted', null, '/hubs/minecraft-chat'],
 ]) {

@@ -31,7 +31,6 @@ MIGRATION_OWNER_PREFIXES = (
     'services/education/api/',
     'services/content/api/',
     'services/tasks/assignment-api/',
-    'services/tasks/quiz-api/',
     'services/solutions/api/',
     'services/execution/api/',
     'services/ai/api/',
@@ -61,7 +60,7 @@ def classify(paths: list[str]) -> dict[str, bool]:
         if not path:
             continue
 
-        if starts(path, 'apps/web/', 'apps/web-ct/') or any_name(path, 'scripts/tests/frontend.sh'):
+        if starts(path, 'apps/web/') or any_name(path, 'scripts/tests/frontend.sh'):
             gates['frontend'] = True
 
         if (
@@ -108,7 +107,6 @@ def classify(paths: list[str]) -> dict[str, bool]:
                 'apps/gateway/snippets/api-routes.conf',
                 'apps/gateway/snippets/proxy-common.conf',
                 'apps/gateway/snippets/cloudflare-real-ip.conf',
-                'apps/web-ct/src/App.jsx',
                 'services/bots/support-bot/AiAccessTelemetry.cs',
                 'services/bots/support-bot/Program.cs',
                 'services/identity/api/Data/IdentityDbContext.cs',

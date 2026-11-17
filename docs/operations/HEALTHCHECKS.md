@@ -8,9 +8,9 @@
 - `rabbitmq` — `rabbitmq-diagnostics ping`.
 - `minio` — `/minio/health/live` с fallback на process check.
 - `gateway` — `GET /health/gateway`.
-- `front`, `front-ct` — `GET /health` из Caddy.
+- `front` — `GET /health` из Caddy.
 - .NET API — `GET /health/ready`; readiness проверяет подключение к своей БД через `Database.CanConnectAsync()`.
-- `content-api`, `quiz-api` — собственный `/health/ready` с проверкой БД.
+- `content-api` — собственный `/health/ready` с проверкой БД.
 - code/image analyzers — `GET /health`.
 - language runners — `GET /health`.
 - background workers / adapter bots — process healthcheck (`kill -0 1`), потому что они не открывают HTTP-порт.

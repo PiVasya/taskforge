@@ -215,10 +215,10 @@ Live Playwright sessions are process-local. Keep a single `browser-api` replica 
 Local service build:
 
 ```bash
-./build.sh browser-api gateway identity-api front front-ct
+./build.sh browser-api gateway identity-api front
 ```
 
-In production the gateway owns Docker-network aliases for `DOMAIN` and `CT_DOMAIN`. Chromium therefore reaches the real production gateway and TLS virtual host directly inside the Compose network instead of relying on public-IP hairpin NAT. The gateway restores `CF-Connecting-IP` only when the TCP peer belongs to Cloudflare's published proxy ranges, then forwards the resulting trusted address as `X-TaskForge-Client-IP` for application rate limiting. Direct origin requests keep their real socket address.
+In production the gateway owns the Docker-network alias for `DOMAIN`. Chromium uses the main gateway directly without public-IP hairpin NAT. Cloudflare client-IP forwarding remains restricted to trusted proxy addresses.
 
 Production smoke test after deployment:
 

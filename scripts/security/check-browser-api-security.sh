@@ -379,15 +379,10 @@ for marker in ('CrawlerFamily', 'MJ12bot', 'Web crawler / MJ12bot'):
 # Keep the machine route catalog synchronized with the real React routers.
 route_catalog = text('services/browser/api/Services/SiteRouteCatalog.cs')
 main_app = text('apps/web/src/App.jsx')
-ct_app = text('apps/web-ct/src/App.jsx')
 main_routes = set(re.findall(r'new\("main",\s*"([^"]+)"', route_catalog))
-ct_routes = set(re.findall(r'new\("ct",\s*"([^"]+)"', route_catalog))
 main_actual = set(re.findall(r'<Route\s+path="([^"]+)"', main_app)) - {'*'}
-ct_actual = set(re.findall(r'<Route\s+path="([^"]+)"', ct_app)) - {'*'}
 if main_routes != main_actual:
     die(f'main SiteRouteCatalog drift: missing={sorted(main_actual-main_routes)} extra={sorted(main_routes-main_actual)}')
-if ct_routes != ct_actual:
-    die(f'ct SiteRouteCatalog drift: missing={sorted(ct_actual-ct_routes)} extra={sorted(ct_routes-ct_actual)}')
 
 agent_access = text('services/browser/api/Services/AgentAccessService.cs')
 for required_marker in ('TaskForge AI / crawler access', '/api/site/agent/capture/', 'authoritative Chromium PNG', 'RequiresAuthentication'):
@@ -550,8 +545,8 @@ for environment in ('dev', 'prod'):
 
 prod_gateway = safe_load(text('deploy/prod/compose/10-apps-gateway.yaml'))
 gateway_aliases = (((prod_gateway.get('services') or {}).get('gateway') or {}).get('networks') or {}).get('default', {}).get('aliases') or []
-if '${DOMAIN:?set DOMAIN}' not in gateway_aliases or '${CT_DOMAIN:?set CT_DOMAIN}' not in gateway_aliases:
-    die('prod gateway must own DOMAIN and CT_DOMAIN network aliases for Chromium TLS routing')
+if '${DOMAIN:?set DOMAIN}' not in gateway_aliases:
+    die('prod gateway must own DOMAIN network alias for Chromium TLS routing')
 
 for environment in ('dev', 'prod'):
     env_example = text(f'deploy/{environment}/.env.example')

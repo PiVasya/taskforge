@@ -1,0 +1,339 @@
+name: K3s sandbox / YugabyteDB CI + isolated images
+
+# This workflow belongs ONLY to the experimental K3s branch. It never deploys
+# onto TaskForge production hosts and never pushes :develop or :latest images.
+on:
+  push:
+    branches:
+      - 'k3s-*'
+      - 'k3s/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k3s-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k3s-manifests:
+    name: Sandbox manifests / invariants
+    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify K3s-only branch is fully prepared
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f infrastructure/k8s/taskforge-yugabyte/local/run-local.sh
+          test -f tools/k3s/local/generate.mjs
+          test ! -d services/ai/worker
+          test ! -d apps/web-ct
+          test ! -d services/tasks/quiz-api
+          test ! -d deploy/prod
+          test ! -d deploy/cluster
+          test ! -f .github/workflows/develop-build.yml
+          test ! -f .github/workflows/develop-full-rebuild.yml
+          test ! -f .github/workflows/minecraft-plugins-build.yml
+      - name: Check actual Docker build-stage source coverage
+        run: python3 scripts/ci/check-k3s-docker-context.py
+      - name: Check Yugabyte migration job / lock compatibility contract
+        run: python3 scripts/ci/check-k3s-migration-contract.py
+      - name: Unit-test manifest generation and sandbox isolation
+        run: node --test tools/k3s/local/local.test.mjs tools/k3s/local/sandbox.test.mjs
+      - name: Validate shell scripts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for f in infrastructure/k8s/taskforge-yugabyte/local/*.sh; do bash -n "$f"; done
+      - name: Generate core K3s configuration
+        run: node tools/k3s/local/generate.mjs core "$RUNNER_TEMP/tf-k3s"
+      - name: Validate complete Kubernetes resources and safety limits
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'tf-k3s'
+          for f in sorted(p.glob('*.json.yaml')):
+              resources=[json.loads(x) for x in f.read_text().strip().split('\n---\n')]
+              assert resources, f
+              for r in resources:
+                  name=r['metadata']['name']
+                  ns=r['metadata'].get('namespace')
+                  assert ns=='taskforge-k3s-lab' or r['kind']=='Namespace', (name,ns)
+                  if r['kind']=='Service':
+                      assert r['spec'].get('type','ClusterIP')=='ClusterIP',name
+                  if r['kind']=='Deployment':
+                      assert r['spec']['replicas']==1,name
+          print('PASS: sandbox Kubernetes resources only; ClusterIP; no public LoadBalancer')
+          PY
+
+  dotnet-build:
+    name: Build ${{ matrix.service }}
+    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: identity-api
+            project: services/identity/api/TaskForge.Identity.Api.csproj
+          - service: education-api
+            project: services/education/api/TaskForge.Education.Api.csproj
+          - service: content-api
+            project: services/content/api/learning-content-service.csproj
+          - service: tasks-api
+            project: services/tasks/assignment-api/TaskForge.Tasks.Api.csproj
+          - service: solutions-api
+            project: services/solutions/api/TaskForge.Solutions.Api.csproj
+          - service: execution-api
+            project: services/execution/api/TaskForge.Execution.Api.csproj
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build with .NET 10
+        run: dotnet publish "${{ matrix.project }}" -c Release -o "${{ runner.temp }}/${{ matrix.service }}" /p:UseAppHost=false
+      - name: Run project behavior tests (where available)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "${{ matrix.service }}" in
+            identity-api) test_project=services/identity/api/tests/TaskForge.Identity.Api.Tests/TaskForge.Identity.Api.Tests.csproj ;;
+            education-api) test_project=services/education/api/tests/TaskForge.Education.Api.Tests/TaskForge.Education.Api.Tests.csproj ;;
+            tasks-api) test_project=services/tasks/assignment-api/tests/TaskForge.Tasks.Api.Tests/TaskForge.Tasks.Api.Tests.csproj ;;
+            solutions-api) test_project=services/solutions/api/tests/TaskForge.Solutions.Api.Tests/TaskForge.Solutions.Api.Tests.csproj ;;
+            execution-api) test_project=services/execution/api/tests/TaskForge.Execution.Api.Tests/TaskForge.Execution.Api.Tests.csproj ;;
+            content-api) exit 0 ;;
+            *) echo "Unknown test project" >&2; exit 1 ;;
+          esac
+          dotnet test "$test_project" -c Release --logger 'trx;LogFileName=tests.trx' \
+            --results-directory "${{ runner.temp }}/${{ matrix.service }}-tests"
+      - name: Upload .NET test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k3s-${{ matrix.service }}-test-results
+          path: ${{ runner.temp }}/${{ matrix.service }}-tests/
+          if-no-files-found: ignore
+
+  frontend:
+    name: React frontend
+    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Test and build React web
+        working-directory: apps/web
+        env:
+          REACT_APP_API_BASE: /api
+          GENERATE_SOURCEMAP: 'false'
+        run: |
+          npm ci --no-audit --no-fund
+          node --test scripts/*/*.test.mjs
+          node scripts/check-architecture.js
+          npm run build
+
+  yugabyte-migrations:
+    name: Real YugabyteDB YSQL + EF Core migrations
+    needs: k3s-manifests
+    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+      Cluster__MultiNode: 'true'
+      Database__RequireYugabyte: 'true'
+      Database__MigrationJobOnly: 'true'
+      Database__MigrateOnStartup: 'true'
+      Database__EnsureCreated: 'false'
+      Seed__InitialCatalog: 'false'
+      Jwt__Key: 'k3s-sandbox-ci-only-never-for-production-a9c28016e1'
+      Jwt__SigningKey: 'k3s-sandbox-ci-only-never-for-production-a9c28016e1'
+      Jwt__Issuer: TaskForgeK3sLab
+      Jwt__Audience: TaskForgeK3sLab
+      InternalApi__Key: 'k3s-sandbox-ci-internal-key-do-not-deploy'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Start ephemeral YugabyteDB YSQL RF1 (NO external database)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name taskforge-k3s-lab-ci-db \
+            --publish 127.0.0.1:15433:5433 \
+            yugabytedb/yugabyte:2026.1.2.0-b137 \
+            bin/yugabyted start --base_dir=/home/yugabyte/yb_data --daemon=false
+          ready=0
+          for i in $(seq 1 120); do
+            if docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -Atqc 'SELECT 1' 2>/dev/null | grep -qx '1'; then ready=1; break; fi
+            sleep 3
+          done
+          if [ "$ready" != 1 ]; then docker logs taskforge-k3s-lab-ci-db --tail=150; exit 1; fi
+          version="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -Atqc 'SELECT version()')"
+          [[ "$version" == *-YB-* ]] || { echo 'Not YugabyteDB YSQL'; exit 1; }
+      - name: Create sandbox logical databases
+        run: |
+          docker cp infrastructure/k8s/taskforge-yugabyte/db/create-k3s-lab-databases.sql taskforge-k3s-lab-ci-db:/tmp/create.sql
+          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -f /tmp/create.sql
+      - name: Apply EF migrations for all six core APIs against REAL YugabyteDB
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          specs=(
+            'identity services/identity/api/TaskForge.Identity.Api.csproj DefaultConnection'
+            'education services/education/api/TaskForge.Education.Api.csproj DefaultConnection'
+            'content services/content/api/learning-content-service.csproj LearningConnection'
+            'tasks services/tasks/assignment-api/TaskForge.Tasks.Api.csproj DefaultConnection'
+            'solutions services/solutions/api/TaskForge.Solutions.Api.csproj DefaultConnection'
+            'execution services/execution/api/TaskForge.Execution.Api.csproj DefaultConnection'
+          )
+          for spec in "${specs[@]}"; do
+            read -r db project key <<< "$spec"
+            printf '== EF MIGRATE %s -> taskforge_k3s_%s ==\n' "$project" "$db"
+            export "ConnectionStrings__${key}=Host=127.0.0.1;Port=15433;Database=taskforge_k3s_${db};Username=yugabyte;SSL Mode=Disable;Timeout=10;Command Timeout=90"
+            timeout 300s dotnet run --project "$project" --configuration Release --no-launch-profile
+            unset "ConnectionStrings__${key}"
+          done
+      - name: Verify migrated schema in each database and real YSQL writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for db in identity education content tasks solutions execution; do
+            name="taskforge_k3s_${db}"
+            count="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d "$name" -v ON_ERROR_STOP=1 -Atqc 'SELECT count(*) FROM "__EFMigrationsHistory";')"
+            [[ "$count" =~ ^[1-9][0-9]*$ ]] || { echo "Missing migration history for $name: $count" >&2; exit 1; }
+            tables="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d "$name" -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename<>'__EFMigrationsHistory';")"
+            [[ "$tables" =~ ^[1-9][0-9]*$ ]] || { echo "Missing domain tables for $name: $tables" >&2; exit 1; }
+            echo "PASS $name: migrations=$count domain_tables=$tables"
+          done
+          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -c 'CREATE TABLE IF NOT EXISTS k3s_ci_write_probe (id INT PRIMARY KEY, n INT NOT NULL);'
+          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -c 'INSERT INTO k3s_ci_write_probe (id,n) VALUES (1,1) ON CONFLICT (id) DO UPDATE SET n=excluded.n;'
+          value="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -Atqc 'SELECT n FROM k3s_ci_write_probe WHERE id=1;')"
+          [[ "$value" == 1 ]] || { echo 'YSQL write/read verification failed' >&2; exit 1; }
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker logs taskforge-k3s-lab-ci-db --tail=250 || true
+      - name: Stop ephemeral test database
+        if: always()
+        run: docker rm -f taskforge-k3s-lab-ci-db || true
+
+  docker-build-smoke:
+    name: Docker image builds / ${{ matrix.name }} (no push)
+    needs: k3s-manifests
+    if: startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: identity-api
+            context: .
+            file: services/identity/api/Dockerfile
+          - name: education-api
+            context: .
+            file: services/education/api/Dockerfile
+          - name: content-api
+            context: services/content/api
+            file: services/content/api/Dockerfile
+          - name: tasks-api
+            context: .
+            file: services/tasks/assignment-api/Dockerfile
+          - name: solutions-api
+            context: .
+            file: services/solutions/api/Dockerfile
+          - name: execution-api
+            context: .
+            file: services/execution/api/Dockerfile
+          - name: front
+            context: apps/web
+            file: apps/web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build full runtime image; do not upload or publish
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha,scope=k3s-sandbox-${{ matrix.name }}
+          cache-to: type=gha,scope=k3s-sandbox-${{ matrix.name }},mode=max
+
+  publish-lab-images:
+    name: Publish only k3s-lab/${{ matrix.name }}
+    needs: [k3s-manifests, dotnet-build, frontend, yugabyte-migrations, docker-build-smoke]
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: identity-api
+            context: .
+            file: services/identity/api/Dockerfile
+          - name: education-api
+            context: .
+            file: services/education/api/Dockerfile
+          - name: content-api
+            context: services/content/api
+            file: services/content/api/Dockerfile
+          - name: tasks-api
+            context: .
+            file: services/tasks/assignment-api/Dockerfile
+          - name: solutions-api
+            context: .
+            file: services/solutions/api/Dockerfile
+          - name: execution-api
+            context: .
+            file: services/execution/api/Dockerfile
+          - name: front
+            context: apps/web
+            file: apps/web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Normalize GHCR owner (lowercase)
+        id: owner
+        shell: bash
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/${{ steps.owner.outputs.owner }}/taskforge-k3s-lab/${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=k3s-sandbox-${{ matrix.name }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Isolated local K3s/YugabyteDB sandbox (NOT production)

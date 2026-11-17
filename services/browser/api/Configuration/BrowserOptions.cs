@@ -6,7 +6,7 @@ public sealed class BrowserOptions
     public Dictionary<string, string> Sites { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
         ["main"] = "https://taskforge.by",
-        ["ct"] = "https://ct.taskforge.by"
+
     };
 
     public string AllowedExternalOrigins { get; set; } = "https://s3.taskforge.by";

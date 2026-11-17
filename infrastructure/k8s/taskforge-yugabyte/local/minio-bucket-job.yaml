@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: taskforge-k3s-lab
+  name: taskforge-k3s-lab-minio-bucket
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until mc alias set local http://minio:9000 "$S3_USER" "$S3_PASSWORD" >/dev/null 2>&1; do sleep 3; done
+              mc mb --ignore-existing local/taskforge-k3s-lab-files
+          env:
+            - name: S3_USER
+              value: taskforge
+            - name: S3_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: taskforge-app-secrets
+                  key: MINIO_ROOT_PASSWORD

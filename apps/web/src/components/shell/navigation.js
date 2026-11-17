@@ -25,11 +25,7 @@ function isPathActive(currentPath, href) {
 }
 
 function titleForPath(pathname) {
-  if (
-    pathname.startsWith('/admin/ai') ||
-    pathname.startsWith('/ai') ||
-    pathname.startsWith('/agent')
-  ) return 'ИИ';
+  if (pathname.startsWith('/admin/ai')) return 'Менеджер аккаунтов';
   if (pathname.startsWith('/admin/')) return 'Админ-панель';
   if (pathname.startsWith('/minecraft/')) return 'Minecraft';
   if (pathname.startsWith('/support')) return 'Поддержка';
@@ -111,10 +107,10 @@ export function useShellNavigation() {
       ? [
           {
             to: '/admin/ai/account-manager',
-            label: 'ИИ',
-            subtitle: 'Менеджер аккаунтов',
+            label: 'Менеджер аккаунтов',
+            subtitle: 'Поиск дублей и управление',
             icon: BrainCircuit,
-            active: active('/admin/ai') || active('/ai') || active('/agent'),
+            active: active('/admin/ai'),
           },
           {
             to: '/admin/analytics',

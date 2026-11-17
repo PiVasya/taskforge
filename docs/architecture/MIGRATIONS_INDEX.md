@@ -15,7 +15,6 @@ services/identity/api/Migrations
 services/education/api/Migrations
 services/content/api/Migrations
 services/tasks/assignment-api/Migrations
-services/tasks/quiz-api/Migrations
 services/solutions/api/Migrations
 services/execution/api/Migrations
 services/ai/api/Migrations

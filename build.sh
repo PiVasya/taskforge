@@ -25,21 +25,21 @@ COMPOSE_FILES=(
 )
 
 ALL_SERVICES=(
-  gateway front front-ct
-  identity-api education-api content-api quiz-api tasks-api solutions-api rating-worker
+  gateway front
+  identity-api education-api content-api tasks-api solutions-api rating-worker
   execution-api execution-worker csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner
-  ai-api ai-worker code-analyzer image-analyzer
+  ai-api code-analyzer image-analyzer
   support-api support-bot minecraft-api files-api notifications-api observability-api browser-api telegram-quiz-bot
 )
 
 BACKEND_SERVICES=(
-  identity-api education-api content-api quiz-api tasks-api solutions-api rating-worker
+  identity-api education-api content-api tasks-api solutions-api rating-worker
   execution-api execution-worker
-  ai-api ai-worker
+  ai-api
   support-api support-bot minecraft-api files-api notifications-api observability-api browser-api telegram-quiz-bot
 )
 
-FRONTEND_SERVICES=(gateway front front-ct)
+FRONTEND_SERVICES=(gateway front)
 
 JUDGE_SERVICES=(
   tasks-api solutions-api execution-api execution-worker code-analyzer
@@ -47,8 +47,8 @@ JUDGE_SERVICES=(
 )
 
 RUNNER_SERVICES=(csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
-AI_SERVICES=(ai-api ai-worker code-analyzer image-analyzer)
-MAIN_LOG_SERVICES=(gateway front front-ct identity-api tasks-api solutions-api execution-api execution-worker browser-api code-analyzer csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
+ANALYZER_SERVICES=(ai-api code-analyzer image-analyzer)
+MAIN_LOG_SERVICES=(gateway front identity-api tasks-api solutions-api execution-api execution-worker browser-api code-analyzer csharp-runner cpp-runner java-runner javascript-runner pascal-runner python-runner)
 
 compose() {
   docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"
@@ -85,7 +85,7 @@ Groups:
   ./build.sh frontend
   ./build.sh judge
   ./build.sh runners
-  ./build.sh ai
+  ./build.sh analyzers
 
 Logs:
   ./build.sh logs
@@ -120,7 +120,7 @@ expand_targets() {
       frontend) out+=("${FRONTEND_SERVICES[@]}") ;;
       judge) out+=("${JUDGE_SERVICES[@]}") ;;
       runners) out+=("${RUNNER_SERVICES[@]}") ;;
-      ai) out+=("${AI_SERVICES[@]}") ;;
+      analyzers) out+=("${ANALYZER_SERVICES[@]}") ;;
       *) out+=("$arg") ;;
     esac
   done

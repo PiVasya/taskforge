@@ -60,7 +60,7 @@ public sealed class ClusterResourceTelemetryTests
     public void Public_updater_contract_handles_node_agent_and_legacy_nodes()
     {
         var method = typeof(ClusterTelemetryService).GetMethod("BuildPublicUpdate", BindingFlags.Static | BindingFlags.NonPublic)!;
-        var update = JsonNode.Parse("""{"mode":"node-agent","running":true,"status":"monitoring","failed_count":1,"pending_count":1,"services":[{"service":"quiz-api","status":"rolled-back","current_image":"sha256:good","target_image":"sha256:bad","error":"healthcheck-failed","retry_in_seconds":30,"private_env":"never-export"}]}""")!.AsObject();
+        var update = JsonNode.Parse("""{"mode":"node-agent","running":true,"status":"monitoring","failed_count":1,"pending_count":1,"services":[{"service":"support-api","status":"rolled-back","current_image":"sha256:good","target_image":"sha256:bad","error":"healthcheck-failed","retry_in_seconds":30,"private_env":"never-export"}]}""")!.AsObject();
         var actual = JsonSerializer.SerializeToNode(method.Invoke(null, new object[] { update }))!;
         Assert.True(actual["running"]!.GetValue<bool>());
         Assert.True(actual["hasError"]!.GetValue<bool>());

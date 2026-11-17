@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Sql;
+using TaskForge.Shared.Import;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain.Sql;
 
@@ -44,6 +45,12 @@ internal sealed class SqlValidationDispatcher(IServiceScopeFactory scopes, IHttp
 
     private async Task Advance(Guid id, CancellationToken ct)
     {
+        // Multiple API replicas may discover the same receipt. Hold a real
+        // PostgreSQL session lock for its entire read/modify/dispatch cycle.
+        await using var lockScope = scopes.CreateAsyncScope();
+        var lockDb = lockScope.ServiceProvider.GetRequiredService<TasksDbContext>();
+        await using var guard = await PostgresImportLock.TryAcquireAsync(lockDb, $"sql-validation:{id:N}", ct);
+        if (guard is null) return;
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TasksDbContext>();
         var receipt = await db.SqlExpectedArtifacts.SingleOrDefaultAsync(x => x.Id == id, ct);
