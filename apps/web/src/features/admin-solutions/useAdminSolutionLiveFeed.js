@@ -45,16 +45,20 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
     // Replaying 100 events from each DB must not issue 200 concurrent requests.
     const enrichQueue = [];
     let inFlight = 0;
-    const drain = () => {
+    // The completion callback is outside the while loop: every task shares
+    // the bounded scheduler rather than closing over a mutable loop scope.
+    function runEnrichment(task) {
+      inFlight += 1;
+      Promise.resolve().then(task).catch(() => {}).finally(() => {
+        inFlight -= 1;
+        drain();
+      });
+    }
+    function drain() {
       while (subscribed && inFlight < 6 && enrichQueue.length) {
-        const task = enrichQueue.shift();
-        inFlight++;
-        Promise.resolve().then(task).catch(() => {}).finally(() => {
-          inFlight--;
-          drain();
-        });
+        runEnrichment(enrichQueue.shift());
       }
-    };
+    }
     const dispose = subscribeAdminSolutionEvents({
       onOpen: () => subscribed && setState('live'),
       onError: () => subscribed && setState('reconnecting'),

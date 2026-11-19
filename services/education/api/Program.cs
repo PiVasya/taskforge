@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Education.Api.Data;
 using TaskForge.Education.Api.Domain;
-using TaskForge.Education.Api.Services.CourseMaps;
 
 using TaskForge.Education.Api.Endpoints;
 using static TaskForge.Education.Api.Services.Access.EducationApiAccessService;
