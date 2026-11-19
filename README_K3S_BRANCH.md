@@ -14,32 +14,11 @@
 
 **Важно:** живую совместимость каждого EF Core migration с YugabyteDB и запуск сайта можно подтвердить только на реальном K3s. Локальные Node-тесты и статические проверки не заменяют этот запуск. Данные со старого PostgreSQL здесь НЕ импортированы.
 
-## 1. Replace the existing `cluster-v2` branch safely
+## 1. Состав архива и обновление исходников
 
-The full ZIP must be committed as a coherent Git tree. Copying files over a
-checkout does not remove obsolete tracked paths. Use the bundled synchronizer
-in a **fresh** clone of the experimental branch:
+В ZIP находится полный исходный проект для ветки `cluster-v2`. При копировании поверх существующего каталога Git старые файлы, отсутствующие в ZIP, **не удаляются автоматически**. Удаляй устаревшие отслеживаемые файлы из репозитория отдельно. Работающий production и ветку `develop` не затрагивать.
 
-```bash
-git clone --branch cluster-v2 --single-branch \
-  https://github.com/PiVasya/taskforge.git taskforge-cluster-v2-clean
-cd taskforge-cluster-v2-clean
-SRC=/absolute/path/to/extracted/taskforge-cluster-v2
-python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD" --dry-run
-python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD"
-python3 scripts/ci/check-k3s-branch-layout.py
-git diff --cached --check
-git diff --cached --stat
-git commit -m 'Improve K3s/YugabyteDB CI readiness and diagnostics'
-git push origin cluster-v2
-```
-
-The synchronizer refuses to operate on `main`, `develop`, a dirty checkout or
-an unexpected directory. It stages additions and deletions but does not make
-commits or push on its own. Do not use it in a production checkout.
-
-For CI stages and specific failure diagnosis, see
-[`docs/operations/K3S_CI_RUNBOOK.md`](docs/operations/K3S_CI_RUNBOOK.md).
+Процесс сборки, тестов и диагностики описан в [`docs/operations/K3S_CI_RUNBOOK.md`](docs/operations/K3S_CI_RUNBOOK.md).
 
 ## 2. Что делает новый CI/CD
 
@@ -108,4 +87,25 @@ curl -i http://127.0.0.1:18080/health/gateway
 
 ## 6. Предпушевый аудит и известное ограничение
 
-Смотри `QA_BEFORE_PUSH_RU.md`. Автоматические локальные тесты и проверка конфигурации пройдены, но в среде аудита нет SDK .NET, Docker и K3s. Поэтому реальная компиляция C# и совместимость DDL с YugabyteDB не могут быть гарантированы до выполнения GitHub Actions. **Если `yugabyte-migrations` красный, публикация образов не начнётся**: нельзя считать такой push работоспособным развёртыванием.
+Автоматические локальные тесты и проверки конфигурации не заменяют интеграционную проверку на реальном Kubernetes и YugabyteDB. Поэтому реальная компиляция C# и совместимость DDL с YugabyteDB не могут быть гарантированы до выполнения GitHub Actions. **Если `yugabyte-migrations` красный, публикация образов не начнётся**: нельзя считать такой push работоспособным развёртыванием.
+
+## Обновление после ошибки CI с education-api (19 ноября 2026)
+
+В migration Job сервисы `education` и `tasks` больше не требуют рабочий Redis
+SignalR: Job только меняет схему и завершается. **Обычные** API-поды в
+multi-node режиме по-прежнему требуют Redis и `Cluster__Namespace`.
+Кластерный namespace явно задаётся генератором Kubernetes-манифестов,
+также присутствует в локальном ConfigMap. Это исправляет ошибку запуска
+`Multi-node SignalR requires Cluster__Namespace` без ослабления защиты
+рабочего API. При ошибке миграции GitHub Actions выводит причину вне свернутого
+лога и прикладывает `ef-<service>.log` к диагностическому артефакту.
+
+Реальная совместимость всех EF-миграций с YugabyteDB проверяется только
+следующим запуском `03 | YugabyteDB - schema & persistence`. Пока он красный,
+публикация образов в GHCR остаётся заблокированной.
+
+## Административная лента и редактор карты (19.11.2026)
+
+Лента новых решений больше не зависит от Redis Pub/Sub и памяти API. `tasks-api` и `solutions-api` сохраняют события в **собственных таблицах YugabyteDB** в одной транзакции с работами. Администратор получает объединённую ленту через два SSE-потока с опросом раз в секунду и восстановлением после разрыва. Новые EF-миграции обязательны.
+
+Онлайн-присутствие редакторов карты, heartbeat и Redis-presence удалены; `MapSaved` и защита карты от конфликтов остались. Minecraft-чат и компилятор этим изменением не затрагиваются. Подробная схема и ограничения: [`docs/architecture/ADMIN_SOLUTION_FEED_YUGABYTE.md`](docs/architecture/ADMIN_SOLUTION_FEED_YUGABYTE.md).

@@ -16,11 +16,11 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapCodeSolutionsEndpoints(WebApplication app)
     {
-        app.MapPost("/api/code-solutions", async (CodeSolutionSubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, AdminSolutionEventPublisher live, CancellationToken ct) =>
+        app.MapPost("/api/code-solutions", async (CodeSolutionSubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, CancellationToken ct) =>
         {
             if (request.AssignmentId == Guid.Empty)
                 return Problem(400, "ASSIGNMENT_ID_REQUIRED", "code-solutions.validation", "Для code solution требуется assignmentId.");
-            return await CodeSolutionService.SubmitAsync(request.AssignmentId, new SubmitRequest(request.Language, request.Code, request.Input, null), http, cfg, db, httpFactory, live, ct);
+            return await CodeSolutionService.SubmitAsync(request.AssignmentId, new SubmitRequest(request.Language, request.Code, request.Input, null), http, cfg, db, httpFactory, ct);
         });
 
         app.MapGet("/api/code-solutions", async (HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory httpFactory, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>

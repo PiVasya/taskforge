@@ -1,11 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Realtime;
 
 namespace TaskForge.Solutions.Api.Data;
 
 public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> options) : DbContext(options)
 {
+    public DbSet<AdminSolutionFeedEntry> AdminSolutionFeedEvents => Set<AdminSolutionFeedEntry>();
     public DbSet<ServiceSchemaMarker> SchemaMarkers => Set<ServiceSchemaMarker>();
     public DbSet<UserRating> UserRatings => Set<UserRating>();
     public DbSet<LeaderboardEntry> LeaderboardEntries => Set<LeaderboardEntry>();
@@ -18,8 +20,64 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
     public DbSet<UserQuotaBucket> UserQuotaBuckets => Set<UserQuotaBucket>();
     public DbSet<UserImageTaskSolution> ImageSolutions => Set<UserImageTaskSolution>();
 
+    // A state change and its feed event are committed by ONE SaveChanges transaction.
+    // Do not call external publishers after COMMIT: a process crash could drop the event.
+    internal void CaptureAdminSolutionEvents()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<SolutionSubmission>().ToArray())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
+            var row = entry.Entity;
+            if (!row.UserId.HasValue || row.UserId == Guid.Empty || row.AssignmentId == Guid.Empty) continue;
+            if (entry.State == EntityState.Modified &&
+                !entry.Property(x => x.Status).IsModified &&
+                !entry.Property(x => x.Score).IsModified &&
+                !entry.Property(x => x.ResultJson).IsModified) continue;
+            var kind = row.SqlSpecVersionId.HasValue ? "sql" : "code";
+            if (AdminSolutionFeedEvents.Local.Any(x => x.ItemId == row.Id &&
+                x.Kind == kind && x.Status == row.Status && x.Score == row.Score)) continue;
+            AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
+            {
+                Kind = kind,
+                ItemId = row.Id, UserId = row.UserId.Value, AssignmentId = row.AssignmentId,
+                Status = row.Status, Score = row.Score
+            });
+        }
+        foreach (var entry in ChangeTracker.Entries<UserImageTaskSolution>().ToArray())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
+            var row = entry.Entity;
+            if (row.UserId == Guid.Empty || row.AssignmentId == Guid.Empty) continue;
+            if (entry.State == EntityState.Modified &&
+                !entry.Property(x => x.Passed).IsModified &&
+                !entry.Property(x => x.SimilarityPercent).IsModified) continue;
+            var imageStatus = row.Passed ? "Accepted" : "Rejected";
+            if (AdminSolutionFeedEvents.Local.Any(x => x.ItemId == row.Id &&
+                x.Kind == "image" && x.Status == imageStatus && x.Score == row.SimilarityPercent)) continue;
+            AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
+            {
+                Kind = "image", ItemId = row.Id, UserId = row.UserId, AssignmentId = row.AssignmentId,
+                Status = row.Passed ? "Accepted" : "Rejected", Score = row.SimilarityPercent
+            });
+        }
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        CaptureAdminSolutionEvents();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        CaptureAdminSolutionEvents();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        AdminSolutionFeedEntry.Configure(modelBuilder);
         modelBuilder.Entity<ServiceSchemaMarker>(entity =>
         {
             entity.ToTable("ServiceSchemaMarkers");

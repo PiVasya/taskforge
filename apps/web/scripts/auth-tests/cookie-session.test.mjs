@@ -273,17 +273,17 @@ for (const [file, get, ensure, stop, path] of [
 
 test('course-map connections are keyed by user/course rather than by raw credentials', async t => {
   const { module, registry } = await hubModules(t, 'apps/web/src/realtime/courseMapHub.js');
-  const first = module.createCourseMapPresenceConnection('user-a', 'course-1');
-  const other = module.createCourseMapPresenceConnection('user-b', 'course-1');
+  const first = module.createCourseMapUpdatesConnection('user-a', 'course-1');
+  const other = module.createCourseMapUpdatesConnection('user-b', 'course-1');
   assert.equal(first.url, '/hubs/course-map');
   assert.deepEqual(first.options, { withCredentials: true, headers: { 'X-TaskForge-CSRF': '1' } });
   assert.notEqual(first, other);
-  assert.equal(module.createCourseMapPresenceConnection('user-a', 'course-1'), first);
-  await module.disposeCourseMapPresenceConnection('user-a', 'course-1');
+  assert.equal(module.createCourseMapUpdatesConnection('user-a', 'course-1'), first);
+  await module.disposeCourseMapUpdatesConnection('user-a', 'course-1');
   registry.stopAuthenticatedConnections();
   assert.equal(first.stops, 1);
   assert.equal(other.stops, 1);
-  assert.notEqual(module.createCourseMapPresenceConnection('user-b', 'course-1'), other);
+  assert.notEqual(module.createCourseMapUpdatesConnection('user-b', 'course-1'), other);
 });
 
 test('assignment analytics uses a cookie-only connection registered for logout', async t => {

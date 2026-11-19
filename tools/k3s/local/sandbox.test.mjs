@@ -39,6 +39,13 @@ test('each workload has no cluster-public Service or remote address in its confi
    if(key.startsWith('Services__'))assert.match(val,/^http:\/\/[a-z-]+-api:8080$/);
   }
   assert.equal(config.Jwt__Issuer,'TaskForgeK3sLab');
+  assert.equal(config.Cluster__MultiNode,'true');
+  assert.equal(config.Cluster__Namespace,LOCAL_NAMESPACE);
+  for(const workload of [...m.jobs,...m.apps].filter(x=>x.kind==='Job'||x.kind==='Deployment')){
+   const container=workload.spec.template.spec.containers[0];
+   const entries=container.env.filter(v=>v.name==='Cluster__Namespace');
+   assert.deepEqual(entries,[{name:'Cluster__Namespace',value:LOCAL_NAMESPACE}],workload.metadata.name);
+  }
   assert.equal(config.S3__Bucket,'taskforge-k3s-lab-files');
   assert.equal(config.Bootstrap__FirstUserIsAdmin,'false');
  }

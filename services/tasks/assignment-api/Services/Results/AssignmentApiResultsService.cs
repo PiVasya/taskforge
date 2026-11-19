@@ -91,7 +91,11 @@ internal static class AssignmentApiResultsService
         if (userId == Guid.Empty)
             return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
 
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.AdminSolutionFeedEvents.Where(x => x.UserId == userId && x.Kind == kind)
+            .ExecuteDeleteAsync(ct);
         var deleted = await SubmittedAttemptsForUser(db.Attempts, userId, kind).ExecuteDeleteAsync(ct);
+        await transaction.CommitAsync(ct);
         if (deleted > 0)
             await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId }, $"{kind}-attempts-bulk-deleted", null, ct);
 
@@ -104,8 +108,14 @@ internal static class AssignmentApiResultsService
         if (attempt == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
         var userId = attempt.UserId;
         var assignmentId = attempt.TaskAssignmentId;
-        db.Attempts.Remove(attempt);
-        await db.SaveChangesAsync(ct);
+        await using (var tx = await db.Database.BeginTransactionAsync(ct))
+        {
+            await db.AdminSolutionFeedEvents.Where(x => x.Kind == kind && x.ItemId == attemptId)
+                .ExecuteDeleteAsync(ct);
+            db.Attempts.Remove(attempt);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
         await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId }, $"{kind}-attempt-deleted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.NoContent();
     }

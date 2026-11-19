@@ -56,7 +56,7 @@ internal static class AssignmentApiMathService
         return Microsoft.AspNetCore.Http.Results.Ok(MathStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit));
     }
 
-    internal static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct)
+    internal static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
     {
         var userId = RequireUser(http, cfg);
         if (userId == null) return Unauthorized();
@@ -100,7 +100,7 @@ internal static class AssignmentApiMathService
         attempt.ReviewJson = new JsonObject { ["blocks"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await live.PublishAsync("math", attempt.Id, userId.Value, assignmentId, attempt.Passed ? "Accepted" : "Rejected", attempt.ScorePercent);
+
         TaskForgeDebugTrace.Map("MATH_ATTEMPT_SAVED",
             ("user", userId.Value),
             ("assignment", assignmentId),

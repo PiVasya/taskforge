@@ -68,8 +68,12 @@ internal static partial class SolutionsApiEndpoints
             var s = await db.Submissions.FindAsync([id], ct);
             if (s == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             if (s.UserId.HasValue) await MarkRatingDirtyAsync(db, s.UserId.Value, "code-solution-deleted", s.AssignmentId, ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.AdminSolutionFeedEvents.Where(x => x.ItemId == id &&
+                (x.Kind == "code" || x.Kind == "sql")).ExecuteDeleteAsync(ct);
             db.Submissions.Remove(s);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id });
         });
 

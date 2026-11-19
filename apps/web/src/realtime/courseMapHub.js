@@ -9,7 +9,7 @@ function keyFor(userId, courseId) {
   return `${userId || 'anonymous'}:${courseId}`;
 }
 
-export function createCourseMapPresenceConnection(userId, courseId) {
+export function createCourseMapUpdatesConnection(userId, courseId) {
   const key = keyFor(userId, courseId);
   const existing = connections.get(key);
   if (existing) return existing;
@@ -23,7 +23,7 @@ export function createCourseMapPresenceConnection(userId, courseId) {
     .configureLogging(signalR.LogLevel.None)
     .build();
 
-  instrumentSignalRConnection(connection, 'course-map', { courseId: String(courseId || '') });
+  instrumentSignalRConnection(connection, 'course-map-updates', { courseId: String(courseId || '') });
   connections.set(key, connection);
   registerAuthenticatedConnection(connection, () => {
     if (connections.get(key) === connection) connections.delete(key);
@@ -31,7 +31,7 @@ export function createCourseMapPresenceConnection(userId, courseId) {
   return connection;
 }
 
-export async function disposeCourseMapPresenceConnection(userId, courseId) {
+export async function disposeCourseMapUpdatesConnection(userId, courseId) {
   const key = keyFor(userId, courseId);
   const connection = connections.get(key);
   if (!connection) return;

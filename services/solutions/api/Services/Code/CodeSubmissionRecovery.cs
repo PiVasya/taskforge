@@ -10,7 +10,6 @@ namespace TaskForge.Solutions.Api.Services.Code;
 internal sealed class CodeSubmissionRecovery(
     IServiceScopeFactory scopes,
     IConfiguration cfg,
-    AdminSolutionEventPublisher live,
     ILogger<CodeSubmissionRecovery> logger) : BackgroundService
 {
     private DateTimeOffset _nextDiagnostics = DateTimeOffset.MinValue;
@@ -67,6 +66,7 @@ internal sealed class CodeSubmissionRecovery(
                             ? "Не удалось запустить проверку решения. Отправьте его повторно."
                             : "Проверка решения не завершилась вовремя. Отправьте его повторно."
                     }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                    await using var feedTransaction = await db.Database.BeginTransactionAsync(stoppingToken);
                     var updated = await db.Submissions
                         .Where(x => x.Id == row.Id && x.Status == row.Status && x.SqlSpecVersionId == null && x.CreatedAt < before)
                         .ExecuteUpdateAsync(s => s
@@ -74,11 +74,19 @@ internal sealed class CodeSubmissionRecovery(
                             .SetProperty(x => x.Score, 0)
                             .SetProperty(x => x.ResultJson, result), stoppingToken);
                     if (updated == 0) continue;
+                    if (row.UserId.HasValue)
+                    {
+                        db.AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
+                        {
+                            Kind = "code", ItemId = row.Id, UserId = row.UserId.Value,
+                            AssignmentId = row.AssignmentId, Status = "JudgeUnavailable", Score = 0
+                        });
+                        await db.SaveChangesAsync(stoppingToken);
+                    }
+                    await feedTransaction.CommitAsync(stoppingToken);
                     logger.LogWarning("[TFQUEUE] SUBMISSION_EXPIRED api={ApiInstance} submission={SubmissionId} assignment={AssignmentId} previousStatus={PreviousStatus} reason={Reason} ageSeconds={AgeSeconds}",
                         Instance, row.Id, row.AssignmentId, row.Status,
                         isPreparing ? "not_enqueued" : "pending_timeout", Math.Max(0, (long)(DateTimeOffset.UtcNow - row.CreatedAt).TotalSeconds));
-                    if (row.UserId.HasValue)
-                        await live.PublishAsync("code", row.Id, row.UserId.Value, row.AssignmentId, "JudgeUnavailable", 0);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

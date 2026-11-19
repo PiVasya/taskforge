@@ -89,7 +89,8 @@ create_databases() {
 }
 
 migrate() {
-  local entry db project key started_at
+  local entry db project key started_at log_file
+  mkdir -p "$DIAG_DIR"
   local entries=(
     'identity services/identity/api/TaskForge.Identity.Api.csproj DefaultConnection'
     'education services/education/api/TaskForge.Education.Api.csproj DefaultConnection'
@@ -103,15 +104,25 @@ migrate() {
     log "Applying EF Core migrations: $db (taskforge_k3s_$db)"
     printf '::group::EF Core | %s\n' "$db"
     started_at=$SECONDS
+    log_file="$DIAG_DIR/ef-${db}.log"
+    # Preserve full .NET stderr/stdout before the disposable database disappears.
+    # pipefail ensures that a failed dotnet run cannot be hidden by successful tee.
     if ( export "ConnectionStrings__${key}=Host=127.0.0.1;Port=${HOSTPORT};Database=taskforge_k3s_${db};Username=yugabyte;SSL Mode=Disable;Timeout=10;Command Timeout=90"; \
-         timeout 300s dotnet run --project "$project" --configuration Release --no-launch-profile ); then
+         timeout 300s dotnet run --project "$project" --configuration Release --no-launch-profile ) 2>&1 | tee "$log_file"; then
       printf '::endgroup::\n'
       log "EF migrations applied: $db; elapsed=$((SECONDS - started_at))s"
       summary "- **EF Core ($db):** applied in $((SECONDS - started_at))s."
     else
-      local rc=$?
+      local rc=$? reason=''
       printf '::endgroup::\n'
-      fail "EF migrations failed for $db (exit=$rc). Inspect error above and attached database logs"
+      # GitHub collapses the per-service log group. Repeat the underlying error
+      # outside that group and retain the complete file in the CI artifact.
+      log "EF migration FAILED for $db (exit=$rc); diagnostic excerpt:"
+      grep -Ei 'Unhandled exception|Exception:|PostgresException|SQLSTATE|error (CS|NU)[0-9]+|^fail:|^error:' "$log_file" | tail -n 24 || tail -n 28 "$log_file"
+      reason="$(grep -Eim1 'Unhandled exception|PostgresException|error (CS|NU)[0-9]+|^fail:|^error:' "$log_file" || true)"
+      reason="${reason:0:280}"
+      summary "- **EF Core ($db): FAILED (exit $rc).** Full log: \`ef-${db}.log\` in \`taskforge-ysql-diagnostics\`."
+      fail "EF migrations failed for $db (exit=$rc). ${reason:-See ef-${db}.log in taskforge-ysql-diagnostics}"
     fi
   done
 }

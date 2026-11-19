@@ -44,7 +44,6 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddTaskForgeSignalR(builder.Configuration, "tasks-api");
 builder.Services.AddHttpClient();
 builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Transfer.GraphTransferWorker>();
-builder.Services.AddSingleton<AdminSolutionEventPublisher>();
 builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Sql.SqlValidationDispatcher>();
 builder.Services.AddDbContext<TasksDbContext>(options =>
 {

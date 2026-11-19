@@ -58,7 +58,7 @@ internal static partial class SolutionsApiEndpoints
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, refunded = true, quota, request.Reason });
         });
 
-        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, AdminSolutionEventPublisher live, HttpContext http, ILoggerFactory logs, CancellationToken ct) =>
+        app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/verdict", async (Guid submissionId, SolutionVerdictRequest request, SolutionsDbContext db, HttpContext http, ILoggerFactory logs, CancellationToken ct) =>
         {
             var worker = QueueWorkerLabel(http.Request.Headers["X-TaskForge-Execution-Worker"].ToString());
             Guid? jobId = Guid.TryParse(http.Request.Headers["X-TaskForge-Execution-Job"].ToString(), out var parsedJobId)
@@ -134,7 +134,7 @@ internal static partial class SolutionsApiEndpoints
             queueLogger.LogInformation("[TFQUEUE] VERDICT_COMMITTED submission={SubmissionId} job={JobId} worker={Worker} previous={PreviousVerdict} verdict={Verdict} score={Score} reconciliation={Reconciliation} createdAt={CreatedAt:O}",
                 submissionId, jobId, worker, previous, sub.Status, sub.Score, request.OnlyIfPending, sub.CreatedAt);
             if (sub.UserId.HasValue)
-                await live.PublishAsync("code", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
+
             TaskForgeDebugTrace.Map("VERDICT_SAVED",
                 ("submission", submissionId),
                 ("user", sub.UserId),

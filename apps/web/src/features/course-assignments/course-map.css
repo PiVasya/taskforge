@@ -77,8 +77,7 @@
 }
 
 .course-map-server-changed,
-.course-map-unplaced-trigger,
-.course-map-presence-trigger {
+.course-map-unplaced-trigger {
   border: 1px solid rgba(var(--border) / 0.7);
   background: rgba(var(--card) / 0.9);
   color: rgb(var(--fg));
@@ -586,12 +585,10 @@
 }
 
 
-.course-map-presence,
 .course-map-unplaced {
   position: relative;
 }
 
-.course-map-presence-trigger,
 .course-map-unplaced-trigger {
   display: inline-flex;
   height: 34px;
@@ -605,21 +602,6 @@
   font-weight: 650;
 }
 
-.course-map-presence-trigger {
-  min-width: 34px;
-  padding: 0 9px;
-}
-
-.course-map-presence-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 999px;
-  background: #35b66f;
-  box-shadow: 0 0 0 4px rgba(53, 182, 111, .11);
-}
-
-.course-map-presence-popover,
 .course-map-unplaced-popover {
   position: absolute;
   z-index: 60;
@@ -627,21 +609,13 @@
   right: 0;
   width: 260px;
   padding: 10px;
-  opacity: 0;
-  visibility: hidden;
+  opacity: 1;
+  visibility: visible;
   border: 1px solid rgba(var(--border) / .72);
   border-radius: 17px;
   background: rgba(var(--card) / .97);
   box-shadow: 0 18px 44px rgba(16, 18, 24, .15);
   backdrop-filter: blur(18px);
-  transform: translateY(-6px) scale(.985);
-  transition: opacity .16s ease, transform .18s ease, visibility .16s ease;
-}
-
-.course-map-presence:hover .course-map-presence-popover,
-.course-map-unplaced-popover {
-  opacity: 1;
-  visibility: visible;
   transform: translateY(0) scale(1);
 }
 
@@ -652,28 +626,6 @@
   font-weight: 740;
   letter-spacing: .08em;
   text-transform: uppercase;
-}
-
-.course-map-presence-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 5px 4px;
-  font-size: 11px;
-}
-
-.course-map-presence-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.course-map-presence-dirty {
-  color: rgb(var(--accent));
-  font-size: 9px;
 }
 
 .course-map-popover-more {
@@ -855,8 +807,7 @@ html.neo-brutal .course-map-toolbar-left,
 html.neo-brutal .course-map-controls.react-flow__controls,
 html.neo-brutal .course-map-server-changed,
 html.neo-brutal .course-map-unplaced-trigger,
-html.neo-brutal .course-map-presence-trigger,
-html.neo-brutal .course-map-toolbar-icon,
+html.neo-brutal html.neo-brutal .course-map-toolbar-icon,
 html.neo-brutal .course-map-search-field input {
   border: 2px solid rgb(var(--neo-ink));
   border-radius: .68rem;

@@ -71,10 +71,13 @@ startup banner is not evidence of YSQL readiness. No migration has run.
 **Database `create` failed:** inspect SQL/bootstrap permissions and messages;
 this affects only the temporary CI database.
 
-**Database `migrate` failed:** expand the first `EF Core | <service>` log group
-with an error. Identify the exact migration and unsupported YSQL statement.
-Do not mark the job successful or bypass schema verification. The existing
-Npgsql migration history override is restricted to single-run migration jobs.
+**Database `migrate` failed:** read the visible diagnostic excerpt **after**
+the collapsed `EF Core | <service>` log group. Download the
+`taskforge-ysql-diagnostics` artifact and open `ef-<service>.log` for the complete
+.NET exception or failed SQL statement. A startup/configuration failure can
+happen before any DDL is attempted; distinguish it from an unsupported YSQL
+migration. Do not mark the job successful or bypass schema verification. The
+existing Npgsql migration history override is restricted to single-run jobs.
 
 **Database `verify` failed:** read the printed database name and failed assertion.
 All six databases must have migration history, application tables and working
@@ -106,3 +109,38 @@ mock-based regression tests now correct that probe, but their existence is
 Only an actual subsequent green GitHub Actions run establishes that the selected
 YugabyteDB version accepts all six EF migration sets. Local K3s end-to-end
 behavior additionally requires a real deployment on the target PC.
+
+## Incident: SignalR initialized in migration-only mode (19 November 2026)
+
+**Evidence:** [GitHub Actions run 44456144661](https://github.com/PiVasya/taskforge/actions/runs/44456144661),
+commit `7d7326468f58971fbaaef0596b7c7f1ae069bca3`. All six .NET jobs,
+React, the Kubernetes preflight and all seven OCI image builds passed. YSQL
+started, the isolated databases were created, and the **identity** migrations
+completed. The next migration, **education**, failed *before EF executed its
+DDL*, with:
+
+```text
+Unhandled exception. System.InvalidOperationException:
+Multi-node SignalR requires Cluster__Namespace
+```
+
+**Root cause:** `education-api` invokes the shared `AddTaskForgeSignalR` during
+DI registration. With `Cluster__MultiNode=true` the shared helper validates
+runtime Redis configuration, even though `Database__MigrationJobOnly=true`
+means this process will only apply EF migrations and exit. The same issue
+would affect the **tasks** migration and the runtime pods in local K3s: the
+local ConfigMap did not define `Cluster__Namespace`.
+
+**Correction:** the shared helper now skips Redis SignalR *backplane* setup
+in `MigrationJobOnly` mode. Normal multi-node API replicas still fail closed
+without an isolated namespace **and** shared Redis. The Kubernetes manifest
+generator injects `Cluster__Namespace` explicitly from its validated target
+namespace for each API Deployment/Job, and the local ConfigMap includes the
+same setting. Real xUnit tests verify both the migration-only exception and
+normal runtime restrictions. The CI diagnostic script saves full logs as
+`ef-<service>.log`, emits the root exception outside collapsed log groups, and
+attaches those files on failure.
+
+**Status:** this fixes the exact observed bootstrap error in source code.
+It does **not** mean education/tasks/content/solutions/execution migration DDL
+has passed on YugabyteDB. A new green CI run is needed before deployment.

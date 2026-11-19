@@ -32,7 +32,7 @@ internal static partial class SolutionsApiEndpoints
         });
 
         app.MapPost("/api/internal/solutions/submissions/{submissionId:guid}/sql-verdict", async
-            (Guid submissionId, SqlVerdictInput input, SolutionsDbContext db, IConfiguration cfg, AdminSolutionEventPublisher live, CancellationToken ct) =>
+            (Guid submissionId, SqlVerdictInput input, SolutionsDbContext db, IConfiguration cfg, CancellationToken ct) =>
         {
             if (input.Verdict is not ("Accepted" or "WrongAnswer" or "RuntimeError" or "TimeLimitExceeded" or "OutputLimitExceeded" or "JudgeUnavailable")
                 || input.Passed != (input.Verdict == "Accepted") || input.Score != (input.Passed ? 100 : 0)
@@ -45,8 +45,7 @@ internal static partial class SolutionsApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_BINDING_MISMATCH" });
             await SqlSubmissionService.Finish(db, sub, cfg, input.Verdict, input.Result, ct);
             await tx.CommitAsync(ct);
-            if (sub.UserId.HasValue)
-                await live.PublishAsync("sql", sub.Id, sub.UserId.Value, sub.AssignmentId, sub.Status, sub.Score);
+
             return Microsoft.AspNetCore.Http.Results.Ok(new { ok = true, submissionId, status = sub.Status });
         });
         return app;
@@ -87,7 +86,7 @@ internal static partial class SolutionsApiEndpoints
         });
 
         group.MapPost("/check", async (SqlAttemptInput request, HttpContext http, IConfiguration cfg,
-            SolutionsDbContext db, IHttpClientFactory factory, AdminSolutionEventPublisher live, CancellationToken ct) =>
+            SolutionsDbContext db, IHttpClientFactory factory, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
@@ -131,7 +130,7 @@ internal static partial class SolutionsApiEndpoints
             db.Submissions.Add(sub);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
-            await live.PublishAsync("sql", sub.Id, userId.Value, request.AssignmentId, sub.Status, null);
+
             try { await SqlSubmissionService.Dispatch(db, sub, factory, cfg, ct); }
             catch (HttpRequestException) { }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }

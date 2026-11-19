@@ -86,14 +86,14 @@ internal static partial class EducationApiEndpoints
         app.MapPut("/api/courses/{courseId:guid}/map", SaveCourseMapAsync);
         app.MapPut("/api/internal/courses/{courseId:guid}/map/transfer", async (Guid courseId,
             TransferMapSaveRequest payload, HttpContext http, EducationDbContext db, IConfiguration cfg,
-            IHttpClientFactory clients, IHubContext<CourseMapPresenceHub> hub, CancellationToken ct) =>
+            IHttpClientFactory clients, IHubContext<CourseMapUpdatesHub> hub, CancellationToken ct) =>
         {
             if (!await GraphTransferActor.RestoreAsync(http, payload.UserId, cfg, clients, ct))
                 return Microsoft.AspNetCore.Http.Results.StatusCode(403);
             return await SaveCourseMapAsync(courseId, payload.Request, http, db, cfg, hub, ct);
         });
 
-        app.MapHub<CourseMapPresenceHub>("/hubs/course-map");
+        app.MapHub<CourseMapUpdatesHub>("/hubs/course-map");
 
         return app;
     }
@@ -101,7 +101,7 @@ internal static partial class EducationApiEndpoints
     internal sealed record TransferMapSaveRequest(Guid UserId, CourseMapSaveRequest Request);
 
     private static async Task<IResult> SaveCourseMapAsync(Guid courseId, CourseMapSaveRequest request,
-        HttpContext http, EducationDbContext db, IConfiguration cfg, IHubContext<CourseMapPresenceHub> hub, CancellationToken ct)
+        HttpContext http, EducationDbContext db, IConfiguration cfg, IHubContext<CourseMapUpdatesHub> hub, CancellationToken ct)
     {
             var incomingNodeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("nodes", out var incomingNodes) && incomingNodes.ValueKind == JsonValueKind.Array ? incomingNodes.GetArrayLength() : 0;
             var incomingEdgeCount = request.Document.ValueKind == JsonValueKind.Object && request.Document.TryGetProperty("edges", out var incomingEdges) && incomingEdges.ValueKind == JsonValueKind.Array ? incomingEdges.GetArrayLength() : 0;
@@ -281,7 +281,7 @@ internal static partial class EducationApiEndpoints
 
             try
             {
-                await hub.Clients.Group(CourseMapPresenceHub.Group(root.Id)).SendAsync("MapSaved", new
+                await hub.Clients.Group(CourseMapUpdatesHub.Group(root.Id)).SendAsync("MapSaved", new
                 {
                     rootCourseId = root.Id, version = nextVersion, updatedAt = now, updatedBy
                 }, ct);

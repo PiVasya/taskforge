@@ -20,6 +20,10 @@ internal static partial class SolutionsApiEndpoints
 
             var targetId = request.TargetUserId.Value;
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // The event ledger is owned by this service and must follow
+            // account merges, not refer to a deleted source account.
+            await db.AdminSolutionFeedEvents.Where(x => x.UserId == request.SourceUserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, targetId), ct);
 
             var submissions = await db.Submissions.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             foreach (var row in submissions) row.UserId = targetId;
@@ -107,6 +111,9 @@ internal static partial class SolutionsApiEndpoints
             CancellationToken ct) =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // A removed account must not persist in the administrative feed.
+            await db.AdminSolutionFeedEvents.Where(x => x.UserId == request.SourceUserId)
+                .ExecuteDeleteAsync(ct);
             var submissions = await db.Submissions.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var images = await db.ImageSolutions.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var badges = await db.UserBadges.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);

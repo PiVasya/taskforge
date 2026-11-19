@@ -26,7 +26,7 @@ internal static partial class SolutionsApiEndpoints
 
     private static WebApplication MapImageSolutionsEndpoints(WebApplication app)
     {
-        app.MapPost("/api/image-solutions", async (ImageSolutionSubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct) =>
+        app.MapPost("/api/image-solutions", async (ImageSolutionSubmitRequest request, HttpContext http, IConfiguration cfg, SolutionsDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, cfg, "solution-submit") is { } limited) return limited;
             var userId = CurrentUserId(http, cfg);
@@ -78,7 +78,7 @@ internal static partial class SolutionsApiEndpoints
             db.ImageSolutions.Add(row);
             await MarkRatingDirtyAsync(db, row.UserId, "image-solution", row.AssignmentId, ct);
             await db.SaveChangesAsync(ct);
-            await live.PublishAsync("image", row.Id, row.UserId, row.AssignmentId, row.Passed ? "Accepted" : "Rejected", row.SimilarityPercent);
+
 
             var output = JsonNode.Parse(root.GetRawText()) as JsonObject ?? new JsonObject();
             output["id"] = row.Id;
@@ -139,6 +139,8 @@ internal static partial class SolutionsApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
 
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await db.AdminSolutionFeedEvents.Where(x => x.UserId == userId && x.Kind == "image")
+                .ExecuteDeleteAsync(ct);
             var deleted = await UserImageSolutionsForDeletion(db.ImageSolutions, userId).ExecuteDeleteAsync(ct);
             if (deleted > 0)
                 await MarkRatingDirtyAsync(db, userId, "image-solutions-bulk-deleted", null, ct);
@@ -152,8 +154,12 @@ internal static partial class SolutionsApiEndpoints
             var row = await db.ImageSolutions.FindAsync([id], ct);
             if (row == null) return Microsoft.AspNetCore.Http.Results.NotFound();
             await MarkRatingDirtyAsync(db, row.UserId, "image-solution-deleted", row.AssignmentId, ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.AdminSolutionFeedEvents.Where(x => x.ItemId == id && x.Kind == "image")
+                .ExecuteDeleteAsync(ct);
             db.ImageSolutions.Remove(row);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
             return Microsoft.AspNetCore.Http.Results.NoContent();
         });
 

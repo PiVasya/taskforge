@@ -84,7 +84,17 @@ class YugabyteSmokeTest(unittest.TestCase):
         docker.write_text(MOCK)
         docker.chmod(0o755)
         dotnet = bin_dir / 'dotnet'
-        dotnet.write_text('#!/bin/sh\necho mock dotnet build\n')
+        dotnet.write_text('''#!/bin/sh
+case "$*" in
+  *services/education/api/*)
+    if [ "${MOCK_DOTNET_FAIL_EDU:-0}" = 1 ]; then
+      echo 'Unhandled exception. System.InvalidOperationException: Multi-node SignalR requires Cluster__Namespace' >&2
+      exit 9
+    fi
+    ;;
+esac
+echo mock dotnet build
+''')
         dotnet.chmod(0o755)
         self.env = dict(os.environ, PATH=str(bin_dir)+os.pathsep+os.environ['PATH'],
                         MOCK_ROOT=str(self.path), RUNNER_TEMP=str(self.path),
@@ -119,6 +129,16 @@ class YugabyteSmokeTest(unittest.TestCase):
             self.assertIn('taskforge_k3s_'+db, summary)
             self.assertIn('EF Core ('+db+')', summary)
         self.assertFalse((self.path/'running').exists())
+
+    def test_failed_migration_preserves_root_error_outside_group_and_in_artifact(self):
+        self.env['MOCK_DOTNET_FAIL_EDU']='1'
+        r = self.run_phase('migrate', success=False)
+        self.assertIn('EF Core | education', r.stdout)
+        self.assertIn('EF migration FAILED for education', r.stdout)
+        self.assertIn('InvalidOperationException: Multi-node SignalR requires Cluster__Namespace', r.stdout)
+        self.assertIn('EF migrations failed for education (exit=9)', r.stderr)
+        self.assertTrue((self.path/'taskforge-ysql-diagnostics/ef-education.log').is_file())
+        self.assertIn('FAILED', (self.path/'summary.md').read_text())
 
     def test_readiness_failure_is_explicit_not_a_spinner_dump(self):
         self.env['MOCK_YSQL_FAIL']='1'

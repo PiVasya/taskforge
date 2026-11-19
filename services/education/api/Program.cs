@@ -35,7 +35,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddTaskForgeSignalR(builder.Configuration, "education-api");
 builder.Services.AddHttpClient();
-builder.Services.AddSingleton<CourseMapPresenceStore>();
 builder.Services.AddDbContext<EducationDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));

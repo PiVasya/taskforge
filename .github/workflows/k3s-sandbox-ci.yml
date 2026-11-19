@@ -33,14 +33,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 scripts/ci/check-k3s-branch-layout.py
-      - name: Verify branch synchronization contracts
-        run: python3 scripts/ci/test-k3s-branch-sync.py
       - name: Verify CI triggers and release boundaries
         run: python3 scripts/ci/check-k3s-workflow-trigger.py
       - name: Validate Docker build contexts
         run: python3 scripts/ci/check-k3s-docker-context.py
       - name: Validate EF migration jobs and YSQL compatibility
         run: python3 scripts/ci/check-k3s-migration-contract.py
+      - name: Validate durable admin feed ownership and no map presence
+        run: python3 scripts/ci/check-admin-solution-feed.py
       - name: Test Kubernetes manifest generation
         run: node --test tools/k3s/local/local.test.mjs tools/k3s/local/sandbox.test.mjs
       - name: Regression-test CI database readiness and failure reporting

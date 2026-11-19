@@ -21,8 +21,12 @@ export const BACKGROUND_DB_CONSUMERS = Object.freeze([
 export const EXTRA_DATABASES = Object.freeze(['taskforge_telegram_quiz']);
 
 const boolEnv=(name,value)=>({name,value:String(value).toLowerCase()});
-const configEnv=(service,migration)=>[
+const configEnv=(service,migration,options)=>[
   {name:`ConnectionStrings__${service.connection}`,valueFrom:{secretKeyRef:{name:'taskforge-db-connections',key:service.name}}},
+  // A SignalR backplane is shared only within the current Kubernetes namespace.
+  // Generate this explicitly so a missing/incorrect ConfigMap cannot cross-wire
+  // separate installations or crash the API on startup.
+  {name:'Cluster__Namespace',value:options.namespace},
   boolEnv('Database__RequireYugabyte',true),
   boolEnv('Database__MigrateOnStartup',migration),
   boolEnv('Database__MigrationJobOnly',migration),
@@ -41,7 +45,7 @@ function podContainer(service,options,migration){
       {configMapRef:{name:'taskforge-app-config'}},
       {secretRef:{name:'taskforge-app-secrets'}},
     ],
-    env:configEnv(service,migration),
+    env:configEnv(service,migration,options),
     ...(migration?{}:{
       ports:[{name:'http',containerPort:8080}],
       readinessProbe:{tcpSocket:{port:'http'},periodSeconds:5,timeoutSeconds:2},

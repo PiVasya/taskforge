@@ -27,7 +27,7 @@ import { deleteAssignment, getAssignmentsByCourseTree, saveTaskGraphImportMap } 
 import { apiForAssignmentType } from '../../../api/assignmentKindApi';
 import { createCourse, deleteCourse } from '../../../api/courses';
 import { getCourseMap, getLearningCourseMapDelta, saveCourseMap, streamLearningCourseMap } from '../../../api/courseMaps';
-import { createCourseMapPresenceConnection, disposeCourseMapPresenceConnection } from '../../../realtime/courseMapHub';
+import { createCourseMapUpdatesConnection, disposeCourseMapUpdatesConnection } from '../../../realtime/courseMapHub';
 import { getApiErrorMessage } from '../../../api/http';
 import { buildDefaultAssignmentPayload, isAssignmentSolved, previewAssignmentDescription } from '../courseAssignmentsModel';
 import {
@@ -129,14 +129,6 @@ function persistExpandedCompletedCourseIds(rootId, userId, values) {
   try {
     window.sessionStorage.setItem(key, JSON.stringify(Array.from(values || []).map(String).filter(Boolean)));
   } catch {}
-}
-
-function userDisplayName(user) {
-  return user?.displayName || user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || user?.login || user?.email || 'Пользователь';
-}
-
-function userAvatar(user) {
-  return user?.avatarUrl || user?.avatar || user?.imageUrl || null;
 }
 
 function isEditableShortcutTarget(target) {
@@ -293,7 +285,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const [mapCourses, setMapCourses] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [dirty, setDirty] = React.useState(false);
-  const [presence, setPresence] = React.useState([]);
   const [context, setContext] = React.useState({ open: false, x: 0, y: 0, flowPosition: null, node: null, edge: null });
   const [unplacedOpen, setUnplacedOpen] = React.useState(false);
   const [serverChanged, setServerChanged] = React.useState(false);
@@ -320,7 +311,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
   const serverReloadingRef = React.useRef(false);
   const nodeDraggingRef = React.useRef(false);
   const keyboardMoveUntilRef = React.useRef(0);
-  const presenceIdsRef = React.useRef(new Set());
   const focusedCourseRef = React.useRef('');
   const dataRevisionRef = React.useRef(dataRevision);
   const importReloadRef = React.useRef(0);
@@ -2236,32 +2226,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
     window.requestAnimationFrame(() => focusBranch(targetId));
   }, [focusBranch, focusCourseId, nodes, rootId]);
 
+  // Only map-version notifications remain. We deliberately do NOT track who
+  // has this editor open and do not send presence heartbeats to Redis.
   React.useEffect(() => {
     if (!editorMode || !rootId) return undefined;
     let disposed = false;
-    let heartbeat = null;
-    const connection = createCourseMapPresenceConnection(currentUserId, rootId);
-    const handlePresence = (rows) => {
-      if (disposed) return;
-      const list = Array.isArray(rows) ? rows : [];
-      const nextIds = new Set(list.map((row) => String(row?.userId || '')).filter(Boolean));
-      const previous = presenceIdsRef.current;
-      for (const row of list) {
-        const uid = String(row?.userId || '');
-        if (uid && uid !== currentUserId && !previous.has(uid)) notify.info(`${row.displayName || 'Редактор'} открыл карту`);
-      }
-      presenceIdsRef.current = nextIds;
-      setPresence(list);
-    };
+    const connection = createCourseMapUpdatesConnection(currentUserId, rootId);
     const handleMapSaved = (event) => {
       if (disposed) return;
       const by = String(event?.updatedBy || '');
-      courseMapConsole('PRESENCE_MAP_SAVED', {
+      courseMapConsole('MAP_SAVED_REMOTE', {
         viewKey, byCurrentUser: Boolean(by) && by === currentUserId,
-        senderPresent: Boolean(by), dirty: dirtyRef.current,
-        version: Number(recordRef.current.version || 0),
+        dirty: dirtyRef.current, version: Number(recordRef.current.version || 0),
         eventVersion: Number(event?.version || 0) || null,
-        reloading: serverReloadingRef.current,
       });
       if (by && by === currentUserId) return;
       if (dirtyRef.current) {
@@ -2272,30 +2249,19 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
         void loadMapRef.current?.({ preferSession: false, quiet: true });
       }
     };
-    connection.on('PresenceChanged', handlePresence);
+    const join = () => {
+      if (!disposed) connection.invoke('JoinMap', rootId).catch(() => {});
+    };
     connection.on('MapSaved', handleMapSaved);
-    connection.start().then(async () => {
-      if (disposed) return;
-      await connection.invoke('JoinMap', rootId, userDisplayName(user), userAvatar(user), dirtyRef.current);
-      heartbeat = window.setInterval(() => {
-        connection.invoke('Heartbeat', rootId, dirtyRef.current, userDisplayName(user), userAvatar(user)).catch(() => {});
-      }, 15000);
-    }).catch(() => {});
+    connection.onreconnected(join);
+    connection.start().then(join).catch(() => {});
     return () => {
       disposed = true;
-      if (heartbeat) window.clearInterval(heartbeat);
-      connection.off('PresenceChanged', handlePresence);
       connection.off('MapSaved', handleMapSaved);
       connection.invoke('LeaveMap', rootId).catch(() => {});
-      disposeCourseMapPresenceConnection(currentUserId, rootId).catch(() => {});
+      disposeCourseMapUpdatesConnection(currentUserId, rootId).catch(() => {});
     };
-  }, [isAuthenticated, currentUserId, editorMode, notify, rootId, user, viewKey]);
-
-  React.useEffect(() => {
-    if (!editorMode || !rootId) return;
-    const connection = createCourseMapPresenceConnection(currentUserId, rootId);
-    connection?.invoke('Heartbeat', rootId, dirty, userDisplayName(user), userAvatar(user)).catch(() => {});
-  }, [isAuthenticated, currentUserId, dirty, editorMode, rootId, user]);
+  }, [currentUserId, editorMode, notify, rootId, viewKey]);
 
   const markDirty = React.useCallback((reason = 'unknown', evidence = {}) => {
     if (!editorMode || serverReloadingRef.current) {
@@ -3314,24 +3280,6 @@ function CourseMapInner({ course, allCourses, courseCanEdit, editorMode, query =
                   </div>
                 </div>
               ) : null}
-            </div>
-          ) : null}
-
-          {editorMode ? (
-            <div className="course-map-presence">
-              <ShortcutButton type="button" className="course-map-presence-trigger" aria-label={`Редакторов в карте: ${Math.max(1, presence.length)}`}>
-                <span className="course-map-presence-dot" />{presence.length > 1 ? <span>{presence.length}</span> : null}
-              </ShortcutButton>
-              <div className="course-map-presence-popover">
-                <div className="course-map-popover-title">Сейчас в редакторе</div>
-                {(presence.length ? presence : [{ userId: currentUserId, displayName: userDisplayName(user), isDirty: dirty }]).map((row) => (
-                  <div className="course-map-presence-row" key={row.userId || row.displayName}>
-                    <span className="course-map-presence-dot" />
-                    <span className="course-map-presence-name">{row.displayName || 'Пользователь'}{String(row.userId || '') === currentUserId ? ' · вы' : ''}</span>
-                    {row.isDirty ? <span className="course-map-presence-dirty">изменяет</span> : null}
-                  </div>
-                ))}
-              </div>
             </div>
           ) : null}
 

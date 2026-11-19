@@ -32,67 +32,86 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
     itemsRef.current = [];
     setItems([]);
     setState('connecting');
+    // Show the persisted submission immediately when SSE arrives. User names
+    // and detailed verdicts are enrichment, not a prerequisite for visibility.
+    const upsert = (next) => setItems((current) => {
+      const existing = current.find((item) => item.key === next.key);
+      if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
+      const merged = [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== next.key)];
+      merged.sort((a, b) => new Date(b.occurredAtUtc || 0) - new Date(a.occurredAtUtc || 0));
+      return merged.slice(0, 120);
+    });
+
+    // Replaying 100 events from each DB must not issue 200 concurrent requests.
+    const enrichQueue = [];
+    let inFlight = 0;
+    const drain = () => {
+      while (subscribed && inFlight < 6 && enrichQueue.length) {
+        const task = enrichQueue.shift();
+        inFlight++;
+        Promise.resolve().then(task).catch(() => {}).finally(() => {
+          inFlight--;
+          drain();
+        });
+      }
+    };
     const dispose = subscribeAdminSolutionEvents({
       onOpen: () => subscribed && setState('live'),
       onError: () => subscribed && setState('reconnecting'),
-      onEvent: async (event) => {
-        // In assignment analytics, skip unrelated submissions before calling
-        // user and attempt detail APIs. Admin global feed remains unchanged.
+      onEvent: (event) => {
         if (!subscribed) return;
         if (assignmentId && String(event?.assignmentId || '').toLowerCase() !== String(assignmentId).toLowerCase()) return;
         const userId = String(event?.userId || '');
         const key = `${String(event?.kind || '').toLowerCase()}:${String(event?.itemId || '')}`;
         if (!userId || key === ':') return;
 
-        try {
-          let user = cachedUsers.get(userId);
-          const userPromise = user
-            ? Promise.resolve(user)
-            : getAdminUser(userId).then((value) => {
-                cachedUsers.set(userId, value);
-                return value;
+        upsert({
+          ...event, key,
+          userLabel: String(userId).slice(0, 8),
+          assignmentTitle: assignmentTitle(null, event.assignmentId),
+        });
+
+        // A later notification for the same solution supersedes older status
+        // updates. Store the user Promise early to coalesce duplicate requests.
+        enrichQueue.unshift(async () => {
+          if (!subscribed) return;
+          try {
+            let userRequest = cachedUsers.get(userId);
+            if (!userRequest) {
+              userRequest = getAdminUser(userId).then((loaded) => {
+                cachedUsers.set(userId, loaded);
+                return loaded;
+              }).catch((error) => {
+                cachedUsers.delete(userId);
+                throw error;
               });
-          const [loadedUser, detail] = await Promise.all([
-            userPromise,
-            loadAdminSolutionLiveDetail(event),
-          ]);
-          if (!subscribed) return;
-          const next = {
-            ...event,
-            key,
-            user: loadedUser,
-            userLabel: userLabel(loadedUser, userId),
-            detail,
-            assignmentTitle: assignmentTitle(detail, event.assignmentId),
-            status: detail?.status || detail?.verdict || event.status || null,
-            score: detail?.score ?? detail?.scorePercent ?? detail?.similarityPercent ?? event.score ?? null,
-          };
-          setItems((current) => {
-            const existing = current.find((item) => item.key === key);
-            if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
-            const merged = [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== key)];
-            merged.sort((a, b) => new Date(b.occurredAtUtc || 0) - new Date(a.occurredAtUtc || 0));
-            return merged.slice(0, 120);
-          });
-        } catch {
-          if (!subscribed) return;
-          const next = {
-            ...event,
-            key,
-            userLabel: String(event.userId || '').slice(0, 8),
-            assignmentTitle: `Задание ${String(event.assignmentId || '').slice(0, 8)}`,
-          };
-          setItems((current) => {
-            const existing = current.find((item) => item.key === key);
-            if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
-            return [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== key)].slice(0, 120);
-          });
-        }
+              cachedUsers.set(userId, userRequest);
+            }
+            const [loadedUser, detail] = await Promise.all([
+              Promise.resolve(userRequest),
+              loadAdminSolutionLiveDetail(event),
+            ]);
+            if (!subscribed) return;
+            upsert({
+              ...event, key,
+              user: loadedUser,
+              userLabel: userLabel(loadedUser, userId),
+              detail,
+              assignmentTitle: assignmentTitle(detail, event.assignmentId),
+              status: detail?.status || detail?.verdict || event.status || null,
+              score: detail?.score ?? detail?.scorePercent ?? detail?.similarityPercent ?? event.score ?? null,
+            });
+          } catch {
+            // The durable SSE event remains visible even when enrichment fails.
+          }
+        });
+        drain();
       },
     });
     return () => {
       subscribed = false;
       alive.current = false;
+      enrichQueue.length = 0;
       dispose();
       cachedUsers.clear();
     };

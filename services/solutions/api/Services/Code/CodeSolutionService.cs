@@ -23,7 +23,6 @@ internal static class CodeSolutionService
         IConfiguration cfg,
         SolutionsDbContext db,
         IHttpClientFactory httpFactory,
-        AdminSolutionEventPublisher live,
         CancellationToken ct)
     {
         var queueLogger = http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TaskForge.CodeQueue");
@@ -66,7 +65,7 @@ internal static class CodeSolutionService
         await db.SaveChangesAsync(ct);
         queueLogger.LogInformation("[TFQUEUE] SUBMISSION_CREATED submission={SubmissionId} assignment={AssignmentId} language={Language} status={Status} createdAt={CreatedAt:O}",
             sub.Id, assignmentId, language, sub.Status, sub.CreatedAt);
-        await live.PublishAsync("code", sub.Id, userId.Value, assignmentId, sub.Status, null);
+
         TaskForgeDebugTrace.Map("SUBMISSION_CREATED",
             ("submission", sub.Id),
             ("user", userId.Value),
@@ -110,8 +109,15 @@ internal static class CodeSolutionService
             WriteQuotaHeaders(http.Response, quotaResult.quota);
             if (!quotaResult.consumed)
             {
+                // The rejected submission is removed; its durable admin-feed
+                // event must disappear in the very same transaction.
+                await using var cleanup = await db.Database.BeginTransactionAsync(ct);
+                await db.AdminSolutionFeedEvents
+                    .Where(x => x.Kind == "code" && x.ItemId == sub.Id)
+                    .ExecuteDeleteAsync(ct);
                 db.Submissions.Remove(sub);
                 await db.SaveChangesAsync(ct);
+                await cleanup.CommitAsync(ct);
                 return QuotaExceeded(quotaResult.quota);
             }
         }
@@ -146,11 +152,26 @@ internal static class CodeSolutionService
             // Never overwrite a real verdict that arrived before the timeout.
             var fallback = new SolutionSubmission();
             ApplyLocalVerdict(fallback, unavailableResult);
-            await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.Status, fallback.Status)
-                    .SetProperty(x => x.Score, fallback.Score)
-                    .SetProperty(x => x.ResultJson, fallback.ResultJson), ct);
+            await using (var feedTransaction = await db.Database.BeginTransactionAsync(ct))
+            {
+                var replaced = await db.Submissions.Where(x => x.Id == sub.Id && x.Status == "Preparing")
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(x => x.Status, fallback.Status)
+                        .SetProperty(x => x.Score, fallback.Score)
+                        .SetProperty(x => x.ResultJson, fallback.ResultJson), ct);
+                // ExecuteUpdate bypasses SaveChanges and its atomic outbox hook.
+                // Emit the terminal event explicitly in the same transaction.
+                if (replaced > 0)
+                {
+                    db.AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
+                    {
+                        Kind = "code", ItemId = sub.Id, UserId = userId.Value,
+                        AssignmentId = assignmentId, Status = fallback.Status, Score = fallback.Score
+                    });
+                    await db.SaveChangesAsync(ct);
+                }
+                await feedTransaction.CommitAsync(ct);
+            }
             db.Entry(sub).State = EntityState.Detached;
             var latest = await db.Submissions.AsNoTracking().SingleAsync(x => x.Id == sub.Id, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(ToSubmitDto(latest, canRevealHidden));

@@ -10,8 +10,6 @@ REQUIRED=(
     'infrastructure/k8s/taskforge-yugabyte/db/create-databases.sql',
     'infrastructure/k8s/taskforge-yugabyte/db/create-k3s-lab-databases.sql',
     'scripts/ci/check-k3s-workflow-trigger.py',
-    'scripts/ci/test-k3s-branch-sync.py',
-    'SYNC_TO_CLUSTER_V2.py',
 )
 FORBIDDEN=(
     'services/ai/worker',
@@ -41,7 +39,7 @@ def check():
     if missing or leftovers:
         print('This is an incomplete Git branch replacement, NOT a compiler failure.',file=sys.stderr)
         print('Uploading or copying a ZIP over a branch does not delete old Git-tracked files.',file=sys.stderr)
-        print('Use SYNC_TO_CLUSTER_V2.py from the FULL ZIP against a fresh cluster-v2 clone; commit and push its staged DELETIONS.',file=sys.stderr)
+        print('Remove the obsolete tracked files from the Git repository before running CI.',file=sys.stderr)
         return 1
     print('PASS: branch has complete K3s source and NO legacy CT, LLM worker, or production deployment paths')
     return 0

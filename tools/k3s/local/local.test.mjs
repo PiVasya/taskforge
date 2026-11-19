@@ -64,6 +64,16 @@ test('Gateway prioritizes assignment/solution types, routes auth, course, live W
  assert.ok(s.indexOf('code-assignments')<s.indexOf('location ~* ^/api/(?:courses|groups)'));
  assert.ok(s.indexOf('code-solutions')<s.indexOf('location ~* ^/api/(?:solutions|judge'));
  assert.match(s,/location \/ \{/);
+ // The live feed has TWO owners; both must route to the right API.
+ assert.match(s,/location ~\* \^\/api\/admin\/solution-events\$[\s\S]*?solutions-api/);
+ assert.match(s,/location ~\* \^\/api\/admin\/task-solution-events\$[\s\S]*?tasks-api/);
+ for(const endpoint of ['solution-events','task-solution-events']){
+  const block=s.match(new RegExp(`location ~\\* \\^/api/admin/${endpoint}\\$ \\{([^}]*)\\}`));
+  assert.ok(block,`missing SSE route: ${endpoint}`);
+  assert.match(block[1],/proxy_buffering off;/);
+  assert.match(block[1],/proxy_cache off;/);
+  assert.match(block[1],/proxy_set_header Connection "";/);
+ }
  assert.match(s,/location \^~ \/taskforge-k3s-lab-files\//);
  assert.match(s,/minio\.taskforge-k3s-lab\.svc\.cluster\.local:9000/);
  assert.match(s,/proxy_set_header Host \$http_host/);

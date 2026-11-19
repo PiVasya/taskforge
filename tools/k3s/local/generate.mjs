@@ -38,6 +38,7 @@ const configEnv={
   ASPNETCORE_URLS:'http://+:8080',
   TASKFORGE_DEBUG_LOGS:'0',
   Cluster__MultiNode:'true',
+  Cluster__Namespace:LOCAL_NAMESPACE,
   Database__RequireYugabyte:'true',
   Database__MigrateOnStartup:'false',
   Database__EnsureCreated:'false',
@@ -74,6 +75,7 @@ const routes=[
  ['^/api/admin/users/[^/]+/(?:solutions|image-solutions)(?:/|$)','solutions-api'],
  ['^/api/me/ui-settings(?:/|$)','identity-api'],
  ['^/api/admin/solution-events$','solutions-api'],
+ ['^/api/admin/task-solution-events$','tasks-api'],
  ['^/api/admin/solution-users(?:/|$)','solutions-api'],
  ['^/api/(?:auth|users|profile)(?:/|$)','identity-api'],
  ['^/api/admin/(?:users|feature-roles)(?:/|$)','identity-api'],
@@ -107,7 +109,15 @@ export function gatewayConfig(){
  `  proxy_set_header Host $host;\n  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n`+
  `  proxy_set_header X-Forwarded-Proto $scheme;\n  proxy_http_version 1.1;\n`+
  `  location = /health/gateway { return 200 'ok'; }\n`;
- const config=routes.map(([pattern,service])=>`  location ~* ${pattern} {\n    set $tf_backend '${service}.${LOCAL_NAMESPACE}.svc.cluster.local:8080';\n    proxy_pass http://$tf_backend;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection 'upgrade';\n    proxy_read_timeout 180s;\n  }`).join('\n');
+ const config=routes.map(([pattern,service])=>{
+  // SSE must never be buffered by Nginx: each committed YugabyteDB event
+  // should reach the browser immediately rather than waiting for a full buffer.
+  const streaming=pattern.endsWith('solution-events$');
+  const proxyHeaders=streaming
+    ? '    proxy_set_header Connection "";\n    proxy_buffering off;\n    proxy_cache off;'
+    : '    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection \'upgrade\';';
+  return `  location ~* ${pattern} {\n    set $tf_backend '${service}.${LOCAL_NAMESPACE}.svc.cluster.local:8080';\n    proxy_pass http://$tf_backend;\n${proxyHeaders}\n    proxy_read_timeout 180s;\n  }`;
+ }).join('\n');
  const hubs=`  location ^~ /hubs/course-map {\n    set $tf_backend 'education-api.${LOCAL_NAMESPACE}.svc.cluster.local:8080';\n    proxy_pass http://$tf_backend;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection 'upgrade';\n    proxy_read_timeout 300s;\n  }\n  location ^~ /hubs/ {\n    set $tf_backend 'tasks-api.${LOCAL_NAMESPACE}.svc.cluster.local:8080';\n    proxy_pass http://$tf_backend;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection 'upgrade';\n    proxy_read_timeout 300s;\n  }\n`;
  // Route only the lab's public S3 bucket through this loopback-only gateway.
  // Presigned S3 URLs include host and port in their signature; forward $http_host,

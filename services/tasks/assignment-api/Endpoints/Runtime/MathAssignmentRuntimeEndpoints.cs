@@ -56,11 +56,11 @@ internal static partial class AssignmentApiEndpoints
             await StartMath(assignmentId, http, cfg, db, clients, ct));
 
         app.MapPost("/api/math-assignments/{assignmentId:guid}/attempts/{attemptId:guid}/submit", async (
-            Guid assignmentId, Guid attemptId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, AdminSolutionEventPublisher live, CancellationToken ct) =>
+            Guid assignmentId, Guid attemptId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
             if (CheckUserRateLimit(http, cfg, "task-submit") is { } limited) return limited;
             var normalized = WithAttemptId(payload, attemptId);
-            return await SubmitMath(assignmentId, normalized, http, cfg, db, clients, live, ct);
+            return await SubmitMath(assignmentId, normalized, http, cfg, db, clients, ct);
         });
 
         app.MapGet("/api/math-assignments/{assignmentId:guid}/attempts/{attemptId:guid}", async (

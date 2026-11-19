@@ -14,6 +14,12 @@ public static class DistributedSignalR
         this IServiceCollection services, IConfiguration configuration, string serviceName)
     {
         var builder = services.AddSignalR();
+
+        // A migration Job builds the DI container to apply EF migrations and then
+        // exits without starting a web server, SignalR hubs, or background workers.
+        // The Job must not require the runtime Redis backplane/cluster namespace;
+        // regular multi-node API replicas still fail closed if either is missing.
+        if (configuration.GetValue("Database:MigrationJobOnly", false)) return builder;
         if (!configuration.GetValue("Cluster:MultiNode", false)) return builder;
 
         var ns = configuration["Cluster:Namespace"]?.Trim();
