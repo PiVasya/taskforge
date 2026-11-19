@@ -14,42 +14,46 @@
 
 **Важно:** живую совместимость каждого EF Core migration с YugabyteDB и запуск сайта можно подтвердить только на реальном K3s. Локальные Node-тесты и статические проверки не заменяют этот запуск. Данные со старого PostgreSQL здесь НЕ импортированы.
 
-## 1. Обновить существующую ветку `cluster-v2` (НЕ `develop`)
+## 1. Correctly replace the existing `cluster-v2` Git branch
 
-В `cluster-v2` сейчас есть старая копия архива, где GitHub Actions не был подписан на имя ветки, а старые workflows остались после загрузки поверх файлов. **Обычное копирование новых файлов без удаления старых недостаточно.**
+**Confirmed failure on GitHub Actions run #1, commit `57810f7`:** six .NET builds and React succeeded. `Sandbox manifests / invariants` failed before migration/Docker because the branch still contains old tracked directories (`services/ai/worker`, `apps/web-ct`, `services/tasks/quiz-api`, `deploy/prod`, `deploy/cluster`, and others). Uploading/copying ZIP files does **not** delete existing files from a Git branch. The original `taskforge-develop(359).zip` is the old develop baseline, not the isolated K3s build.
 
-1. Распакуй данный ZIP в **отдельный каталог**, содержащий `.github`, `apps`, `services`, `tools` и т. д.
-2. Сделай **свежий checkout только ветки `cluster-v2`** в новую папку:
+This FULL ZIP now includes `SYNC_TO_CLUSTER_V2.py`, which does an exact repository-file sync and **stages deletions** without committing, pushing, or removing `.git`. It refuses any branch other than `cluster-v2` and refuses a dirty checkout. Only use it with a **fresh clone** of the experimental branch, not the production checkout.
+
+1. Extract this ZIP to a separate folder such as `/home/me/downloads/taskforge-cluster-v2`.
+2. Clone the existing test branch into a DIFFERENT folder:
 
 ```bash
-git clone --branch cluster-v2 --single-branch https://github.com/PiVasya/taskforge.git taskforge-cluster-v2-new
-cd taskforge-cluster-v2-new
-test "$(git branch --show-current)" = cluster-v2 || exit 1
-test -z "$(git status --porcelain)" || { echo 'Checkout is not clean'; exit 1; }
+git clone --branch cluster-v2 --single-branch \
+  https://github.com/PiVasya/taskforge.git taskforge-cluster-v2-clean
+cd taskforge-cluster-v2-clean
+```
 
-# УКАЖИ ПУТЬ К РАСПАКОВАННОМУ НОВОМУ ZIP (каталог с README_K3S_BRANCH.md)
-SRC=/absolute/path/to/taskforge-cluster-v2-k3s-fixed
-test -f "$SRC/.github/workflows/k3s-sandbox-ci.yml" || exit 1
-# Удалить только старые файлы В ЭТОМ НОВОМ CHECKOUT, сохранив .git.
-rsync -a --delete --exclude='.git/' "$SRC/" ./
+3. Set `SRC` to the directory extracted from the new ZIP and run the sync. These commands must point to **two different folders**:
 
-# Проверка: остался только workflow K3s, старый production отсутствует.
-ls .github/workflows/
-test ! -f .github/workflows/develop-build.yml || exit 1
-test ! -f .github/workflows/minecraft-plugins-build.yml || exit 1
+```bash
+SRC=/home/me/downloads/taskforge-cluster-v2
+python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD" --dry-run
+python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD"
+
+python3 scripts/ci/check-k3s-branch-layout.py
 python3 scripts/ci/check-k3s-workflow-trigger.py
-
-git add -A
+git diff --cached --check
 git diff --cached --stat
-git commit -m 'Fix cluster-v2 K3s YugabyteDB CI and remove legacy stack'
+```
+
+4. Commit and push, including all staged deletions:
+
+```bash
+git commit -m 'Remove legacy TaskForge files from isolated cluster-v2 branch'
 git push origin cluster-v2
 ```
 
-Не выполняй `rsync --delete` в каталоге работающего сервера или в рабочем `develop`. Эта команда предназначена **исключительно** для свежего checkout `cluster-v2`.
+**Do not just drag files into the GitHub website or unzip them over the old branch.** That retains the deleted `services/ai/worker` etc. paths and CI will fail again. The sync helper deliberately does not contact the production server, use the old PostgreSQL, or publish to GitHub on its own.
 
-После push GitHub Actions должен запустить `K3s sandbox / YugabyteDB CI + isolated images`. Запускается сам CI, **не** развёртывание на домашнем ПК. Если какой-либо job упадёт, его лог покажет ошибку; публикация образов будет заблокирована.
+After push, Actions starts `K3s sandbox / YugabyteDB CI + isolated images`. If the job fails, it now prints *each* missing/forbidden path explicitly instead of failing at a silent shell `test`. The next stages (YugabyteDB migrations and actual Docker builds) are not yet verified by the earlier green .NET build alone.
 
-**Если ты хочешь ветку с другим именем:** автоматический trigger допускает `k3s-*` и `k3s/**`. Ветки `main` и `develop` сознательно исключены.
+For an experimental branch named `k3s-*`/`k3s/**`, the workflow trigger also exists, but the synchronizer above intentionally targets only `cluster-v2` to avoid modifying the wrong branch.
 
 ## 2. Что делает новый CI/CD
 

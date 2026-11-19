@@ -28,20 +28,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify K3s-only branch is fully prepared
+      - name: Verify K3s-only branch is fully prepared (explain missing/legacy paths)
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -f infrastructure/k8s/taskforge-yugabyte/local/run-local.sh
-          test -f tools/k3s/local/generate.mjs
-          test ! -d services/ai/worker
-          test ! -d apps/web-ct
-          test ! -d services/tasks/quiz-api
-          test ! -d deploy/prod
-          test ! -d deploy/cluster
-          test ! -f .github/workflows/develop-build.yml
-          test ! -f .github/workflows/develop-full-rebuild.yml
-          test ! -f .github/workflows/minecraft-plugins-build.yml
+          python3 scripts/ci/check-k3s-branch-layout.py
+      - name: Test safe Git branch sync and legacy deletion
+        run: python3 scripts/ci/test-k3s-branch-sync.py
       - name: Check exact CI branch triggers and isolation
         run: python3 scripts/ci/check-k3s-workflow-trigger.py
       - name: Check actual Docker build-stage source coverage

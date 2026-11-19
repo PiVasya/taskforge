@@ -652,6 +652,9 @@ Thumbs.db
 *.backup
 *.dump
 *.sql
+# The isolated K3s test cluster needs these TWO source-controlled YSQL bootstrap scripts.
+!infrastructure/k8s/taskforge-yugabyte/db/create-databases.sql
+!infrastructure/k8s/taskforge-yugabyte/db/create-k3s-lab-databases.sql
 *.sql.gz
 *.sqlite
 *.sqlite3

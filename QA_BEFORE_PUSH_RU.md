@@ -1,3 +1,17 @@
+# Audit after CI run #1
+
+## GitHub Actions run #1, verified root cause (18 November 2026)
+
+Real run `44180872886` for branch `cluster-v2`, commit `57810f7`: all six API .NET build jobs and React succeeded. The first check in `Sandbox manifests / invariants` returned `exit code 1` because the branch still tracks `services/ai/worker`, `apps/web-ct`, `services/tasks/quiz-api`, `deploy/prod`, `deploy/cluster` (and other legacy files). The clean source ZIP did not contain these paths, but GitHub still did. Therefore YugabyteDB migrations and Docker smoke builds were *skipped*, not successful.
+
+Fix: `SYNC_TO_CLUSTER_V2.py` replaces exactly the tracked tree in a clean branch checkout and stages the deletions. Its four regression tests cover removal, dry-run, protected develop, and dirty checkout. CI preflight now prints every conflicting path. The new ZIP is still a full project, not a patch.
+
+Additional root cause: the base `.gitignore` excluded all `*.sql`, including the two K3s YugabyteDB bootstrap SQL files. The new `.gitignore` has explicit exceptions and the branch sync stages each ZIP file, including ignored sources, by exact path. This has been verified with a full Git replacement rehearsal on the uploaded develop ZIP.
+
+No claim is made that real YugabyteDB migrations or Docker builds have passed: they will run only after the branch is made clean.
+
+---
+
 # Исправление CI на `cluster-v2` — 18 ноября 2026
 
 **Почему не было сборки:** `.github/workflows/k3s-sandbox-ci.yml` слушал только `k3s-*` и `k3s/**`, а ветка называется `cluster-v2`. Его шесть job также имели такие же ограничительные `if:`. На этом основании новый workflow не запускался. Старый `minecraft-plugins-build.yml` не имел такого ограничения и показался в Actions.
