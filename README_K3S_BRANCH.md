@@ -14,46 +14,32 @@
 
 **Важно:** живую совместимость каждого EF Core migration с YugabyteDB и запуск сайта можно подтвердить только на реальном K3s. Локальные Node-тесты и статические проверки не заменяют этот запуск. Данные со старого PostgreSQL здесь НЕ импортированы.
 
-## 1. Correctly replace the existing `cluster-v2` Git branch
+## 1. Replace the existing `cluster-v2` branch safely
 
-**Confirmed failure on GitHub Actions run #1, commit `57810f7`:** six .NET builds and React succeeded. `Sandbox manifests / invariants` failed before migration/Docker because the branch still contains old tracked directories (`services/ai/worker`, `apps/web-ct`, `services/tasks/quiz-api`, `deploy/prod`, `deploy/cluster`, and others). Uploading/copying ZIP files does **not** delete existing files from a Git branch. The original `taskforge-develop(359).zip` is the old develop baseline, not the isolated K3s build.
-
-This FULL ZIP now includes `SYNC_TO_CLUSTER_V2.py`, which does an exact repository-file sync and **stages deletions** without committing, pushing, or removing `.git`. It refuses any branch other than `cluster-v2` and refuses a dirty checkout. Only use it with a **fresh clone** of the experimental branch, not the production checkout.
-
-1. Extract this ZIP to a separate folder such as `/home/me/downloads/taskforge-cluster-v2`.
-2. Clone the existing test branch into a DIFFERENT folder:
+The full ZIP must be committed as a coherent Git tree. Copying files over a
+checkout does not remove obsolete tracked paths. Use the bundled synchronizer
+in a **fresh** clone of the experimental branch:
 
 ```bash
 git clone --branch cluster-v2 --single-branch \
   https://github.com/PiVasya/taskforge.git taskforge-cluster-v2-clean
 cd taskforge-cluster-v2-clean
-```
-
-3. Set `SRC` to the directory extracted from the new ZIP and run the sync. These commands must point to **two different folders**:
-
-```bash
-SRC=/home/me/downloads/taskforge-cluster-v2
+SRC=/absolute/path/to/extracted/taskforge-cluster-v2
 python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD" --dry-run
 python3 "$SRC/SYNC_TO_CLUSTER_V2.py" "$PWD"
-
 python3 scripts/ci/check-k3s-branch-layout.py
-python3 scripts/ci/check-k3s-workflow-trigger.py
 git diff --cached --check
 git diff --cached --stat
-```
-
-4. Commit and push, including all staged deletions:
-
-```bash
-git commit -m 'Remove legacy TaskForge files from isolated cluster-v2 branch'
+git commit -m 'Improve K3s/YugabyteDB CI readiness and diagnostics'
 git push origin cluster-v2
 ```
 
-**Do not just drag files into the GitHub website or unzip them over the old branch.** That retains the deleted `services/ai/worker` etc. paths and CI will fail again. The sync helper deliberately does not contact the production server, use the old PostgreSQL, or publish to GitHub on its own.
+The synchronizer refuses to operate on `main`, `develop`, a dirty checkout or
+an unexpected directory. It stages additions and deletions but does not make
+commits or push on its own. Do not use it in a production checkout.
 
-After push, Actions starts `K3s sandbox / YugabyteDB CI + isolated images`. If the job fails, it now prints *each* missing/forbidden path explicitly instead of failing at a silent shell `test`. The next stages (YugabyteDB migrations and actual Docker builds) are not yet verified by the earlier green .NET build alone.
-
-For an experimental branch named `k3s-*`/`k3s/**`, the workflow trigger also exists, but the synchronizer above intentionally targets only `cluster-v2` to avoid modifying the wrong branch.
+For CI stages and specific failure diagnosis, see
+[`docs/operations/K3S_CI_RUNBOOK.md`](docs/operations/K3S_CI_RUNBOOK.md).
 
 ## 2. Что делает новый CI/CD
 

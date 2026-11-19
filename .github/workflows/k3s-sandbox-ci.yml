@@ -1,4 +1,4 @@
-name: K3s sandbox / YugabyteDB CI + isolated images
+name: TaskForge K3s | Quality Gate & Container Release
 
 # Builds the isolated K3s lab branch (currently cluster-v2), never develop/main.
 # It never deploys onto TaskForge production hosts and never publishes :develop/:latest.
@@ -19,38 +19,40 @@ concurrency:
 
 jobs:
   k3s-manifests:
-    name: Sandbox manifests / invariants
+    name: 01 | Repository & Kubernetes validation
     if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - name: Verify K3s-only branch is fully prepared (explain missing/legacy paths)
+      - name: Verify isolated branch content
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 scripts/ci/check-k3s-branch-layout.py
-      - name: Test safe Git branch sync and legacy deletion
+      - name: Verify branch synchronization contracts
         run: python3 scripts/ci/test-k3s-branch-sync.py
-      - name: Check exact CI branch triggers and isolation
+      - name: Verify CI triggers and release boundaries
         run: python3 scripts/ci/check-k3s-workflow-trigger.py
-      - name: Check actual Docker build-stage source coverage
+      - name: Validate Docker build contexts
         run: python3 scripts/ci/check-k3s-docker-context.py
-      - name: Check Yugabyte migration job / lock compatibility contract
+      - name: Validate EF migration jobs and YSQL compatibility
         run: python3 scripts/ci/check-k3s-migration-contract.py
-      - name: Unit-test manifest generation and sandbox isolation
+      - name: Test Kubernetes manifest generation
         run: node --test tools/k3s/local/local.test.mjs tools/k3s/local/sandbox.test.mjs
+      - name: Regression-test CI database readiness and failure reporting
+        run: python3 scripts/ci/test-yugabyte-smoke.py
       - name: Validate shell scripts
         shell: bash
         run: |
           set -Eeuo pipefail
-          for f in infrastructure/k8s/taskforge-yugabyte/local/*.sh; do bash -n "$f"; done
-      - name: Generate core K3s configuration
+          for f in infrastructure/k8s/taskforge-yugabyte/local/*.sh scripts/ci/yugabyte-smoke.sh; do bash -n "$f"; done
+      - name: Generate Kubernetes manifests
         run: node tools/k3s/local/generate.mjs core "$RUNNER_TEMP/tf-k3s"
-      - name: Validate complete Kubernetes resources and safety limits
+      - name: Validate Kubernetes resource isolation
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -70,11 +72,22 @@ jobs:
                       assert r['spec']['replicas']==1,name
           print('PASS: sandbox Kubernetes resources only; ClusterIP; no public LoadBalancer')
           PY
+      - name: Publish validation report
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '### Repository & Kubernetes validation'
+            echo '- Experiment-only branch and CI release boundaries confirmed.'
+            echo '- No legacy production infrastructure or retired components detected.'
+            echo '- Kubernetes manifests validated for local-only namespaces and ClusterIP.'
+            echo '- Docker source coverage and EF migration job contracts validated.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   dotnet-build:
-    name: Build ${{ matrix.service }}
+    name: 02 | .NET API - ${{ matrix.service }}
     if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -93,13 +106,13 @@ jobs:
           - service: execution-api
             project: services/execution/api/TaskForge.Execution.Api.csproj
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Build with .NET 10
+      - name: Compile and publish .NET 10 application
         run: dotnet publish "${{ matrix.project }}" -c Release -o "${{ runner.temp }}/${{ matrix.service }}" /p:UseAppHost=false
-      - name: Run project behavior tests (where available)
+      - name: Execute API test suite
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -114,27 +127,36 @@ jobs:
           esac
           dotnet test "$test_project" -c Release --logger 'trx;LogFileName=tests.trx' \
             --results-directory "${{ runner.temp }}/${{ matrix.service }}-tests"
-      - name: Upload .NET test results on failure
+      - name: Report API build and test results
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '### API: ${{ matrix.service }}'
+            echo '- .NET 10 Release publication: passed.'
+            echo '- Service test suite: passed (where available).'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve failed test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: k3s-${{ matrix.service }}-test-results
           path: ${{ runner.temp }}/${{ matrix.service }}-tests/
           if-no-files-found: ignore
 
   frontend:
-    name: React frontend
+    name: 02 | React application
     if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Test and build React web
+      - name: Install, test and bundle React application
         working-directory: apps/web
         env:
           REACT_APP_API_BASE: /api
@@ -144,12 +166,20 @@ jobs:
           node --test scripts/*/*.test.mjs
           node scripts/check-architecture.js
           npm run build
+      - name: Report frontend validation
+        if: success()
+        run: |
+          {
+            echo '### React application'
+            echo '- Dependency installation, frontend tests and architecture checks: passed.'
+            echo '- Production bundle: built successfully.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   yugabyte-migrations:
-    name: Real YugabyteDB YSQL + EF Core migrations
+    name: 03 | YugabyteDB - schema & persistence
     needs: k3s-manifests
     if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 38
     env:
       ASPNETCORE_ENVIRONMENT: Development
@@ -165,77 +195,44 @@ jobs:
       Jwt__Audience: TaskForgeK3sLab
       InternalApi__Key: 'k3s-sandbox-ci-internal-key-do-not-deploy'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Start ephemeral YugabyteDB YSQL RF1 (NO external database)
+      - name: Initialize disposable YugabyteDB and validate YSQL connectivity
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker run -d --name taskforge-k3s-lab-ci-db \
-            --publish 127.0.0.1:15433:5433 \
-            yugabytedb/yugabyte:2026.1.2.0-b137 \
-            bin/yugabyted start --base_dir=/home/yugabyte/yb_data --daemon=false
-          ready=0
-          for i in $(seq 1 120); do
-            if docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -Atqc 'SELECT 1' 2>/dev/null | grep -qx '1'; then ready=1; break; fi
-            sleep 3
-          done
-          if [ "$ready" != 1 ]; then docker logs taskforge-k3s-lab-ci-db --tail=150; exit 1; fi
-          version="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -Atqc 'SELECT version()')"
-          [[ "$version" == *-YB-* ]] || { echo 'Not YugabyteDB YSQL'; exit 1; }
-      - name: Create sandbox logical databases
-        run: |
-          docker cp infrastructure/k8s/taskforge-yugabyte/db/create-k3s-lab-databases.sql taskforge-k3s-lab-ci-db:/tmp/create.sql
-          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -f /tmp/create.sql
-      - name: Apply EF migrations for all six core APIs against REAL YugabyteDB
+        run: bash scripts/ci/yugabyte-smoke.sh start
+      - name: Initialize isolated service databases
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          specs=(
-            'identity services/identity/api/TaskForge.Identity.Api.csproj DefaultConnection'
-            'education services/education/api/TaskForge.Education.Api.csproj DefaultConnection'
-            'content services/content/api/learning-content-service.csproj LearningConnection'
-            'tasks services/tasks/assignment-api/TaskForge.Tasks.Api.csproj DefaultConnection'
-            'solutions services/solutions/api/TaskForge.Solutions.Api.csproj DefaultConnection'
-            'execution services/execution/api/TaskForge.Execution.Api.csproj DefaultConnection'
-          )
-          for spec in "${specs[@]}"; do
-            read -r db project key <<< "$spec"
-            printf '== EF MIGRATE %s -> taskforge_k3s_%s ==\n' "$project" "$db"
-            export "ConnectionStrings__${key}=Host=127.0.0.1;Port=15433;Database=taskforge_k3s_${db};Username=yugabyte;SSL Mode=Disable;Timeout=10;Command Timeout=90"
-            timeout 300s dotnet run --project "$project" --configuration Release --no-launch-profile
-            unset "ConnectionStrings__${key}"
-          done
-      - name: Verify migrated schema in each database and real YSQL writes
+        run: bash scripts/ci/yugabyte-smoke.sh create
+      - name: Apply EF Core migrations (six service databases)
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          for db in identity education content tasks solutions execution; do
-            name="taskforge_k3s_${db}"
-            count="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d "$name" -v ON_ERROR_STOP=1 -Atqc 'SELECT count(*) FROM "__EFMigrationsHistory";')"
-            [[ "$count" =~ ^[1-9][0-9]*$ ]] || { echo "Missing migration history for $name: $count" >&2; exit 1; }
-            tables="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d "$name" -v ON_ERROR_STOP=1 -Atqc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename<>'__EFMigrationsHistory';")"
-            [[ "$tables" =~ ^[1-9][0-9]*$ ]] || { echo "Missing domain tables for $name: $tables" >&2; exit 1; }
-            echo "PASS $name: migrations=$count domain_tables=$tables"
-          done
-          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -c 'CREATE TABLE IF NOT EXISTS k3s_ci_write_probe (id INT PRIMARY KEY, n INT NOT NULL);'
-          docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -c 'INSERT INTO k3s_ci_write_probe (id,n) VALUES (1,1) ON CONFLICT (id) DO UPDATE SET n=excluded.n;'
-          value="$(docker exec taskforge-k3s-lab-ci-db bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -v ON_ERROR_STOP=1 -Atqc 'SELECT n FROM k3s_ci_write_probe WHERE id=1;')"
-          [[ "$value" == 1 ]] || { echo 'YSQL write/read verification failed' >&2; exit 1; }
-      - name: Diagnostics on failure
+        run: bash scripts/ci/yugabyte-smoke.sh migrate
+      - name: Validate schema and read/write operations
+        shell: bash
+        run: bash scripts/ci/yugabyte-smoke.sh verify
+      - name: Capture database diagnostics on failure
         if: failure()
-        run: docker logs taskforge-k3s-lab-ci-db --tail=250 || true
-      - name: Stop ephemeral test database
+        shell: bash
+        run: bash scripts/ci/yugabyte-smoke.sh diagnose
+      - name: Upload YugabyteDB diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: taskforge-ysql-diagnostics
+          path: ${{ runner.temp }}/taskforge-ysql-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Destroy disposable database
         if: always()
-        run: docker rm -f taskforge-k3s-lab-ci-db || true
+        shell: bash
+        run: bash scripts/ci/yugabyte-smoke.sh cleanup
 
   docker-build-smoke:
-    name: Docker image builds / ${{ matrix.name }} (no push)
+    name: 03 | OCI image build - ${{ matrix.name }}
     needs: k3s-manifests
     if: github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -263,9 +260,9 @@ jobs:
             context: apps/web
             file: apps/web/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
-      - name: Build full runtime image; do not upload or publish
+      - name: Build and validate runtime container
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -276,10 +273,10 @@ jobs:
           cache-to: type=gha,scope=k3s-sandbox-${{ matrix.name }},mode=max
 
   publish-lab-images:
-    name: Publish only k3s-lab/${{ matrix.name }}
+    name: 04 | GHCR release - ${{ matrix.name }}
     needs: [k3s-manifests, dotnet-build, frontend, yugabyte-migrations, docker-build-smoke]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/cluster-v2' || startsWith(github.ref, 'refs/heads/k3s-') || startsWith(github.ref, 'refs/heads/k3s/'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: read
@@ -310,9 +307,9 @@ jobs:
             context: apps/web
             file: apps/web/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
-      - name: Normalize GHCR owner (lowercase)
+      - name: Resolve isolated registry namespace
         id: owner
         shell: bash
         run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
@@ -333,3 +330,12 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.description=Isolated local K3s/YugabyteDB sandbox (NOT production)
+      - name: Record published artifact
+        if: success()
+        run: |
+          {
+            echo '### Published OCI artifact'
+            echo '`ghcr.io/${{ steps.owner.outputs.owner }}/taskforge-k3s-lab/${{ matrix.name }}:${{ github.sha }}`'
+            echo ''
+            echo 'Isolated experimental image; no production deployment was triggered.'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -36,8 +36,19 @@ def check():
         'tools/k3s/local/generate.mjs',
     ]:
         assert (ROOT/name).is_file(), f'Missing K3s/YSQL source: {name}'
+    # The GitHub graph is an explicit release gate, not a collection of independent builds.
+    release_gate = 'needs: [k3s-manifests, dotnet-build, frontend, yugabyte-migrations, docker-build-smoke]'
+    assert release_gate in text, 'Image publication must depend on source, APIs, React, YSQL and OCI builds'
+    for stage in ('start', 'create', 'migrate', 'verify', 'diagnose', 'cleanup'):
+        assert f'bash scripts/ci/yugabyte-smoke.sh {stage}' in text, f'Missing YSQL stage: {stage}'
+    assert 'name: Upload YugabyteDB diagnostics' in text
+    assert 'name: Destroy disposable database\n        if: always()' in text
+    assert 'name: Capture database diagnostics on failure\n        if: failure()' in text
+    assert 'python3 scripts/ci/test-yugabyte-smoke.py' in text
+    assert text.count('runs-on: ubuntu-24.04') == 6, 'All CI runners must use a pinned Ubuntu image'
+    assert 'actions/checkout@v4' not in text and 'actions/setup-dotnet@v4' not in text
     assert 'ghcr.io/${{ steps.owner.outputs.owner }}/taskforge-k3s-lab/' in text
-    print('PASS: cluster-v2 and k3s/* push triggers, all six jobs enabled, no legacy CI/production files')
+    print('PASS: isolated branch triggers, six CI jobs, gated GHCR release, YSQL lifecycle and failure artifacts')
 
 if __name__ == '__main__':
     try: check()
