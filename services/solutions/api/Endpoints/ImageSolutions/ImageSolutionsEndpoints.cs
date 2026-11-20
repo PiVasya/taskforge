@@ -9,6 +9,7 @@ using TaskForge.Solutions.Api.Domain;
 using TaskForge.Realtime;
 
 using TaskForge.Solutions.Api.Contracts;
+using TaskForge.Solutions.Api.Services.Results;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
 using static TaskForge.Solutions.Api.Services.Common.SolutionsApiCommonService;
 using static TaskForge.Solutions.Api.Services.Image.SolutionsApiImageService;
@@ -139,9 +140,20 @@ internal static partial class SolutionsApiEndpoints
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { code = "USER_ID_REQUIRED" });
 
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            await db.AdminSolutionFeedEvents.Where(x => x.UserId == userId && x.Kind == "image")
-                .ExecuteDeleteAsync(ct);
-            var deleted = await UserImageSolutionsForDeletion(db.ImageSolutions, userId).ExecuteDeleteAsync(ct);
+            var deleted = 0;
+            while (true)
+            {
+                var batch = await UserImageSolutionsForDeletion(db.ImageSolutions.AsNoTracking(), userId)
+                    .OrderBy(x => x.Id).Take(200).ToListAsync(ct);
+                if (batch.Count == 0) break;
+                var ids = batch.Select(x => x.Id).ToArray();
+                await db.AdminSolutionFeedEvents.Where(x => ids.Contains(x.ItemId) && x.Kind == "image")
+                    .ExecuteDeleteAsync(ct);
+                deleted += await UserImageSolutionsForDeletion(db.ImageSolutions, userId)
+                    .Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(ct);
+                db.AdminSolutionFeedEvents.AddRange(batch.Select(OwnershipDeletionEvents.ForImage));
+                await db.SaveChangesAsync(ct);
+            }
             if (deleted > 0)
                 await MarkRatingDirtyAsync(db, userId, "image-solutions-bulk-deleted", null, ct);
             await transaction.CommitAsync(ct);
@@ -158,6 +170,7 @@ internal static partial class SolutionsApiEndpoints
             await db.AdminSolutionFeedEvents.Where(x => x.ItemId == id && x.Kind == "image")
                 .ExecuteDeleteAsync(ct);
             db.ImageSolutions.Remove(row);
+            db.AdminSolutionFeedEvents.Add(OwnershipDeletionEvents.ForImage(row));
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return Microsoft.AspNetCore.Http.Results.NoContent();

@@ -5,6 +5,7 @@ using TaskForge.Realtime;
 using TaskForge.Solutions.Api.Contracts;
 using TaskForge.Solutions.Api.Data;
 using TaskForge.Solutions.Api.Domain;
+using TaskForge.Solutions.Api.Services.Results;
 using static TaskForge.Solutions.Api.Services.Access.SolutionsApiAccessService;
 using static TaskForge.Solutions.Api.Services.Common.SolutionsApiCommonService;
 using static TaskForge.Solutions.Api.Services.Mapping.SolutionsApiMappingService;
@@ -109,13 +110,15 @@ internal static class CodeSolutionService
             WriteQuotaHeaders(http.Response, quotaResult.quota);
             if (!quotaResult.consumed)
             {
-                // The rejected submission is removed; its durable admin-feed
-                // event must disappear in the very same transaction.
+                // A relay can observe the initial Preparing event before the
+                // quota check. Atomically replace that event with a deletion
+                // event, or the Tasks journal could keep a ghost attempt.
                 await using var cleanup = await db.Database.BeginTransactionAsync(ct);
                 await db.AdminSolutionFeedEvents
-                    .Where(x => x.Kind == "code" && x.ItemId == sub.Id)
+                    .Where(x => (x.Kind == "code" || x.Kind == "sql") && x.ItemId == sub.Id)
                     .ExecuteDeleteAsync(ct);
                 db.Submissions.Remove(sub);
+                db.AdminSolutionFeedEvents.Add(OwnershipDeletionEvents.ForSubmission(sub));
                 await db.SaveChangesAsync(ct);
                 await cleanup.CommitAsync(ct);
                 return QuotaExceeded(quotaResult.quota);

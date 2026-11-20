@@ -26,11 +26,10 @@ def read(relative: str) -> str:
 
 
 normal = read("scripts/generate-migrations.sh")
-force = read("scripts/generate-migrations-force.sh")
 checker = read("scripts/ci/check-ef-migrations.py")
 sql_runtime_guard = read("scripts/ci/check-sql-runtime.py")
 
-for name, script in (("normal", normal), ("force", force)):
+for name, script in (("normal", normal),):
     if 'TARGET_SPEC="${2:-}"' not in script:
         fail(f"{name} generator no longer requires an explicit second target argument")
     if re.search(r'MIGRATION_NAME="\$\{1:-[^}]', script):
@@ -50,15 +49,6 @@ if 'No migration was generated' not in normal:
     fail("normal generator no longer documents fail-closed behavior for ambiguous EF failures")
 if 'identity|services/identity/api/TaskForge.Identity.Api.csproj|IdentityDbContext|Migrations' not in normal:
     fail("identity target mapping is missing")
-if 'identity|services/identity/api/TaskForge.Identity.Api.csproj|IdentityDbContext|Migrations' not in force:
-    fail("identity target mapping is missing from force generator")
-
-# The force helper must be visibly dangerous and must never be called by the normal helper.
-if 'generate-migrations-force.sh' in normal and 'Use ./scripts/generate-migrations-force.sh' not in normal:
-    fail("normal generator appears to invoke force migration generation")
-if 'dotnet ef migrations add' not in force:
-    fail("force generator unexpectedly lost its only explicit migration action")
-
 
 # The obsolete date-pinned checksum baseline must stay retired. Legitimate migrations
 # change model/snapshot bytes by design; EF semantic drift is the source of truth.

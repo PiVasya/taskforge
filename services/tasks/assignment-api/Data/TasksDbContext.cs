@@ -1,7 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Domain.Sql;
 using TaskForge.Tasks.Api.Data.Sql;
+using TaskForge.Tasks.Api.Services.Ownership;
 using TaskForge.Realtime;
 
 namespace TaskForge.Tasks.Api.Data;
@@ -17,8 +22,6 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     public DbSet<ImageAssignmentSpec> ImageAssignmentSpecs => Set<ImageAssignmentSpec>();
     public DbSet<MathAssignmentSpec> MathAssignmentSpecs => Set<MathAssignmentSpec>();
     public DbSet<TestAssignmentSpec> TestAssignmentSpecs => Set<TestAssignmentSpec>();
-    public DbSet<TaskAttempt> Attempts => Set<TaskAttempt>();
-    public DbSet<AdminSolutionFeedEntry> AdminSolutionFeedEvents => Set<AdminSolutionFeedEntry>();
     public DbSet<AssignmentActivityEvent> AssignmentActivityEvents => Set<AssignmentActivityEvent>();
     public DbSet<AssignmentWorkSession> AssignmentWorkSessions => Set<AssignmentWorkSession>();
     public DbSet<AssignmentCodeSnapshot> AssignmentCodeSnapshots => Set<AssignmentCodeSnapshot>();
@@ -32,50 +35,20 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     public DbSet<SqlDatasetEngineValidation> SqlDatasetEngineValidations => Set<SqlDatasetEngineValidation>();
     public DbSet<SqlExpectedArtifact> SqlExpectedArtifacts => Set<SqlExpectedArtifact>();
 
-    // Only a SUBMITTED attempt belongs to the administrative feed.
-    // Emit the event in the same SaveChanges transaction as the attempt.
-    internal void CaptureAdminSolutionEvents()
-    {
-        ChangeTracker.DetectChanges();
-        foreach (var entry in ChangeTracker.Entries<TaskAttempt>().ToArray())
-        {
-            if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
-            var row = entry.Entity;
-            if (!row.SubmittedAt.HasValue || row.UserId == Guid.Empty || row.TaskAssignmentId == Guid.Empty) continue;
-            if (row.Kind is not ("test" or "math")) continue;
-            if (entry.State == EntityState.Modified &&
-                !entry.Property(x => x.SubmittedAt).IsModified &&
-                !entry.Property(x => x.ScorePercent).IsModified &&
-                !entry.Property(x => x.Passed).IsModified) continue;
-            var status = row.Passed ? "Accepted" : "Rejected";
-            if (AdminSolutionFeedEvents.Local.Any(x => x.ItemId == row.Id &&
-                x.Kind == row.Kind && x.Status == status && x.Score == row.ScorePercent)) continue;
-            AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
-            {
-                Kind = row.Kind, ItemId = row.Id, UserId = row.UserId,
-                AssignmentId = row.TaskAssignmentId,
-                Status = row.Passed ? "Accepted" : "Rejected", Score = row.ScorePercent
-            });
-        }
-    }
-
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         SqlDomainSaveGuard.Prepare(this);
-        CaptureAdminSolutionEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         SqlDomainSaveGuard.Prepare(this);
-        CaptureAdminSolutionEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        AdminSolutionFeedEntry.Configure(modelBuilder);
         modelBuilder.ConfigureSqlDomain();
         modelBuilder.Entity<TaskGraphTransfer>(entity =>
         {
@@ -246,16 +219,6 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
             entity.Property(x => x.FullCode).HasColumnType("text");
         });
 
-        modelBuilder.Entity<TaskAttempt>(entity =>
-        {
-            entity.ToTable("TaskAttempts");
-            entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.UserId, x.Kind, x.TaskAssignmentId, x.SubmittedAt });
-            entity.HasIndex(x => new { x.TaskAssignmentId, x.Kind, x.AttemptNumber });
-            entity.Property(x => x.Kind).HasMaxLength(20).IsRequired();
-            entity.Property(x => x.OrderJson).HasColumnType("jsonb");
-            entity.Property(x => x.AnswersJson).HasColumnType("jsonb");
-            entity.Property(x => x.ReviewJson).HasColumnType("jsonb");
-        });
+
     }
 }

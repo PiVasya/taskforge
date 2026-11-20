@@ -1,15 +1,11 @@
 using System;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using TaskForge.Solutions.Api.Data;
 
 #nullable disable
 
 namespace TaskForge.Solutions.Api.Migrations;
 
-[DbContext(typeof(SolutionsDbContext))]
-[Migration("20261119090000_AdminSolutionFeedOutbox")]
-public sealed class AdminSolutionFeedOutbox : Migration
+public partial class AdminSolutionFeedOutbox : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {

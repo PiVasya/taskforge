@@ -11,7 +11,7 @@ The browser must talk to the backend through same-origin URLs only:
 /hubs/*
 ```
 
-Do not hardcode `localhost`, `taskforge.by`, gateway ports, or direct microservice URLs in frontend code. In dev the public origin is usually `http://localhost:18080`; in production it is `https://taskforge.by`. The gateway owns all routing.
+Do not hardcode backend hosts, gateway ports, or direct microservice URLs in frontend code. In the local K3s lab the gateway is available at `http://127.0.0.1:18080` via port-forwarding. The gateway owns API routing.
 
 ## Local development
 
@@ -21,12 +21,7 @@ npm ci
 npm start
 ```
 
-For the full product use Docker Compose from the repository root:
-
-```bash
-./deploy/dev/compose.sh build --no-cache front gateway
-./deploy/dev/compose.sh up-logs
-```
+For the full local product use the isolated K3s deployment described in [`docs/operations/README_K3S_BRANCH.md`](../../docs/operations/README_K3S_BRANCH.md). The old Compose entrypoints are not part of this branch.
 
 ## Production build
 

@@ -14,4 +14,4 @@ There are no chat, prompt, LLM provider, agent run, or AI realtime endpoints.
 Historical agent tables remain represented in the EF model until a separately
 reviewed, operator-generated migration removes them.
 
-Read docs/architecture/LLM_REMOVAL_STAGE3.md for limitations.
+No LLM assistant or agent runtime is deployed by this K3s branch.

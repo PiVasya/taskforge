@@ -43,6 +43,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddTaskForgeSignalR(builder.Configuration, "tasks-api");
 builder.Services.AddHttpClient();
+// Internal Solutions ownership calls must never follow redirects or leak keys via proxies.
+builder.Services.AddHttpClient("interactive-attempt-owner")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false, UseProxy = false
+    });
 builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Transfer.GraphTransferWorker>();
 builder.Services.AddHostedService<TaskForge.Tasks.Api.Services.Sql.SqlValidationDispatcher>();
 builder.Services.AddDbContext<TasksDbContext>(options =>
@@ -105,7 +111,6 @@ if (!builder.Configuration.GetValue("Cluster:MultiNode", false) || builder.Confi
     using var assignmentSpecScope = app.Services.CreateScope();
     var db = assignmentSpecScope.ServiceProvider.GetRequiredService<TasksDbContext>();
     await TaskForge.Tasks.Api.Services.Specs.AssignmentSpecBackfillService.BackfillAsync(db);
-    await TaskForge.Tasks.Api.Services.Testing.TestAttemptStorageCleanupService.CleanupAsync(db, app.Logger);
 }
 
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }

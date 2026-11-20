@@ -26,20 +26,20 @@ internal static partial class AssignmentApiEndpoints
 {
     private static WebApplication MapMathTasksEndpoints(WebApplication app)
     {
-        app.MapGet("/api/me/math-attempts", async (HttpContext http, IConfiguration cfg, TasksDbContext db, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
-            Microsoft.AspNetCore.Http.Results.Ok(await ListAttempts("math", TaskForgeRequestSecurity.UserId(http, cfg), courseId, assignmentId, days, skip, take, db)));
+        app.MapGet("/api/me/math-attempts", async (HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50) =>
+            Microsoft.AspNetCore.Http.Results.Ok(await ListAttempts("math", TaskForgeRequestSecurity.UserId(http, cfg), courseId, assignmentId, days, skip, take, db, clients, cfg)));
 
-        app.MapGet("/api/me/math-attempts/{attemptId:guid}", async (Guid attemptId, HttpContext http, IConfiguration cfg, TasksDbContext db) => await ReviewAttempt(attemptId, "math", TaskForgeRequestSecurity.UserId(http, cfg), false, db));
+        app.MapGet("/api/me/math-attempts/{attemptId:guid}", async (Guid attemptId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients) => await ReviewAttempt(attemptId, "math", TaskForgeRequestSecurity.UserId(http, cfg), false, db, clients, cfg));
 
-        app.MapGet("/api/admin/users/{userId:guid}/math-attempts", async (Guid userId, HttpContext http, TasksDbContext db, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
+        app.MapGet("/api/admin/users/{userId:guid}/math-attempts", async (Guid userId, HttpContext http, TasksDbContext db, IConfiguration cfg, IHttpClientFactory clients, Guid? courseId, Guid? assignmentId, int? days, int skip = 0, int take = 50, CancellationToken ct = default) =>
         {
-            var total = await CountAttempts("math", userId, courseId, assignmentId, days, db, ct);
+            var total = await CountAttempts("math", userId, courseId, assignmentId, days, db, clients, cfg, ct);
             http.Response.Headers["X-Total-Count"] = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
             http.Response.Headers["X-Result-User-Id"] = userId.ToString("D");
-            return Microsoft.AspNetCore.Http.Results.Ok(await ListAttempts("math", userId, courseId, assignmentId, days, skip, take, db));
+            return Microsoft.AspNetCore.Http.Results.Ok(await ListAttempts("math", userId, courseId, assignmentId, days, skip, take, db, clients, cfg, ct));
         });
 
-        app.MapGet("/api/admin/math-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db) => await ReviewAttempt(attemptId, "math", null, true, db));
+        app.MapGet("/api/admin/math-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg) => await ReviewAttempt(attemptId, "math", null, true, db, clients, cfg));
 
         app.MapDelete("/api/admin/math-attempts/{attemptId:guid}", async (Guid attemptId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) => await DeleteAttempt(attemptId, "math", db, clients, cfg, ct));
 

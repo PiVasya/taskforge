@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Data;
+using TaskForge.Tasks.Api.Services.Ownership;
 
 namespace TaskForge.Tasks.Api.Endpoints;
 
@@ -8,7 +9,7 @@ internal static partial class AssignmentApiEndpoints
     private static WebApplication MapAccountIntelligenceInternalEndpoints(WebApplication app)
     {
         app.MapGet("/api/internal/account-intelligence/tasks-snapshot", async (
-            TasksDbContext db,
+            TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg,
             int days = 365,
             CancellationToken ct = default) =>
         {
@@ -19,7 +20,8 @@ internal static partial class AssignmentApiEndpoints
             const int sessionSampleLimit = 250_000;
             const int technicalSampleLimit = 150_000;
 
-            var attempts = await db.Attempts.AsNoTracking()
+            var attempts = (await InteractiveAttemptClient.LoadAllAsync(clients, cfg,
+                new InteractiveAttemptClient.AttemptSearch(Since: since), ct, attemptSampleLimit))
                 .Where(x => x.CreatedAt >= since || (x.SubmittedAt.HasValue && x.SubmittedAt.Value >= since))
                 .OrderByDescending(x => x.SubmittedAt ?? x.UpdatedAt)
                 .Take(attemptSampleLimit)
@@ -30,8 +32,7 @@ internal static partial class AssignmentApiEndpoints
                     x.Kind,
                     x.Passed,
                     ActivityAt = x.SubmittedAt ?? x.UpdatedAt,
-                })
-                .ToListAsync(ct);
+                }).ToList();
 
             var sessions = await db.AssignmentWorkSessions.AsNoTracking()
                 .Where(x => x.LastActivityAt >= since)

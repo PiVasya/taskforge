@@ -14,9 +14,15 @@ fi
 for cmd in docker k3s; do command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 2; }; done
 docker info >/dev/null || { echo 'Docker daemon unavailable' >&2; exit 2; }
 ROOT="$(cd "$ROOT" && pwd)"
+# Refuse images built from source whose EF migrations still describe the old owners.
+command -v python3 >/dev/null || { echo "Missing python3" >&2; exit 2; }
+python3 "$ROOT/scripts/ci/check-database-table-ownership.py" || {
+  echo "Generate and review Tasks/Solutions EF migrations before building images." >&2
+  exit 2
+}
 PREFIX='ghcr.io/pivasya/taskforge-k3s-lab'
 TAG='lab-local-v1'
-images=(identity-api education-api content-api tasks-api solutions-api execution-api)
+images=(identity-api education-api content-api tasks-api solutions-api execution-api rating-worker)
 if [[ "$PROFILE" == all-api ]]; then
   images+=(ai-api support-api minecraft-api files-api notifications-api observability-api)
 fi
@@ -32,6 +38,7 @@ build(){
     tasks-api) dockerfile=services/tasks/assignment-api/Dockerfile; context=. ;;
     solutions-api) dockerfile=services/solutions/api/Dockerfile; context=. ;;
     execution-api) dockerfile=services/execution/api/Dockerfile; context=. ;;
+    rating-worker) dockerfile=services/solutions/rating-worker/Dockerfile; context=. ;;
     ai-api) dockerfile=services/ai/api/Dockerfile; context=. ;;
     support-api) dockerfile=services/support/api/Dockerfile; context=. ;;
     minecraft-api) dockerfile=services/minecraft/api/Dockerfile; context=. ;;

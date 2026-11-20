@@ -46,7 +46,6 @@ internal static partial class AssignmentApiEndpoints
         MapMathTasksEndpoints(app);
         MapInsightsEndpoints(app);
         MapAssignmentActivityEndpoints(app);
-        MapAdminTaskSolutionEventsEndpoints(app);
         MapSqlEndpoints(app);
 
         return app;

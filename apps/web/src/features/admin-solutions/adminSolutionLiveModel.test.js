@@ -1,4 +1,4 @@
-import { isPendingLiveStatus, mergeLiveEvent, reconcileLiveDetail } from './adminSolutionLiveModel';
+import { applyLiveEventToItems, isPendingLiveStatus, mergeLiveEvent, reconcileLiveDetail } from './adminSolutionLiveModel';
 
 describe('admin live verdict reconciliation', () => {
   test('only unresolved verdicts need polling', () => {
@@ -18,6 +18,17 @@ describe('admin live verdict reconciliation', () => {
     const accepted = { key: 'code:42', status: 'Accepted', score: 100, detail: { status: 'Accepted' } };
     const stale = { key: 'code:42', status: 'Queued', score: 0, detail: { status: 'Queued' } };
     expect(mergeLiveEvent(accepted, stale)).toEqual({ ...stale, status: 'Accepted', score: 100, detail: accepted.detail });
+  });
+
+  test('durable deleted event removes the solution instead of rendering a ghost', () => {
+    const current = [
+      { key: 'code:42', status: 'Accepted', occurredAtUtc: '2026-11-19T12:00:00Z' },
+      { key: 'math:20', status: 'Rejected', occurredAtUtc: '2026-11-19T12:00:01Z' },
+    ];
+    const next = applyLiveEventToItems(current, {
+      key: 'code:42', status: 'Deleted', occurredAtUtc: '2026-11-19T12:00:02Z',
+    });
+    expect(next).toEqual([current[1]]);
   });
 
   test('cannot downgrade a terminal verdict with a stale HTTP response', () => {

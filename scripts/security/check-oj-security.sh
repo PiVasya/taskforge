@@ -17,7 +17,6 @@ import hashlib
 import pathlib
 import re
 import sys
-from scripts.ci.yaml_compat import safe_load
 
 root = pathlib.Path('.')
 runners = [
@@ -162,86 +161,10 @@ for name, (path, analyzer_marker) in callers.items():
     if analyzer_marker not in text or 'attestation' not in text.lower():
         die(f'{name} can bypass mandatory analyzer attestation')
 
-compose_paths = [
-    root / 'deploy/dev/compose/20-core-services.yaml',
-    root / 'deploy/dev/compose/30-execution.yaml',
-    root / 'deploy/dev/compose/40-ai-and-analyzers.yaml',
-    root / 'deploy/prod/compose/20-core-services.yaml',
-    root / 'deploy/prod/compose/30-execution.yaml',
-    root / 'deploy/prod/compose/40-ai-and-analyzers.yaml',
-]
-for path in compose_paths:
-    safe_load(path.read_text())
-
-for environment in ('dev', 'prod'):
-    execution = safe_load((root / f'deploy/{environment}/compose/30-execution.yaml').read_text())
-    analyzers = safe_load((root / f'deploy/{environment}/compose/40-ai-and-analyzers.yaml').read_text())
-    core = safe_load((root / f'deploy/{environment}/compose/20-core-services.yaml').read_text())
-    services = {}
-    for document in (execution, analyzers, core):
-        services.update(document.get('services') or {})
-
-    for runner in runner_services:
-        service = services.get(runner)
-        if not service:
-            die(f'{environment}: missing service {runner}')
-        networks = service.get('networks') or []
-        if isinstance(networks, dict):
-            networks = list(networks)
-        expected = f'{runner}-net'
-        if networks != [expected]:
-            die(f'{environment}: {runner} must only join {expected}, got {networks}')
-        secrets = service.get('secrets') or []
-        rendered = repr(secrets)
-        if 'code_analyzer_public_key' not in rendered or 'code_analyzer_private_key' in rendered:
-            die(f'{environment}: {runner} public/private key mounts are invalid')
-        environment_values = service.get('environment') or {}
-        if str(environment_values.get('CODE_ANALYZER_POLICY_VERSION')) != policy_version:
-            die(f'{environment}: {runner} policy version drift')
-        if str(service.get('user')) != '65534:65534':
-            die(f'{environment}: {runner} must run as uid/gid 65534')
-        if service.get('read_only') is not True:
-            die(f'{environment}: {runner} root filesystem is writable')
-        if service.get('cap_drop') != ['ALL']:
-            die(f'{environment}: {runner} capabilities are not fully dropped')
-        if 'no-new-privileges:true' not in (service.get('security_opt') or []):
-            die(f'{environment}: {runner} no-new-privileges is missing')
-
-    csharp = services['csharp-runner']
-    csharp_nofile = (csharp.get('ulimits') or {}).get('nofile') or {}
-    if int(csharp_nofile.get('soft', 0)) < 4096 or int(csharp_nofile.get('hard', 0)) < 4096:
-        die(f'{environment}: C# parent nofile must be at least 4096')
-    if 'CSHARP_RUNNER_MEM_LIMIT:-1024m' not in str(csharp.get('mem_limit')):
-        die(f'{environment}: C# parent default memory must be 1024m')
-
-    analyzer = services.get('code-analyzer')
-    if not analyzer:
-        die(f'{environment}: code-analyzer missing')
-    analyzer_secret_entries = analyzer.get('secrets') or []
-    analyzer_secrets = repr(analyzer_secret_entries)
-    if 'code_analyzer_private_key' not in analyzer_secrets or 'code_analyzer_public_key' in analyzer_secrets:
-        die(f'{environment}: analyzer key mounts are invalid')
-    private_entries = [entry for entry in analyzer_secret_entries if isinstance(entry, dict) and entry.get('source') == 'code_analyzer_private_key']
-    if len(private_entries) != 1 or str(private_entries[0].get('mode')) != '0400':
-        die(f'{environment}: analyzer private key target mode must be 0400')
-    if str(analyzer.get('user')) != '1000:1000':
-        die(f'{environment}: analyzer must run as uid/gid 1000')
-    if analyzer.get('read_only') is not True or analyzer.get('cap_drop') != ['ALL']:
-        die(f'{environment}: analyzer container hardening drift')
-    if 'no-new-privileges:true' not in (analyzer.get('security_opt') or []):
-        die(f'{environment}: analyzer no-new-privileges is missing')
-    analyzer_networks = analyzer.get('networks') or []
-    if isinstance(analyzer_networks, dict):
-        analyzer_networks = list(analyzer_networks)
-    if analyzer_networks != ['code-analyzer-net']:
-        die(f'{environment}: analyzer must only join code-analyzer-net')
-
-    networks = {}
-    for document in (execution, analyzers, core):
-        networks.update(document.get('networks') or {})
-    analyzer_network = networks.get('code-analyzer-net')
-    if not isinstance(analyzer_network, dict) or analyzer_network.get('internal') is not True:
-        die(f'{environment}: code-analyzer-net must be internal')
+# This isolated K3s source does not ship dev/prod Compose. Runner
+# network/secret isolation must be validated against the actual deployment
+# before runner containers are enabled. The code/attestation checks above
+# are still enforced here.
 
 print(f'[oj-security] schema={schema} policy={policy_version}')
 PY

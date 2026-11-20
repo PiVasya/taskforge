@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Ownership;
 using TaskForge.Tasks.Api.Services.Specs;
 using TaskForge.Realtime;
 
@@ -35,25 +36,33 @@ internal static class AssignmentApiMathService
         if (spec.Blocks.Count == 0) return Problem(400, "MATH_HAS_NO_BLOCKS", "tasks.math.start", "В math-задании пока нет блоков.");
         var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
-        var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
+        var active = await InteractiveAttemptClient.ActiveAsync(clients, cfg, "math", userId.Value, assignmentId, ct);
         if (active != null) return Microsoft.AspNetCore.Http.Results.Ok(MathStartDto(active, spec, unlimitedAttempts, ignoreTimeLimit));
-        var used = await db.Attempts.CountAsync(x => x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
+        var used = (int)(await InteractiveAttemptClient.SearchAsync(clients, cfg,
+            new InteractiveAttemptClient.AttemptSearch("math", userId.Value, assignmentId, Take: 1), ct)).Total;
         var max = unlimitedAttempts ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "math-attempt-start", ct) is { } quotaProblem) return quotaProblem;
         var attempt = new TaskAttempt { Kind = "math", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = ignoreTimeLimit ? null : TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
         attempt.OrderJson = JsonSerializer.Serialize(OrderedIds(spec.Blocks.Select(x => x.Id), spec.Settings.ShuffleBlocks, attempt.Id), JsonOptions());
-        db.Attempts.Add(attempt);
         try
         {
-            await db.SaveChangesAsync(ct);
+            var result = await InteractiveAttemptClient.StartAsync(clients, cfg, attempt, max,
+                spec.Settings.AttemptTimeLimitsSeconds.ToArray(), ignoreTimeLimit, ct);
+            if (!result.Created)
+                await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "math-attempt-already-active", CancellationToken.None);
+            return Microsoft.AspNetCore.Http.Results.Ok(MathStartDto(result.Attempt, spec, unlimitedAttempts, ignoreTimeLimit));
+        }
+        catch (InteractiveAttemptConflictException ex) when (ex.Code == "ATTEMPT_LIMIT_REACHED")
+        {
+            await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "math-attempt-limit", CancellationToken.None);
+            return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "ATTEMPT_LIMIT_REACHED", message = "Достигнут лимит попыток." });
         }
         catch
         {
             await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "math-attempt-start-failed", CancellationToken.None);
             throw;
         }
-        return Microsoft.AspNetCore.Http.Results.Ok(MathStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit));
     }
 
     internal static async Task<IResult> SubmitMath(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
@@ -62,14 +71,15 @@ internal static class AssignmentApiMathService
         if (userId == null) return Unauthorized();
         var attemptId = GuidProp(payload, "attemptId");
         if (attemptId == Guid.Empty) return Problem(400, "ATTEMPT_ID_REQUIRED", "tasks.math.submit", "Не передан attemptId.");
-        var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == "math" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
-        if (attempt == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
+        var attempt = await InteractiveAttemptClient.FindAsync(clients, cfg, attemptId, ct);
+        if (attempt == null || attempt.Kind != "math" || attempt.TaskAssignmentId != assignmentId || attempt.UserId != userId.Value) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
         if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.math.submit", "Эта попытка уже была отправлена.");
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
         if (!string.Equals(NormalizeAssignmentType(assignment.Type), "math", StringComparison.Ordinal))
             return Microsoft.AspNetCore.Http.Results.Conflict(new { message = "Задание не является математическим заданием.", code = "MATH_ASSIGNMENT_TYPE_REQUIRED" });
         var spec = await AssignmentTypeSpecService.ReadMathAsync(db, assignment, ct);
+        var previousVersion = attempt.UpdatedAt;
         var answers = MathAnswersArray(payload, "answers");
         var byAnswer = answers.GroupBy(x => x.BlockId).ToDictionary(x => x.Key, x => x.First());
         var order = ParseGuidList(attempt.OrderJson);
@@ -99,7 +109,7 @@ internal static class AssignmentApiMathService
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
         attempt.ReviewJson = new JsonObject { ["blocks"] = review }.ToJsonString(JsonOptions());
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+        attempt = await InteractiveAttemptClient.SubmitAsync(clients, cfg, attempt, previousVersion, ct);
 
         TaskForgeDebugTrace.Map("MATH_ATTEMPT_SAVED",
             ("user", userId.Value),
@@ -110,7 +120,6 @@ internal static class AssignmentApiMathService
             ("passed", attempt.Passed),
             ("timeExpired", attempt.TimeExpired),
             ("submittedAt", attempt.SubmittedAt));
-        await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "math-attempt-submitted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.Ok(new { attemptId = attempt.Id, attempt.AttemptNumber, maxAttempts = unlimitedAttempts ? 0 : spec.Settings.MaxAttempts, unlimitedAttempts, passPercent = spec.Settings.PassPercent, totalScore, earnedScore = earned, scorePercent = attempt.ScorePercent, attempt.TimeExpired, attempt.Passed });
     }
 

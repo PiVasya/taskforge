@@ -9,7 +9,7 @@ longer freezes Domain/Data/migration files by checksum: `scripts/ci/check-ef-mig
 asks EF Core whether each DbContext has pending model changes and fails when a model
 change is not represented by a committed migration. `scripts/ci/check-sql-runtime.py`
 keeps SQL-specific runtime, isolation, worker and CI invariants. The authoritative limitations
-and test results are in QA_RUNTIME.md.
+and verification requirements are in `docs/operations/K3S_CI_RUNBOOK.md`.
 
 ## End-to-end paths implemented
 
@@ -135,7 +135,7 @@ public HTTPS. SQL startup/stop runs outside the HA/edge reconciliation thread.
 
 ## Explicitly not certified or included
 
-See QA_RUNTIME.md for tests not executed in the editing environment. Do not turn
+For runtime checks see `docs/operations/K3S_CI_RUNBOOK.md`. Do not turn
 source inspection, SQLite checks or mocked HA tests into a claim that PostgreSQL,
 MySQL, browser E2E, production .NET or live failover passed.
 

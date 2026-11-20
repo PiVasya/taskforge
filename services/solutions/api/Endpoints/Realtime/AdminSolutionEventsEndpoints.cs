@@ -8,9 +8,8 @@ internal static partial class SolutionsApiEndpoints
 {
     private static WebApplication MapAdminSolutionEventsEndpoints(WebApplication app)
     {
-        // Code, SQL and images, persisted transactionally in taskforge_k3s_solutions.
-        app.MapGet("/api/admin/solution-events", async (
-            HttpContext http, IConfiguration cfg, SolutionsDbContext db, ILoggerFactory logs, CancellationToken ct) =>
+        // All five attempt kinds are persisted transactionally in Solutions.
+        async Task Stream(HttpContext http, IConfiguration cfg, SolutionsDbContext db, ILoggerFactory logs, CancellationToken ct)
         {
             if (!IsAdmin(http, cfg))
             {
@@ -19,7 +18,10 @@ internal static partial class SolutionsApiEndpoints
             }
             await AdminSolutionFeedSse.StreamAsync(http, db,
                 logs.CreateLogger("AdminSolutionFeed.Solutions"), ct);
-        });
+        }
+        app.MapGet("/api/admin/solution-events", Stream);
+        // Keep the previous public SSE URL while routing both feeds to one owner.
+        app.MapGet("/api/admin/task-solution-events", Stream);
         return app;
     }
 }

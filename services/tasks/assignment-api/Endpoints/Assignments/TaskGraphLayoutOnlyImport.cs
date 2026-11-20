@@ -123,8 +123,8 @@ internal static partial class AssignmentApiEndpoints
         }
         foreach (var id in changedVisibility)
         {
-            var users = await db.Attempts.AsNoTracking().Where(x => x.TaskAssignmentId == id).Select(x => x.UserId).Distinct().ToListAsync(ct);
-            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, id, users, "assignment-import-updated", ct);
+            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, id,
+                Array.Empty<Guid>(), "assignment-import-updated", ct);
         }
         var effectiveCourses = courseIds.ToDictionary(x => x.Value, x => x.Key);
         var mappedCourses = new JsonArray();

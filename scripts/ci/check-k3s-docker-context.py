@@ -2,7 +2,7 @@
 """Fail fast if a K3s Docker image omits .csproj-linked C# files.
 
 The root .NET project builds can pass while a Docker build fails because COPY
-omits shared sources. This checks all six core API compile inputs inside the
+omits shared sources. This checks all core API and rating worker compile inputs inside the
 pre-publish stage and the frontend's npm inputs without running Docker.
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ SPECS = [
     ("tasks", "services/tasks/assignment-api", "services/tasks/assignment-api/TaskForge.Tasks.Api.csproj", "services/tasks/assignment-api/Dockerfile", "."),
     ("solutions", "services/solutions/api", "services/solutions/api/TaskForge.Solutions.Api.csproj", "services/solutions/api/Dockerfile", "."),
     ("execution", "services/execution/api", "services/execution/api/TaskForge.Execution.Api.csproj", "services/execution/api/Dockerfile", "."),
+    ("rating-worker", "services/solutions/rating-worker", "services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj", "services/solutions/rating-worker/Dockerfile", "."),
 ]
 
 

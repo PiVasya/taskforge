@@ -24,6 +24,9 @@ try:
   assert 'LOCK TABLE' not in special and 'ACCESS EXCLUSIVE' not in special.split('public sealed class',1)[-1], d
   assert 'MigrateAsync()' in source, d
   print('OK: dedicated YSQL migration Job only:',d)
+ workflow=(root/'.github/workflows/k3s-sandbox-ci.yml').read_text(encoding='utf-8')
+ assert 'python3 scripts/ci/check-ef-migrations.py --targets assignment,solutions,education' in workflow, 'CI must block unscaffolded EF model changes before migration'
+ assert workflow.index('Reject pending schema changes before touching YugabyteDB') < workflow.index('Initialize disposable YugabyteDB and validate YSQL connectivity'), 'EF preflight must run before starting disposable database'
  job_source=(root/'tools/k3s/manifest.mjs').read_text(encoding='utf-8')
  assert "boolEnv('Database__MigrationJobOnly',migration)" in job_source
  assert "boolEnv('Database__RequireYugabyte',true)" in job_source

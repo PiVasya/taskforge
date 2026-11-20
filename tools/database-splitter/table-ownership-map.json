@@ -1,11 +1,127 @@
 {
-  "identity": ["Users", "FeatureRoles", "UserFeatureRoles", "UserUiSettings", "UserLoginLogs"],
-  "education": ["Courses", "CourseOwners", "CourseVisibleGroups", "UserGroups", "UserGroupMembers"],
-  "tasks": ["TaskAssignments", "TaskTestCases", "TaskTestSettings", "TaskTestQuestions", "TaskMathSettings", "TaskMathBlocks"],
-  "solutions": ["UserTaskSolutions", "UserImageTaskSolutions", "UserTaskTestAttempts", "UserTaskMathAttempts", "UserQuotaBuckets", "Badges", "UserBadges"],
-  "ai": ["AgentConversations", "AgentMessages", "AgentRuns", "AgentSteps", "AgentRunArtifacts"],
-  "support": ["SupportTickets", "SupportMessages"],
-  "minecraft": ["MinecraftLinks", "MinecraftLinkCodes", "MinecraftChatMessages", "MinecraftRatingTransactions", "MinecraftDeathRecoveries", "ServiceSchemaMarkers"],
-  "notifications": ["TelegramLinkCodes"],
-  "observability": ["RequestLogs", "UserActionLogs"]
+  "identity": [
+    "BlockedAccounts",
+    "DiscordLinkCodes",
+    "FeatureRoles",
+    "ServiceSchemaMarkers",
+    "TelegramLinkCodes",
+    "UserFeatureRoles",
+    "UserLoginLogs",
+    "UserUiSettings",
+    "Users"
+  ],
+  "education": [
+    "CourseMapImportReceipts",
+    "CourseMaps",
+    "Courses",
+    "GroupMembers",
+    "GroupOwners",
+    "Groups",
+    "ServiceSchemaMarkers"
+  ],
+  "content": [
+    "ConspectTaskLinks",
+    "Conspects",
+    "CourseTaskLinks",
+    "Courses",
+    "Pages"
+  ],
+  "tasks": [
+    "AssignmentActivityEvents",
+    "AssignmentCodeSnapshots",
+    "AssignmentWorkSessions",
+    "Assignments",
+    "CodeAssignmentSpecs",
+    "ImageAssignmentSpecs",
+    "MathAssignmentSpecs",
+    "ServiceSchemaMarkers",
+    "SqlAssignmentEngineTargets",
+    "SqlAssignmentSpecVersions",
+    "SqlAssignmentSpecs",
+    "SqlDatasetEngineValidations",
+    "SqlDatasetVersions",
+    "SqlDatasets",
+    "SqlEngineProfiles",
+    "SqlExpectedArtifacts",
+    "TaskGraphImportOperations",
+    "TaskGraphTransferParts",
+    "TaskGraphTransfers",
+    "TestAssignmentSpecs"
+  ],
+  "solutions": [
+    "AdminSolutionFeedEvents",
+    "Badges",
+    "LeaderboardEntries",
+    "RatingAcceptedActivities",
+    "RatingDirtyUsers",
+    "RatingProjectionCheckpoints",
+    "ServiceSchemaMarkers",
+    "SolutionSubmissions",
+    "TaskAttempts",
+    "UserBadges",
+    "UserImageTaskSolutions",
+    "UserQuotaBuckets",
+    "UserRatings"
+  ],
+  "execution": [
+    "ExecutionJobs",
+    "ExecutionResults",
+    "RunnerHeartbeats",
+    "ServiceSchemaMarkers"
+  ],
+  "ai": [
+    "AccountAnalysisFindings",
+    "AccountAnalysisReviews",
+    "AccountAnalysisRuns",
+    "AccountManagementOperations",
+    "AiArtifacts",
+    "AiConversations",
+    "AiMessages",
+    "AiRuns",
+    "AiSteps",
+    "ServiceSchemaMarkers"
+  ],
+  "support": [
+    "ServiceSchemaMarkers",
+    "SupportMessages",
+    "SupportTickets"
+  ],
+  "minecraft": [
+    "MinecraftChatMessages",
+    "MinecraftDeathRecoveries",
+    "MinecraftLinkCodes",
+    "MinecraftLinks",
+    "MinecraftRatingTransactions",
+    "ServiceSchemaMarkers"
+  ],
+  "files": [
+    "ServiceSchemaMarkers",
+    "StoredFiles"
+  ],
+  "notifications": [
+    "Notifications",
+    "ServiceSchemaMarkers"
+  ],
+  "observability": [
+    "PageViews",
+    "ServiceSchemaMarkers"
+  ],
+  "telegram-quiz": [
+    "authorized_teachers",
+    "categories",
+    "category_stats",
+    "diagnostic_results",
+    "diagnostic_tests",
+    "progress",
+    "quizzes",
+    "smart_progress",
+    "start_log",
+    "student_contacts",
+    "subcategory_stats",
+    "technical_break",
+    "test_questions",
+    "user_answers",
+    "user_settings",
+    "whitelist"
+  ]
 }

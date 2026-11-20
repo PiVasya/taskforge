@@ -15,6 +15,7 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
     public DbSet<RatingDirtyUser> RatingDirtyUsers => Set<RatingDirtyUser>();
     public DbSet<RatingProjectionCheckpoint> RatingProjectionCheckpoints => Set<RatingProjectionCheckpoint>();
     public DbSet<SolutionSubmission> Submissions => Set<SolutionSubmission>();
+    public DbSet<TaskAttempt> TaskAttempts => Set<TaskAttempt>();
     public DbSet<Badge> Badges => Set<Badge>();
     public DbSet<UserBadge> UserBadges => Set<UserBadge>();
     public DbSet<UserQuotaBucket> UserQuotaBuckets => Set<UserQuotaBucket>();
@@ -33,10 +34,12 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
             if (entry.State == EntityState.Modified &&
                 !entry.Property(x => x.Status).IsModified &&
                 !entry.Property(x => x.Score).IsModified &&
-                !entry.Property(x => x.ResultJson).IsModified) continue;
-            var kind = row.SqlSpecVersionId.HasValue ? "sql" : "code";
-            if (AdminSolutionFeedEvents.Local.Any(x => x.ItemId == row.Id &&
-                x.Kind == kind && x.Status == row.Status && x.Score == row.Score)) continue;
+                !entry.Property(x => x.ResultJson).IsModified &&
+                !entry.Property(x => x.UserId).IsModified) continue;
+            var kind = TaskForge.Solutions.Api.Services.Results.OwnershipDeletionEvents.SubmissionKind(row);
+            if (ChangeTracker.Entries<AdminSolutionFeedEntry>().Any(e => e.State == EntityState.Added &&
+                e.Entity.ItemId == row.Id && e.Entity.Kind == kind && e.Entity.UserId == row.UserId &&
+                e.Entity.Status == row.Status && e.Entity.Score == row.Score)) continue;
             AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
             {
                 Kind = kind,
@@ -51,10 +54,12 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
             if (row.UserId == Guid.Empty || row.AssignmentId == Guid.Empty) continue;
             if (entry.State == EntityState.Modified &&
                 !entry.Property(x => x.Passed).IsModified &&
-                !entry.Property(x => x.SimilarityPercent).IsModified) continue;
+                !entry.Property(x => x.SimilarityPercent).IsModified &&
+                !entry.Property(x => x.UserId).IsModified) continue;
             var imageStatus = row.Passed ? "Accepted" : "Rejected";
-            if (AdminSolutionFeedEvents.Local.Any(x => x.ItemId == row.Id &&
-                x.Kind == "image" && x.Status == imageStatus && x.Score == row.SimilarityPercent)) continue;
+            if (ChangeTracker.Entries<AdminSolutionFeedEntry>().Any(e => e.State == EntityState.Added &&
+                e.Entity.ItemId == row.Id && e.Entity.Kind == "image" && e.Entity.UserId == row.UserId &&
+                e.Entity.Status == imageStatus && e.Entity.Score == row.SimilarityPercent)) continue;
             AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
             {
                 Kind = "image", ItemId = row.Id, UserId = row.UserId, AssignmentId = row.AssignmentId,
@@ -63,15 +68,48 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
         }
     }
 
+    internal void CaptureInteractiveAttemptEvents()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<TaskAttempt>().ToArray())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
+            var row = entry.Entity;
+            if (!row.SubmittedAt.HasValue || row.UserId == Guid.Empty || row.TaskAssignmentId == Guid.Empty) continue;
+            if (row.Kind is not ("test" or "math")) continue;
+            if (entry.State == EntityState.Modified &&
+                !entry.Property(x => x.SubmittedAt).IsModified &&
+                !entry.Property(x => x.ScorePercent).IsModified &&
+                !entry.Property(x => x.Passed).IsModified &&
+                !entry.Property(x => x.UserId).IsModified) continue;
+            var status = entry.State == EntityState.Deleted ? "Deleted" : row.Passed ? "Accepted" : "Rejected";
+            var score = entry.State == EntityState.Deleted ? null : (int?)row.ScorePercent;
+            // SaveChanges can be retried after a transient DB error; preserve
+            // at most one pending outbox row for the same state transition.
+            if (ChangeTracker.Entries<AdminSolutionFeedEntry>().Any(x =>
+                x.State == EntityState.Added && x.Entity.ItemId == row.Id &&
+                x.Entity.Kind == row.Kind && x.Entity.UserId == row.UserId &&
+                x.Entity.Status == status && x.Entity.Score == score)) continue;
+            AdminSolutionFeedEvents.Add(new AdminSolutionFeedEntry
+            {
+                Kind = row.Kind, ItemId = row.Id, UserId = row.UserId,
+                AssignmentId = row.TaskAssignmentId,
+                Status = status, Score = score
+            });
+        }
+    }
+
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         CaptureAdminSolutionEvents();
+        CaptureInteractiveAttemptEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         CaptureAdminSolutionEvents();
+        CaptureInteractiveAttemptEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -144,6 +182,20 @@ public sealed class SolutionsDbContext(DbContextOptions<SolutionsDbContext> opti
             entity.Property(x => x.SqlEngineProfileId).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
             entity.Property(x => x.Language).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+        });
+
+        modelBuilder.Entity<TaskAttempt>(entity =>
+        {
+            entity.ToTable("TaskAttempts");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.UserId, x.Kind, x.TaskAssignmentId, x.SubmittedAt });
+            entity.HasIndex(x => new { x.TaskAssignmentId, x.Kind, x.AttemptNumber });
+            entity.HasIndex(x => new { x.UserId, x.Kind, x.TaskAssignmentId })
+                .IsUnique().HasFilter("\"SubmittedAt\" IS NULL");
+            entity.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.OrderJson).HasColumnType("jsonb");
+            entity.Property(x => x.AnswersJson).HasColumnType("jsonb");
+            entity.Property(x => x.ReviewJson).HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<Badge>(entity =>

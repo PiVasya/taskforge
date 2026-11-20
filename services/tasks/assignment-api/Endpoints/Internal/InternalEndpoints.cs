@@ -9,6 +9,7 @@ using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Access;
 using TaskForge.Tasks.Api.Services.Runtime;
+using TaskForge.Tasks.Api.Services.Ownership;
 
 using TaskForge.Tasks.Api.Contracts;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -214,27 +215,28 @@ internal static partial class AssignmentApiEndpoints
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/public-attempt-statistics", async (
-            Guid userId, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILoggerFactory loggers,
+            Guid userId, TasksDbContext db, IDistributedCache cache, IConfiguration cfg, ILoggerFactory loggers, IHttpClientFactory clients,
             CancellationToken ct) =>
         {
             if (userId == Guid.Empty) return Microsoft.AspNetCore.Http.Results.BadRequest();
             var stats = await TaskForgeCache.GetOrSetAsync(
                 cache, cfg, loggers.CreateLogger("TaskForge.PublicTaskStatistics"),
                 TaskForgeCache.Key("public-task-statistics:v1", userId), TimeSpan.FromSeconds(60),
-                token => TaskForge.Tasks.Api.Services.Results.PublicTaskStatisticsService.LoadAsync(db, userId, token), ct);
+                token => TaskForge.Tasks.Api.Services.Results.PublicTaskStatisticsService.LoadAsync(clients, cfg, userId, token), ct);
             return Microsoft.AspNetCore.Http.Results.Ok(stats);
         });
 
         app.MapGet("/api/internal/users/{userId:guid}/activity-summary", async (Guid userId, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
-            var attempts = await db.Attempts.AsNoTracking()
-                .Where(x => x.UserId == userId && (x.Kind == "test" || x.Kind == "math"))
-                .Join(db.Assignments.AsNoTracking(), a => a.TaskAssignmentId, assignment => assignment.Id,
-                    (a, assignment) => new
-                    {
-                        a.Kind, a.Passed, a.TaskAssignmentId, assignment.CourseId, assignment.Rating
-                    })
-                .ToListAsync(ct);
+            var owned = await InteractiveAttemptClient.LoadAllAsync(clients, cfg,
+                new InteractiveAttemptClient.AttemptSearch(UserId: userId, SubmittedOnly: true), ct);
+            var ids = owned.Select(x => x.TaskAssignmentId).Distinct().ToArray();
+            var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, ct);
+            var attempts = owned.Where(x => assignments.ContainsKey(x.TaskAssignmentId))
+                .Select(x => new { x.Kind, x.Passed, x.TaskAssignmentId,
+                    CourseId = assignments[x.TaskAssignmentId].CourseId,
+                    Rating = assignments[x.TaskAssignmentId].Rating }).ToList();
             var existingCourses = await LoadRatingCourseIdsAsync(attempts.Select(x => x.CourseId), clients, cfg, ct);
             if (existingCourses is null)
                 return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_COURSE_CATALOG_UNAVAILABLE" }, statusCode: 503);
@@ -261,7 +263,7 @@ internal static partial class AssignmentApiEndpoints
             });
         });
 
-        app.MapGet("/api/internal/assignments/analytics/summary", async (DateTimeOffset? fromUtc, DateTimeOffset? toUtc, int days, TasksDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/internal/assignments/analytics/summary", async (DateTimeOffset? fromUtc, DateTimeOffset? toUtc, int days, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             static double Percent(int num, int den) => den <= 0 ? 0 : System.Math.Round(num * 100.0 / den, 1);
 
@@ -269,9 +271,15 @@ internal static partial class AssignmentApiEndpoints
             var to = toUtc ?? DateTimeOffset.UtcNow;
             var from = fromUtc ?? to.AddDays(-days);
 
-            var attempts = await db.Attempts.AsNoTracking()
-                .Where(x => x.SubmittedAt.HasValue && x.SubmittedAt.Value >= from && x.SubmittedAt.Value <= to)
-                .Join(db.Assignments.AsNoTracking(), attempt => attempt.TaskAssignmentId, assignment => assignment.Id, (attempt, assignment) => new AssignmentAttemptAnalyticsRow
+            var owned = await InteractiveAttemptClient.LoadAllAsync(clients, cfg,
+                new InteractiveAttemptClient.AttemptSearch(Since: from, Until: to, SubmittedOnly: true), ct);
+            var ids = owned.Select(x => x.TaskAssignmentId).Distinct().ToArray();
+            var assignments = await db.Assignments.AsNoTracking().Where(x => ids.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, ct);
+            var attempts = owned.Where(x => assignments.ContainsKey(x.TaskAssignmentId)).Select(attempt =>
+            {
+                var assignment = assignments[attempt.TaskAssignmentId];
+                return new AssignmentAttemptAnalyticsRow
                 {
                     AssignmentId = attempt.TaskAssignmentId,
                     CourseId = assignment.CourseId,
@@ -284,8 +292,8 @@ internal static partial class AssignmentApiEndpoints
                     Passed = attempt.Passed,
                     ScorePercent = attempt.ScorePercent,
                     CreatedAt = attempt.SubmittedAt ?? attempt.CreatedAt,
-                })
-                .ToListAsync(ct);
+                };
+            }).ToList();
 
             List<object> DayPoints(IEnumerable<AssignmentAttemptAnalyticsRow> rows, Func<IEnumerable<AssignmentAttemptAnalyticsRow>, double> selector)
             {
@@ -349,39 +357,6 @@ internal static partial class AssignmentApiEndpoints
                 topAssignments = assignmentRows.OrderByDescending(x => x.attempts).Take(20).ToList(),
                 hardAssignments = assignmentRows.Where(x => x.attempts >= 2).OrderBy(x => x.successRate).ThenByDescending(x => x.failed).ThenByDescending(x => x.attempts).Take(20).ToList(),
             });
-        });
-
-        app.MapPost("/api/internal/activity/leaderboard", async (ActivityLeaderboardRequest request, TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
-        {
-            var since = request.Days.HasValue && request.Days.Value > 0 ? DateTimeOffset.UtcNow.AddDays(-request.Days.Value) : (DateTimeOffset?)null;
-            var userFilter = (request.UserIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
-            var courseFilter = (request.CourseIds ?? Array.Empty<Guid>()).Where(x => x != Guid.Empty).Distinct().ToHashSet();
-            var q = db.Attempts.AsNoTracking().Where(x => x.Passed);
-            if (since.HasValue) q = q.Where(x => x.SubmittedAt.HasValue && x.SubmittedAt.Value >= since.Value);
-            if (userFilter.Count > 0) q = q.Where(x => userFilter.Contains(x.UserId));
-
-            var joined = await q.Join(db.Assignments.AsNoTracking(), a => a.TaskAssignmentId, assignment => assignment.Id, (a, assignment) => new { Attempt = a, Assignment = assignment })
-                .Where(x => courseFilter.Count > 0
-                    ? courseFilter.Contains(x.Assignment.CourseId)
-                    : (!request.CourseId.HasValue || x.Assignment.CourseId == request.CourseId.Value))
-                .Select(x => new
-                {
-                    userId = x.Attempt.UserId,
-                    attemptId = x.Attempt.Id,
-                    assignmentId = x.Attempt.TaskAssignmentId,
-                    courseId = x.Assignment.CourseId,
-                    rating = x.Assignment.Rating,
-                    submittedAt = x.Attempt.SubmittedAt ?? x.Attempt.CreatedAt,
-                    kind = x.Attempt.Kind
-                })
-                .ToListAsync(ct);
-            var existingCourses = await LoadRatingCourseIdsAsync(joined.Select(x => x.courseId), clients, cfg, ct);
-            if (existingCourses is null)
-                return Microsoft.AspNetCore.Http.Results.Json(new { code = "RATING_COURSE_CATALOG_UNAVAILABLE" }, statusCode: 503);
-            return Microsoft.AspNetCore.Http.Results.Ok(joined
-                .Where(x => existingCourses.Contains(x.courseId))
-                .Select(x => new { x.userId, x.attemptId, x.assignmentId, x.courseId, x.rating, x.submittedAt, x.kind })
-                .ToList());
         });
 
         return app;

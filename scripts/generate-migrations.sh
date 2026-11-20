@@ -37,6 +37,7 @@ Examples:
   ./scripts/generate-migrations.sh AddProfileFields identity
   ./scripts/generate-migrations.sh AddCourseFields education
   ./scripts/generate-migrations.sh SomeCrossServiceChange identity,education
+  ./scripts/generate-migrations.sh AddAttemptIndex tasks
 
 Use "all" only when you deliberately want to inspect every DB-owning service.
 USAGE
@@ -54,6 +55,10 @@ list_targets() {
 
 if [[ "${1:-}" == "--list" ]]; then
   list_targets
+  exit 0
+fi
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
   exit 0
 fi
 
@@ -79,7 +84,7 @@ add_target() {
   local item alias project context output_dir matched=0
   for item in "${ITEMS[@]}"; do
     IFS='|' read -r alias project context output_dir <<< "$item"
-    if [[ "$requested" == "$alias" || "$requested" == "$context" ]]; then
+    if [[ "$requested" == "$alias" || "$requested" == "$context" || ( "$requested" == "tasks" && "$alias" == "assignment" ) ]]; then
       SELECTED+=("$item")
       matched=1
       break
@@ -108,6 +113,17 @@ if [[ "${#SELECTED[@]}" -eq 0 ]]; then
   exit 2
 fi
 
+
+# Use the repository-pinned dotnet-ef version; do not rely on a stale global tool.
+# This is a scaffolding tool only: no database is contacted or changed here.
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "error: .NET SDK is required to generate migrations." >&2
+  exit 2
+fi
+if [[ -f .config/dotnet-tools.json ]]; then
+  dotnet tool restore
+fi
+
 # Remove duplicate aliases/contexts while preserving order.
 DEDUPED=()
 declare -A SEEN=()
@@ -122,6 +138,13 @@ SELECTED=("${DEDUPED[@]}")
 
 pending_from_output() {
   local output_file="$1"
+
+  # Explicitly reject negative matches before searching for positive wording:
+  # the substring "changes have been made" also occurs in "No changes have
+  # been made". A CLI failure must never scaffold a duplicate migration.
+  if grep -Eqi 'No changes have been made|no pending model changes|нет изменений модели' "$output_file"; then
+    return 1
+  fi
 
   # EF currently uses a non-zero exit code when pending model changes are found.
   # We still inspect output so build/design-time failures are never mistaken for
@@ -165,6 +188,7 @@ for item in "${SELECTED[@]}"; do
     --project "$project" \
     --startup-project "$project" \
     --context "$context" \
+    --configuration "$BUILD_CONFIGURATION" \
     --no-build >/dev/null
 
   check_log="$(mktemp)"
@@ -173,6 +197,7 @@ for item in "${SELECTED[@]}"; do
     --project "$project" \
     --startup-project "$project" \
     --context "$context" \
+    --configuration "$BUILD_CONFIGURATION" \
     --no-build >"$check_log" 2>&1
   check_exit=$?
   set -e
@@ -201,6 +226,7 @@ for item in "${SELECTED[@]}"; do
     --startup-project "$project" \
     --context "$context" \
     --output-dir "$output_dir" \
+    --configuration "$BUILD_CONFIGURATION" \
     --no-build
 
   python3 scripts/ci/check-ef-migration-history.py \

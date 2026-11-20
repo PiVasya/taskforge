@@ -1,36 +1,16 @@
-# Healthchecks
+# K3s: проверки работоспособности
 
-В dev/prod compose healthcheck есть у каждого сервиса.
-
-## Типы healthcheck
-
-- `postgres` — `pg_isready`.
-- `rabbitmq` — `rabbitmq-diagnostics ping`.
-- `minio` — `/minio/health/live` с fallback на process check.
-- `gateway` — `GET /health/gateway`.
-- `front` — `GET /health` из Caddy.
-- .NET API — `GET /health/ready`; readiness проверяет подключение к своей БД через `Database.CanConnectAsync()`.
-- `content-api` — собственный `/health/ready` с проверкой БД.
-- code/image analyzers — `GET /health`.
-- language runners — `GET /health`.
-- background workers / adapter bots — process healthcheck (`kill -0 1`), потому что они не открывают HTTP-порт.
-- `certbot` — healthcheck отключён осознанно, потому что это одноразовый профильный job.
-
-## Зависимости
-
-`depends_on` переведён на `condition: service_healthy` там, где сервис реально зависит от другого сервиса:
-
-- API ждут `postgres` и при необходимости `rabbitmq`.
-- `files-api` ждёт `minio`.
-- `execution-worker` ждёт `rabbitmq` и все runner-сервисы.
-- `ai-worker` ждёт `ai-api` и `rabbitmq`.
-- `support-bot` ждёт `support-api`.
-- `gateway` ждёт front/API сервисы в healthy-состоянии.
-
-## Проверка
+Для локальной Kubernetes-ветки используется namespace `taskforge-k3s-lab`.
+Проверить фактические статусы, readiness и одноразовые миграционные Job:
 
 ```bash
-./build.sh
+kubectl -n taskforge-k3s-lab get deploy,pods,svc,jobs
+kubectl -n taskforge-k3s-lab-db get pods,pvc
+kubectl -n taskforge-k3s-lab logs job/migrate-tasks-api-lab1 --tail=200
+curl -i http://127.0.0.1:18080/health/gateway
 ```
 
-В скрипте есть отдельная проверка, что у каждого compose-сервиса есть healthcheck.
+Эти проверки требуют предварительного запуска локального K3s и port-forward.
+Манифесты и probes смотри в `tools/k3s/manifest.mjs` и генераторе
+`tools/k3s/local/generate.mjs`. Документация по запуску:
+`docs/operations/README_K3S_BRANCH.md`.

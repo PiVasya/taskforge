@@ -3,6 +3,7 @@ using System.Text.Json;
 using TaskForge.Realtime;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Runtime;
+using TaskForge.Tasks.Api.Services.Ownership;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Math.AssignmentApiMathService;
 using static TaskForge.Tasks.Api.Services.Results.AssignmentApiResultsService;
@@ -64,12 +65,12 @@ internal static partial class AssignmentApiEndpoints
         });
 
         app.MapGet("/api/math-assignments/{assignmentId:guid}/attempts/{attemptId:guid}", async (
-            Guid assignmentId, Guid attemptId, HttpContext http, IConfiguration cfg, TasksDbContext db, CancellationToken ct) =>
+            Guid assignmentId, Guid attemptId, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct) =>
         {
-            var attemptMatches = await db.Attempts.AsNoTracking().AnyAsync(
-                x => x.Id == attemptId && x.TaskAssignmentId == assignmentId && x.Kind == "math", ct);
-            if (!attemptMatches) return Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
-            return await ReviewAttempt(attemptId, "math", TaskForgeRequestSecurity.UserId(http, cfg), false, db);
+            var attempt = await InteractiveAttemptClient.FindAsync(clients, cfg, attemptId, ct);
+            if (attempt is null || attempt.TaskAssignmentId != assignmentId || attempt.Kind != "math")
+                return Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
+            return await ReviewAttempt(attemptId, "math", TaskForgeRequestSecurity.UserId(http, cfg), false, db, clients, cfg, ct);
         });
 
         return app;

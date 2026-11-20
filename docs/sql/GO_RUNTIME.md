@@ -51,7 +51,7 @@ never starts the business APIs or writes migrations. The local Go toolchain must
 be available already; GOTOOLCHAIN=local prevents an implicit network download.
 
 The portable module syntax floor is Go 1.23; it is not the production image pin.
-QA_RUNTIME.md states which compiler and native-library versions were actually
+The local K3s CI runbook lists which compiler and native-library versions were actually
 executed in this editing environment. The exact production compiler/base image and
 real servers are verified by scripts/sql/test-engines.sh, not by assumptions about
 local compatibility.

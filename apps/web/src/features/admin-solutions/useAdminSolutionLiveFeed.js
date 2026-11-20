@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isPendingLiveStatus, mergeLiveEvent, reconcileLiveDetail } from './adminSolutionLiveModel';
+import { applyLiveEventToItems, isPendingLiveStatus, reconcileLiveDetail } from './adminSolutionLiveModel';
 import {
   getAdminUser,
   loadAdminSolutionLiveDetail,
@@ -22,6 +22,7 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
   const alive = useRef(true);
   const itemsRef = useRef([]);
   const pendingCursor = useRef(0);
+  const deletedAt = useRef(new Map());
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
@@ -34,13 +35,12 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
     setState('connecting');
     // Show the persisted submission immediately when SSE arrives. User names
     // and detailed verdicts are enrichment, not a prerequisite for visibility.
-    const upsert = (next) => setItems((current) => {
-      const existing = current.find((item) => item.key === next.key);
-      if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return current;
-      const merged = [mergeLiveEvent(existing, next), ...current.filter((item) => item.key !== next.key)];
-      merged.sort((a, b) => new Date(b.occurredAtUtc || 0) - new Date(a.occurredAtUtc || 0));
-      return merged.slice(0, 120);
-    });
+    const upsert = (next) => {
+      const tombstone = deletedAt.current.get(next.key);
+      if (tombstone !== undefined && String(next.status || '').toLowerCase() !== 'deleted' &&
+          new Date(next.occurredAtUtc || 0).getTime() <= tombstone) return;
+      setItems((current) => applyLiveEventToItems(current, next));
+    };
 
     // Replaying 100 events from each DB must not issue 200 concurrent requests.
     const enrichQueue = [];
@@ -68,6 +68,17 @@ export default function useAdminSolutionLiveFeed(assignmentId = null) {
         const userId = String(event?.userId || '');
         const key = `${String(event?.kind || '').toLowerCase()}:${String(event?.itemId || '')}`;
         if (!userId || key === ':') return;
+        const occurredAt = new Date(event.occurredAtUtc || 0).getTime();
+        if (String(event.status || '').toLowerCase() === 'deleted') {
+          deletedAt.current.delete(key);
+          deletedAt.current.set(key, occurredAt);
+          while (deletedAt.current.size > 8192) {
+            deletedAt.current.delete(deletedAt.current.keys().next().value);
+          }
+          upsert({ ...event, key });
+          return;
+        }
+        if (deletedAt.current.has(key) && occurredAt <= deletedAt.current.get(key)) return;
 
         upsert({
           ...event, key,

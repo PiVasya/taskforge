@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Analytics;
+using TaskForge.Tasks.Api.Services.Ownership;
 using static TaskForge.Tasks.Api.Services.Common.AssignmentApiCommonService;
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
 using static TaskForge.Tasks.Api.Services.Access.AssignmentApiAccessService;
@@ -28,20 +29,17 @@ internal static partial class AssignmentApiEndpoints
             var analyticsSettings = AssignmentAnalyticsSettingsService.FromJson(assignment.AnalyticsSettingsJson);
             // Full lifetime totals are computed by PostgreSQL, not by the
             // latest 1000 attempts retained for the detailed page display.
-            var taskTotals = await db.Attempts.AsNoTracking()
-                .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null)
-                .GroupBy(x => x.Kind)
+            var ownedAttempts = await InteractiveAttemptClient.LoadAllAsync(httpFactory, cfg,
+                new InteractiveAttemptClient.AttemptSearch(AssignmentId: assignmentId, SubmittedOnly: true), ct);
+            var taskTotals = ownedAttempts.GroupBy(x => x.Kind)
                 .Select(g => new { kind = g.Key, total = g.Count(), passed = g.Count(x => x.Passed) })
-                .ToListAsync(ct);
+                .ToList();
             var testTotals = taskTotals.Where(x => string.Equals(x.kind, "test", StringComparison.OrdinalIgnoreCase)).ToList();
             var mathTotals = taskTotals.Where(x => string.Equals(x.kind, "math", StringComparison.OrdinalIgnoreCase)).ToList();
             var fullTaskCount = taskTotals.Sum(x => x.total);
             var fullTaskPassedCount = taskTotals.Sum(x => x.passed);
-            var taskAttempts = await db.Attempts.AsNoTracking()
-                .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null)
-                .OrderByDescending(x => x.SubmittedAt)
-                .Take(1000)
-                .ToListAsync(ct);
+            var taskAttempts = ownedAttempts.OrderByDescending(x => x.SubmittedAt)
+                .Take(1000).ToList();
             var external = await GetInternalAsync<AssignmentSolutionsInsightsDto>(httpFactory, cfg, ServiceUrl(cfg, "SolutionsApi", "http://solutions-api:8080"), $"/api/internal/assignments/{assignmentId}/attempts-summary", ct)
                 ?? new AssignmentSolutionsInsightsDto();
 
@@ -65,11 +63,10 @@ internal static partial class AssignmentApiEndpoints
             // Aggregate every submitted test/math attempt for the same UTC
             // period. The 1000-item display limit must never truncate charts.
             var chartFrom = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-29), TimeSpan.Zero);
-            var taskDaily = await db.Attempts.AsNoTracking()
-                .Where(x => x.TaskAssignmentId == assignmentId && x.SubmittedAt != null && x.SubmittedAt >= chartFrom)
+            var taskDaily = ownedAttempts.Where(x => x.SubmittedAt >= chartFrom)
                 .GroupBy(x => x.SubmittedAt!.Value.Date)
                 .Select(g => new { dayUtc = g.Key, total = g.Count(), passed = g.Count(x => x.Passed) })
-                .ToListAsync(ct);
+                .ToList();
             var dailyAttempts = taskDaily.Select(x => new { x.dayUtc, x.total, x.passed, pending = 0 })
                 .Concat((external.DailyAttempts ?? new List<AssignmentDailyAttemptDto>())
                     .Select(x => new { dayUtc = x.DayUtc, total = x.Total, passed = x.Passed, pending = x.Pending }))

@@ -27,6 +27,7 @@ test('each workload has no cluster-public Service or remote address in its confi
  for(const profile of ['core','all-api']){
   const m=buildLocalManifests(profile);
   const resources=[...m.infra,...m.apps,...m.jobs,...m.web];
+  assert.ok(m.apps.some(x=>x.kind==='Deployment'&&x.metadata.name==='rating-worker'), 'Rating projection must be deployed in both profiles');
   const namespaces=new Set(resources.filter(x=>x.kind==='Namespace').map(x=>x.metadata.name));
   assert.deepEqual([...namespaces],['taskforge-k3s-lab']);
   for(const r of resources){
@@ -41,6 +42,7 @@ test('each workload has no cluster-public Service or remote address in its confi
   assert.equal(config.Jwt__Issuer,'TaskForgeK3sLab');
   assert.equal(config.Cluster__MultiNode,'true');
   assert.equal(config.Cluster__Namespace,LOCAL_NAMESPACE);
+  assert.equal(config.TASKFORGE_DEBUG_LOGS,'1','Local K3s must preserve development-mode container logs');
   for(const workload of [...m.jobs,...m.apps].filter(x=>x.kind==='Job'||x.kind==='Deployment')){
    const container=workload.spec.template.spec.containers[0];
    const entries=container.env.filter(v=>v.name==='Cluster__Namespace');

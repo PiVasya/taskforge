@@ -89,58 +89,46 @@ The runtime image build uses the same Dockerfile and context as the local K3s la
 **`04 | GHCR release` skipped:** one of the required jobs failed or was skipped.
 That is an intentional release gate, not an independent failure.
 
+## Branch-specific local verification
+
+These local scripts run the isolated K3s checks only; removed production
+Compose and develop workflows are never required.
+
+```bash
+# Python, Node, shell, migration history, ownership and both K3s profiles:
+bash scripts/tests/repository.sh
+
+# In addition: .NET 10 Release builds/tests for six APIs, frontend Node tests,
+# and native SQL Go gate (requires compiler and client libraries):
+bash scripts/tests/fast.sh
+
+# In addition: React production bundle and temporary YugabyteDB RF1
+# with six EF migration sets (requires Docker and .NET 10):
+bash scripts/tests/all.sh
+```
+
+The full suite creates a **new** disposable Docker database, never touches a
+running K3s PVC, and refuses to reuse or delete a Docker container without its
+own `taskforge.io/k3s-ci` ownership label. Passing portable source checks alone does not establish working .NET APIs or a valid YugabyteDB schema.
+See `docs/architecture/TASK_DATA_OWNERSHIP.md` for the current owner boundary. Runtime readiness requires passing EF model-drift and disposable YugabyteDB checks.
+
 ## Local PC (separate from GitHub)
 
 The GitHub Actions build does **not** connect to a home PC, VPS or running
-TaskForge instance. For local one-node K3s, follow `README_K3S_BRANCH.md` and
+TaskForge instance. For local one-node K3s, follow `docs/operations/README_K3S_BRANCH.md` and
 `infrastructure/k8s/taskforge-yugabyte/local/START_LOCAL_RU.md`.
 That deployment has persistent PVCs and is intentionally not destroyed by CI.
 Its YugabyteDB RF=1 profile is not fault tolerant.
 
-## Evidence and outstanding risks
+## Проверка готовности
 
-During the `cluster-v2` run at commit `a01d2ab` (19 November 2026), all six
-.NET jobs, React, repository validation, and all seven OCI smoke builds passed.
-The original database test did **not** pass: it timed out probing `127.0.0.1`
-inside Docker, then dumped an unhelpful startup animation. The script and
-mock-based regression tests now correct that probe, but their existence is
-**not evidence that a new live YugabyteDB migration run has passed**.
+До первого локального запуска из корня проекта создать EF-миграции:
 
-Only an actual subsequent green GitHub Actions run establishes that the selected
-YugabyteDB version accepts all six EF migration sets. Local K3s end-to-end
-behavior additionally requires a real deployment on the target PC.
-
-## Incident: SignalR initialized in migration-only mode (19 November 2026)
-
-**Evidence:** [GitHub Actions run 44456144661](https://github.com/PiVasya/taskforge/actions/runs/44456144661),
-commit `7d7326468f58971fbaaef0596b7c7f1ae069bca3`. All six .NET jobs,
-React, the Kubernetes preflight and all seven OCI image builds passed. YSQL
-started, the isolated databases were created, and the **identity** migrations
-completed. The next migration, **education**, failed *before EF executed its
-DDL*, with:
-
-```text
-Unhandled exception. System.InvalidOperationException:
-Multi-node SignalR requires Cluster__Namespace
+```bash
+bash scripts/generate-migrations.sh ConsolidateAttempts tasks,solutions
 ```
 
-**Root cause:** `education-api` invokes the shared `AddTaskForgeSignalR` during
-DI registration. With `Cluster__MultiNode=true` the shared helper validates
-runtime Redis configuration, even though `Database__MigrationJobOnly=true`
-means this process will only apply EF migrations and exit. The same issue
-would affect the **tasks** migration and the runtime pods in local K3s: the
-local ConfigMap did not define `Cluster__Namespace`.
-
-**Correction:** the shared helper now skips Redis SignalR *backplane* setup
-in `MigrationJobOnly` mode. Normal multi-node API replicas still fail closed
-without an isolated namespace **and** shared Redis. The Kubernetes manifest
-generator injects `Cluster__Namespace` explicitly from its validated target
-namespace for each API Deployment/Job, and the local ConfigMap includes the
-same setting. Real xUnit tests verify both the migration-only exception and
-normal runtime restrictions. The CI diagnostic script saves full logs as
-`ef-<service>.log`, emits the root exception outside collapsed log groups, and
-attaches those files on failure.
-
-**Status:** this fixes the exact observed bootstrap error in source code.
-It does **not** mean education/tasks/content/solutions/execution migration DDL
-has passed on YugabyteDB. A new green CI run is needed before deployment.
+CI должен отклонять код, если EF-модель и snapshot расходятся.
+Это обязательный блокирующий этап, а не косметический warning.
+Даже успешные статические проверки не доказывают работоспособность
+пяти типов заданий и удалений в настоящей YugabyteDB.

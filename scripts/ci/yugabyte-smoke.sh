@@ -4,6 +4,8 @@
 set -Eeuo pipefail
 
 readonly CONTAINER="${YB_CI_CONTAINER:-taskforge-k3s-lab-ci-db}"
+readonly LAB_LABEL_KEY='taskforge.io/k3s-ci'
+readonly LAB_LABEL_VALUE='isolated-yugabyte-rf1'
 readonly IMAGE="${YB_CI_IMAGE:-yugabytedb/yugabyte:2026.1.2.0-b137}"
 readonly HOSTPORT="${YB_CI_PORT:-15433}"
 readonly READY_SECONDS="${YB_CI_READY_SECONDS:-420}"
@@ -21,7 +23,16 @@ validate() {
   [[ "$HOSTPORT" =~ ^[0-9]+$ ]] && (( HOSTPORT >= 1024 && HOSTPORT <= 65535 )) || fail 'Invalid local CI port'
   [[ "$READY_SECONDS" =~ ^[0-9]+$ ]] && (( READY_SECONDS >= 1 && READY_SECONDS <= 1200 )) || fail 'Invalid startup deadline'
   [[ "$RETRY_SECONDS" =~ ^[0-9]+$ ]] && (( RETRY_SECONDS >= 1 && RETRY_SECONDS <= 30 )) || fail 'Invalid retry interval'
-  [[ "$CONTAINER" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid isolated container name'
+  [[ "$CONTAINER" =~ ^taskforge-k3s-lab-ci-db(-[a-zA-Z0-9]{1,16})?$ ]] || fail 'CI container name must stay in isolated lab namespace'
+}
+
+# This script accepts an environment-selected name, but may never inspect,
+# migrate or delete a container without a label placed by this very script.
+# A matching name alone does not establish ownership of the container.
+require_owned_container() {
+  local label
+  label="$(docker inspect --format '{{index .Config.Labels "taskforge.io/k3s-ci"}}' "$CONTAINER" 2>/dev/null || true)"
+  [[ "$label" == "$LAB_LABEL_VALUE" ]] || fail "Refusing to use or remove non-lab Docker container: $CONTAINER"
 }
 
 # IMPORTANT: Docker yugabyted listens on the container's hostname/IP, not necessarily 127.0.0.1.
@@ -42,6 +53,7 @@ start_database() {
   docker pull --quiet "$IMAGE" >/dev/null
   log "Starting disposable RF=1 database (127.0.0.1:$HOSTPORT -> container:5433)"
   docker run --detach --name "$CONTAINER" --hostname "$CONTAINER" \
+    --label "$LAB_LABEL_KEY=$LAB_LABEL_VALUE" \
     --publish "127.0.0.1:${HOSTPORT}:5433" \
     "$IMAGE" bin/yugabyted start \
     --base_dir=/home/yugabyte/yb_data --background=false >/dev/null
@@ -146,6 +158,28 @@ verify() {
     log "Verified $name: migrations=$count, tables=$tables, write/read=OK"
     summary "- **$name:** $count migrations, $tables application tables, write/read passed."
   done
+  local assignment_table attempt_table educational_course
+  educational_course="$(ysql taskforge_k3s_education --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"Courses\"');")"
+  assignment_table="$(ysql taskforge_k3s_tasks --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"Assignments\"');")"
+  attempt_table="$(ysql taskforge_k3s_solutions --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"TaskAttempts\"');")"
+  [[ -n "$educational_course" && -n "$assignment_table" && -n "$attempt_table" ]] || fail 'New single-owner tables missing: Education.Courses, Tasks.Assignments, Solutions.TaskAttempts'
+  local obsolete
+  obsolete="$(ysql taskforge_k3s_tasks --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"TaskAttempts\"');")"
+  [[ -z "$obsolete" ]] || fail 'TaskAttempts still physically exist in Tasks database; missing cleanup EF migration'
+  obsolete="$(ysql taskforge_k3s_tasks --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"UnifiedTaskAttempts\"');")"
+  [[ -z "$obsolete" ]] || fail 'UnifiedTaskAttempts still physically exist in Tasks database; missing cleanup EF migration'
+  obsolete="$(ysql taskforge_k3s_tasks --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"AdminSolutionFeedEvents\"');")"
+  [[ -z "$obsolete" ]] || fail 'AdminSolutionFeedEvents must be owned only by Solutions (not Tasks)'
+  obsolete="$(ysql taskforge_k3s_education --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"TaskDefinitions\"');")"
+  [[ -z "$obsolete" ]] || fail 'Abandoned Education TaskDefinitions staging table still exists'
+  obsolete="$(ysql taskforge_k3s_education --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"SqlCatalogResources\"');")"
+  [[ -z "$obsolete" ]] || fail 'Abandoned Education SqlCatalogResources staging table still exists'
+  local solution_feed
+  solution_feed="$(ysql taskforge_k3s_solutions --no-align --tuples-only --quiet --command "SELECT to_regclass('public.\"AdminSolutionFeedEvents\"');")"
+  [[ -n "$solution_feed" ]] || fail 'Solutions-owned AdminSolutionFeedEvents table missing'
+  log 'Verified: Education courses, Tasks definitions, Solutions interactive attempts; no duplicate Tasks attempt tables'
+  summary '- **Single-owner contract:** Tasks assignments, Solutions attempts; removed obsolete attempt tables from Tasks.'
+
 }
 
 diagnose() {
@@ -183,6 +217,7 @@ diagnose() {
 
 cleanup() {
   if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+    require_owned_container
     docker rm --force "$CONTAINER" >/dev/null
     log "Disposed of CI YugabyteDB container: $CONTAINER"
   fi
@@ -191,10 +226,10 @@ cleanup() {
 validate
 case "${1:-}" in
   start) start_database ;;
-  create) create_databases ;;
-  migrate) migrate ;;
-  verify) verify ;;
-  diagnose) diagnose ;;
+  create) require_owned_container; create_databases ;;
+  migrate) require_owned_container; migrate ;;
+  verify) require_owned_container; verify ;;
+  diagnose) require_owned_container; diagnose ;;
   cleanup) cleanup ;;
   *) printf 'Usage: %s {start|create|migrate|verify|diagnose|cleanup}\n' "$0" >&2; exit 2 ;;
 esac

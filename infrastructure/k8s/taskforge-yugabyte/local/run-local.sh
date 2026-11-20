@@ -10,6 +10,12 @@ PROFILE="${2:-core}"
 [[ -n "$SOURCE" && -f "$SOURCE/00_AI_READ_THIS_FIRST.md" ]] || { echo 'Point to a patched TaskForge source checkout' >&2; exit 2; }
 [[ "$PROFILE" == core || "$PROFILE" == all-api ]] || { echo 'Choose core or all-api' >&2; exit 2; }
 for cmd in kubectl node helm openssl; do command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 2; }; done
+# Do not touch even the isolated lab cluster until the EF migration files exist.
+command -v python3 >/dev/null || { echo "Missing python3" >&2; exit 2; }
+python3 "$SOURCE/scripts/ci/check-database-table-ownership.py" || {
+  echo "Generate and review Tasks/Solutions EF migrations before starting K3s." >&2
+  exit 2
+}
 THIS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDER="$(mktemp -d)"
 trap 'rm -rf "$RENDER"' EXIT
@@ -66,7 +72,7 @@ kubectl -n taskforge-k3s-lab apply -f "$RENDER/03-apis.json.yaml"
 kubectl -n taskforge-k3s-lab apply -f "$RENDER/04-web.json.yaml"
 # Images are imported into containerd with a local-only tag. A repeated apply
 # does not change the PodSpec, so restart Deployments to use the rebuilt image.
-for dep in identity-api education-api content-api tasks-api solutions-api execution-api front; do
+for dep in identity-api education-api content-api tasks-api solutions-api execution-api rating-worker front; do
   kubectl -n taskforge-k3s-lab rollout restart "deployment/$dep"
 done
 for dep in identity-api education-api content-api tasks-api solutions-api execution-api front local-gateway; do

@@ -56,11 +56,7 @@ internal static partial class AssignmentApiEndpoints
         CancellationToken ct)
     {
         if (oldRating == assignment.Rating && oldVisible == assignment.IsVisible) return;
-        var users = await db.Attempts.AsNoTracking()
-            .Where(x => x.TaskAssignmentId == assignment.Id)
-            .Select(x => x.UserId)
-            .Distinct()
-            .ToListAsync(ct);
-        await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignment.Id, users, "assignment-updated", ct);
+        await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignment.Id,
+            Array.Empty<Guid>(), "assignment-updated", ct);
     }
 }

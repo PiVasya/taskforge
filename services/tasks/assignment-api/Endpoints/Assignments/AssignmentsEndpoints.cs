@@ -505,12 +505,12 @@ internal static partial class AssignmentApiEndpoints
             if (!await CanUserEditCourseAsync(assignment.CourseId, http, cfg, clients, ct)) return CourseEditForbidden();
             if (assignment.Type == SqlTaskTypes.SqlTest && await db.SqlAssignmentSpecs.AnyAsync(x => x.AssignmentId == assignmentId, ct))
                 return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "SQL_HISTORY_RETAINED", message = AssignmentImportPolicy.SqlDeleteRetainedMessage });
-            var attempts = await db.Attempts.Where(x => x.TaskAssignmentId == assignmentId).ToListAsync(ct);
-            var users = attempts.Select(x => x.UserId).Where(x => x != Guid.Empty).Distinct().ToArray();
-            db.Attempts.RemoveRange(attempts);
+            // Historical solutions belong to Solutions and are retained for audit.
+            // The rating projection excludes deleted assignment metadata.
             db.Assignments.Remove(assignment);
             await db.SaveChangesAsync(ct);
-            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-deleted", ct);
+            await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId,
+                Array.Empty<Guid>(), "assignment-deleted", ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { message = "Задание удалено.", deleted = assignmentId });
         });
 
@@ -554,12 +554,8 @@ internal static partial class AssignmentApiEndpoints
             await db.SaveChangesAsync(ct);
             if (changed)
             {
-                var users = await db.Attempts.AsNoTracking()
-                    .Where(x => x.TaskAssignmentId == assignmentId)
-                    .Select(x => x.UserId)
-                    .Distinct()
-                    .ToListAsync(ct);
-                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId, users, "assignment-visibility", ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, assignmentId,
+                    Array.Empty<Guid>(), "assignment-visibility", ct);
             }
             return Microsoft.AspNetCore.Http.Results.Json(
                 await AssignmentTypedReadService.BuildDtoAsync(db, assignment, includeSensitive: true, ct: ct),
@@ -1015,19 +1011,8 @@ internal static partial class AssignmentApiEndpoints
             if (deleteRows.Count > 0)
             {
                 var deleteIds = deleteRows.Select(x => x.Id).ToArray();
-                var deleteAttempts = await db.Attempts
-                    .Where(x => deleteIds.Contains(x.TaskAssignmentId))
-                    .ToListAsync(ct);
                 foreach (var row in deleteRows)
-                {
-                    deletedRatingUsers[row.Id] = deleteAttempts
-                        .Where(x => x.TaskAssignmentId == row.Id)
-                        .Select(x => x.UserId)
-                        .Where(x => x != Guid.Empty)
-                        .Distinct()
-                        .ToArray();
-                }
-                if (deleteAttempts.Count > 0) db.Attempts.RemoveRange(deleteAttempts);
+                    deletedRatingUsers[row.Id] = Array.Empty<Guid>();
                 db.Assignments.RemoveRange(deleteRows);
                 deleted.AddRange(deleteRows);
             }
@@ -1045,12 +1030,8 @@ internal static partial class AssignmentApiEndpoints
 
             foreach (var affectedId in ratingAffectedAssignmentIds)
             {
-                var users = await db.Attempts.AsNoTracking()
-                    .Where(x => x.TaskAssignmentId == affectedId)
-                    .Select(x => x.UserId)
-                    .Distinct()
-                    .ToListAsync(ct);
-                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, affectedId, users, "assignment-import-updated", ct);
+                await MarkAssignmentRatingDirtyInSolutionsAsync(clients, cfg, affectedId,
+                    Array.Empty<Guid>(), "assignment-import-updated", ct);
             }
 
             foreach (var deletedEntry in deletedRatingUsers)

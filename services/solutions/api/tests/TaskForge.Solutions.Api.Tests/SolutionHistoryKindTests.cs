@@ -14,11 +14,13 @@ public sealed class SolutionHistoryKindTests
         var legacySql = new SolutionSubmission { Id = Guid.NewGuid(), SqlSpecVersionId = null, Language = "sql" };
         var profiledSql = new SolutionSubmission { Id = Guid.NewGuid(), SqlEngineProfileId = Guid.NewGuid(), Language = "python" };
         var uppercaseSql = new SolutionSubmission { Id = Guid.NewGuid(), Language = "SQL" };
-        var all = new[] { code, sql, legacySql, profiledSql, uppercaseSql }.AsQueryable();
+        var historicalMySql = new SolutionSubmission { Id = Guid.NewGuid(), Language = "MySQL" };
+        var historicalPostgres = new SolutionSubmission { Id = Guid.NewGuid(), Language = "PostgreSQL" };
+        var all = new[] { code, sql, legacySql, profiledSql, uppercaseSql, historicalMySql, historicalPostgres }.AsQueryable();
 
         Assert.Equal(new[] { code.Id }, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, "code").Select(x => x.Id).ToArray());
-        Assert.Equal(new[] { sql.Id, legacySql.Id, profiledSql.Id, uppercaseSql.Id }, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, "sql").Select(x => x.Id).ToArray());
-        Assert.Equal(5, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, null).Count());
+        Assert.Equal(new[] { sql.Id, legacySql.Id, profiledSql.Id, uppercaseSql.Id, historicalMySql.Id, historicalPostgres.Id }, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, "sql").Select(x => x.Id).ToArray());
+        Assert.Equal(7, SolutionsApiEndpoints.FilterSolutionHistoryKind(all, null).Count());
     }
 
     [Fact]

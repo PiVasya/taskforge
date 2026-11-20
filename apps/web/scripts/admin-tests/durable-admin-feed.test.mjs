@@ -28,39 +28,37 @@ function setup() {
   return { sources, subscribe: context.subscribe };
 }
 
-test('admin feed subscribes to BOTH owning databases through authenticated SSE routes', () => {
+test('admin feed uses exactly one Solutions-owned authenticated SSE stream', () => {
   const { sources, subscribe } = setup();
   const dispose = subscribe({});
-  assert.deepEqual(sources.map(x => x.url), ['/api/admin/solution-events', '/api/admin/task-solution-events']);
+  assert.deepEqual(sources.map(x => x.url), ['/api/admin/solution-events']);
   assert.ok(sources.every(x => x.options.withCredentials === true));
   dispose();
   assert.ok(sources.every(x => x.closed));
 });
 
-test('admin feed reports LIVE only while BOTH streams are open', () => {
+test('admin feed reports LIVE when the sole Solutions stream is connected', () => {
   const { sources, subscribe } = setup();
   let live = 0, errors = 0;
   const dispose = subscribe({ onOpen: () => live++, onError: () => errors++ });
   sources[0].onopen();
-  assert.equal(live, 0);
-  sources[1].onopen();
   assert.equal(live, 1);
-  sources[1].onerror({ message: 'Task service disconnected' });
+  sources[0].onerror({ message: 'Solutions service disconnected' });
   assert.equal(errors, 1);
-  sources[1].onopen();
+  sources[0].onopen();
   assert.equal(live, 2);
   dispose();
   sources[0].onopen();
   assert.equal(live, 2);
 });
 
-test('both owners deliver solution events, malformed payloads are ignored, dispose blocks callbacks', () => {
+test('Solutions delivers all five kinds, malformed payloads are ignored, dispose blocks callbacks', () => {
   const { sources, subscribe } = setup();
   const kinds = [];
   const dispose = subscribe({ onEvent: event => kinds.push(event.kind) });
   sources[0].emit('solution', JSON.stringify({ kind: 'sql', itemId: 'one' }));
-  sources[1].emit('solution', JSON.stringify({ kind: 'math', itemId: 'two' }));
-  sources[1].emit('solution', '{broken-json');
+  sources[0].emit('solution', JSON.stringify({ kind: 'math', itemId: 'two' }));
+  sources[0].emit('solution', '{broken-json');
   assert.deepEqual(kinds, ['sql', 'math']);
   dispose();
   sources[0].emit('solution', JSON.stringify({ kind: 'code' }));

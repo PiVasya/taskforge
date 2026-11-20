@@ -156,23 +156,22 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
         await using var dataSource = NpgsqlDataSource.Create(ConnectionString());
         await using var connection = await dataSource.OpenConnectionAsync(ct);
 
-        var taskRows = await LoadTaskRowsAsync(null, ct);
+        // All five attempt kinds now live in this database. The worker no longer
+        // calls Tasks to fetch users or submissions; only assignment metadata.
+        var taskRows = await LoadTaskRowsAsync(connection, null, ct);
         var userIds = new HashSet<Guid>(taskRows.Select(x => x.UserId).Where(x => x != Guid.Empty));
-
         await using (var cmd = new NpgsqlCommand("""
             SELECT DISTINCT "UserId"
             FROM "SolutionSubmissions"
             WHERE "UserId" IS NOT NULL
             UNION
-            SELECT DISTINCT "UserId"
-            FROM "UserImageTaskSolutions";
+            SELECT DISTINCT "UserId" FROM "UserImageTaskSolutions"
+            UNION
+            SELECT DISTINCT "UserId" FROM "TaskAttempts";
             """, connection))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct))
         {
-            while (await reader.ReadAsync(ct))
-            {
-                userIds.Add(reader.GetGuid(0));
-            }
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) userIds.Add(reader.GetGuid(0));
         }
 
         var ids = userIds.ToArray();
@@ -238,7 +237,8 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
 
         var codeRows = await LoadCodeRowsAsync(connection, ids, ct);
         var imageRows = await LoadImageRowsAsync(connection, ids, ct);
-        var taskRows = preloadedTaskRows ?? await LoadTaskRowsAsync(ids, ct);
+        var taskRows = preloadedTaskRows ?? await LoadTaskRowsAsync(connection, ids, ct);
+        var taskCounts = await LoadTaskAttemptCountsAsync(connection, ids, ct);
         if (taskRows.Any(x => x.AttemptId == Guid.Empty || x.CourseId == Guid.Empty))
             throw new InvalidOperationException("Rating task activity is missing attemptId/courseId; update tasks-api before rating-worker.");
 
@@ -275,7 +275,7 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
             }
             accepted.AddRange(ownAccepted);
             var score = SummarizeAccepted(ownAccepted);
-            var attempts = userCodeRows.Length + userImageRows.Length + userTaskRows.Length;
+            var attempts = userCodeRows.Length + userImageRows.Length + taskCounts.GetValueOrDefault(userId);
             var acceptedCount = userCodeRows.Count(x => x.Accepted) + userImageRows.Count(x => x.Passed) + userTaskRows.Length;
             summaries.Add(new UserRatingSummary(userId, score.TotalScore, score.SolvedCount, attempts, acceptedCount,
                 Math.Max(0, attempts - acceptedCount), score.LastAcceptedAt));
@@ -385,20 +385,52 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
         return rows;
     }
 
-    private async Task<List<TaskActivityRow>> LoadTaskRowsAsync(Guid[]? userIds, CancellationToken ct)
+    private static async Task<Dictionary<Guid, int>> LoadTaskAttemptCountsAsync(
+        NpgsqlConnection connection, Guid[] userIds, CancellationToken ct)
     {
-        var baseUrl = ServiceUrl("TasksApi", "http://tasks-api:8080");
-        var client = httpClientFactory.CreateClient();
-        using var response = await SendTasksApiAsync(
-            client,
-            () => new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/internal/activity/leaderboard")
+        var counts = new Dictionary<Guid, int>();
+        await using var cmd = new NpgsqlCommand("""
+            SELECT "UserId", COUNT(*) FROM "TaskAttempts"
+            WHERE "UserId" = ANY(@userIds) AND "SubmittedAt" IS NOT NULL
+            GROUP BY "UserId";
+            """, connection);
+        cmd.Parameters.AddWithValue("userIds", userIds);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) counts.Add(reader.GetGuid(0), checked((int)reader.GetInt64(1)));
+        return counts;
+    }
+
+    private async Task<List<TaskActivityRow>> LoadTaskRowsAsync(
+        NpgsqlConnection connection, Guid[]? userIds, CancellationToken ct)
+    {
+        // Read outcomes from the Solutions database. Tasks is only consulted
+        // for assignment rating/course metadata, never as an attempt owner.
+        var baseRows = new List<(Guid Id, Guid UserId, Guid AssignmentId, DateTimeOffset SubmittedAt, string Kind)>();
+        await using (var cmd = new NpgsqlCommand(userIds is null ? """
+            SELECT "Id", "UserId", "TaskAssignmentId", "SubmittedAt", "Kind"
+            FROM "TaskAttempts" WHERE "Passed" AND "SubmittedAt" IS NOT NULL;
+            """ : """
+            SELECT "Id", "UserId", "TaskAssignmentId", "SubmittedAt", "Kind"
+            FROM "TaskAttempts" WHERE "Passed" AND "SubmittedAt" IS NOT NULL
+                AND "UserId" = ANY(@userIds);
+            """, connection))
+        {
+            if (userIds is not null) cmd.Parameters.AddWithValue("userIds", userIds);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) baseRows.Add((reader.GetGuid(0), reader.GetGuid(1),
+                reader.GetGuid(2), reader.GetFieldValue<DateTimeOffset>(3), reader.GetString(4)));
+        }
+        var meta = await LoadAssignmentRatingsAsync(baseRows.Select(x => x.AssignmentId).Distinct().ToArray(), ct);
+        return baseRows.Where(x => meta.ContainsKey(x.AssignmentId)).Select(x =>
+        {
+            var assignment = meta[x.AssignmentId];
+            return new TaskActivityRow
             {
-                Content = JsonContent.Create(new ActivityLeaderboardRequest(null, null, userIds, null), options: JsonOptions)
-            },
-            "activity-leaderboard",
-            ct);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<List<TaskActivityRow>>(JsonOptions, ct) ?? [];
+                AttemptId = x.Id, UserId = x.UserId, AssignmentId = x.AssignmentId,
+                CourseId = assignment.CourseId, Rating = assignment.Rating,
+                SubmittedAt = x.SubmittedAt, Kind = x.Kind
+            };
+        }).ToList();
     }
 
     private async Task<Dictionary<Guid, AssignmentRating>> LoadAssignmentRatingsAsync(Guid[] assignmentIds, CancellationToken ct)
@@ -491,7 +523,8 @@ public sealed class Worker(ILogger<Worker> logger, IConfiguration configuration,
 
     private void AddInternalKey(HttpRequestMessage msg)
     {
-        var key = configuration["InternalApi:Key"] ?? configuration["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
+        var key = configuration["InternalApi:Key"] ?? configuration["TaskForgeInternalApi:ApiKey"] ??
+            configuration["TaskForge:InternalKey"] ?? Environment.GetEnvironmentVariable("TASKFORGE_INTERNAL_KEY");
         if (!string.IsNullOrWhiteSpace(key)) msg.Headers.TryAddWithoutValidation("X-Internal-Key", key);
     }
 

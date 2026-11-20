@@ -11,7 +11,6 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
-from scripts.ci.yaml_compat import safe_load
 
 root = pathlib.Path('.')
 
@@ -272,7 +271,6 @@ for marker in ('data-taskforge-automation-id', 'automationState', 'automationKin
 discovery = text('services/browser/api/Services/DiscoveryDocumentService.cs')
 openapi_enhancer = text('services/browser/api/OpenApi/BrowserOpenApiDocumentEnhancer.cs')
 browser_options = text('services/browser/api/Configuration/BrowserOptions.cs')
-prod_browser_smoke = text('scripts/prod/check-browser-api.sh')
 
 api_version = re.search(r'apiVersion\s*=\s*"([^"]+)"', discovery)
 snapshot_version = re.search(r'semanticSnapshot\s*=\s*new\s*\{\s*version\s*=\s*"([^"]+)"', discovery, re.S)
@@ -294,10 +292,6 @@ if len({api_version.group(1), openapi_api_version.group(1), user_agent_version.g
     die('Browser API version drift between discovery, OpenAPI and Chromium User-Agent')
 if len({snapshot_version.group(1), snapshot_builder_version.group(1), openapi_snapshot_version.group(1)}) != 1:
     die('semantic snapshot version drift between discovery, SnapshotBuilder and OpenAPI')
-if f"discovery.get('apiVersion') == '{api_version.group(1)}'" not in prod_browser_smoke:
-    die('production Browser smoke test does not enforce the current discovery API version')
-if f"value.get('semanticSnapshotVersion') == '{snapshot_version.group(1)}'" not in prod_browser_smoke:
-    die('production Browser smoke test does not enforce the current semantic snapshot version')
 if f'            "{snapshot_version.group(1)}",' not in program:
     die('site info does not advertise the current semantic snapshot version')
 
@@ -508,57 +502,9 @@ gateway_select = text('apps/gateway/99-select-config.sh')
 if 'BROWSER_EDGE_RATE_RPS:-25' not in gateway_select or "${BROWSER_EDGE_RATE_RPS}" not in gateway_select:
     die('gateway does not validate/substitute the configurable Browser edge rate')
 
-for environment in ('dev', 'prod'):
-    compose_path = root / f'deploy/{environment}/compose/50-integrations.yaml'
-    document = safe_load(compose_path.read_text(encoding='utf-8'))
-    service = (document.get('services') or {}).get('browser-api')
-    if not service:
-        die(f'{environment}: browser-api service is missing')
-    if service.get('ports'):
-        die(f'{environment}: browser-api must not publish host ports')
-    if service.get('read_only') is not True:
-        die(f'{environment}: browser-api root filesystem must be read-only')
-    if service.get('cap_drop') != ['ALL']:
-        die(f'{environment}: browser-api must drop all capabilities')
-    if 'no-new-privileges:true' not in (service.get('security_opt') or []):
-        die(f'{environment}: browser-api lacks no-new-privileges')
-    if service.get('init') is not True:
-        die(f'{environment}: browser-api must use an init process for Chromium children')
-    if not service.get('tmpfs') or not service.get('shm_size'):
-        die(f'{environment}: browser-api writable temp/shm limits are missing')
-    for key in ('mem_limit', 'cpus', 'pids_limit'):
-        if not service.get(key):
-            die(f'{environment}: browser-api {key} limit is missing')
-    volumes = repr(service.get('volumes') or [])
-    if 'docker.sock' in volumes:
-        die(f'{environment}: browser-api must never mount the Docker socket')
-    environment_values = service.get('environment') or {}
-    for key in ('ConnectionStrings__Redis', 'BrowserRateLimits__Enabled', 'BrowserRateLimits__AuthenticatedAiMultiplier', 'Browser__Sites__main', 'Browser__MaxCachedArtifactBytes', 'Browser__MaxArtifactResponseBytes', 'AiRemoteBrowser__Enabled', 'AiRemoteBrowser__AllowGetMutations'):
-        if key not in environment_values:
-            die(f'{environment}: browser-api environment misses {key}')
-    if environment == 'prod':
-        image_value = str(service.get('image') or '')
-        if '/browser-api:' not in image_value:
-            die('prod: browser-api does not use the published browser-api image')
-        if not str(environment_values.get('Browser__Sites__main', '')).startswith('${BROWSER_MAIN_ORIGIN:-https://'):
-            die('prod: main browser origin does not default to HTTPS')
-
-prod_gateway = safe_load(text('deploy/prod/compose/10-apps-gateway.yaml'))
-gateway_aliases = (((prod_gateway.get('services') or {}).get('gateway') or {}).get('networks') or {}).get('default', {}).get('aliases') or []
-if '${DOMAIN:?set DOMAIN}' not in gateway_aliases:
-    die('prod gateway must own DOMAIN network alias for Chromium TLS routing')
-
-for environment in ('dev', 'prod'):
-    env_example = text(f'deploy/{environment}/.env.example')
-    if 'BROWSER_MAX_ARTIFACT_RESPONSE_BYTES=' not in env_example:
-        die(f'{environment}: artifact response size limit is missing from .env.example')
-    for marker in ('BROWSER_EDGE_RATE_RPS=25', 'BROWSER_AUTHENTICATED_AI_RATE_MULTIPLIER=', 'AI_REMOTE_BROWSER_START_LIMIT=60', 'AI_REMOTE_BROWSER_ACTION_LIMIT=300', 'AI_REMOTE_BROWSER_SCREENSHOT_LIMIT=60'):
-        if marker not in env_example:
-            die(f'{environment}: current AI Browser throughput setting missing from .env.example: {marker}')
-    gateway_compose = safe_load(text(f'deploy/{environment}/compose/10-apps-gateway.yaml'))
-    gateway_environment = (((gateway_compose.get('services') or {}).get('gateway') or {}).get('environment') or {})
-    if 'BROWSER_EDGE_RATE_RPS' not in gateway_environment:
-        die(f'{environment}: gateway does not receive BROWSER_EDGE_RATE_RPS')
+# This branch has no dev/prod Compose configurations. Security settings for
+# an optional K3s browser Deployment must be audited against rendered K8s
+# manifests before exposing that optional API.
 
 codec = text('services/browser/api/Infrastructure/BrowserArtifactCacheCodec.cs')
 for marker in ('TFART001', 'FullPageTruncated', 'Annotated'):

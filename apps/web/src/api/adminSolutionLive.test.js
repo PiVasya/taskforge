@@ -22,31 +22,29 @@ describe('YugabyteDB-backed administrative SSE feeds', () => {
   });
   afterEach(() => { delete global.EventSource; });
 
-  test('opens independent owners for code/SQL/images and test/math, with cookies', () => {
+  test('opens one Solutions owner for all five kinds, with cookies', () => {
     const onEvent = jest.fn();
     const onOpen = jest.fn();
     const onError = jest.fn();
     const dispose = subscribeAdminSolutionEvents({ onEvent, onOpen, onError });
     expect(FakeEventSource.instances.map((x) => x.url)).toEqual([
-      '/api/admin/solution-events', '/api/admin/task-solution-events',
+      '/api/admin/solution-events',
     ]);
     for (const source of FakeEventSource.instances) {
       expect(source.options).toEqual({ withCredentials: true });
     }
     FakeEventSource.instances[0].onopen();
-    expect(onOpen).not.toHaveBeenCalled();
-    FakeEventSource.instances[1].onopen();
     expect(onOpen).toHaveBeenCalledTimes(1);
 
     FakeEventSource.instances[0].emit('solution', JSON.stringify({ kind: 'code', itemId: 'c' }));
-    FakeEventSource.instances[1].emit('solution', JSON.stringify({ kind: 'math', itemId: 'm' }));
+    FakeEventSource.instances[0].emit('solution', JSON.stringify({ kind: 'math', itemId: 'm' }));
     expect(onEvent.mock.calls.map(([e]) => e.kind)).toEqual(['code', 'math']);
     FakeEventSource.instances[0].emit('solution', '{invalid json');
     expect(onEvent).toHaveBeenCalledTimes(2);
 
-    FakeEventSource.instances[1].onerror(new Error('BY / task feed lost'));
+    FakeEventSource.instances[0].onerror(new Error('Solutions feed lost'));
     expect(onError).toHaveBeenCalledTimes(1);
-    FakeEventSource.instances[1].onopen();
+    FakeEventSource.instances[0].onopen();
     expect(onOpen).toHaveBeenCalledTimes(2);
     dispose();
     expect(FakeEventSource.instances.every((x) => x.closed)).toBe(true);

@@ -1,25 +1,5 @@
 #!/usr/bin/env bash
+# Isolated K3s-only branch. Legacy Compose fallback was retired.
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
-
-printf '\n========== REPOSITORY / RELEASE BOUNDARIES ==========\n'
-python3 scripts/ci/check-workflow-integrity.py
-python3 scripts/ci/test-ci-error-summary.py
-python3 scripts/diagnostics/test-analyze-code-queue.py
-python3 scripts/ci/test-ci-change-impact.py
-python3 scripts/ci/test-sql-change-impact.py
-python3 scripts/ci/check-docker-build-contexts.py
-python3 scripts/ci/check-migration-tooling-safety.py
-python3 scripts/ci/test-ef-migration-check.py
-python3 scripts/ci/check-runtime-config-boundaries.py
-python3 scripts/ci/check-onec-foundation.py
-python3 scripts/ci/check-onec-runtime.py
-bash scripts/ci/test-onec-bootstrap.sh
-python3 scripts/ci/check-runtime-logging.py
-python3 scripts/sql/test-runtime-preparation.py
-python3 scripts/ci/check-cluster-diagnostics-control.py
-bash scripts/tests/sql-engine-gate-readiness.sh
-bash scripts/ci/check-cluster-ha.sh
-
-printf '\nPASS: repository and release boundary checks passed.\n'
+exec bash "$ROOT/scripts/tests/repository-k3s.sh" "$@"

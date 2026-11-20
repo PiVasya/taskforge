@@ -18,12 +18,19 @@ case "$1" in
   run)
     case " $* " in *' --hostname taskforge-k3s-lab-ci-db '*) ;; *) echo 'bad container hostname' >&2; exit 7;; esac
     case " $* " in *' --publish 127.0.0.1:15433:5433 '*) ;; *) echo 'bad isolated port' >&2; exit 7;; esac
+    case " $* " in *' --label taskforge.io/k3s-ci=isolated-yugabyte-rf1 '*) ;; *) echo 'missing lab ownership label' >&2; exit 7;; esac
     : > "$MOCK_ROOT/running"
+    : > "$MOCK_ROOT/owned"
     echo mock-container-id
     exit 0
     ;;
   inspect)
-    case " $* " in *'State.Status'*)
+    case " $* " in
+      *'taskforge.io/k3s-ci'*)
+        if [ -f "$MOCK_ROOT/owned" ]; then echo 'isolated-yugabyte-rf1'; else echo '<no value>'; fi
+        exit 0
+        ;;
+      *'State.Status'*)
       if [ -f "$MOCK_ROOT/running" ]; then echo running; else echo exited; fi ;;
       *) echo 'status=running exit=0 oom_killed=false';;
     esac
@@ -43,6 +50,20 @@ case "$1" in
         done
         if [ "${MOCK_YSQL_FAIL:-0}" = '1' ]; then echo 'connection refused' >&2; exit 1; fi
         case " $* " in
+          *'to_regclass('* )
+            if [ "${MOCK_OWNERSHIP_TABLE_MISSING:-0}" = '1' ]; then
+              echo ''
+            elif echo "$*" | grep -q 'taskforge_k3s_tasks' && echo "$*" | grep -q 'TaskAttempts'; then
+              echo ''
+            elif echo "$*" | grep -q 'taskforge_k3s_tasks' && echo "$*" | grep -q 'AdminSolutionFeedEvents'; then
+              [ "${MOCK_DUPLICATE_TASKS_ADMIN_FEED:-0}" = '1' ] && echo 'public.AdminSolutionFeedEvents' || echo ''
+            elif echo "$*" | grep -q 'taskforge_k3s_education' && echo "$*" | grep -q 'TaskDefinitions'; then
+              [ "${MOCK_OLD_EDUCATION_STAGING:-0}" = '1' ] && echo 'public.TaskDefinitions' || echo ''
+            elif echo "$*" | grep -q 'taskforge_k3s_education' && echo "$*" | grep -q 'SqlCatalogResources'; then
+              echo ''
+            else
+              echo 'public.mock_owned_table'
+            fi ;;
           *'SELECT version()'*) echo 'PostgreSQL 15.2-YB-2026.1.2' ;;
           *'pg_catalog.pg_tables'*) echo 42 ;;
           *'__EFMigrationsHistory'*) echo 9 ;;
@@ -64,7 +85,7 @@ case "$1" in
     exit 0
     ;;
   rm)
-    rm -f "$MOCK_ROOT/running"
+    rm -f "$MOCK_ROOT/running" "$MOCK_ROOT/owned"
     exit 0
     ;;
 esac
@@ -130,7 +151,26 @@ echo mock dotnet build
             self.assertIn('EF Core ('+db+')', summary)
         self.assertFalse((self.path/'running').exists())
 
+    def test_missing_new_owner_tables_blocks_release(self):
+        self.run_phase('start')
+        self.env['MOCK_OWNERSHIP_TABLE_MISSING'] = '1'
+        r = self.run_phase('verify', success=False)
+        self.assertIn('New single-owner tables missing', r.stderr)
+
+    def test_duplicate_tasks_admin_feed_blocks_release(self):
+        self.run_phase('start')
+        self.env['MOCK_DUPLICATE_TASKS_ADMIN_FEED'] = '1'
+        r = self.run_phase('verify', success=False)
+        self.assertIn('AdminSolutionFeedEvents must be owned only by Solutions', r.stderr)
+
+    def test_old_education_staging_blocks_release(self):
+        self.run_phase('start')
+        self.env['MOCK_OLD_EDUCATION_STAGING'] = '1'
+        r = self.run_phase('verify', success=False)
+        self.assertIn('Abandoned Education TaskDefinitions staging table still exists', r.stderr)
+
     def test_failed_migration_preserves_root_error_outside_group_and_in_artifact(self):
+        self.run_phase('start')
         self.env['MOCK_DOTNET_FAIL_EDU']='1'
         r = self.run_phase('migrate', success=False)
         self.assertIn('EF Core | education', r.stdout)
@@ -155,6 +195,26 @@ echo mock dotnet build
         (self.path/'running').touch()
         r=self.run_phase('start',success=False)
         self.assertIn('refusing to reuse',r.stderr)
+
+    def test_refuses_cleanup_of_unowned_docker_container(self):
+        (self.path/'running').touch()
+        r = self.run_phase('cleanup', success=False)
+        self.assertIn('Refusing to use or remove non-lab Docker container', r.stderr)
+        self.assertTrue((self.path/'running').exists())
+        commands = (self.path/'calls.txt').read_text()
+        self.assertNotIn('rm --force', commands)
+
+    def test_refuses_migration_and_diagnostics_for_unowned_container(self):
+        (self.path/'running').touch()
+        for phase in ('migrate', 'verify', 'create', 'diagnose'):
+            r = self.run_phase(phase, success=False)
+            self.assertIn('non-lab Docker container', r.stderr)
+
+    def test_non_lab_container_name_rejected_before_docker_operations(self):
+        self.env['YB_CI_CONTAINER'] = 'taskforge-prod-postgres'
+        r = self.run_phase('cleanup', success=False)
+        self.assertIn('CI container name', r.stderr)
+        self.assertFalse((self.path/'calls.txt').exists())
 
     def test_invalid_subcommand_and_config_rejected(self):
         r=self.run_phase('unknown',success=False)

@@ -25,4 +25,4 @@
 
 ## Durable operation acceptance
 
-The release prerequisite, migration command, recovery contract and opt-in live HTTP test are in [journal-design.md](journal-design.md). A live site run and full builds remain release gates. See `validation-results-phase2.json` for what was actually executed.
+The release prerequisite, migration command, recovery contract and opt-in live HTTP test are in [journal-design.md](journal-design.md). A live site run and full builds remain release gates. Historical QA reports are not shipped with the K3s source; rerun the live checks against the isolated lab before treating import/export as verified.

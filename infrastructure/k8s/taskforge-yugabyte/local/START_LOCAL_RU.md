@@ -1,6 +1,6 @@
 # TaskForge K3s LAB — отдельная ветка, новый CI/CD, YugabyteDB RF1
 
-Актуальная инструкция **`README_K3S_BRANCH.md` в корне новой ветки**.
+Актуальная инструкция **`docs/operations/README_K3S_BRANCH.md`**.
 
 Доступ: `http://127.0.0.1:18080` через `port-forward.sh`.
 Namespace приложения: `taskforge-k3s-lab`; namespace БД: `taskforge-k3s-lab-db`.

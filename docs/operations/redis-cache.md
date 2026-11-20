@@ -55,7 +55,7 @@ Then Redis can be recreated if needed:
 
 ```bash
 cd ~/Desktop/taskforge-prod-linux-v20
-./compose.sh up -d --force-recreate redis
+kubectl -n taskforge-k3s-lab rollout restart deployment/redis
 ```
 
 ## Server checks

@@ -1,66 +1,27 @@
-# Миграции микросервисов
+# EF Core migrations — K3s local branch
 
-В `develop` миграции хранятся в репозитории.
+The service migrations are stored under `services/*/api/Migrations/` (Tasks:
+`services/tasks/assignment-api/Migrations/`). The pinned CLI is invoked via
+`scripts/generate-migrations.sh`. Do not hand-edit generated migrations or
+model snapshots.
 
-## Текущий baseline
-
-```text
-InitialMicroserviceSchema
-```
-
-## DB-owning сервисы
-
-```text
-services/identity/api/Migrations
-services/education/api/Migrations
-services/content/api/Migrations
-services/tasks/assignment-api/Migrations
-services/solutions/api/Migrations
-services/execution/api/Migrations
-services/ai/api/Migrations
-services/support/api/Migrations
-services/minecraft/api/Migrations
-services/files/api/Migrations
-services/notifications/api/Migrations
-services/observability/api/Migrations
-services/bots/telegram-quiz-bot/Data/Migrations
-```
-
-## Не генерить миграции здесь
-
-```text
-apps/*
-services/execution/worker
-services/execution/runners/*
-services/solutions/rating-worker
-services/ai/worker
-services/analyzers/*
-services/bots/support-bot
-plugins/*
-```
-
-## Обычная команда
+For the fresh K3s lab, the canceled staging migration pairs were removed
+before the database was initialized. Two migrations still need to be generated:
 
 ```bash
-./scripts/generate-migrations.sh AddMeaningfulSchemaChange identity
+bash scripts/generate-migrations.sh ConsolidateAttempts tasks,solutions
 ```
 
-Скрипт требует явный target (`identity`, `minecraft`, `education` и т.д.), сначала проверяет `has-pending-model-changes` только для него, затем создаёт миграцию при реальном изменении модели. Список target-ов: `./scripts/generate-migrations.sh --list`; `all` используется только осознанно.
+Tasks must **not** own attempts; Solutions must own test/math `TaskAttempts`
+alongside code/SQL/image submissions. Education owns course structure; Tasks
+owns task definitions.
 
-## Принудительная команда
+Check model-vs-snapshot drift after generation with:
 
 ```bash
-./scripts/generate-migrations-force.sh MigrationName identity
+python3 scripts/ci/check-database-table-ownership.py
+python3 scripts/ci/check-ef-migrations.py --targets assignment,solutions,education
 ```
 
-Использовать редко. Может создать пустые миграции.
-
-## Автоприменение
-
-Docker Compose применяет миграции на старте сервисов, если включено:
-
-```text
-MIGRATE_ON_STARTUP=true
-```
-
-Для Kubernetes/replicas позже лучше заменить startup-migrate на отдельный migrator job, чтобы несколько replicas одного API не применяли одну миграцию одновременно.
+These are source checks, not YugabyteDB DDL execution. CI runs EF migrations
+on an isolated disposable YugabyteDB separately.

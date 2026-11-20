@@ -9,15 +9,13 @@
 | `identity-api` | `taskforge_identity` | users, auth, roles, UI settings |
 | `education-api` | `taskforge_education` | courses, groups, visibility, ownership |
 | `content-api` | `taskforge_content` | learning pages, conspects, content tree |
-| `tasks-api` | `taskforge_tasks` | assignments, programming/math/test task definitions |
-| `quiz-api` | `taskforge_tasks` | CT/quiz tasks; later can merge behind tasks-api |
-| `solutions-api` | `taskforge_solutions` | submissions, attempts, verdicts, quotas, badges, rating read-model |
+| `tasks-api` | `taskforge_tasks` | определения всех пяти видов заданий, тестовые и математические проверки (без хранения попыток) |
+| `solutions-api` | `taskforge_solutions` | попытки всех пяти типов заданий, вердикты, квоты, рейтинг |
 | `rating-worker` | `taskforge_solutions` | updates `UserRatings` and `LeaderboardEntries` from events |
 | `execution-api` | `taskforge_execution` | execution jobs/results/runner registry |
 | `execution-worker` | none | consumes queue and calls stateless runners |
 | `runners/*` | none | stateless code runners |
-| `ai-api` | `taskforge_ai` | AI conversations/runs/steps/artifacts/drafts |
-| `ai-worker` | none | executes AI runs; state belongs to `ai-api` |
+| `ai-api` | `taskforge_ai` | анализатор аккаунтов; LLM-агент удалён |
 | `support-api` | `taskforge_support` | tickets/messages |
 | `minecraft-api` | `taskforge_minecraft` | link codes, economy, chat bridge |
 | `files-api` | `taskforge_files` | file metadata; bytes in MinIO/S3 |
@@ -55,3 +53,17 @@
 4. UI читает готовую read-model таблицу.
 
 Так рейтинг становится быстрым, кэшируемым и не грузит БД полным пересчётом при каждом входе.
+
+## Проверка фактического владения таблицами
+
+`tools/database-splitter/table-ownership-map.json` отражает физическое состояние
+**текущих EF Core `ModelSnapshot`**, а не план будущего рефакторинга. Проверить:
+
+```bash
+python3 scripts/ci/check-database-table-ownership.py
+```
+
+Граница владения описана в `docs/architecture/TASK_DATA_OWNERSHIP.md`.
+Код рассчитан на свежую изолированную K3s-БД, но для неё **ещё нужно
+сгенерировать две EF-миграции**. Карта `ModelSnapshot` не заменяет
+реальное выполнение миграций.

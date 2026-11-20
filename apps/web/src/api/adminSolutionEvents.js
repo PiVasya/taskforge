@@ -1,9 +1,6 @@
-// The administrative feed has TWO owners. A single Redis subscription cannot
-// observe both, and a disconnected region must be able to replay DB events.
-const FEED_PATHS = [
-  '/api/admin/solution-events',       // code, SQL, images (Solutions API)
-  '/api/admin/task-solution-events',  // tests, math (Tasks API)
-];
+// All five kinds share one durable Solutions outbox. A second EventSource
+// would duplicate events and keep an obsolete Tasks dependency alive.
+const FEED_PATHS = ['/api/admin/solution-events'];
 
 export function subscribeAdminSolutionEvents({ onEvent, onOpen, onError }) {
   const states = new Array(FEED_PATHS.length).fill(false);

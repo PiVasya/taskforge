@@ -72,6 +72,7 @@ internal static partial class SolutionsApiEndpoints
             await db.AdminSolutionFeedEvents.Where(x => x.ItemId == id &&
                 (x.Kind == "code" || x.Kind == "sql")).ExecuteDeleteAsync(ct);
             db.Submissions.Remove(s);
+            db.AdminSolutionFeedEvents.Add(OwnershipDeletionEvents.ForSubmission(s));
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return Microsoft.AspNetCore.Http.Results.Ok(new { deleted = id });
@@ -127,8 +128,28 @@ internal static partial class SolutionsApiEndpoints
                 q = q.Where(x => x.CreatedAt >= since);
             }
 
+            // EF ExecuteDelete bypasses SaveChanges interceptors. Emit a durable
+            // tombstone for EVERY deleted row, in bounded batches and in the
+            // same transaction, so Tasks cannot retain ghost attempts.
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var deleted = await q.ExecuteDeleteAsync(ct);
+            var deleted = 0;
+            while (true)
+            {
+                var batch = await q.AsNoTracking().OrderBy(x => x.Id)
+                    .Take(200).Select(x => new SolutionSubmission
+                    {
+                        Id = x.Id, UserId = x.UserId, AssignmentId = x.AssignmentId,
+                        Language = x.Language, SqlSpecVersionId = x.SqlSpecVersionId,
+                        SqlEngineProfileId = x.SqlEngineProfileId, Score = x.Score
+                    }).ToListAsync(ct);
+                if (batch.Count == 0) break;
+                var ids = batch.Select(x => x.Id).ToArray();
+                await db.AdminSolutionFeedEvents.Where(x => ids.Contains(x.ItemId) &&
+                    (x.Kind == "code" || x.Kind == "sql")).ExecuteDeleteAsync(ct);
+                deleted += await q.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(ct);
+                db.AdminSolutionFeedEvents.AddRange(batch.Select(OwnershipDeletionEvents.ForSubmission));
+                await db.SaveChangesAsync(ct);
+            }
             if (deleted > 0)
                 await MarkRatingDirtyAsync(db, userId, "solutions-bulk-deleted", assignmentId, ct);
             await transaction.CommitAsync(ct);
@@ -190,10 +211,12 @@ internal static partial class SolutionsApiEndpoints
     {
         if (string.Equals(kind, "code", StringComparison.OrdinalIgnoreCase))
             return source.Where(x => x.SqlSpecVersionId == null && x.SqlEngineProfileId == null
-                && x.Language != "sql" && x.Language != "SQL" && x.Language != "Sql");
+                && x.Language.ToLower() != "sql" && x.Language.ToLower() != "postgresql"
+                && x.Language.ToLower() != "mysql" && x.Language.ToLower() != "sqlite");
         if (string.Equals(kind, "sql", StringComparison.OrdinalIgnoreCase))
             return source.Where(x => x.SqlSpecVersionId != null || x.SqlEngineProfileId != null
-                || x.Language == "sql" || x.Language == "SQL" || x.Language == "Sql");
+                || x.Language.ToLower() == "sql" || x.Language.ToLower() == "postgresql"
+                || x.Language.ToLower() == "mysql" || x.Language.ToLower() == "sqlite");
         return source;
     }
 }

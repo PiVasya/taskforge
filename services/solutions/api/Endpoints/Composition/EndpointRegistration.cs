@@ -27,6 +27,7 @@ internal static partial class SolutionsApiEndpoints
         MapCodeSolutionsEndpoints(app);
         MapSqlSolutionsEndpoints(app);
         MapInternalEndpoints(app);
+        MapTaskAttemptOwnershipEndpoints(app);
         MapAgentInvestigationInternalEndpoints(app);
         MapAccountIntelligenceInternalEndpoints(app);
         MapAccountLifecycleInternalEndpoints(app);

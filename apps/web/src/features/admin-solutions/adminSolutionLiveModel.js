@@ -384,3 +384,19 @@ export function mergeLiveEvent(existing, incoming) {
   if (!preserveTerminal) return incoming;
   return { ...incoming, status: existing.status, score: existing.score, detail: existing.detail ?? incoming.detail };
 }
+
+// A source-side deletion is a durable event, not a new result card. Remove the
+// deleted attempt from the live feed; a delayed earlier verdict must not bring
+// the old private result back after the tombstone has been observed.
+export function applyLiveEventToItems(current, next, limit = 120) {
+  const rows = Array.isArray(current) ? current : [];
+  if (!next?.key) return rows;
+  if (String(next.status || '').toLowerCase() === 'deleted') {
+    return rows.filter((item) => item.key !== next.key);
+  }
+  const existing = rows.find((item) => item.key === next.key);
+  if (existing && new Date(existing.occurredAtUtc || 0) > new Date(next.occurredAtUtc || 0)) return rows;
+  const merged = [mergeLiveEvent(existing, next), ...rows.filter((item) => item.key !== next.key)];
+  merged.sort((a, b) => new Date(b.occurredAtUtc || 0) - new Date(a.occurredAtUtc || 0));
+  return merged.slice(0, limit);
+}

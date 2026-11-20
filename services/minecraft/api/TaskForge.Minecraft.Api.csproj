@@ -18,7 +18,7 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.1" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/Cluster/DistributedSignalR.cs" Link="Shared/Cluster/DistributedSignalR.cs" />

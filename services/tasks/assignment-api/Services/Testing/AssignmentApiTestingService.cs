@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Domain;
+using TaskForge.Tasks.Api.Services.Ownership;
 using TaskForge.Realtime;
 
 using TaskForge.Tasks.Api.Contracts;
@@ -32,33 +33,43 @@ internal static class AssignmentApiTestingService
         var (spec, revision) = await TestAssignmentSpecService.ReadVersionedAsync(db, assignment, ct);
         if (spec.Questions.Count == 0) return Problem(400, "TEST_HAS_NO_QUESTIONS", "tasks.test.start", "В тесте пока нет вопросов.");
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
-        var active = await db.Attempts.FirstOrDefaultAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value && x.SubmittedAt == null);
+        var active = await InteractiveAttemptClient.ActiveAsync(clients, cfg, "test", userId.Value, assignmentId, ct);
         if (active != null)
         {
             var existingUnlimited = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
+            var previousVersion = active.UpdatedAt;
             var limitChanged = RefreshTimeLimit(active, spec, ignoreTimeLimit, revision);
             var orderChanged = TestAttemptQuestionOrder.Refresh(active, spec);
-            if (orderChanged || limitChanged) await db.SaveChangesAsync(ct);
+            if (orderChanged || limitChanged)
+                active = await InteractiveAttemptClient.SaveDraftAsync(clients, cfg, active, previousVersion, ct);
             return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(active, spec, existingUnlimited, ignoreTimeLimit, revision));
         }
         var unlimitedAttempts = spec.Settings.UnlimitedAttempts || HasUnlimitedAiTaskAttempts(http, cfg);
-        var used = await db.Attempts.CountAsync(x => x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
+        var used = (int)(await InteractiveAttemptClient.SearchAsync(clients, cfg,
+            new InteractiveAttemptClient.AttemptSearch("test", userId.Value, assignmentId, Take: 1), ct)).Total;
         var max = unlimitedAttempts ? int.MaxValue : spec.Settings.MaxAttempts;
         if (used + 1 > max) return Microsoft.AspNetCore.Http.Results.Json(new { message = "Достигнут лимит попыток.", code = "ATTEMPT_LIMIT_REACHED" }, statusCode: StatusCodes.Status409Conflict);
         if (await ConsumeTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start", ct) is { } quotaProblem) return quotaProblem;
         var attempt = new TaskAttempt { Kind = "test", TaskAssignmentId = assignmentId, UserId = userId.Value, AttemptNumber = used + 1, TimeLimitSeconds = ignoreTimeLimit ? null : TimeLimitFor(spec.Settings.AttemptTimeLimitsSeconds, used + 1) };
         attempt.OrderJson = TestAttemptQuestionOrder.Create(OrderedIds(spec.Questions.Select(x => x.Id), spec.Settings.ShuffleQuestions, attempt.Id));
-        db.Attempts.Add(attempt);
         try
         {
-            await db.SaveChangesAsync(ct);
+            var result = await InteractiveAttemptClient.StartAsync(clients, cfg, attempt, max,
+                spec.Settings.AttemptTimeLimitsSeconds.ToArray(), ignoreTimeLimit, ct);
+            if (!result.Created)
+                await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-already-active", CancellationToken.None);
+            return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(result.Attempt, spec, unlimitedAttempts, ignoreTimeLimit, revision));
+        }
+        catch (InteractiveAttemptConflictException ex) when (ex.Code == "ATTEMPT_LIMIT_REACHED")
+        {
+            await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-limit", CancellationToken.None);
+            return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "ATTEMPT_LIMIT_REACHED", message = "Достигнут лимит попыток." });
         }
         catch
         {
             await RefundTaskEnergyAsync(http, cfg, clients, userId.Value, "test-attempt-start-failed", CancellationToken.None);
             throw;
         }
-        return Microsoft.AspNetCore.Http.Results.Ok(TestStartDto(attempt, spec, unlimitedAttempts, ignoreTimeLimit, revision));
     }
 
     internal static async Task<IResult> SubmitTest(Guid assignmentId, JsonElement payload, HttpContext http, IConfiguration cfg, TasksDbContext db, IHttpClientFactory clients, CancellationToken ct)
@@ -67,8 +78,8 @@ internal static class AssignmentApiTestingService
         if (userId == null) return Unauthorized();
         var attemptId = GuidProp(payload, "attemptId");
         if (attemptId == Guid.Empty) return Problem(400, "ATTEMPT_ID_REQUIRED", "tasks.test.submit", "Не передан attemptId.");
-        var attempt = await db.Attempts.FirstOrDefaultAsync(x => x.Id == attemptId && x.Kind == "test" && x.TaskAssignmentId == assignmentId && x.UserId == userId.Value);
-        if (attempt == null) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
+        var attempt = await InteractiveAttemptClient.FindAsync(clients, cfg, attemptId, ct);
+        if (attempt == null || attempt.Kind != "test" || attempt.TaskAssignmentId != assignmentId || attempt.UserId != userId.Value) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Попытка не найдена.", code = "ATTEMPT_NOT_FOUND" });
         if (attempt.SubmittedAt != null) return Problem(400, "ATTEMPT_ALREADY_SUBMITTED", "tasks.test.submit", "Эта попытка уже была отправлена.");
         var assignment = await db.Assignments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignmentId, ct);
         if (assignment == null || !await CanUserAccessAssignmentAsync(assignment, http, cfg, db, clients, ct)) return Microsoft.AspNetCore.Http.Results.NotFound(new { message = "Задание не найдено.", code = "ASSIGNMENT_NOT_FOUND" });
@@ -77,6 +88,7 @@ internal static class AssignmentApiTestingService
         if (spec.Questions.Count == 0)
             return Microsoft.AspNetCore.Http.Results.Conflict(new { code = "TEST_HAS_NO_QUESTIONS", message = "В тесте пока нет вопросов." });
         var ignoreTimeLimit = IgnoreAiTaskAttemptTimeLimits(http, cfg);
+        var previousVersion = attempt.UpdatedAt;
         RefreshTimeLimit(attempt, spec, ignoreTimeLimit, revision);
         TestAttemptQuestionOrder.Refresh(attempt, spec);
         var order = TestAttemptQuestionOrder.Resolve(attempt, spec);
@@ -84,7 +96,7 @@ internal static class AssignmentApiTestingService
         var clientRevision = StringProp(payload, "testRevision");
         if (!string.IsNullOrWhiteSpace(clientRevision) && !string.Equals(clientRevision, revision, StringComparison.Ordinal))
         {
-            await db.SaveChangesAsync(ct);
+            attempt = await InteractiveAttemptClient.SaveDraftAsync(clients, cfg, attempt, previousVersion, ct);
             return Microsoft.AspNetCore.Http.Results.Json(new
             {
                 code = "TEST_UPDATED_RELOAD_REQUIRED",
@@ -116,7 +128,7 @@ internal static class AssignmentApiTestingService
         attempt.AnswersJson = JsonSerializer.Serialize(answers, JsonOptions());
         attempt.ReviewJson = null;
         attempt.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+        attempt = await InteractiveAttemptClient.SubmitAsync(clients, cfg, attempt, previousVersion, ct);
 
         TaskForgeDebugTrace.Map("TEST_ATTEMPT_SAVED",
             ("user", userId.Value),
@@ -127,7 +139,6 @@ internal static class AssignmentApiTestingService
             ("passed", attempt.Passed),
             ("timeExpired", attempt.TimeExpired),
             ("submittedAt", attempt.SubmittedAt));
-        await MarkRatingDirtyInSolutionsAsync(clients, cfg, new[] { userId.Value }, "test-attempt-submitted", assignmentId, ct);
         return Microsoft.AspNetCore.Http.Results.Ok(TestSubmissionDto(attempt, spec.Settings, total, correct, unlimitedAttempts, spec.Settings.AllowReview, review));
     }
 

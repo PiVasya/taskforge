@@ -6,14 +6,12 @@ can be verified reliably without building the project:
 
 * the Go worker must not grow a Python runtime dependency;
 * C# and Go must agree on the versioned SQL wire/adapter/runtime identities;
-* disposable SQL engine containers must stay on private internal networks with no
-  published host ports and with basic container hardening;
 * SQL-owned C# code must not fall back to the generic Assignment.TestsJson payload.
 
 It intentionally does NOT freeze filenames, source hashes, implementation details,
 workflow text, seccomp source lines, UI modules, or the complete repository tree.
-Those concerns belong to build/tests, workflow-integrity, EF checks and the Go
-runtime/security tests.
+K3s network isolation is checked separately by `check-k3s-release-boundaries.py`;
+this guard does not pretend to validate deleted dev/prod Compose files.
 """
 from __future__ import annotations
 
@@ -21,18 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import sys
-from typing import Any, Iterable
+from typing import Iterable
 
-from yaml_compat import YamlLoadError, safe_load
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKER_ROOT = ROOT / "services/execution/sql-worker"
-COMPOSE_FILES = (
-    ROOT / "deploy/dev/compose/35-sql.yaml",
-    ROOT / "deploy/prod/compose/35-sql.yaml",
-)
-
-
 @dataclass
 class Guard:
     errors: list[str] = field(default_factory=list)
@@ -59,186 +50,6 @@ def read_text(path: Path, guard: Guard) -> str | None:
     except OSError as error:
         guard.errors.append(f"cannot read {path.relative_to(ROOT)}: {error}")
         return None
-
-
-def load_yaml(path: Path, guard: Guard) -> dict[str, Any] | None:
-    text = read_text(path, guard)
-    if text is None:
-        return None
-    try:
-        data = safe_load(text)
-    except YamlLoadError as error:
-        guard.errors.append(f"invalid YAML in {path.relative_to(ROOT)}: {error}")
-        return None
-    if not isinstance(data, dict):
-        guard.errors.append(f"{path.relative_to(ROOT)} must contain a YAML mapping")
-        return None
-    return data
-
-
-def env_map(service: dict[str, Any]) -> dict[str, str]:
-    raw = service.get("environment") or {}
-    if isinstance(raw, dict):
-        return {str(key): "" if value is None else str(value) for key, value in raw.items()}
-    result: dict[str, str] = {}
-    if isinstance(raw, list):
-        for item in raw:
-            text = str(item)
-            key, separator, value = text.partition("=")
-            result[key] = value if separator else ""
-    return result
-
-
-def network_names(service: dict[str, Any]) -> set[str]:
-    raw = service.get("networks") or []
-    if isinstance(raw, dict):
-        return {str(name) for name in raw}
-    if isinstance(raw, list):
-        return {str(name) for name in raw}
-    return set()
-
-
-def list_values(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    return [str(value)]
-
-
-def labels(service: dict[str, Any]) -> dict[str, str]:
-    raw = service.get("labels") or {}
-    if isinstance(raw, dict):
-        return {str(key): str(value) for key, value in raw.items()}
-    result: dict[str, str] = {}
-    if isinstance(raw, list):
-        for item in raw:
-            key, separator, value = str(item).partition("=")
-            if separator:
-                result[key] = value
-    return result
-
-
-def health_text(service: dict[str, Any]) -> str:
-    health = service.get("healthcheck") or {}
-    if not isinstance(health, dict):
-        return ""
-    test = health.get("test") or []
-    if isinstance(test, list):
-        return " ".join(str(part) for part in test)
-    return str(test)
-
-
-def discover_worker(services: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Find the SQL worker by behavior/build metadata, not by a fixed service name."""
-    matches: list[tuple[str, dict[str, Any]]] = []
-    for name, raw in services.items():
-        if not isinstance(raw, dict):
-            continue
-        build = raw.get("build") or {}
-        if isinstance(build, str):
-            build_context = build
-        elif isinstance(build, dict):
-            build_context = str(build.get("context", ""))
-        else:
-            build_context = ""
-        image = str(raw.get("image", ""))
-        health = health_text(raw)
-        score = sum((
-            "sql-worker" in build_context,
-            "sql-worker" in image,
-            "sql-worker" in health and "health" in health,
-        ))
-        if score >= 2:
-            matches.append((str(name), raw))
-    return matches[0] if len(matches) == 1 else None
-
-
-def is_internal_network(config: Any) -> bool:
-    return isinstance(config, dict) and config.get("internal") is True
-
-
-def hardened(service: dict[str, Any]) -> bool:
-    opts = " ".join(list_values(service.get("security_opt"))).lower()
-    dropped = {value.upper() for value in list_values(service.get("cap_drop"))}
-    return service.get("read_only") is True and "no-new-privileges" in opts and "ALL" in dropped
-
-
-def check_compose(path: Path, guard: Guard) -> None:
-    compose = load_yaml(path, guard)
-    if compose is None:
-        return
-    services = compose.get("services")
-    networks = compose.get("networks") or {}
-    rel = path.relative_to(ROOT)
-    if not isinstance(services, dict) or not isinstance(networks, dict):
-        guard.errors.append(f"{rel}: services/networks section is malformed")
-        return
-
-    worker_match = discover_worker(services)
-    if worker_match is None:
-        guard.errors.append(f"{rel}: could not identify exactly one SQL worker service")
-        return
-    worker_name, worker = worker_match
-
-    worker_networks = network_names(worker)
-    private_networks = {name for name in worker_networks if is_internal_network(networks.get(name))}
-    guard.require(
-        len(private_networks) >= 2,
-        f"{rel}: SQL worker must remain attached to separate internal database networks",
-    )
-    guard.require(hardened(worker), f"{rel}: SQL worker lost read-only/no-new-privileges/cap-drop hardening")
-    guard.require(not worker.get("ports"), f"{rel}: SQL worker must not publish host ports")
-    worker_health = health_text(worker).lower()
-    guard.require(
-        "sql-worker" in worker_health and "health" in worker_health,
-        f"{rel}: SQL worker healthcheck must execute the worker health command",
-    )
-
-    engine_names: set[str] = set()
-    for network_name in private_networks:
-        members = {
-            str(name)
-            for name, raw in services.items()
-            if name != worker_name and isinstance(raw, dict) and network_name in network_names(raw)
-        }
-        guard.require(
-            len(members) == 1,
-            f"{rel}: internal SQL network {network_name!r} must contain exactly one engine plus the worker",
-        )
-        engine_names.update(members)
-
-    # The current product contract supports external PostgreSQL and MySQL sandboxes;
-    # SQLite is embedded in the worker and therefore has no Compose service/network.
-    guard.require(
-        len(engine_names) >= 2,
-        f"{rel}: expected isolated external SQL engine services for PostgreSQL and MySQL",
-    )
-
-    for engine_name in sorted(engine_names):
-        engine = services.get(engine_name)
-        if not isinstance(engine, dict):
-            continue
-        engine_networks = network_names(engine)
-        external_networks = {name for name in engine_networks if not is_internal_network(networks.get(name))}
-        guard.require(
-            not external_networks,
-            f"{rel}: sandbox engine {engine_name!r} escaped onto non-internal network(s): {sorted(external_networks)}",
-        )
-        guard.require(not engine.get("ports"), f"{rel}: sandbox engine {engine_name!r} publishes host ports")
-        guard.require(hardened(engine), f"{rel}: sandbox engine {engine_name!r} lost container hardening")
-
-    # Keep disposable SQL infrastructure out of the HA-critical set without caring
-    # about the exact service names.
-    for service_name in {worker_name, *engine_names}:
-        service = services.get(service_name)
-        if not isinstance(service, dict):
-            continue
-        critical = labels(service).get("taskforge.ha.critical")
-        guard.require(
-            str(critical).lower() == "false",
-            f"{rel}: disposable SQL service {service_name!r} must stay non-HA-critical",
-        )
 
 
 def find_named_constant(
@@ -388,19 +199,17 @@ def main() -> int:
     guard = Guard()
     check_worker_language_boundary(guard)
     check_cross_language_contract(guard)
-    for path in COMPOSE_FILES:
-        check_compose(path, guard)
     check_sql_payload_boundary(guard)
     guard.finish()
 
     print("PASS: SQL runtime boundary guard")
     print("  - Go worker stays free of Python runtime dependencies")
     print("  - C#/Go wire, adapter and execution-semantics versions agree")
-    print("  - PostgreSQL/MySQL sandboxes stay private, unexposed and hardened in dev/prod Compose")
+    print("  - K3s network and OCI container boundaries are checked by check-k3s-release-boundaries.py")
     print("  - SQL-owned C# code stays off generic TestsJson")
     print("DELEGATED: build/race/seccomp/runtime behavior -> scripts/check-sql-go.sh")
     print("DELEGATED: EF/domain correctness -> scripts/check-sql-domain.sh + check-ef-migrations.py")
-    print("DELEGATED: CI wiring/change-impact -> scripts/ci/check-workflow-integrity.py + test-sql-change-impact.py")
+    print("DELEGATED: K3s container/CI wiring -> check-k3s-release-boundaries.py + check-k3s-migration-contract.py")
     return 0
 
 

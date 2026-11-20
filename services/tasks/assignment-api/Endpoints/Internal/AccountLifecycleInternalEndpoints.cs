@@ -15,19 +15,12 @@ internal static partial class AssignmentApiEndpoints
             TasksDbContext db,
             CancellationToken ct) =>
         {
-            if (!request.TargetUserId.HasValue || request.TargetUserId == request.SourceUserId)
+            if (!request.TargetUserId.HasValue || request.SourceUserId == Guid.Empty ||
+                request.TargetUserId == Guid.Empty || request.TargetUserId == request.SourceUserId)
                 return Results.BadRequest(new { message = "Некорректная пара аккаунтов.", code = "INVALID_MERGE_USERS" });
 
             var targetId = request.TargetUserId.Value;
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            // The event ledger is owned by this service and must follow
-            // account merges, not refer to a deleted source account.
-            await db.AdminSolutionFeedEvents.Where(x => x.UserId == request.SourceUserId)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, targetId), ct);
-
-            var attempts = await db.Attempts.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
-            foreach (var row in attempts) row.UserId = targetId;
-
             var snapshots = await db.AssignmentCodeSnapshots.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             foreach (var row in snapshots) row.UserId = targetId;
 
@@ -84,7 +77,6 @@ internal static partial class AssignmentApiEndpoints
             return Results.Ok(new
             {
                 request.OperationId,
-                movedAttempts = attempts.Count,
                 movedSnapshots = snapshots.Count,
                 movedEvents = events.Count - duplicateEvents,
                 duplicateEvents,
@@ -98,15 +90,12 @@ internal static partial class AssignmentApiEndpoints
             TasksDbContext db,
             CancellationToken ct) =>
         {
+            if (request.SourceUserId == Guid.Empty)
+                return Results.BadRequest(new { code = "SOURCE_USER_ID_REQUIRED" });
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            // A removed account must not persist in the administrative feed.
-            await db.AdminSolutionFeedEvents.Where(x => x.UserId == request.SourceUserId)
-                .ExecuteDeleteAsync(ct);
-            var attempts = await db.Attempts.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var snapshots = await db.AssignmentCodeSnapshots.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var events = await db.AssignmentActivityEvents.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
             var sessions = await db.AssignmentWorkSessions.Where(x => x.UserId == request.SourceUserId).ToListAsync(ct);
-            db.Attempts.RemoveRange(attempts);
             db.AssignmentCodeSnapshots.RemoveRange(snapshots);
             db.AssignmentActivityEvents.RemoveRange(events);
             db.AssignmentWorkSessions.RemoveRange(sessions);
@@ -115,7 +104,6 @@ internal static partial class AssignmentApiEndpoints
             return Results.Ok(new
             {
                 request.OperationId,
-                deletedAttempts = attempts.Count,
                 deletedSnapshots = snapshots.Count,
                 deletedEvents = events.Count,
                 deletedSessions = sessions.Count,

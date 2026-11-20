@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Services.Testing;
 using TaskForge.Tasks.Api.Services.Runtime;
+using TaskForge.Tasks.Api.Services.Ownership;
 using TaskForge.Tasks.Api.Services.Specs;
 
 using static TaskForge.Tasks.Api.Services.Mapping.AssignmentApiMappingService;
@@ -19,7 +20,7 @@ internal static partial class AssignmentApiEndpoints
             DateTimeOffset? fromUtc,
             DateTimeOffset? toUtc,
             int take,
-            TasksDbContext db,
+            TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg,
             CancellationToken ct) =>
         {
             var to = toUtc ?? DateTimeOffset.UtcNow;
@@ -87,19 +88,16 @@ internal static partial class AssignmentApiEndpoints
             DateTimeOffset? fromUtc,
             DateTimeOffset? toUtc,
             int take,
-            TasksDbContext db,
+            TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg,
             CancellationToken ct) =>
         {
             var to = toUtc ?? DateTimeOffset.UtcNow;
             var from = fromUtc ?? to.AddDays(-7);
             var limit = System.Math.Clamp(take <= 0 ? 200 : take, 1, 500);
 
-            var query = db.Attempts.AsNoTracking()
-                .Where(x => x.UserId == userId && x.SubmittedAt.HasValue && x.SubmittedAt.Value >= from && x.SubmittedAt.Value <= to);
-            if (assignmentId.HasValue)
-                query = query.Where(x => x.TaskAssignmentId == assignmentId.Value);
-
-            var rowsWithSentinel = await query.OrderByDescending(x => x.SubmittedAt).Take(limit + 1).ToListAsync(ct);
+            var rowsWithSentinel = (await InteractiveAttemptClient.SearchAsync(clients, cfg,
+                new InteractiveAttemptClient.AttemptSearch(UserId: userId, AssignmentId: assignmentId,
+                    Since: from, Until: to, SubmittedOnly: true, Take: limit + 1), ct)).Rows.ToList();
             var truncated = rowsWithSentinel.Count > limit;
             var rows = rowsWithSentinel.Take(limit).ToList();
             var assignmentIds = rows.Select(x => x.TaskAssignmentId).Where(x => x != Guid.Empty).Distinct().ToArray();
@@ -147,13 +145,13 @@ internal static partial class AssignmentApiEndpoints
         app.MapGet("/api/internal/agent/attempts/{kind}/{attemptId:guid}", async (
             string kind,
             Guid attemptId,
-            TasksDbContext db) =>
+            TasksDbContext db, IHttpClientFactory clients, IConfiguration cfg, CancellationToken ct) =>
         {
             var normalized = string.Equals(kind, "math", StringComparison.OrdinalIgnoreCase) ? "math" :
                 string.Equals(kind, "test", StringComparison.OrdinalIgnoreCase) ? "test" : string.Empty;
             if (normalized.Length == 0)
                 return Microsoft.AspNetCore.Http.Results.BadRequest(new { message = "Поддерживаются только test и math.", code = "ATTEMPT_KIND_INVALID" });
-            return await ReviewAttempt(attemptId, normalized, null, true, db);
+            return await ReviewAttempt(attemptId, normalized, null, true, db, clients, cfg, ct);
         });
 
         app.MapGet("/api/internal/agent/assignments/{assignmentId:guid}", async (

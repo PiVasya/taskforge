@@ -413,7 +413,11 @@ internal static partial class SolutionsApiEndpoints
                 .Select(x => x.AssignmentId)
                 .ToListAsync(ct);
 
-            var solved = codeSolved.Concat(imageSolved).Distinct().ToArray();
+            var interactiveSolved = await db.TaskAttempts.AsNoTracking()
+                .Where(x => x.UserId == userId && ids.Contains(x.TaskAssignmentId) && x.Passed && x.SubmittedAt != null)
+                .Select(x => x.TaskAssignmentId)
+                .Distinct().ToListAsync(ct);
+            var solved = codeSolved.Concat(imageSolved).Concat(interactiveSolved).Distinct().ToArray();
             TaskForgeDebugTrace.Map("SOLVED_SERVICE_END",
                 ("user", userId),
                 ("codeSolvedCount", codeSolved.Count),
@@ -514,9 +518,14 @@ internal static partial class SolutionsApiEndpoints
                 .Select(x => x.UserId)
                 .ToListAsync(ct);
 
+            var taskUserIds = await db.TaskAttempts.AsNoTracking()
+                .Where(x => x.TaskAssignmentId == assignmentId)
+                .Select(x => x.UserId).Distinct().ToListAsync(ct);
+
             var ids = explicitIds
                 .Concat(codeUserIds)
                 .Concat(imageUserIds)
+                .Concat(taskUserIds)
                 .Where(x => x != Guid.Empty)
                 .Distinct()
                 .Take(5000)

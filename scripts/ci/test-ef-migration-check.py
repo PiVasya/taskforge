@@ -16,7 +16,7 @@ spec.loader.exec_module(module)
 
 
 targets = module.load_targets()
-assert len(targets) == 14, len(targets)
+assert len(targets) == 13, len(targets)
 assert targets[0].alias == "identity"
 assert targets[0].context == "IdentityDbContext"
 assert targets[-1].alias == "telegram-quiz"
@@ -99,6 +99,6 @@ migrationBuilder.CreateTable(name: "RatingAcceptedActivities");
 
 print("ef migration history guard regression tests ok")
 
-for generator_name in ("generate-migrations.sh", "generate-migrations-force.sh"):
+for generator_name in ("generate-migrations.sh",):
     generator_source = (ROOT / "scripts" / generator_name).read_text()
     assert generator_source.count("check-ef-migration-history.py") == 2, generator_name

@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.EntityFrameworkCore;
+using TaskForge.Tasks.Api.Data;
 using TaskForge.Tasks.Api.Contracts;
 using TaskForge.Tasks.Api.Domain;
 using TaskForge.Tasks.Api.Services.Serialization;
@@ -158,14 +160,15 @@ public sealed class TestAttemptCurrentVersionTests
     }
 
     [Fact]
-    public void CleanupTargetsOnlyStoredTestQuestions_NotMathOrScores()
+    public void TasksEfModelStoresDefinitionsButDoesNotOwnAttempts()
     {
-        var sql = TestAttemptStorageCleanupService.CleanupSql;
-        Assert.Contains("\"Kind\" = 'test'", sql);
-        Assert.Contains("\"ReviewJson\" = NULL", sql);
-        Assert.Contains("\"OrderJson\"->'order'", sql);
-        Assert.DoesNotContain("\"AnswersJson\" =", sql);
-        Assert.DoesNotContain("\"ScorePercent\" =", sql);
+        // Check EF's runtime model, not a source-text string or deleted cleanup SQL.
+        // Attempts for both test and math are persisted by Solutions API.
+        using var db = new TasksDbContext(new DbContextOptionsBuilder<TasksDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Database=not-connected;Username=unused").Options);
+        Assert.Equal("Assignments", db.Model.FindEntityType(typeof(Assignment))?.GetTableName());
+        Assert.Null(db.Model.FindEntityType(typeof(TaskAttempt)));
+        Assert.DoesNotContain(db.Model.GetEntityTypes(), entity => entity.GetTableName() == "TaskAttempts");
     }
 
     [Fact]

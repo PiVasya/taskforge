@@ -36,7 +36,7 @@ const configMap=(name,data)=>({apiVersion:'v1',kind:'ConfigMap',metadata:{namesp
 const configEnv={
   ASPNETCORE_ENVIRONMENT:'Development',
   ASPNETCORE_URLS:'http://+:8080',
-  TASKFORGE_DEBUG_LOGS:'0',
+  TASKFORGE_DEBUG_LOGS:'1',
   Cluster__MultiNode:'true',
   Cluster__Namespace:LOCAL_NAMESPACE,
   Database__RequireYugabyte:'true',
@@ -75,7 +75,7 @@ const routes=[
  ['^/api/admin/users/[^/]+/(?:solutions|image-solutions)(?:/|$)','solutions-api'],
  ['^/api/me/ui-settings(?:/|$)','identity-api'],
  ['^/api/admin/solution-events$','solutions-api'],
- ['^/api/admin/task-solution-events$','tasks-api'],
+ ['^/api/admin/task-solution-events$','solutions-api'],
  ['^/api/admin/solution-users(?:/|$)','solutions-api'],
  ['^/api/(?:auth|users|profile)(?:/|$)','identity-api'],
  ['^/api/admin/(?:users|feature-roles)(?:/|$)','identity-api'],
@@ -133,7 +133,7 @@ export function buildLocalManifests(profile='core'){
  const opts={namespace:LOCAL_NAMESPACE,replicas:1,release:LOCAL_RELEASE,imagePrefix:LOCAL_IMAGE_PREFIX,imageTag:LOCAL_IMAGE_TAG,imagePullSecret:''};
  const all=render(opts);
  const jobs=all.jobs.filter(j=>services.some(s=>j.metadata.name===`migrate-${s.name}-${LOCAL_RELEASE}`));
- const apps=all.apps.filter(x=>services.some(s=>x.metadata.name===s.name));
+ const apps=all.apps.filter(x=>services.some(s=>x.metadata.name===s.name)||x.metadata.name==='rating-worker');
  for(const obj of [...jobs,...apps]){
   if(obj.kind==='Job')obj.spec.template.spec.containers[0].imagePullPolicy='Never';
   if(obj.kind==='Deployment'){

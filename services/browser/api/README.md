@@ -212,34 +212,23 @@ Live Playwright sessions are process-local. Keep a single `browser-api` replica 
 
 ## Operations
 
-Local service build:
-
-```bash
-./build.sh browser-api gateway identity-api front
-```
+This isolated K3s source does not contain the retired `build.sh` or
+`deploy/dev` Compose stack. Use the [`all-api` K3s local profile](../../../docs/operations/README_K3S_BRANCH.md)
+and its image-build commands to run Browser API together with the gateway.
 
 In production the gateway owns the Docker-network alias for `DOMAIN`. Chromium uses the main gateway directly without public-IP hairpin NAT. Cloudflare client-IP forwarding remains restricted to trusted proxy addresses.
 
-Production smoke test after deployment:
+No production deployment or smoke-test script is included in this local K3s branch.
 
-```bash
-./scripts/prod/check-browser-api.sh https://taskforge.by
-```
+For local inspection, connect to the K3s gateway and use the Browser API
+under the authenticated same-origin routes. Browser is optional in `all-api`
+and not included in `core`; there is no production smoke script here.
 
-Authenticated smoke test:
-
-```bash
-TASKFORGE_BROWSER_ACCESS_TOKEN='...' \
-TASKFORGE_BROWSER_PATH='/courses' \
-./scripts/prod/check-browser-api.sh https://taskforge.by
-```
-
-Static security invariants:
+Source-only security checks (not a deployed K3s security audit):
 
 ```bash
 bash scripts/security/check-browser-api-security.sh
 ```
-
 
 Public `/ai-artifacts/*` responses are explicitly `noindex, noarchive`; a syntactically valid artifact ID that is no longer available returns HTTP 410 so crawler caches do not report ordinary TTL expiry as a broken persistent resource. `robots.txt` additionally keeps known traditional SEO/search crawlers such as MJ12bot, AhrefsBot and SemrushBot away from temporary artifact paths while leaving the dedicated AI-agent flow available.
 

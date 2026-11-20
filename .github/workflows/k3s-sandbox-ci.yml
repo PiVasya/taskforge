@@ -37,10 +37,33 @@ jobs:
         run: python3 scripts/ci/check-k3s-workflow-trigger.py
       - name: Validate Docker build contexts
         run: python3 scripts/ci/check-k3s-docker-context.py
+      - name: Audit rendered K3s release and network boundaries
+        run: python3 scripts/ci/check-k3s-release-boundaries.py
       - name: Validate EF migration jobs and YSQL compatibility
         run: python3 scripts/ci/check-k3s-migration-contract.py
+      - name: Validate EF migration history and table ownership
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/check-migration-tooling-safety.py
+          python3 scripts/ci/test-ef-migration-check.py
+          python3 scripts/ci/test-generate-migrations-cli.py
+          python3 scripts/ci/check-database-table-ownership.py
+          for dir in \
+            services/identity/api/Migrations \
+            services/education/api/Migrations \
+            services/content/api/Migrations \
+            services/tasks/assignment-api/Migrations \
+            services/solutions/api/Migrations \
+            services/execution/api/Migrations; do
+            python3 scripts/ci/check-ef-migration-history.py --dir "$dir"
+          done
+      - name: Validate single-owner attempt architecture
+        run: python3 scripts/ci/check-attempt-ownership-source.py
       - name: Validate durable admin feed ownership and no map presence
         run: python3 scripts/ci/check-admin-solution-feed.py
+      - name: Verify Browser API source security invariants
+        run: bash scripts/security/check-browser-api-security.sh
       - name: Test Kubernetes manifest generation
         run: node --test tools/k3s/local/local.test.mjs tools/k3s/local/sandbox.test.mjs
       - name: Regression-test CI database readiness and failure reporting
@@ -49,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          for f in infrastructure/k8s/taskforge-yugabyte/local/*.sh scripts/ci/yugabyte-smoke.sh; do bash -n "$f"; done
+          for f in infrastructure/k8s/taskforge-yugabyte/local/*.sh scripts/ci/yugabyte-smoke.sh scripts/generate-migrations.sh; do bash -n "$f"; done
       - name: Generate Kubernetes manifests
         run: node tools/k3s/local/generate.mjs core "$RUNNER_TEMP/tf-k3s"
       - name: Validate Kubernetes resource isolation
@@ -105,6 +128,8 @@ jobs:
             project: services/solutions/api/TaskForge.Solutions.Api.csproj
           - service: execution-api
             project: services/execution/api/TaskForge.Execution.Api.csproj
+          - service: rating-worker
+            project: services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -122,6 +147,7 @@ jobs:
             tasks-api) test_project=services/tasks/assignment-api/tests/TaskForge.Tasks.Api.Tests/TaskForge.Tasks.Api.Tests.csproj ;;
             solutions-api) test_project=services/solutions/api/tests/TaskForge.Solutions.Api.Tests/TaskForge.Solutions.Api.Tests.csproj ;;
             execution-api) test_project=services/execution/api/tests/TaskForge.Execution.Api.Tests/TaskForge.Execution.Api.Tests.csproj ;;
+            rating-worker) test_project=services/solutions/rating-worker/tests/TaskForge.Solutions.RatingWorker.Tests/TaskForge.Solutions.RatingWorker.Tests.csproj ;;
             content-api) exit 0 ;;
             *) echo "Unknown test project" >&2; exit 1 ;;
           esac
@@ -199,6 +225,11 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+      # Real EF model inspection, not a source-grep approximation. A PR with
+      # missing Tasks/Solutions migrations must never publish K3s images.
+      - name: Reject pending schema changes before touching YugabyteDB
+        shell: bash
+        run: python3 scripts/ci/check-ef-migrations.py --targets assignment,solutions,education
       - name: Initialize disposable YugabyteDB and validate YSQL connectivity
         shell: bash
         run: bash scripts/ci/yugabyte-smoke.sh start
@@ -256,6 +287,9 @@ jobs:
           - name: execution-api
             context: .
             file: services/execution/api/Dockerfile
+          - name: rating-worker
+            context: .
+            file: services/solutions/rating-worker/Dockerfile
           - name: front
             context: apps/web
             file: apps/web/Dockerfile
@@ -303,6 +337,9 @@ jobs:
           - name: execution-api
             context: .
             file: services/execution/api/Dockerfile
+          - name: rating-worker
+            context: .
+            file: services/solutions/rating-worker/Dockerfile
           - name: front
             context: apps/web
             file: apps/web/Dockerfile

@@ -22,12 +22,14 @@ test('One-node Helm values use RF1 and persistent local-path disks; never preten
  assert.match(install,/local-development-only/);
 });
 
-test('Core deploys six actual DB-owning APIs, front, gateway and the local dependency stores',()=>{
+test('Core deploys six DB-owning APIs plus rating worker, front, gateway and local stores',()=>{
  const m=buildLocalManifests('core');
  assert.equal(CORE_NAMES.length,6);
  assert.equal(OPTIONAL_NAMES.length,6);
  assert.equal(m.jobs.length,6);
- assert.equal(m.apps.filter(x=>x.kind==='Deployment').length,6);
+ assert.equal(m.apps.filter(x=>x.kind==='Deployment').length,7);
+ assert.equal(m.apps.filter(x=>x.metadata.name==='rating-worker'&&x.kind==='Deployment').length,1);
+ assert.ok(!m.apps.some(x=>x.metadata.name==='rating-worker'&&x.kind==='Service'), 'Worker must not expose an HTTP service');
  assert.deepEqual(new Set(m.dbNames),new Set(CORE_NAMES.map(s=>`taskforge_${s.replace('-api','')}`)));
  assert.equal(m.web.filter(x=>x.kind==='Deployment').length,2);
  assert.deepEqual(new Set(m.infra.filter(x=>x.kind==='Deployment').map(x=>x.metadata.name)),new Set(['redis','rabbitmq','minio']));
@@ -64,9 +66,9 @@ test('Gateway prioritizes assignment/solution types, routes auth, course, live W
  assert.ok(s.indexOf('code-assignments')<s.indexOf('location ~* ^/api/(?:courses|groups)'));
  assert.ok(s.indexOf('code-solutions')<s.indexOf('location ~* ^/api/(?:solutions|judge'));
  assert.match(s,/location \/ \{/);
- // The live feed has TWO owners; both must route to the right API.
+ // Both compatibility routes resolve to the single Solutions feed owner.
  assert.match(s,/location ~\* \^\/api\/admin\/solution-events\$[\s\S]*?solutions-api/);
- assert.match(s,/location ~\* \^\/api\/admin\/task-solution-events\$[\s\S]*?tasks-api/);
+ assert.match(s,/location ~\* \^\/api\/admin\/task-solution-events\$[\s\S]*?solutions-api/);
  for(const endpoint of ['solution-events','task-solution-events']){
   const block=s.match(new RegExp(`location ~\\* \\^/api/admin/${endpoint}\\$ \\{([^}]*)\\}`));
   assert.ok(block,`missing SSE route: ${endpoint}`);

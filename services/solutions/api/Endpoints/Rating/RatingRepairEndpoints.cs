@@ -60,7 +60,12 @@ internal static partial class SolutionsApiEndpoints
                 .Where(x => x.UserId == userId && x.Passed && x.AssignmentId != Guid.Empty)
                 .Select(x => x.AssignmentId).Distinct().ToListAsync(ct);
             var allSolutionIds = acceptedCodeIds.Concat(acceptedImageIds).Distinct().ToArray();
-            var taskRows = await LoadTaskLeaderboardRowsAsync(null, null, new[] { userId }, cfg, clients, ct);
+            // Attempt data is local to Solutions; no Solutions->Tasks->Solutions
+            // request cycle when auditing an individual user's rating.
+            var taskRows = await db.TaskAttempts.AsNoTracking()
+                .Where(x => x.UserId == userId && x.Passed && x.SubmittedAt != null)
+                .Select(x => new { AssignmentId = x.TaskAssignmentId, x.Kind })
+                .ToListAsync(ct);
             var allAssignmentIds = allSolutionIds.Concat(taskRows.Select(x => x.AssignmentId)).Distinct().ToArray();
             var metadata = await LoadAssignmentMetadataAsync(allAssignmentIds, cfg, clients, ct, requireRatingSources: true);
 
@@ -69,8 +74,8 @@ internal static partial class SolutionsApiEndpoints
                 .Select(id => (id, MetadataRating(metadata, id), "code")));
             contributions.AddRange(acceptedImageIds.Where(metadata.ContainsKey)
                 .Select(id => (id, MetadataRating(metadata, id), "image")));
-            contributions.AddRange(taskRows.Where(x => x.UserId == userId)
-                .Select(x => (x.AssignmentId, x.Rating, x.Kind)));
+            contributions.AddRange(taskRows.Where(x => metadata.ContainsKey(x.AssignmentId))
+                .Select(x => (x.AssignmentId, MetadataRating(metadata, x.AssignmentId), x.Kind)));
 
             var grouped = contributions.GroupBy(x => x.Id)
                 .Select(group =>
