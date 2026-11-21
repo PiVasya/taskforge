@@ -6,8 +6,9 @@ COPY services/solutions/rating-worker services/solutions/rating-worker
 RUN dotnet publish services/solutions/rating-worker/TaskForge.Solutions.RatingWorker.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libgssapi-krb5-2 \
     && /sbin/ldconfig -p | grep -q 'libgssapi_krb5.so.2' \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
